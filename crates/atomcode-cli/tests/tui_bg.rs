@@ -17,7 +17,9 @@ use atomcode_coding::{
     CodingAgentConfig, CodingProviderFactory, CodingRuntime, CodingRuntimeStart, PrepareOptions,
     ProviderBuildError, SessionMode, StaticPluginHookSource, SubagentPolicy,
 };
-use atomcode_host_api::{BackgroundSession, BackgroundState, HostCommand, HostControl, HostReply};
+use atomcode_host_api::{
+    BackgroundSession, BackgroundState, HostCommand, HostControl, HostError, HostReply,
+};
 use atomcode_i18n::screen::{t, Msg};
 use atomcode_kernel::message::{Message, Role};
 use atomcode_kernel::provider::{ChatOptions, LlmProvider};
@@ -86,6 +88,32 @@ impl LlmProvider for Model {
                     .to_string(),
                 }),
                 StreamEvent::Done { truncated: false },
+            ])));
+        }
+        // `ask two`: 一次问两条 —— 批问询走的是 `{"questions": [...]}`
+        // (`crate::ask::batch_for`,形状见 `crates/atomcode-tui/src/ask.rs:1276-1334`)。
+        if !tools.is_empty() && last.is_some_and(|m| m.role == Role::User && m.text == "ask two") {
+            return Ok(Box::pin(futures::stream::iter(vec![
+                StreamEvent::ToolCall(ToolCall {
+                    id: "call-ask-two".into(),
+                    name: "request_user_input".into(),
+                    arguments: serde_json::json!({
+                        "questions": [
+                            {
+                                "header": "Flavour",
+                                "question": "Which one?",
+                                "mode": "single",
+                                "options": [{ "label": "vanilla" }, { "label": "pistachio" }],
+                            },
+                            {
+                                "header": "Count",
+                                "question": "How many?",
+                                "mode": "text",
+                            },
+                        ],
+                    })
+                    .to_string(),
+                }),
             ])));
         }
         // `review it`: the model reaches for `code_review` on its own, the way a
@@ -197,10 +225,70 @@ struct Rig {
     _mounted: atomcode_tui::launch::Mounted,
     /// What holds the runtimes, as the launcher gets it back.
     host: Arc<atomcode::background::Background>,
+    /// How many `HostCommand::AnswerBackground` calls have gone through this
+    /// rig's control, counted by [`CountingControl`].
+    answers: Arc<AtomicUsize>,
+}
+
+/// A host that does not know `HostCommand::BackgroundQuestion` — a host from
+/// before background questions could be brought onto the foreground. Everything
+/// else goes through untouched.
+struct WithoutBackgroundQuestions(Arc<dyn HostControl>);
+
+#[async_trait::async_trait]
+impl HostControl for WithoutBackgroundQuestions {
+    async fn call(&self, command: HostCommand) -> Result<HostReply, HostError> {
+        match command {
+            HostCommand::BackgroundQuestion { .. } => Err(HostError::Failed {
+                message: "this host does not bring background questions forward".into(),
+            }),
+            other => self.0.call(other).await,
+        }
+    }
+
+    fn subscribe(&self) -> tokio::sync::mpsc::UnboundedReceiver<atomcode_host_api::HostEvent> {
+        self.0.subscribe()
+    }
+}
+
+/// A host wrapper that counts `HostCommand::AnswerBackground` calls and
+/// forwards everything, unchanged, to the real control underneath — so a test
+/// can prove a withdrawn question sent no answer without guessing at the
+/// dropped runtime's own reply (design §6: `Err` and `Ok(None)` are not the
+/// same, and a dropped runtime's `NotFound`/`Busy` must not be mistaken for
+/// "no answer was sent").
+struct CountingControl {
+    inner: Arc<dyn HostControl>,
+    answers: Arc<AtomicUsize>,
+}
+
+#[async_trait::async_trait]
+impl HostControl for CountingControl {
+    async fn call(&self, command: HostCommand) -> Result<HostReply, HostError> {
+        if matches!(command, HostCommand::AnswerBackground { .. }) {
+            self.answers.fetch_add(1, Ordering::SeqCst);
+        }
+        self.inner.call(command).await
+    }
+
+    fn subscribe(&self) -> tokio::sync::mpsc::UnboundedReceiver<atomcode_host_api::HostEvent> {
+        self.inner.subscribe()
+    }
 }
 
 impl Rig {
     async fn new() -> Self {
+        Self::build(false).await
+    }
+
+    /// The same rig on a host that refuses `HostCommand::BackgroundQuestion`
+    /// (design §9): the screen keeps today's tip line, and a background
+    /// question is answered by bringing its session forward with `/bg N`.
+    async fn without_background_questions() -> Self {
+        Self::build(true).await
+    }
+
+    async fn build(refuse_background_questions: bool) -> Self {
         let home = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
         atomcode_config::i18n::set_locale(atomcode_config::locale::Locale::ZhCn);
@@ -256,6 +344,23 @@ impl Rig {
         .await
         .expect("the screen mounts");
         let ctx = mounted.app.context();
+        let answers = Arc::new(AtomicUsize::new(0));
+        {
+            let answers = answers.clone();
+            ctx.service::<atomcode_tui::plugin::ConnectionSvc>()
+                .expect("the connection the screen will take")
+                .wrap_control(move |control| {
+                    Arc::new(CountingControl {
+                        inner: control,
+                        answers,
+                    })
+                });
+        }
+        if refuse_background_questions {
+            ctx.service::<atomcode_tui::plugin::ConnectionSvc>()
+                .expect("the connection the screen will take")
+                .wrap_control(|control| Arc::new(WithoutBackgroundQuestions(control)));
+        }
         let term = ctx
             .service::<atomcode_tui::plugin::SurfaceSvc>()
             .and_then(|surface| surface.as_any_headless())
@@ -277,6 +382,7 @@ impl Rig {
             running,
             _mounted: mounted,
             host: host.expect("a host that can start runtimes"),
+            answers,
         };
         // The first session is on screen before anything is typed.
         rig.until("the first session is followed", |rig| {
@@ -288,6 +394,12 @@ impl Rig {
 
     fn control(&self) -> Arc<dyn HostControl> {
         self.client.control().expect("host control")
+    }
+
+    /// How many `HostCommand::AnswerBackground` calls this rig's control has
+    /// forwarded so far.
+    fn answers_sent(&self) -> usize {
+        self.answers.load(Ordering::SeqCst)
     }
 
     async fn until(&self, what: &str, done: impl Fn(&Self) -> bool) {
@@ -308,6 +420,16 @@ impl Rig {
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
         panic!("`{needle}` never came on screen:\n{}", self.term.text());
+    }
+
+    async fn until_screen_lacks(&self, needle: &str) {
+        for _ in 0..400 {
+            if !self.term.text().contains(needle) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        panic!("`{needle}` never left the screen:\n{}", self.term.text());
     }
 
     async fn background(&self) -> Vec<BackgroundSession> {
@@ -774,10 +896,15 @@ async fn a_task_typed_into_the_panel_starts_a_background_session() {
 /// it with Enter is what finishes the turn. The request is not a fact in the
 /// log, so replaying the log alone would show the words and leave nothing to
 /// answer.
+///
+/// On a host that does not bring background questions forward
+/// ([`Rig::without_background_questions`]): on one that does, the question
+/// comes up on the foreground by itself and `/bg 1` would be typed into it.
+/// Coming back to a waiting session is still how such a host gets it answered.
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial(atomcode_home)]
 async fn a_question_asked_in_the_background_is_asked_again_on_return() {
-    let rig = Rig::new().await;
+    let rig = Rig::without_background_questions().await;
     rig.term.type_line("/background ask me");
     rig.until_background("the background session is waiting for a person", |list| {
         list.first()
@@ -971,10 +1098,13 @@ async fn quitting_with_nothing_running_does_not_ask() {
 /// **A background session waiting for an answer says so on the foreground**,
 /// on the row above the composer, with the way to open it; once it is
 /// answered the line is gone.
+///
+/// On a host that does not bring background questions forward (design §9): the
+/// screen keeps this line and does not put the question up itself.
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial(atomcode_home)]
 async fn a_background_session_waiting_for_an_answer_is_told_on_the_foreground() {
-    let rig = Rig::new().await;
+    let rig = Rig::without_background_questions().await;
     rig.term.type_line("/background ask me");
     rig.until_background("the background session is waiting", |list| {
         list.first()
@@ -989,6 +1119,24 @@ async fn a_background_session_waiting_for_an_answer_is_told_on_the_foreground() 
     })
     .into_owned();
     rig.until_screen(&tip).await;
+    // A host that cannot hand the question over leaves it where it is: the
+    // screen does not claim to have brought it up.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let who = t(Msg::BgAsker {
+        slot: 1,
+        title: &title,
+    })
+    .into_owned();
+    assert!(
+        !rig.term.text().contains(&who),
+        "no background question on the foreground:\n{}",
+        rig.term.text()
+    );
+    assert_eq!(
+        rig.answers_sent(),
+        0,
+        "a host that cannot bring the question over was not sent an answer for it"
+    );
 
     let before = rig.script.count.load(Ordering::SeqCst);
     rig.term.type_line("/bg 1");
@@ -1119,10 +1267,14 @@ async fn the_resume_line_on_exit_names_the_session_in_front_then() {
 
 /// **Space on a session waiting for an answer does not reply to it.** Nothing
 /// is sent; the panel says the session is waiting and Enter opens it.
+///
+/// On a host that does not bring background questions forward: on one that
+/// does, the question is already up on the foreground and `/bg list` would be
+/// typed into it.
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial(atomcode_home)]
 async fn space_on_a_session_waiting_for_an_answer_says_to_open_it() {
-    let rig = Rig::new().await;
+    let rig = Rig::without_background_questions().await;
     rig.term.type_line("/background ask me");
     rig.until_background("the background session is waiting", |list| {
         list.first()
@@ -1212,6 +1364,348 @@ async fn the_panel_is_worked_with_the_mouse() {
     click(row_of_second);
     rig.until("a second click on the selected row opens it", |rig| {
         rig.client.root() == second
+    })
+    .await;
+    rig.quit().await;
+}
+
+/// 后台会话挂着的那个问询要能整个取回来:id、载荷、以及画它要用的日志尾巴。
+///
+/// 这条脚本里的 "ask me" 走的是 `request_user_input` 工具的请求往返
+/// (`request_user_input.rs:329-333`:「不是 `user-questions` 那个通道，
+/// 没有 `Asked`/`Answered` 事实会为它落盘」)，所以尾巴里不会有一条
+/// `SessionEvent::Asked` —— 断言只留「尾巴不是空的」，按 brief 的兜底走。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn a_background_question_comes_back_whole() {
+    let rig = Rig::new().await;
+    rig.term.type_line("/background ask me");
+    rig.until_background("the background session is waiting", |list| {
+        list.first()
+            .is_some_and(|s| s.state == BackgroundState::Waiting)
+    })
+    .await;
+    let target = rig.background().await[0].session.clone();
+
+    let reply = rig
+        .control()
+        .call(HostCommand::BackgroundQuestion {
+            target: target.clone(),
+        })
+        .await
+        .expect("在等的会话有问询可取");
+    let HostReply::BackgroundQuestion {
+        session,
+        kind,
+        payload,
+        facts,
+        ..
+    } = reply
+    else {
+        panic!("不是一条问询: {reply:?}");
+    };
+    assert_eq!(session, target);
+    assert!(!kind.is_empty(), "kind 要说得出是什么问法");
+    assert!(payload.is_object(), "载荷要原样带回来: {payload:?}");
+    assert!(!facts.is_empty(), "尾巴不能是空的");
+    rig.quit().await;
+}
+
+/// 答了,那个后台会话就不再等它了 —— 而且挂着的那个确实被这一次答掉了。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn answering_a_background_question_clears_what_it_was_waiting_on() {
+    let rig = Rig::new().await;
+    rig.term.type_line("/background ask me");
+    rig.until_background("the background session is waiting", |list| {
+        list.first()
+            .is_some_and(|s| s.state == BackgroundState::Waiting)
+    })
+    .await;
+    let target = rig.background().await[0].session.clone();
+    let HostReply::BackgroundQuestion { id, .. } = rig
+        .control()
+        .call(HostCommand::BackgroundQuestion {
+            target: target.clone(),
+        })
+        .await
+        .expect("在等的会话有问询可取")
+    else {
+        panic!("不是一条问询");
+    };
+
+    // `Value::Null` 是任何 kind 都收得下的「没有答案」,与屏幕画不出来时的答复一致
+    // (`plugin.rs:4020-4024`)。这一条测的是**送达与记账**;答的语义由端到端那条测。
+    rig.control()
+        .call(HostCommand::AnswerBackground {
+            target: target.clone(),
+            id,
+            value: serde_json::Value::Null,
+        })
+        .await
+        .expect("挂着的就是它,答得进去");
+
+    rig.until_background("it moved on", |list| {
+        list.first()
+            .is_some_and(|s| s.state != BackgroundState::Waiting)
+    })
+    .await;
+
+    // 同一个 id 再答一次:挂着的已经不是它了,明说,而不是塞给一个等着别的东西的 runtime。
+    assert!(matches!(
+        rig.control()
+            .call(HostCommand::AnswerBackground {
+                target: target.clone(),
+                id,
+                value: serde_json::Value::Null,
+            })
+            .await,
+        Err(HostError::Busy { .. })
+    ));
+    rig.quit().await;
+}
+
+/// 不在后台的会话没得答:如实说找不到。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn answering_a_session_that_is_not_in_the_background_is_not_found() {
+    let rig = Rig::new().await;
+    assert!(matches!(
+        rig.control()
+            .call(HostCommand::AnswerBackground {
+                target: "nobody".into(),
+                id: 1,
+                value: serde_json::Value::Null,
+            })
+            .await,
+        Err(HostError::NotFound)
+    ));
+    rig.quit().await;
+}
+
+/// 后台会话的问询**直接出现在前台**,人不用先 `/bg 1` 切过去 —— 而且那个会话还在后台。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn a_background_question_comes_out_on_the_foreground() {
+    let rig = Rig::new().await;
+    rig.term.type_line("/background ask me");
+    rig.until_background("the background session is waiting", |list| {
+        list.first()
+            .is_some_and(|s| s.state == BackgroundState::Waiting)
+    })
+    .await;
+
+    let list = rig.background().await;
+    let title = list[0].title.clone().unwrap_or_default();
+    // 屏幕上那句话得说得出是谁在问 —— 没有这一句,人会以为是自己那段对话在问。
+    let who = t(Msg::BgAsker {
+        slot: 1,
+        title: &title,
+    });
+    rig.until_screen(&who).await;
+
+    // 而且它没有被换到前台:人还留在自己那段对话里(设计 §4 的目标边界)。
+    assert_eq!(
+        rig.background().await.first().map(|s| s.session.clone()),
+        Some(list[0].session.clone()),
+        "它还在后台"
+    );
+}
+
+/// 后台一次问两条，提到前台的**是那两条**（第一页先出），而不是只把第一条当成一条单问询。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn a_background_batch_comes_out_as_a_batch() {
+    let rig = Rig::new().await;
+    rig.term.type_line("/background ask two");
+    rig.until_background("the background session is waiting", |list| {
+        list.first()
+            .is_some_and(|s| s.state == BackgroundState::Waiting)
+    })
+    .await;
+
+    let title = rig.background().await[0].title.clone().unwrap_or_default();
+    rig.until_screen(&t(Msg::BgAsker {
+        slot: 1,
+        title: &title,
+    }))
+    .await;
+    // 批是一块面板、一页一条：第一条在屏幕上就说明它整批都提上来了
+    // （只提第一条的话，`batch_for` 根本不会被走到）。
+    rig.until_screen("Which one?").await;
+}
+
+/// **在前台回答后台的问询，答案真的到了那个会话**：它接着跑，人没有离开自己那段对话。
+///
+/// 这是设计 §5.3 那条路由的判据 —— Task 3 只判到「挂着的被答掉了」，判不到答案是
+/// 不是进了**那个 runtime**；这一条靠那个会话自己的下一个回合来证明。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn answering_it_from_the_foreground_sends_the_answer_to_that_session() {
+    let rig = Rig::new().await;
+    rig.term.type_line("/background ask me");
+    rig.until_background("the background session is waiting", |list| {
+        list.first()
+            .is_some_and(|s| s.state == BackgroundState::Waiting)
+    })
+    .await;
+    let title = rig.background().await[0].title.clone().unwrap_or_default();
+
+    // 它在当前这块屏上等着 —— 不用 /bg 切过去。
+    rig.until_screen("Which one?").await;
+    rig.until_screen(&t(Msg::BgAsker {
+        slot: 1,
+        title: &title,
+    }))
+    .await;
+
+    // 就地答掉：面板亮着第一行，enter 取它（`answer_question` 的规矩）。
+    rig.term.press(KeyPress::plain(Key::Enter));
+
+    // 它接着跑：不在等人了。答案真进了那个 runtime，才会这样。
+    rig.until_background("the background session moved on", |list| {
+        list.first()
+            .is_some_and(|s| s.state != BackgroundState::Waiting)
+    })
+    .await;
+
+    // 而人还留在自己那段对话里：后面还能照常打字。
+    rig.term.type_line("still here");
+    rig.until_screen("still here").await;
+    rig.quit().await;
+}
+
+/// 屏幕上正问着一个后台会话，它被 `/bg drop` 了：问询收回，**没有任何答案**被送出去
+/// ——收回是取消，不是替人拒绝。
+///
+/// 设计 §6「等答案的任务必须分开 `Err` 与 `Ok(None)`」的判据。Task 6 的代码写的是
+/// `let Ok(chosen) = answer.await else { return };`，这一条防的是以后有人照前台
+/// `ask()` 的 `.ok().flatten()` / `unwrap_or_default()` 改回去——那样收回会变成一次
+/// 拒绝发出去。不能只断言「那个 runtime 没收到答案」：被 drop 的 runtime 已经停了，
+/// 照抄出来的拒绝会被 `NotFound` 挡掉，这条判据会碰巧绿——所以断言的是
+/// [`Rig::answers_sent`]：整个进程里一次 `AnswerBackground` 都没发生过。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn a_dropped_background_question_is_withdrawn_not_refused() {
+    let rig = Rig::new().await;
+    rig.term.type_line("/background ask me");
+    rig.until_background("the background session is waiting", |list| {
+        list.first()
+            .is_some_and(|s| s.state == BackgroundState::Waiting)
+    })
+    .await;
+    let target = rig.background().await[0].session.clone();
+    rig.until_screen("Which one?").await;
+
+    // 问询面板亮着,键会被它吃掉——直接调宿主命令,而不是把 `/bg drop 1` 打进输入框。
+    rig.control()
+        .call(HostCommand::DropBackground { target })
+        .await
+        .expect("挂着的那个能被收回");
+    rig.until_background("it is gone", |list| list.is_empty())
+        .await;
+
+    // 问询不在屏幕上了。
+    rig.until_screen_lacks("Which one?").await;
+    // 并且一个 AnswerBackground 都没发过。
+    assert_eq!(rig.answers_sent(), 0, "收回不是拒绝");
+    rig.quit().await;
+}
+
+/// 前台答掉一个后台会话的问询,宿主**当场**告诉屏幕它不在等了 —— 不等那个会话
+/// 自己下一步跑出什么来。
+///
+/// 不说的话,屏幕手里的列表还当它在等:提示行指着它,下一次提问询又挑中它、拿回
+/// `NotFound`,排在后面那个真在等的会话就出不来。判的是 `AnswerBackground` 一返回,
+/// 订阅里**已经**有一条把它标成不在等的 `BackgroundChanged` —— 那个 runtime 自己
+/// 收到答复、跑下一步、再报列表,要晚得多。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn answering_it_tells_the_screen_at_once_that_it_is_not_waiting() {
+    let rig = Rig::new().await;
+    rig.term.type_line("/background ask me");
+    rig.until_background("the background session is waiting", |list| {
+        list.first()
+            .is_some_and(|s| s.state == BackgroundState::Waiting)
+    })
+    .await;
+    let target = rig.background().await[0].session.clone();
+    let HostReply::BackgroundQuestion { id, .. } = rig
+        .control()
+        .call(HostCommand::BackgroundQuestion {
+            target: target.clone(),
+        })
+        .await
+        .expect("在等的会话有问询可取")
+    else {
+        panic!("不是一条问询");
+    };
+    let mut events = rig.host.subscribe();
+    rig.control()
+        .call(HostCommand::AnswerBackground {
+            target: target.clone(),
+            id,
+            value: serde_json::Value::Null,
+        })
+        .await
+        .expect("挂着的就是它,答得进去");
+    let mut told = false;
+    while let Ok(event) = events.try_recv() {
+        if let atomcode_host_api::HostEvent::BackgroundChanged { sessions } = event {
+            told |= sessions
+                .iter()
+                .any(|s| s.session == target && s.state != BackgroundState::Waiting);
+        }
+    }
+    assert!(told, "答复一送出,列表就该说它不在等了");
+    rig.quit().await;
+}
+
+/// 两个后台会话都在等:前台答掉第一个,第二个的问询接着出现在前台 —— 而不是被
+/// 一张还当第一个在等的旧列表挡在后面。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn answering_one_background_question_brings_up_the_next_one() {
+    let rig = Rig::new().await;
+    rig.term.type_line("/background ask me");
+    rig.until_background("the first background session is waiting", |list| {
+        list.first()
+            .is_some_and(|s| s.state == BackgroundState::Waiting)
+    })
+    .await;
+    // 第一条问询一上屏,键就归它了 —— 第二个会话由宿主命令起,不经输入框。
+    rig.control()
+        .call(HostCommand::StartBackground {
+            text: "ask me".into(),
+            scope: None,
+        })
+        .await
+        .expect("第二个后台会话起得来");
+    rig.until_background("both background sessions are waiting", |list| {
+        list.len() == 2 && list.iter().all(|s| s.state == BackgroundState::Waiting)
+    })
+    .await;
+    let list = rig.background().await;
+    let title = |at: usize| list[at].title.clone().unwrap_or_default();
+    let (first, second) = (title(0), title(1));
+    rig.until_screen(&t(Msg::BgAsker {
+        slot: 1,
+        title: &first,
+    }))
+    .await;
+
+    // 就地答掉第一个。
+    rig.term.press(KeyPress::plain(Key::Enter));
+
+    // 第二个的问询接着上来。
+    rig.until_screen(&t(Msg::BgAsker {
+        slot: 2,
+        title: &second,
+    }))
+    .await;
+    rig.term.press(KeyPress::plain(Key::Enter));
+    rig.until_background("both moved on", |list| {
+        list.len() == 2 && list.iter().all(|s| s.state != BackgroundState::Waiting)
     })
     .await;
     rig.quit().await;

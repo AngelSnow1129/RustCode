@@ -135,12 +135,28 @@ control.call(HostCommand::AnswerBackground { target, id, value })
 一条规则：**只在 `asks` 空着时才提后台的问询**；前台一有问询就停止提，已经提上来的不抢。
 
 - 两个触发点调同一个函数：`HostEvent::BackgroundChanged` 那个臂里（`plugin.rs:1483-1489`）、
-  以及一次问询答完之后。
+  以及**队列从有变空的那一刻**（不论是怎么空的）。
+  - **为什么第二个触发点不能写成「答完之后」**：后台会话停在 Waiting 之后就不再变，
+    `BackgroundChanged` 不会再来（它只在 `Request` / `TurnComplete` 时推，`background.rs:529-534`）。
+    所以前台的问询只要不是走「按键答完」那一条路清掉的，后台那条就永远提不上来。
+    让队列变空的路径至少有：按键答完（`plugin.rs:2118`）、**鼠标点面板答完**（`:5865`，
+    同样经 `deliver_answer`）、流尾兜底逐条答（`Asks::answer_current`）、`withdraw`。
+    逐条列举一定会漏，所以判的是「变空」这件事本身。
+  - 挂点：主循环里 `sync_asking()`（`plugin.rs:1368`）旁边记一下上一帧 `asks.is_waiting()`，
+    从 `true` 变成 `false` 就叫一次。**判边沿，不判电平**：每帧都叫的话，宿主不认识
+    `BackgroundQuestion` 时每一帧都会重发一次取回（失败会清掉「正在取」的标记）。
 - 取的时候按 slot 顺序拿第一个 `Waiting` 的；同一个会话不重复取。
 - **提出来的必须能收回去**：`Asks` 多一个 `withdraw(id)`——**移除且不投递**。`ask.rs` 里
   `Pending` 没有 `Drop` 实现，丢掉 oneshot sender 就等于取消，所以谁也没答。这与
   `finish(Vec::new())`（明确拒绝、接收端拿到 `None`，`ask.rs:186-204`）是**两件不同的事**，
   测试要分别钉死。
+- **等答案的那个任务必须把两者分开，不能照抄前台的写法**：前台 `ask()` 写的是
+  `answer.await.ok().flatten()` → `response_for(kind, None)`，批问询是
+  `answer.await.unwrap_or_default()`（`plugin.rs:4016`、`:4033`），都把「sender 被丢掉」
+  当成**拒绝**发出去。后台的必须是 `let Ok(chosen) = answer.await else { return };`
+  —— `Err` 是收回，一个字节都不发；`Ok(None)` 才是人拒绝了。只在 `ask.rs` 那一层分开
+  而这里照抄，id 核对多半能挡住，但 `/bg N` 换前台的那一刻旧 id 仍然有效，拒绝就可能
+  真的送进去。
 
 ## 7 作废与失败语义
 
@@ -195,12 +211,15 @@ control.call(HostCommand::AnswerBackground { target, id, value })
 单元（TUI）：
 
 - 前台有问询时不提后台的；前台答完才提；同一会话不重复提。
+- 前台那条**不是按键答掉**（鼠标点、`withdraw`、流尾兜底）时，后台那条也会提上来。
 - 「画提示行」与「已提上来画问询」互斥。
 
 集成（`crates/atomcode-cli/tests/tui_bg.rs`，已有 `Rig` + `until_background` 装置）：
 
 - `/background ask me` → 前台**直接出现问询**（不再是只提示）→ 答 → 那个后台会话收到答案继续跑。
-- `/bg drop` 时屏幕收回问询，且那个 runtime **没收到任何答案**。
+- `/bg drop` 时屏幕收回问询，且那个 runtime **没收到任何答案**；更严的一句：
+  收回之后 `AnswerBackground` **一次都没被调用**（只断言 runtime 没收到，挡不住
+  「拒绝被 id 核对拦下」这种碰巧没事的情形）。
 - 反向：不支持这条命令的宿主上，屏幕仍是今天的提示行。
 
 ## 10 未决 / 后续（不在这次范围）

@@ -1593,6 +1593,10 @@ impl Host {
     /// waiting on this one — a question, the members — goes with it.
     pub fn switch_session(&self) {
         self.switch_view();
+        // A question brought up from a background session is not this session's:
+        // it is taken back, unanswered, before the rest are refused — refusing it
+        // would be deciding for somebody else's session.
+        self.withdraw_any_bg_question();
         // A question belongs to a turn of the session that asked it.
         self.asks.refuse_all();
         let mut m = self.moment.write().expect("moment poisoned");
@@ -4125,6 +4129,238 @@ impl Host {
         true
     }
 
+    /// 这块屏幕现在能不能接一条后台的问询：没有别的问询在等（前台优先），输入框也
+    /// 是空的，键盘也不在别处 —— 人正在打字、或正在一个面板里操作时弹出一个问询，
+    /// 他接下来敲的键（连回车、方向键、首字母）就成了对一个他没看过的问题的回答。
+    pub fn bg_question_ready(&self) -> bool {
+        !self.asks.is_waiting()
+            && !self.keyboard_held_elsewhere()
+            && self
+                .moment
+                .read()
+                .expect("moment poisoned")
+                .input
+                .is_empty()
+    }
+
+    /// 键盘此刻是不是在一个问询之外的东西手里：密码框、modal、菜单、各个面板、反查、
+    /// 团队面板 —— 主循环分键时排在问询前面或会吃掉字母的那些（`plugin.rs` 的键路由）。
+    /// 一个地方列全，分键那边加了新的面板，这里跟着加一行。
+    pub fn keyboard_held_elsewhere(&self) -> bool {
+        self.secret_waiting()
+            || self.overlays.is_open()
+            || self.context_menu_open()
+            || self.settings_open()
+            || self.providers_open()
+            || self.plugins_open()
+            || self.tools_open()
+            || self.mcp_open()
+            || self.rewind_open()
+            || self.resume_open()
+            || self.sheet_open()
+            || self.bg_open()
+            || self.searching()
+            || self.menu_open()
+            || self.team_focused()
+    }
+
+    /// 要不要把一个后台会话的问询提上来 —— 提谁的。
+    ///
+    /// 只在 [`Host::bg_question_ready`] 时要（设计 §6），这里是唯一的闸：列表变了那条路
+    /// 与主循环那条路都经过它。同一时刻只提一条，已经在取、或已经提上来的不再要第二次。
+    pub fn bg_question_wanted(&self) -> Option<String> {
+        if self.asks.is_waiting() {
+            return None;
+        }
+        // 先于写锁读：各个面板的读者自己拿 moment 的读锁。
+        let held = self.keyboard_held_elsewhere();
+        let mut m = self.moment.write().expect("moment poisoned");
+        if matches!(m.bg_asked, Some((_, None))) {
+            // 正在取：不要第二次，但记下这次被挡掉了（`take_bg_repull`）。
+            m.bg_repull = true;
+            return None;
+        }
+        if held || !m.input.is_empty() || m.bg_asked.is_some() {
+            return None;
+        }
+        let session = m.bg.sessions().iter().find(|s| s.waiting)?.id.clone();
+        m.bg_asked = Some((session.clone(), None));
+        Some(session)
+    }
+
+    /// 那条问询现在在屏幕上了：它在 `Asks` 里的 id，和那个会话自己那个请求的 id。
+    ///
+    /// `false` 是这一趟在路上已经被收回（列表变了）：调用方要把刚放上去的那条也收回。
+    pub fn bg_question_shown(
+        &self,
+        session: &str,
+        ask: u64,
+        request: atomcode_kernel::event::RequestId,
+    ) -> bool {
+        let mut m = self.moment.write().expect("moment poisoned");
+        match m.bg_asked.as_mut() {
+            Some((shown, slot)) if shown == session => {
+                *slot = Some((ask, request));
+                // 提上来了：取的路上挡掉的那次变化由它答完之后的那一刻接着。
+                m.bg_repull = false;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// 提上来的那条已经不在队列里了（键、鼠标、流尾兜底答掉的）：放下它，记住答的
+    /// 是哪一个请求。每帧在 `sync_asking` 旁边叫一次，同步地 —— 不放下，下一条就永远
+    /// 提不上来。收回去的不经过这里（`withdraw_bg_question` 自己放下），也不算答过。
+    pub fn settle_bg_question(&self) -> bool {
+        let mut m = self.moment.write().expect("moment poisoned");
+        let Some((session, Some((ask, request)))) = m.bg_asked.clone() else {
+            return false;
+        };
+        if self.asks.holds(ask) {
+            return false;
+        }
+        m.bg_asked = None;
+        m.bg_answered = Some((session, request));
+        m.bg_answered_repulled = false;
+        true
+    }
+
+    /// 记住这个会话的这个请求已经从这块屏幕答过了（画不出来、按拒绝回掉的那种也算）。
+    pub fn bg_question_done(&self, session: &str, request: atomcode_kernel::event::RequestId) {
+        let mut m = self.moment.write().expect("moment poisoned");
+        m.bg_answered = Some((session.to_string(), request));
+        m.bg_answered_repulled = false;
+    }
+
+    /// 取回来的这一条是不是刚在这块屏幕上答过的那一条 —— 答案还在路上，宿主报回来的
+    /// 仍是它。是就别再摆一次。
+    ///
+    /// 同一个会话报回来的是**别的**请求：记着的那一条已经走了，忘掉它 —— 否则一个
+    /// 以后碰巧复用的 id 会被永远挡住。
+    pub fn bg_question_answered(
+        &self,
+        session: &str,
+        request: atomcode_kernel::event::RequestId,
+    ) -> bool {
+        let mut m = self.moment.write().expect("moment poisoned");
+        match m.bg_answered.as_ref() {
+            Some((s, r)) if s == session && *r == request => true,
+            Some((s, _)) if s == session => {
+                m.bg_answered = None;
+                false
+            }
+            _ => false,
+        }
+    }
+
+    /// 那个会话没有挂着的请求了（宿主答 `NotFound`）：记着的那一条也就走了。
+    pub fn bg_question_gone(&self, session: &str) {
+        let mut m = self.moment.write().expect("moment poisoned");
+        if m.bg_answered.as_ref().is_some_and(|(s, _)| s == session) {
+            m.bg_answered = None;
+        }
+    }
+
+    /// 为「刚答过、答案还在路上」再取一次 —— 每条答过的只取这一次。
+    pub fn bg_answered_repull_once(&self) -> bool {
+        let mut m = self.moment.write().expect("moment poisoned");
+        !std::mem::replace(&mut m.bg_answered_repulled, true)
+    }
+
+    /// 取的路上有没有列表变化被挡掉 —— 取走这个记号。
+    pub fn take_bg_repull(&self) -> bool {
+        std::mem::take(&mut self.moment.write().expect("moment poisoned").bg_repull)
+    }
+
+    /// 这一趟没提上来：放下「在取」，并报出要不要替挡掉的那次变化再取一次。
+    pub fn let_go_bg_question(&self, session: &str) -> bool {
+        self.withdraw_bg_question(session);
+        self.take_bg_repull()
+    }
+
+    /// 屏幕要换走或关掉了：提上来的（或正在取的）那条收回去，**不回答**。
+    ///
+    /// 必须在 `Asks::refuse_all` 之前：那一个是替人拒绝（`finish(vec![])`），用在这块
+    /// 屏幕自己那个会话的问询上是对的 —— 那个回合跟着会话走了；用在后台会话的问询上
+    /// 就是替人把别人的会话拒了。收回之后等着的那一头看到的是取消，什么都不送。
+    pub fn withdraw_any_bg_question(&self) -> bool {
+        let taken = self
+            .moment
+            .write()
+            .expect("moment poisoned")
+            .bg_asked
+            .take();
+        match taken {
+            Some((_, Some((ask, _)))) => self.asks.withdraw(ask),
+            Some((_, None)) => true,
+            None => false,
+        }
+    }
+
+    /// 那条问询不必再问了：从屏幕上收回去。
+    ///
+    /// 收回**不是**回答：`Asks::withdraw` 丢掉应答通道，等着的那个人看到的是取消
+    /// （`crate::ask`）。屏幕只是不再问它 —— 谁也没替那个后台会话下结论。
+    pub fn withdraw_bg_question(&self, session: &str) -> bool {
+        let ask = {
+            let mut m = self.moment.write().expect("moment poisoned");
+            match m.bg_asked.take() {
+                Some((shown, ask)) if shown == session => ask,
+                Some(other) => {
+                    m.bg_asked = Some(other);
+                    return false;
+                }
+                None => return false,
+            }
+        };
+        match ask {
+            Some((id, _)) => self.asks.withdraw(id),
+            // 还在取：没有可收的，把「在取」这件事忘掉就是全部。
+            None => true,
+        }
+    }
+
+    /// 提上来的那条问询还站得住吗：它来自的那个会话还在等人吗。
+    ///
+    /// 列表每次一变就问一遍。丢了、被换到前台、回合结束、被取消、失败 —— 这五种都推
+    /// `BackgroundChanged`，所以这一个挂点就把设计 §7 那张表全罩住了。取的路上
+    /// （`Some((session, None))`）也一样收：`withdraw_bg_question` 本就两种都接。
+    pub fn drop_stale_bg_question(&self) -> bool {
+        let session = {
+            let m = self.moment.read().expect("moment poisoned");
+            match m.bg_asked.as_ref() {
+                Some((session, _)) => session.clone(),
+                None => return false,
+            }
+        };
+        let still_waiting = self
+            .moment
+            .read()
+            .expect("moment poisoned")
+            .bg
+            .sessions()
+            .iter()
+            .any(|s| s.id == session && s.waiting);
+        match still_waiting {
+            true => false,
+            false => self.withdraw_bg_question(&session),
+        }
+    }
+
+    /// 那个后台会话在列表里怎么称呼：第几个、叫什么。提它的问询时要说得出是谁在问。
+    pub fn bg_name(&self, session: &str) -> Option<(usize, String)> {
+        let m = self.moment.read().expect("moment poisoned");
+        let slot = m.bg.slot_of(session)?;
+        let title =
+            m.bg.sessions()
+                .iter()
+                .find(|s| s.id == session)?
+                .title
+                .clone();
+        Some((slot, title))
+    }
+
     /// Which session row of the background panel is under the pointer, in the
     /// panel's drawn order.
     pub fn bg_row_at(&self, x: u16, y: u16) -> Option<usize> {
@@ -4909,16 +5145,8 @@ impl Host {
         // is what makes the row a product's decision instead of a dependency of
         // the front end.
         if !self.ask_panel_mounted() {
-            if let Some(question) = self.asks.current().map(|a| a.question) {
-                let pending = crate::content::ChoiceBlock {
-                    question: crate::ask::recorded(&question),
-                    options: question
-                        .options
-                        .iter()
-                        .map(|a| crate::ask::answer_label(&a.value, &a.label))
-                        .collect(),
-                    answer: None,
-                };
+            if let Some(asked) = self.asks.current() {
+                let pending = fallback_question(&asked);
                 let mut lines =
                     crate::block::Content::lines(&pending, &crate::block::RenderCtx::bare(rect.w));
                 lines.reverse();
@@ -5802,19 +6030,11 @@ impl Host {
         // frame drew and this did not would be out of reach at the bottom of the
         // scroll, which is the whole failure `row_index` exists to prevent.
         let pending = match self.ask_panel_mounted() {
-            false => self.asks.current().map(|a| a.question),
+            false => self.asks.current(),
             true => None,
         };
-        let question = pending.map_or(0, |q| {
-            let block = crate::content::ChoiceBlock {
-                question: crate::ask::recorded(&q),
-                options: q
-                    .options
-                    .iter()
-                    .map(|a| crate::ask::answer_label(&a.value, &a.label))
-                    .collect(),
-                answer: None,
-            };
+        let question = pending.map_or(0, |asked| {
+            let block = fallback_question(&asked);
             crate::block::Content::lines(&block, &crate::block::RenderCtx::bare(width)).len()
         });
         (total + tail + question, tail)
@@ -6014,6 +6234,30 @@ fn asked_height(modules: &Modules, id: &str, moment: &Moment, width: u16) -> u16
         return 0;
     }
     asked
+}
+
+/// The question drawn at the foot of the stream when no ask panel is mounted.
+///
+/// One builder for the frame that draws it and the count that measures it
+/// (`stream_lines` / `stream_height`), so the two cannot disagree about its
+/// rows. A question brought up from a background session says which one here
+/// too (「后台 [N] <title> 在问」, the words the panel puts on its header) —
+/// without it a person reads someone else's question as their own.
+pub(crate) fn fallback_question(asked: &crate::ask::Asked) -> crate::content::ChoiceBlock {
+    let question = &asked.question;
+    let recorded = crate::ask::recorded(question);
+    crate::content::ChoiceBlock {
+        question: match &asked.from_background {
+            Some(bg) => format!("{bg} · {recorded}"),
+            None => recorded,
+        },
+        options: question
+            .options
+            .iter()
+            .map(|a| crate::ask::answer_label(&a.value, &a.label))
+            .collect(),
+        answer: None,
+    }
 }
 
 /// Whether one of the panels a person works in is up.
@@ -13311,6 +13555,295 @@ mod tests {
             h.compose((80, 24)).part(crate::modules::mcp::ID).is_some(),
             "a panel that is open has to be somewhere on the frame"
         );
+    }
+
+    /// 一个在等人的后台会话，照面板要的样子。
+    fn waiting_bg(session: &str) -> crate::bg::BgView {
+        crate::bg::BgView::from_host(vec![atomcode_host_api::BackgroundSession {
+            session: session.into(),
+            title: Some("review".into()),
+            state: atomcode_host_api::BackgroundState::Waiting,
+            created_at: 1,
+            last: Some("Allow?".into()),
+            stats: None,
+            origin: None,
+        }])
+    }
+
+    /// 屏幕上有别的问题在等，后台的就先不提 —— 前台优先。
+    #[test]
+    fn a_background_question_stays_out_while_the_screen_has_one() {
+        let h = host();
+        assert!(h.show_bg(waiting_bg("b")));
+        drop(h.asks.push(atomcode_harness::seams::Question::plain(
+            "Allow?",
+            &["yes", "no"],
+        )));
+        assert_eq!(h.bg_question_wanted(), None, "前台有问询，后台的排队");
+
+        // 前台那个答掉、队列空了，才轮到它。
+        h.asks.refuse_all();
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+        assert_eq!(h.bg_question_wanted(), None, "已经在取，不再要第二次");
+    }
+
+    /// 提上来的是哪一条要记得住，才收得回去；收回去是取消，不是回答。
+    #[tokio::test]
+    async fn the_question_that_came_up_can_be_taken_back() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+        let (id, answer) = h
+            .asks
+            .push_with_id(atomcode_harness::seams::Question::plain(
+                "Allow?",
+                &["yes", "no"],
+            ));
+        assert!(h.bg_question_shown("b", id, 7));
+        assert_eq!(h.bg_name("b").map(|(slot, _)| slot), Some(1));
+
+        assert!(h.withdraw_bg_question("b"), "收得回去");
+        assert!(answer.await.is_err(), "收回是取消，谁也不当它答过了");
+        assert_eq!(
+            h.bg_question_wanted().as_deref(),
+            Some("b"),
+            "收回去可以再提"
+        );
+        assert!(!h.withdraw_bg_question("z"), "不是它就没有可收的");
+    }
+
+    /// 它不再等了（被丢了、被换到前台、回合结束、被取消、失败），屏幕就把它收回去。
+    #[tokio::test]
+    async fn a_question_whose_session_stopped_waiting_is_taken_back() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+        let (id, answer) = h
+            .asks
+            .push_with_id(atomcode_harness::seams::Question::plain(
+                "Allow?",
+                &["yes", "no"],
+            ));
+        assert!(h.bg_question_shown("b", id, 7));
+
+        // 列表变了：它不在后台了。
+        assert!(h.show_bg(crate::bg::BgView::new(Vec::new())));
+        assert!(h.drop_stale_bg_question(), "收回去");
+        assert!(answer.await.is_err(), "收回是取消，不是拒绝");
+        assert!(!h.drop_stale_bg_question(), "已经没有了，第二次无事");
+
+        // 换成另一个还在等的会话：它在等，凭什么收。
+        h.show_bg(waiting_bg("c"));
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("c"));
+        assert!(!h.drop_stale_bg_question());
+    }
+
+    /// 回合结束、被取消、失败最常见的样子：会话没有从列表里消失，只是不再
+    /// `waiting` 了（宿主把它标成 `Done`/`Cancelled`/`Failed`/`Running`）。
+    /// 收回不看它还在不在列表里，只看它还等不等人。
+    #[tokio::test]
+    async fn a_session_still_listed_but_no_longer_waiting_is_taken_back() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+        let (id, answer) = h
+            .asks
+            .push_with_id(atomcode_harness::seams::Question::plain(
+                "Allow?",
+                &["yes", "no"],
+            ));
+        assert!(h.bg_question_shown("b", id, 7));
+
+        // 还在列表里，同一个 id —— 只是回合已经结束，不再 waiting。
+        assert!(h.show_bg(crate::bg::BgView::from_host(vec![
+            atomcode_host_api::BackgroundSession {
+                session: "b".into(),
+                title: Some("review".into()),
+                state: atomcode_host_api::BackgroundState::Done,
+                created_at: 1,
+                last: Some("done".into()),
+                stats: None,
+                origin: None,
+            },
+        ])));
+        assert!(h.drop_stale_bg_question(), "还在列表里也收回去");
+        assert!(answer.await.is_err(), "收回是取消，不是拒绝");
+        assert!(
+            !h.bg_question_answered("b", 7),
+            "收回去的不算答过，不该被记成已答"
+        );
+        assert!(!h.settle_bg_question(), "已经收回了，没有可放下的");
+    }
+
+    /// 人在打字时不提:弹出来的面板会把他接下来敲的键(连回车)当成回答。
+    #[test]
+    fn a_background_question_waits_while_the_composer_has_text() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        h.moment.write().unwrap().input = "half a".into();
+        assert!(!h.bg_question_ready());
+        assert_eq!(h.bg_question_wanted(), None, "输入框有字,不提");
+        h.moment.write().unwrap().input.clear();
+        assert!(h.bg_question_ready());
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+    }
+
+    /// 没挂问询面板时,流尾那条兜底问题也要说清是哪个后台会话在问;自己那段对话的
+    /// 问题照旧只有问题本身。
+    #[test]
+    fn the_fallback_question_says_which_background_session_asks() {
+        let mut asked: crate::ask::Asked =
+            atomcode_harness::seams::Question::plain("Allow?", &["yes", "no"]).into();
+        assert_eq!(fallback_question(&asked).question, "Allow?");
+        asked.from_background = Some("后台 [1] review 在问".into());
+        let block = fallback_question(&asked);
+        assert_eq!(block.question, "后台 [1] review 在问 · Allow?");
+        assert_eq!(block.options.len(), 2);
+    }
+
+    /// 人在后台面板里(打新任务、回复、方向键挑行)时不提:键路由里问询一出来就抢走
+    /// 所有键,首字母就成了回答。面板收起的那一刻才算能接。
+    #[test]
+    fn a_background_question_waits_while_the_background_panel_is_up() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        h.moment.write().unwrap().bg_panel = Some(crate::bg::Panel::new(None));
+        assert!(h.keyboard_held_elsewhere());
+        assert!(!h.bg_question_ready());
+        assert_eq!(h.bg_question_wanted(), None, "后台面板开着,不提");
+        assert!(h.close_bg());
+        assert!(!h.keyboard_held_elsewhere());
+        assert!(h.bg_question_ready());
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+    }
+
+    /// 提上来的那条答掉(这里走鼠标那条路)之后,每帧的对账把它放下,并记住答的是
+    /// 哪一个请求:下一条提得上来,而那一个在答案送到之前再被取回时认得出来。
+    #[test]
+    fn an_answered_background_question_is_let_go_and_remembered() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+        let (ask, _answer) = h
+            .asks
+            .push_with_id(atomcode_harness::seams::Question::plain(
+                "Allow?",
+                &["yes", "no"],
+            ));
+        assert!(h.bg_question_shown("b", ask, 7));
+        assert!(!h.settle_bg_question(), "还在屏幕上,不放");
+        assert_eq!(h.bg_question_wanted(), None);
+
+        h.asks.take_id(ask).expect("front").finish(vec![None]);
+        assert!(h.settle_bg_question(), "答掉了,放下");
+        assert!(!h.settle_bg_question(), "只放一次");
+        assert!(h.bg_question_answered("b", 7), "记得答的是它");
+        assert!(!h.bg_question_answered("b", 8), "别的请求不算");
+        assert!(!h.bg_question_answered("c", 7), "别的会话不算");
+        assert_eq!(
+            h.bg_question_wanted().as_deref(),
+            Some("b"),
+            "放下之后可以再要"
+        );
+    }
+
+    /// 换会话时提上来的那条后台问询被**收回**,不是被替人拒绝:等着的那一头看到的是
+    /// 取消(`Err`),不是 `Ok(None)` —— 后者会被当成一次拒绝送回那个后台会话。
+    #[tokio::test]
+    async fn switching_sessions_takes_a_background_question_back_unanswered() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        h.bg_question_wanted();
+        let (ask, answer) = h
+            .asks
+            .push_with_id(atomcode_harness::seams::Question::plain(
+                "Allow?",
+                &["yes", "no"],
+            ));
+        assert!(h.bg_question_shown("b", ask, 7));
+        // 前台自己那条照旧是拒绝。
+        let mine = h.asks.push(atomcode_harness::seams::Question::plain(
+            "Mine?",
+            &["yes", "no"],
+        ));
+        h.switch_session();
+        assert!(answer.await.is_err(), "收回,不是回答");
+        assert_eq!(mine.await.ok(), Some(None), "自己那条是拒绝");
+        assert!(!h.settle_bg_question(), "收回去的不算答过");
+        assert!(!h.bg_question_answered("b", 7));
+    }
+
+    /// 正在取的时候被挡掉的那次列表变化不丢:这一趟没提上来,就报出要再取一次。
+    #[test]
+    fn a_change_turned_away_while_fetching_asks_for_another_pull() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+        assert!(!h.let_go_bg_question("b"), "没有被挡掉的,不再取");
+
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+        assert_eq!(h.bg_question_wanted(), None, "正在取");
+        assert!(h.let_go_bg_question("b"), "挡掉过一次,再取");
+        assert!(!h.take_bg_repull(), "只报一次");
+
+        // 提上来了就不必替它再取:答完那一刻接着。
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+        assert_eq!(h.bg_question_wanted(), None);
+        let (ask, _answer) = h
+            .asks
+            .push_with_id(atomcode_harness::seams::Question::plain("Allow?", &["yes"]));
+        assert!(h.bg_question_shown("b", ask, 7));
+        assert!(!h.take_bg_repull());
+    }
+
+    /// 在取的时候换走:收回「在取」,取回来的那一趟就放不上去。
+    #[test]
+    fn a_fetch_in_flight_is_superseded_by_a_switch() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        h.bg_question_wanted();
+        assert!(h.withdraw_any_bg_question());
+        assert!(!h.bg_question_shown("b", 1, 7), "这一趟已经被收回");
+        assert!(!h.withdraw_any_bg_question(), "没有可收的");
+    }
+
+    /// 记着的那条答过的:同一会话报回别的请求或不在等了,就忘掉它;为它再取只取一次。
+    #[test]
+    fn the_answered_request_is_forgotten_once_it_is_gone() {
+        let h = host();
+        h.bg_question_done("b", 7);
+        assert!(h.bg_answered_repull_once());
+        assert!(!h.bg_answered_repull_once(), "只取这一次");
+        assert!(h.bg_question_answered("b", 7));
+        assert!(!h.bg_question_answered("c", 8), "别的会话不碰它");
+        assert!(h.bg_question_answered("b", 7));
+        assert!(!h.bg_question_answered("b", 8), "同一会话报回了别的请求");
+        assert!(!h.bg_question_answered("b", 7), "记着的那条已经忘了");
+
+        h.bg_question_done("b", 9);
+        assert!(h.bg_answered_repull_once(), "新记下的一条重新算");
+        h.bg_question_gone("c");
+        assert!(h.bg_question_answered("b", 9), "别的会话不在等,不碰它");
+        h.bg_question_gone("b");
+        assert!(!h.bg_question_answered("b", 9));
+    }
+
+    /// 收回去的不算答过:下一次取回来还是它,照样提。
+    #[test]
+    fn a_withdrawn_background_question_is_not_remembered_as_answered() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        h.bg_question_wanted();
+        let (ask, _answer) = h
+            .asks
+            .push_with_id(atomcode_harness::seams::Question::plain(
+                "Allow?",
+                &["yes", "no"],
+            ));
+        h.bg_question_shown("b", ask, 7);
+        assert!(h.withdraw_bg_question("b"));
+        assert!(!h.settle_bg_question());
+        assert!(!h.bg_question_answered("b", 7));
     }
 }
 

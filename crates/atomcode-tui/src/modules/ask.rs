@@ -210,9 +210,19 @@ fn question_rows(
     // Who is asking. A delegated member's question is not this conversation's,
     // and the person answering is owed the difference — a member's name is the
     // one thing that decides whether an answer is honest.
-    if let Some(who) = &question.asker {
+    //
+    // A question brought up from a background session says which one, in its
+    // own words rather than the member framing — a background session is not a
+    // member — with the member's name after it when one of *its* members asked.
+    let header = match (&asked.from_background, &question.asker) {
+        (Some(bg), Some(who)) if !who.trim().is_empty() => Some(format!("{bg} · {who}")),
+        (Some(bg), _) => Some(bg.clone()),
+        (None, Some(who)) => Some(t(Msg::AskFromMember { who }).into_owned()),
+        (None, None) => None,
+    };
+    if let Some(text) = header {
         rows.push(Row::Text {
-            text: t(Msg::AskFromMember { who }).into_owned(),
+            text,
             role: Role::Warning,
         });
     }
@@ -1074,6 +1084,26 @@ mod tests {
         )
         .join("\n");
         assert!(theirs.contains("scribe"), "{theirs}");
+    }
+
+    /// A question brought up from a background session says which session is
+    /// asking, not "from member": a background session is not a member. A
+    /// member of that session keeps its name, after the session's.
+    #[test]
+    fn a_background_question_names_its_session_not_a_member() {
+        let bg = |asker: Option<&str>| {
+            let mut asked = Asked::from(approval(asker, "write_file", "{}", None));
+            asked.from_background = Some("后台 [1] review 在问".into());
+            let mut sheet = MomentAsk::one(asked);
+            sheet.point_at(0);
+            framed(&with(sheet), 60).join("\n")
+        };
+        let plain = bg(None);
+        assert!(plain.contains("后台 [1] review 在问"), "{plain}");
+        assert!(!plain.contains("来自成员"), "{plain}");
+        let member = bg(Some("scribe"));
+        assert!(member.contains("后台 [1] review 在问 · scribe"), "{member}");
+        assert!(!member.contains("来自成员"), "{member}");
     }
 
     /// What "always" would cover, shown where the person says it.

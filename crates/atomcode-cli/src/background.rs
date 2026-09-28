@@ -25,7 +25,7 @@ use atomcode_coding::{CodingAgentConfig, CodingRuntime};
 use atomcode_harness::feed::Feed;
 use atomcode_host_api::{
     BackgroundSession, BackgroundState, BackgroundStats, HostCommand, HostConnection, HostControl,
-    HostError, HostEvent, HostReply,
+    HostError, HostEvent, HostReply, LoggedFact,
 };
 use atomcode_kernel::event::{AgentCommand, AgentEvent, StopReason};
 use atomcode_kernel::session::{LoggedEvent, SessionEvent};
@@ -417,14 +417,25 @@ fn state_of(live: &Live) -> BackgroundState {
     if handle.is_stopped() {
         return BackgroundState::Failed;
     }
-    let ended = live.track.lock().expect("track poisoned").ended;
+    let (ended, pending) = {
+        let track = live.track.lock().expect("track poisoned");
+        (track.ended, track.pending.is_some())
+    };
     match handle.status().phase {
-        RuntimePhase::WaitingApproval => BackgroundState::Waiting,
+        // 阶段先翻、pump 记下 `pending` 后到(`Track::saw` 在 `Request` 事件送到时
+        // 才写):这一小段里还不能说「在等」——不然报出去的 `Waiting` 没有请求可答,
+        // `BackgroundQuestion` 只会落回 `NotFound`。等 `pending` 落地那一刻,
+        // `Track::saw` 自己会返回 changed=true 让 `announce_list` 立刻把它翻过来,
+        // 不会漏报,只是晚一拍。
+        RuntimePhase::WaitingApproval if pending => BackgroundState::Waiting,
         RuntimePhase::Failed | RuntimePhase::Stopped | RuntimePhase::ShuttingDown => {
             BackgroundState::Failed
         }
-        // 回合结束的事件先到、阶段后落的那一小段里,信事件。
-        RuntimePhase::InTurn => ended.unwrap_or(BackgroundState::Running),
+        // 回合结束的事件先到、阶段后落的那一小段里,信事件;`WaitingApproval` 但
+        // `pending` 还没落地的那一小段也按这条走。
+        RuntimePhase::InTurn | RuntimePhase::WaitingApproval => {
+            ended.unwrap_or(BackgroundState::Running)
+        }
         _ => ended.unwrap_or(BackgroundState::Idle),
     }
 }
@@ -449,6 +460,27 @@ fn log_of(live: &Live) -> Vec<LoggedEvent> {
         .and_then(|app| Feed::find(&app, &session))
         .map(|agent| agent.session().events())
         .unwrap_or_default()
+}
+
+/// 画一个问询要看的日志尾巴有多长。
+///
+/// `question_for` 取的是**最新的那条**匹配(`crates/atomcode-tui/src/ask.rs`),
+/// 所以尾巴够。64 是预算,不是契约:真要更长的问法,先量再改。
+const ASKED_TAIL: usize = 64;
+
+/// 日志的最后 [`ASKED_TAIL`] 条,照过线的形状。
+///
+/// 搬的是事实本身,不解释:把载荷变成问题是屏幕自己的事(`crate::ask`)——
+/// 这一层不认识「问询」这个词。
+fn tail_of(log: &[LoggedEvent]) -> Vec<LoggedFact> {
+    log[log.len().saturating_sub(ASKED_TAIL)..]
+        .iter()
+        .map(|logged| LoggedFact {
+            seq: logged.seq,
+            at: logged.at,
+            event: logged.event.clone(),
+        })
+        .collect()
 }
 
 /// 这个后台会话叫什么:它自己起的名字,还没起名就用它第一句话。
@@ -1150,6 +1182,79 @@ impl Background {
         Ok(HostReply::Done)
     }
 
+    /// 那个会话此刻挂着的问询。没在等人就没有可说的。
+    ///
+    /// 不猜、也不编:列表那一行已经说了它在干什么,这里再说一遍是噪音;而屏幕
+    /// 只在它自己认为那个会话在等人时才会来要,所以这两条 `NotFound` 都是竞态的护栏。
+    fn question(&self, target: String) -> Result<HostReply, HostError> {
+        let state = self.state.lock().expect("background poisoned");
+        let live = state
+            .slots
+            .iter()
+            .find(|slot| slot.control.session_id() == target)
+            .ok_or(HostError::NotFound)?;
+        let (id, kind, payload) = {
+            let track = live.track.lock().expect("track poisoned");
+            match track.pending.clone() {
+                Some(AgentEvent::Request { id, kind, payload }) => (id, kind, payload),
+                _ => return Err(HostError::NotFound),
+            }
+        };
+        Ok(HostReply::BackgroundQuestion {
+            session: live.control.session_id(),
+            id,
+            kind,
+            payload,
+            facts: tail_of(&log_of(live)),
+        })
+    }
+
+    /// 把那个后台会话挂着的那个请求答了。答不进去就明说。
+    ///
+    /// 答案走的是**那个 runtime 自己的命令通道**(`Live.commands`),与屏幕答自己那个
+    /// 会话时走的 `AgentCommand::Respond` 是同一条路 —— 变的只是它去的 runtime。
+    fn answer(
+        &self,
+        target: String,
+        id: atomcode_kernel::event::RequestId,
+        value: serde_json::Value,
+    ) -> Result<HostReply, HostError> {
+        use atomcode_i18n::screen::{t as tr, Msg as SMsg};
+        let sent = {
+            let state = self.state.lock().expect("background poisoned");
+            let live = state
+                .slots
+                .iter()
+                .find(|slot| slot.control.session_id() == target)
+                .ok_or(HostError::NotFound)?;
+            {
+                let mut track = live.track.lock().expect("track poisoned");
+                match track.pending.as_ref() {
+                    Some(AgentEvent::Request { id: waiting, .. }) if *waiting == id => {
+                        // 送不送得进去都清:送不进去是那个 runtime 已经没了,留着它只会让
+                        // 列表继续说「在等」一个再也答不了的问题。
+                        track.pending = None;
+                    }
+                    // 挂着的已经不是它了(作废、被别处答过、回合结束):拒绝,而不是把
+                    // 人的答案安在别的问题上。
+                    _ => return Err(Self::busy(tr(SMsg::BgAnswerStale).into_owned())),
+                }
+            }
+            live.commands
+                .send(AgentCommand::Respond { id, value })
+                .is_ok()
+        };
+        // 它不再等了:列表要立刻跟着改,否则屏幕还当它在等 —— 提示行指着它,下一次
+        // 提问询又挑中它、拿回 `NotFound`,排在后面的那个在等的会话就一直出不来。
+        self.announce_list();
+        if !sent {
+            return Err(HostError::Failed {
+                message: tr(SMsg::BgAnswerUndelivered).into_owned(),
+            });
+        }
+        Ok(HostReply::Done)
+    }
+
     fn in_background(&self, session: &str) -> bool {
         self.state
             .lock()
@@ -1172,6 +1277,8 @@ impl HostControl for Background {
             HostCommand::StartBackground { text, scope } => self.start(text, scope).await,
             HostCommand::TellBackground { target, text } => self.tell(target, text).await,
             HostCommand::DropBackground { target } => self.drop_one(target).await,
+            HostCommand::BackgroundQuestion { target } => self.question(target),
+            HostCommand::AnswerBackground { target, id, value } => self.answer(target, id, value),
             // 恢复一个正在后台跑的会话,就是把它带回来:租约本来就不让同一个会话
             // 开两份,与其答「在用」,不如照人的意思做。
             HostCommand::Resume { session, target } if self.in_background(&target) => {

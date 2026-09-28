@@ -449,6 +449,11 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::BgQuitConfirm => "quit and stop them".into(),
         Msg::BgQuitStay => "stay".into(),
         Msg::BgWaitingTip { slot, title } => format!("background [{slot}] {title} is waiting for your answer · /bg {slot} opens it").into(),
+        Msg::BgAnswerStale => "that background session is no longer waiting on this question".into(),
+        Msg::BgAnswerGone => "that session is no longer in the background — the answer was not delivered".into(),
+        Msg::BgAnswerUndelivered => "that background session has stopped — the answer was not delivered".into(),
+        Msg::BgAsker { slot, title } => format!("background [{slot}] {title} is asking").into(),
+        Msg::BgQuestionUnanswerable => "this screen cannot draw that background question — it was answered as a refusal".into(),
         Msg::BgFailedTip { slot, title } => format!("background [{slot}] {title} stopped without finishing · /bg {slot} shows where").into(),
         Msg::BgSlotsFull { most } => format!("{most} sessions are already in the background — drop one first (/bg drop <N>)").into(),
 

@@ -659,6 +659,20 @@ pub enum Msg<'a> {
         slot: usize,
         title: &'a str,
     },
+    /// 那个后台会话挂着的已经不是这个请求了:答案不能安在别的问题上。
+    BgAnswerStale,
+    /// 前台答了一个后台会话的问询,送的时候它已经不在后台了(被带回前台、丢掉、结束):
+    /// 答复没有送出。
+    BgAnswerGone,
+    /// 前台答了一个后台会话的问询,送的时候那个会话已经停了(命令通道关了):答复没有送出。
+    BgAnswerUndelivered,
+    /// 提上来的那个问询是谁在问：第几个后台会话、它叫什么。
+    BgAsker {
+        slot: usize,
+        title: &'a str,
+    },
+    /// 一个后台问询这个屏幕画不出来：已按拒绝答复，好让那个会话不永远挂着。
+    BgQuestionUnanswerable,
     /// A background session stopped without finishing: nothing comes home, so
     /// the conversation that may be waiting for it is told here.
     BgFailedTip {

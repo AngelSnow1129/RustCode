@@ -103,6 +103,12 @@ impl View for Tip {
             // A background session waiting for an answer comes before the
             // clipboard: it is work that has stopped until the person looks,
             // and the only way they learn of it from here.
+            // 提示行与提上来的问询互斥：问询已经在屏幕上，这一行再说「/bg N 打开」
+            // 是让人去做一件屏幕已经替他做了的事。退回剪贴板那一句。
+            None if vp.moment.bg_asked.is_some() => (
+                vp.moment.clipboard_caption().unwrap_or_default(),
+                Role::Muted,
+            ),
             None => match vp.moment.bg.waiting_caption() {
                 Some(caption) => (caption, Role::Warning),
                 None => (
@@ -363,5 +369,42 @@ mod tests {
         let rows = mounted.render(&vp);
         assert_eq!(rows.len(), 1);
         assert!(rows[0].plain().trim().is_empty(), "{:?}", rows[0].plain());
+    }
+
+    /// 提上来的问询就在屏幕上时，那一行「/bg N 打开」不再来指路 —— 屏幕已经替他做了。
+    #[test]
+    fn the_waiting_tip_stands_down_while_its_question_is_on_screen() {
+        let mut moment = Moment {
+            bg: crate::bg::BgView::new(vec![crate::bg::Session {
+                id: "b".into(),
+                title: "review".into(),
+                group: crate::bg::Group::NeedsInput,
+                last: Some("Allow?".into()),
+                waiting: true,
+                failed: false,
+                stats: None,
+                origin: None,
+            }]),
+            ..Moment::default()
+        };
+        let tip = crate::i18n::t(crate::i18n::Msg::BgWaitingTip {
+            slot: 1,
+            title: "review",
+        })
+        .into_owned();
+        assert!(
+            draw_at(&moment, 80, 3)
+                .iter()
+                .any(|l| l.plain().contains(&tip)),
+            "没提上来时它在那儿"
+        );
+
+        moment.bg_asked = Some(("b".into(), Some((1, 7))));
+        assert!(
+            !draw_at(&moment, 80, 3)
+                .iter()
+                .any(|l| l.plain().contains(&tip)),
+            "问询已经在屏幕上，这一行不该还在"
+        );
     }
 }

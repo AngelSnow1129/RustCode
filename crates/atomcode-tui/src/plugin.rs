@@ -87,6 +87,18 @@ impl Connection {
     fn take(&self) -> Option<HostConnection> {
         self.0.lock().expect("connection poisoned").take()
     }
+    /// Stand something between the screen and its host control, before the
+    /// screen runs and takes the connection.
+    ///
+    /// Exists for test rigs: a rig that wants the screen to see a host that
+    /// answers some commands differently (e.g. one from before a command
+    /// existed). Not a launcher seam. A no-op once the screen has taken it.
+    #[doc(hidden)]
+    pub fn wrap_control(&self, wrap: impl FnOnce(Arc<dyn HostControl>) -> Arc<dyn HostControl>) {
+        if let Some(connection) = self.0.lock().expect("connection poisoned").as_mut() {
+            connection.control = wrap(connection.control.clone());
+        }
+    }
 }
 // Mounted cell-grid bitmaps. The host holds the table and puts a snapshot into
 // every frame's `Moment`; a row reaches it here to mount and repaint. See
@@ -788,6 +800,10 @@ enum Wake {
     Remote(String),
     /// A modal closed with this.
     Chose(Option<String>),
+    /// Try again to bring a background session's question forward: a fetch
+    /// ended without showing one while something may still be waiting
+    /// (`Tui::pour_bg_question`).
+    PullBgQuestion,
     Tick,
     Closed,
 }
@@ -1296,6 +1312,9 @@ impl UserInterface for Tui {
         let mut stale = true;
         // Wakes answered since that frame. See [`COALESCE_LIMIT`].
         let mut coalesced = 0usize;
+        // Whether the screen could take a background question at the last frame,
+        // so the moment it can is seen once (see [`became_ready`]).
+        let mut was_ready = false;
         while !quit {
             // The composer's menu is the one thing here that follows the
             // pointer, so free motion is on exactly while it is up: with it on,
@@ -1399,6 +1418,16 @@ impl UserInterface for Tui {
                 // where the two are reconciled — in one place, before any frame
                 // can be drawn from a disagreement.
                 self.host.sync_asking();
+                // 提上来的那条答掉了（不论是怎么答的）：同步放下，下一条才提得上来。
+                self.host.settle_bg_question();
+                // 屏幕能接后台问询的那一刻（没有别的问询、输入框空了 —— 不论是怎么变成
+                // 这样的）：前台优先，空位一出现就轮到后台的。判边沿不判电平 —— 每帧都叫，
+                // 宿主不认识这条命令时每帧都会重发一次取回。
+                let ready = self.host.bg_question_ready();
+                if became_ready(was_ready, ready) {
+                    self.pour_bg_question();
+                }
+                was_ready = ready;
                 self.paint();
                 stale = false;
                 coalesced = 0;
@@ -1531,6 +1560,9 @@ impl UserInterface for Tui {
                         stale = true;
                     }
                     stale |= self.host.show_bg(view);
+                    // 提上来的那条还站得住吗 —— 列表变了就是问它的时机。
+                    stale |= self.host.drop_stale_bg_question();
+                    self.pour_bg_question();
                 }
                 Wake::Host(HostEvent::PersistenceFailed { message, .. }) => {
                     self.host.say(
@@ -1552,6 +1584,7 @@ impl UserInterface for Tui {
                     self.chose(chosen);
                     stale = true;
                 }
+                Wake::PullBgQuestion => self.pour_bg_question(),
                 Wake::Tick => {
                     let mut m = self.host.moment.write().expect("moment poisoned");
                     m.tick = m.tick.wrapping_add(1);
@@ -2280,6 +2313,11 @@ impl UserInterface for Tui {
         // Refuse what is waiting and stop what is running, then wait for the
         // turn to say it has ended — but not forever: a tool that ignores its
         // cancel is not a reason to leave the terminal in the alternate screen.
+        //
+        // A question brought up from a background session is taken back first,
+        // unanswered: refusing it would be deciding for that session, and the
+        // host stops it on the way out anyway.
+        self.host.withdraw_any_bg_question();
         self.host.asks.refuse_all();
         // And the password, for the same reason and with the same meaning: a
         // `sudo` waiting on an answer that is never coming holds the turn open,
@@ -2969,6 +3007,200 @@ impl Tui {
                     let _ = keys.send(Wake::Fact);
                 }
             }
+        });
+    }
+
+    /// 把一个后台会话问询提到前台来：按需取回它的载荷与那个会话的日志尾巴，照屏幕上
+    /// 一样的面板画出来，答完原样送回那个 runtime（`HostCommand::AnswerBackground`）。
+    ///
+    /// 只在屏幕上没有别的问询时才提（`Host::bg_question_wanted`，前台优先）。这一趟
+    /// 无论成不成，「正在取」这件事都要有个了结，否则下一次没人再提它。
+    fn pour_bg_question(&self) {
+        let Some(session) = self.host.bg_question_wanted() else {
+            return;
+        };
+        let Some(control) = self.client.control() else {
+            // 没有宿主可问：把「在取」忘掉，别让它挡住以后的每一次。
+            self.host.let_go_bg_question(&session);
+            return;
+        };
+        let host = self.host.clone();
+        let keys = self.wake.lock().expect("wake poisoned").clone();
+        let repaint = {
+            let keys = keys.clone();
+            move || {
+                if let Some(keys) = &keys {
+                    let _ = keys.send(Wake::Fact);
+                }
+            }
+        };
+        // 再取一次，经由主循环（`Wake::PullBgQuestion`）—— 闸门仍是 `bg_question_wanted`。
+        let pull_again = move |after: Option<std::time::Duration>| {
+            if let Some(keys) = keys.clone() {
+                tokio::spawn(async move {
+                    if let Some(after) = after {
+                        tokio::time::sleep(after).await;
+                    }
+                    let _ = keys.send(Wake::PullBgQuestion);
+                });
+            }
+        };
+        tokio::spawn(async move {
+            let reply = control
+                .call(HostCommand::BackgroundQuestion {
+                    target: session.clone(),
+                })
+                .await;
+            let (id, kind, payload, facts) = match reply {
+                Ok(HostReply::BackgroundQuestion {
+                    id,
+                    kind,
+                    payload,
+                    facts,
+                    ..
+                }) => (id, kind, payload, facts),
+                Err(atomcode_host_api::HostError::NotFound) => {
+                    // 不在等了（或列表说在等、请求还没登记上）：记着的那一条也走了。取的
+                    // 路上挡掉过一次列表变化，就替它再取一次 —— 那次变化可能正是请求登记上。
+                    host.bg_question_gone(&session);
+                    if host.let_go_bg_question(&session) {
+                        pull_again(None);
+                    }
+                    return;
+                }
+                _ => {
+                    // 这个宿主不认识这条命令（或别的失败）：当作没要过，**不**再取 ——
+                    // 对着一个不支持的宿主取下去就是一个死循环。屏幕上照旧只有那一行
+                    // 提示（设计 §5.3）。
+                    host.let_go_bg_question(&session);
+                    return;
+                }
+            };
+            if host.bg_question_answered(&session, id) {
+                // 刚在这块屏幕上答过的那一条：答案还在去那个会话的路上，宿主报回来的
+                // 仍是它。别再摆一次；稍后再取一次（只这一次），看它后面还有没有。
+                host.let_go_bg_question(&session);
+                if host.bg_answered_repull_once() {
+                    pull_again(Some(std::time::Duration::from_millis(300)));
+                }
+                return;
+            }
+            let events: Vec<LoggedEvent> = facts
+                .into_iter()
+                .map(|fact| LoggedEvent {
+                    seq: fact.seq,
+                    at: fact.at,
+                    event: fact.event,
+                })
+                .collect();
+            let batch = crate::ask::batch_for(&kind, &payload, &events);
+            let single = match batch {
+                Some(_) => None,
+                None => crate::ask::question_for(&kind, &payload, &events),
+            };
+            if batch.is_none() && single.is_none() {
+                // 这个屏幕画不出来：照前台的规矩 fail-closed 回 Null（不回，那个后台
+                // 会话就永远挂着），并说一声 —— 不说，人只会看到它莫名其妙不动了。
+                let _ = control
+                    .call(HostCommand::AnswerBackground {
+                        target: session.clone(),
+                        id,
+                        value: Value::Null,
+                    })
+                    .await;
+                let repull = host.let_go_bg_question(&session);
+                host.bg_question_done(&session, id);
+                host.say(t(Msg::BgQuestionUnanswerable).into_owned(), false);
+                repaint();
+                if repull {
+                    pull_again(None);
+                }
+                return;
+            }
+            // 取的路上人开始打字了（或前台来了问询）：这时弹出来，他接下来敲的键就成了
+            // 回答。不摆；能接的那一刻（主循环的上升沿）再取。
+            if !host.bg_question_ready() {
+                host.let_go_bg_question(&session);
+                return;
+            }
+            let who = match host.bg_name(&session) {
+                Some((slot, title)) => t(Msg::BgAsker {
+                    slot,
+                    title: &title,
+                })
+                .into_owned(),
+                None => session.clone(),
+            };
+            let target = session.clone();
+            // 一次问几条：与屏幕自己那个会话的批问询走同一套（`crate::ask::batch_for`）。
+            if let Some(questions) = batch {
+                let n = questions.len();
+                let questions = questions
+                    .into_iter()
+                    .map(|one| as_background_question(one, who.clone()))
+                    .collect();
+                let (ask, answer) = host.asks.push_batch_with_id(questions);
+                if !host.bg_question_shown(&session, ask, id) {
+                    // 取的路上这一趟已经被收回（列表变了、换了会话）：刚放上去的也收回，
+                    // 不留一条没人会送回去的问询在屏幕上。
+                    host.asks.withdraw(ask);
+                    repaint();
+                    if host.take_bg_repull() {
+                        pull_again(None);
+                    }
+                    return;
+                }
+                repaint();
+                tokio::spawn(async move {
+                    // 收回去的那些：接收端是取消，什么都不发。
+                    let Ok(mut replies) = answer.await else {
+                        return;
+                    };
+                    replies.resize(n, None);
+                    let answers: Vec<Value> =
+                        replies.into_iter().map(crate::ask::declinable).collect();
+                    let sent = control
+                        .call(HostCommand::AnswerBackground {
+                            target,
+                            id,
+                            value: serde_json::json!({ "responses": answers }),
+                        })
+                        .await;
+                    if let Err(error) = sent {
+                        host.say(bg_answer_failure(error), true);
+                        repaint();
+                    }
+                });
+                return;
+            }
+            let Some(asked) = single else {
+                return;
+            };
+            let (ask, answer) = host.asks.push_with_id(as_background_question(asked, who));
+            if !host.bg_question_shown(&session, ask, id) {
+                host.asks.withdraw(ask);
+                repaint();
+                if host.take_bg_repull() {
+                    pull_again(None);
+                }
+                return;
+            }
+            repaint();
+            tokio::spawn(async move {
+                // 收回去的：接收端是取消，什么都不发 —— 收回不是回答。
+                let Ok(chosen) = answer.await else {
+                    return;
+                };
+                let value = crate::ask::response_for(&kind, chosen);
+                let sent = control
+                    .call(HostCommand::AnswerBackground { target, id, value })
+                    .await;
+                // 没送到就明说（设计 §7）：人以为答了，那个会话其实没收到。
+                if let Err(error) = sent {
+                    host.say(bg_answer_failure(error), true);
+                    repaint();
+                }
+            });
         });
     }
 
@@ -7099,6 +7331,35 @@ fn recall_forward(m: &mut crate::moment::Moment) {
     m.caret = m.input.len();
 }
 
+/// 前台替一个后台会话答的那一下没送到时，屏幕上说的那句（设计 §7）。
+///
+/// `Busy` 带着宿主已经说好的原因（挂着的已经不是这个问题了）；`NotFound` 是那个会话
+/// 已经不在后台了；别的照宿主的拒绝原样说。
+fn bg_answer_failure(error: atomcode_host_api::HostError) -> String {
+    match error {
+        atomcode_host_api::HostError::Busy { reason } => reason,
+        atomcode_host_api::HostError::NotFound => t(Msg::BgAnswerGone).into_owned(),
+        other => crate::commands::refusal(other),
+    }
+}
+
+/// 把一个后台会话的问询放上屏幕时说清是谁在问。
+///
+/// 没有这一句，人在自己那段对话底下看到一个「允许写文件吗」会以为是自己触发的。
+/// 记在 `from_background` 上而不是 `question.asker`：后者是成员的名字，面板会把它
+/// 套成「来自成员 …」；原来的问者（那个会话自己的成员）留着，面板画在后面。
+fn as_background_question(mut asked: crate::ask::Asked, who: String) -> crate::ask::Asked {
+    asked.from_background = Some(who);
+    asked
+}
+
+/// 屏幕是不是刚刚变得能接一条后台问询（`Host::bg_question_ready`：没有别的问询在等、
+/// 输入框空）—— 判边沿不判电平：每帧都判，只有从不能到能的那一下才轮到后台的问询
+/// （设计 §6）。不论是怎么变的：键、鼠标、流尾兜底、收回、发出或清掉输入框里的字。
+fn became_ready(was: bool, is: bool) -> bool {
+    !was && is
+}
+
 /// The address a click on `link` may open, or `None` for one it must not.
 ///
 /// Web addresses only. A link is text the model wrote, and opening is a single
@@ -9153,6 +9414,120 @@ mod provider_probe_tests {
             "{}",
             conversation(&host)
         );
+    }
+}
+
+#[cfg(test)]
+mod bg_question_tests {
+    use super::{as_background_question, became_ready, bg_answer_failure};
+    use crate::ask::Asked;
+    use crate::i18n::{t, Msg};
+    use atomcode_harness::seams::Question;
+
+    fn question(asker: Option<&str>) -> Asked {
+        Question {
+            prompt: "write it?".into(),
+            options: Vec::new(),
+            asker: asker.map(str::to_string),
+            about: None,
+        }
+        .into()
+    }
+
+    /// 前台那条问询不论怎么答掉(这里走鼠标那条路:`take_id(..).finish(..)`),能接
+    /// 后台问询的那一刻就轮到后台 —— 且只有那一刻,下一帧不再轮一次;输入框里有字
+    /// 时不算能接,字清掉的那一刻才算。
+    #[test]
+    fn the_moment_the_screen_can_take_one_is_seen_once() {
+        let h = crate::host::Host::new(
+            std::sync::Arc::new(crate::module::Modules::new()),
+            crate::host::default_layout(),
+        );
+        let fired = std::cell::Cell::new(0);
+        let mut was = h.bg_question_ready();
+        let mut frame = || {
+            let is = h.bg_question_ready();
+            if became_ready(was, is) {
+                fired.set(fired.get() + 1);
+            }
+            was = is;
+        };
+        frame();
+        let (id, _answer) = h.asks.push_with_id(question(None));
+        frame();
+        frame();
+        h.asks.take_id(id).expect("front").finish(vec![None]);
+        frame();
+        frame();
+        assert_eq!(fired.get(), 1);
+        // 收回也是空出来。
+        let (id, _answer) = h.asks.push_with_id(question(None));
+        frame();
+        assert!(h.asks.withdraw(id));
+        frame();
+        frame();
+        assert_eq!(fired.get(), 2);
+        // 人在打字:不算能接;发出去(输入框空了)的那一刻才算。
+        h.moment.write().unwrap().input = "half a thought".into();
+        frame();
+        frame();
+        assert_eq!(fired.get(), 2);
+        h.moment.write().unwrap().input.clear();
+        frame();
+        frame();
+        assert_eq!(fired.get(), 3);
+        // 后台面板开着:键盘在面板手里,不算能接;收起的那一刻才算。
+        h.moment.write().unwrap().bg_panel = Some(crate::bg::Panel::new(None));
+        frame();
+        frame();
+        assert_eq!(fired.get(), 3);
+        assert!(h.close_bg());
+        frame();
+        frame();
+        assert_eq!(fired.get(), 4);
+    }
+
+    /// 前台答的那一下没送到,屏幕要明说(设计 §7):问题换了照宿主给的原因说,会话不在
+    /// 后台了说它不在了,别的照宿主的拒绝说 —— 都不是空话。
+    #[test]
+    fn a_background_answer_that_did_not_land_is_said() {
+        use atomcode_host_api::HostError;
+        assert_eq!(
+            bg_answer_failure(HostError::Busy {
+                reason: "stale".into()
+            }),
+            "stale"
+        );
+        assert_eq!(
+            bg_answer_failure(HostError::NotFound),
+            t(Msg::BgAnswerGone).into_owned()
+        );
+        assert_eq!(
+            bg_answer_failure(HostError::Failed {
+                message: "gone".into()
+            }),
+            "gone"
+        );
+    }
+
+    #[test]
+    fn became_ready_is_an_edge_not_a_level() {
+        assert!(became_ready(false, true));
+        assert!(!became_ready(true, true));
+        assert!(!became_ready(false, false));
+        assert!(!became_ready(true, false));
+    }
+
+    /// 说清是哪个后台会话在问,记在它自己的位置上;原来的问者(那个会话的成员)不动。
+    #[test]
+    fn a_background_question_says_who_is_asking() {
+        let who = "background [1] x is asking".to_string();
+        let plain = as_background_question(question(None), who.clone());
+        assert_eq!(plain.from_background.as_deref(), Some(who.as_str()));
+        assert_eq!(plain.question.asker, None);
+        let member = as_background_question(question(Some("scout")), who.clone());
+        assert_eq!(member.from_background.as_deref(), Some(who.as_str()));
+        assert_eq!(member.question.asker.as_deref(), Some("scout"));
     }
 }
 

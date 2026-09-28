@@ -322,6 +322,22 @@ pub enum HostCommand {
     /// Throw `target`, a background session, away: a turn it is running is
     /// cancelled first, and what it wrote stays in its log.
     DropBackground { target: String },
+    /// 一个后台会话此刻挂着的那个问询，原样取回来。
+    ///
+    /// 它不是列表的一部分：`BackgroundChanged` 说的是「有哪些会话、各自什么状态」，
+    /// 而这里要的是那次问答本身 —— 载荷，以及画它要用的那几条刚被记下的 `Asked`。
+    /// 会话不在后台、或没在等人，都是 [`HostError::NotFound`]：没有那个问询可说，
+    /// 不猜一个。
+    BackgroundQuestion { target: String },
+    /// 把一个后台会话挂着的那个请求答了，用那个请求自己的 id 与词汇。
+    ///
+    /// 与 [`HostCommand::TellBackground`] 的区别：那一个送一句话开一个新回合，这一个
+    /// 只回答已经挂着的那个。挂着的已经不是它了就明说（拒绝），绝不把答案安在别的问题上。
+    AnswerBackground {
+        target: String,
+        id: atomcode_kernel::event::RequestId,
+        value: serde_json::Value,
+    },
 }
 
 impl HostCommand {
@@ -379,7 +395,9 @@ impl HostCommand {
             Self::BackgroundSessions
             | Self::StartBackground { .. }
             | Self::TellBackground { .. }
-            | Self::DropBackground { .. } => None,
+            | Self::DropBackground { .. }
+            | Self::BackgroundQuestion { .. }
+            | Self::AnswerBackground { .. } => None,
         }
     }
 }
@@ -593,6 +611,18 @@ pub enum HostReply {
     /// The sessions kept running out of view, in slot order.
     BackgroundSessions {
         sessions: Vec<BackgroundSession>,
+    },
+    /// 一个后台会话挂着的那个问询，完整到能画。
+    BackgroundQuestion {
+        session: String,
+        /// 它挂着的那个请求的 id —— 要回答的就是它。
+        id: atomcode_kernel::event::RequestId,
+        /// 请求自己的 kind，屏幕照它把载荷变成问题（与它自己那个会话同一套代码）。
+        kind: String,
+        payload: serde_json::Value,
+        /// 那个会话日志的尾巴：屏幕要靠它找到 agent 在发问前记下的那条 `Asked`，
+        /// 少了它，审批会退化成没有 allow-all 的原始问法。
+        facts: Vec<LoggedFact>,
     },
     /// The answer to [`HostCommand::Readiness`].
     Readiness {
@@ -1269,6 +1299,19 @@ pub struct BackgroundSession {
     pub origin: Option<String>,
 }
 
+/// 一条已提交的事实，过线时的形状。
+///
+/// `atomcode_kernel::session::LoggedEvent` 是同一个三元组，但**故意不可序列化**
+/// （只有 `Clone, Debug, PartialEq`）：它是读者的类型，落盘是一条条手写的。
+/// 凡是前端要问的都得过进程边界，所以形状在这里说一遍 —— 里面的 `event` 与它
+/// 带的 `Question` 本来就是可序列化的。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LoggedFact {
+    pub seq: SeqNo,
+    pub at: u64,
+    pub event: atomcode_kernel::session::SessionEvent,
+}
+
 /// What a background session's work cost, field for field what the turn summary
 /// beside it needs (`2 轮 · 2 工具 · 32.7s · 2.60K tokens · 97% cached`).
 ///
@@ -1563,6 +1606,12 @@ mod tests {
                 text: "接着来".into(),
             },
             HostCommand::DropBackground { target: "b".into() },
+            HostCommand::BackgroundQuestion { target: "b".into() },
+            HostCommand::AnswerBackground {
+                target: "b".into(),
+                id: 7,
+                value: serde_json::json!({ "decision": "allow" }),
+            },
         ];
         for c in &all {
             match c {
@@ -1612,6 +1661,8 @@ mod tests {
                 | HostCommand::StartBackground { .. }
                 | HostCommand::TellBackground { .. }
                 | HostCommand::DropBackground { .. }
+                | HostCommand::BackgroundQuestion { .. }
+                | HostCommand::AnswerBackground { .. }
                 | HostCommand::ResetSetting { .. } => {}
             }
         }
@@ -1866,6 +1917,17 @@ mod tests {
                 HostReply::BackgroundSessions {
                     sessions: vec![background_session()],
                 },
+                HostReply::BackgroundQuestion {
+                    session: "b".into(),
+                    id: 7,
+                    kind: "approval".into(),
+                    payload: serde_json::json!({ "tool": "write_file", "args": "{}" }),
+                    facts: vec![LoggedFact {
+                        seq: 1,
+                        at: 1_758_000_000_000,
+                        event: atomcode_kernel::session::SessionEvent::TurnStart { turn: 1 },
+                    }],
+                },
             ])
             .collect();
         for r in &all {
@@ -1896,6 +1958,7 @@ mod tests {
                 | HostReply::ToolCatalog { .. }
                 | HostReply::Backgrounded { .. }
                 | HostReply::BackgroundSessions { .. }
+                | HostReply::BackgroundQuestion { .. }
                 | HostReply::Readiness { .. } => {}
             }
         }
@@ -1958,6 +2021,23 @@ mod tests {
             stats: None,
             origin: Some("a".into()),
         }
+    }
+
+    /// 那个问询要原样过得去:id、载荷、以及画它要用的那几条事实。
+    #[test]
+    fn a_background_question_crosses_the_wire_whole() {
+        let reply = HostReply::BackgroundQuestion {
+            session: "b".into(),
+            id: 7,
+            kind: "approval".into(),
+            payload: serde_json::json!({ "tool": "write_file", "args": "{}" }),
+            facts: vec![LoggedFact {
+                seq: 1,
+                at: 1_758_000_000_000,
+                event: atomcode_kernel::session::SessionEvent::TurnStart { turn: 1 },
+            }],
+        };
+        crosses(&reply);
     }
 
     fn errors() -> Vec<HostError> {
@@ -2038,7 +2118,9 @@ mod tests {
                 | HostCommand::BackgroundSessions
                 | HostCommand::StartBackground { .. }
                 | HostCommand::TellBackground { .. }
-                | HostCommand::DropBackground { .. } => None,
+                | HostCommand::DropBackground { .. }
+                | HostCommand::BackgroundQuestion { .. }
+                | HostCommand::AnswerBackground { .. } => None,
                 _ => Some("a"),
             };
             assert_eq!(command.addressed(), expected, "{command:?}");

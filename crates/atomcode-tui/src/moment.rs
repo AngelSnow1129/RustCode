@@ -832,6 +832,24 @@ pub struct Moment {
     /// 放在这儿而不是面板里:面板是纯数据、每一键重算一次,而这个是异步回来的,
     /// 且要能认出「答案回来时人已经走到别的行上了」——那时它作废。
     pub resume_preview: Option<(String, Option<Vec<String>>)>,
+    /// 从后台提上来的那条问询：哪个会话问的，以及它在 `Asks` 里的 id。
+    ///
+    /// `Some((session, None))` 是**正在取**（事实还在路上），`Some((session, Some((ask,
+    /// request))))` 是已经在屏幕上：`ask` 是它在 `Asks` 里的 id，`request` 是那个后台
+    /// 会话自己那个请求的 id。两件事共用一条状态，就没有「在屏幕上但不知道是哪一条」
+    /// 的中间态 —— 形状与 `resume_preview` 一样。
+    pub bg_asked: Option<(String, Option<(u64, atomcode_kernel::event::RequestId)>)>,
+    /// 最近一条在这块屏幕上答掉的后台问询：哪个会话、它那个请求的 id。
+    ///
+    /// 答案送出去到那个会话真的收到之间有一段路；这段路上再取一次，宿主报回来的还是
+    /// 同一个请求。认得出它，才不会把刚答过的问题再摆一次（`Host::bg_question_answered`）。
+    pub bg_answered: Option<(String, atomcode_kernel::event::RequestId)>,
+    /// 那条答过的已经为「答案还在路上」再取过一次了：只取这一次，不对着一个迟迟不走
+    /// 的请求一直取下去。每次记下新的 `bg_answered` 时放回 `false`。
+    pub bg_answered_repulled: bool,
+    /// 取的路上有一次列表变化被 `bg_question_wanted` 挡掉了（正在取，不要第二次）。
+    /// 这一趟没提上来就得替它再取一次，否则那次变化就丢了。
+    pub bg_repull: bool,
     /// 底部那张单子(`/agents`、`/cd`、`/diff`、`/view`),`None` 是没升着。
     pub sheet: Option<crate::sheet::Sheet>,
     /// 一个多步的流程(引导、配对的向导),这一帧画出来的样子。宿主合成每一帧时
