@@ -87,6 +87,60 @@ pub fn repair_tool_args(tool_name: &str, args: &str) -> String {
 /// that provider defect from an intentional string, so this pass is explicitly
 /// schema-bound: string fields are never touched, nested fields are not walked,
 /// and the decoded value must have the required container kind.
+///
+/// Collect the top-level `properties` a tool schema exposes.
+///
+/// A schema whose top level is a union (`oneOf`/`anyOf`/`allOf`) -- e.g. the
+/// `team` tool, whose branches each carry their own `properties` -- has no
+/// top-level `properties` at all. Reading only `schema["properties"]` silently
+/// disabled this whole repair pass for that tool, so a provider that stringifies
+/// an array (`{"action":"delegate","tasks":"[{...}]"}`) got no help while `task`
+/// (a flat `properties` schema) did. Merging the branches closes that asymmetry.
+///
+/// Two names colliding across branches are merged as `anyOf`, so the existing
+/// type union rules apply unchanged (a branch that permits `string` still wins
+/// and the field is preserved, not decoded).
+fn collect_top_level_properties(
+    schema: &serde_json::Value,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let mut merged: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+    let mut push = |properties: &serde_json::Map<String, serde_json::Value>| {
+        for (name, property_schema) in properties {
+            match merged.get(name) {
+                Some(existing) if existing != property_schema => {
+                    merged.insert(
+                        name.clone(),
+                        serde_json::json!({"anyOf": [existing.clone(), property_schema.clone()]}),
+                    );
+                }
+                Some(_) => {}
+                None => {
+                    merged.insert(name.clone(), property_schema.clone());
+                }
+            }
+        }
+    };
+    if let Some(properties) = schema
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+    {
+        push(properties);
+    }
+    for keyword in ["anyOf", "oneOf", "allOf"] {
+        if let Some(branches) = schema.get(keyword).and_then(serde_json::Value::as_array) {
+            for branch in branches {
+                if let Some(properties) = branch
+                    .get("properties")
+                    .and_then(serde_json::Value::as_object)
+                {
+                    push(properties);
+                }
+            }
+        }
+    }
+    (!merged.is_empty()).then_some(merged)
+}
+
 fn repair_stringified_structured_fields(args: &str, schema: &serde_json::Value) -> String {
     if args.len() > MAX_REPAIR_BYTES {
         return args.to_string();
@@ -94,17 +148,15 @@ fn repair_stringified_structured_fields(args: &str, schema: &serde_json::Value) 
     let Ok(mut value) = serde_json::from_str::<serde_json::Value>(args) else {
         return args.to_string();
     };
-    let (Some(arguments), Some(properties)) = (
-        value.as_object_mut(),
-        schema
-            .get("properties")
-            .and_then(serde_json::Value::as_object),
-    ) else {
+    let Some(arguments) = value.as_object_mut() else {
+        return args.to_string();
+    };
+    let Some(properties) = collect_top_level_properties(schema) else {
         return args.to_string();
     };
 
     let mut changed = false;
-    for (name, property_schema) in properties {
+    for (name, property_schema) in &properties {
         let Some(raw) = arguments.get(name).and_then(serde_json::Value::as_str) else {
             continue;
         };
@@ -2111,6 +2163,93 @@ mod middleware_tests {
         let mut c = call("tool", &oversized);
         mw.repair_call("tool", &schema(), &mut c);
         assert_eq!(c.arguments, oversized);
+    }
+
+    /// The `team` tool's schema is a top-level `oneOf` (each branch carries its
+    /// own `properties`), so it has no `schema["properties"]`. Reading only that
+    /// key silently skipped this pass for `team` while `task` -- a flat
+    /// `properties` schema -- was repaired. See `collect_top_level_properties`.
+    fn oneof_schema() -> serde_json::Value {
+        json!({
+            "type": "object",
+            "oneOf": [
+                {
+                    "properties": {
+                        "action": { "const": "delegate" },
+                        "tasks": { "type": "array", "minItems": 1 }
+                    },
+                    "required": ["action", "tasks"]
+                },
+                {
+                    "properties": {
+                        "action": { "const": "status" },
+                        "run_id": { "type": "string" }
+                    },
+                    "required": ["action"]
+                }
+            ]
+        })
+    }
+
+    #[test]
+    fn decodes_stringified_array_inside_a_oneof_schema() {
+        let mw = RepairToolArgsMiddleware;
+        let args = r#"{"action":"delegate","tasks":"[{\"description\":\"probe\",\"prompt\":\"say OK\",\"role\":\"explorer\"}]"}"#;
+        let mut c = call("team", args);
+        mw.repair_call("team", &oneof_schema(), &mut c);
+        let value: serde_json::Value = serde_json::from_str(&c.arguments).unwrap();
+        assert!(
+            value["tasks"].is_array(),
+            "tasks should be decoded into an array: {}",
+            c.arguments
+        );
+        assert_eq!(value["tasks"][0]["description"], "probe");
+    }
+
+    #[test]
+    fn oneof_schema_still_preserves_string_typed_fields() {
+        // Reverse guard: the "union explicitly permits strings -> preserve" rule
+        // must keep holding once branch properties are merged.
+        let mw = RepairToolArgsMiddleware;
+        let schema = json!({
+            "type": "object",
+            "oneOf": [
+                { "properties": { "content": { "type": "string" } } },
+                { "properties": { "ambiguous": { "type": ["string", "array"] } } }
+            ]
+        });
+        let input = r#"{"content":"[1,2]","ambiguous":"[1,2]"}"#;
+        let mut c = call("tool", input);
+        mw.repair_call("tool", &schema, &mut c);
+        assert_eq!(c.arguments, input);
+    }
+
+    #[test]
+    fn oneof_schema_colliding_names_merge_as_a_type_union() {
+        // `run_id` is required-string in one branch and stringified-array in the
+        // other: the merged type set still contains "array", so it is decoded.
+        let mw = RepairToolArgsMiddleware;
+        let schema = json!({
+            "type": "object",
+            "oneOf": [
+                { "properties": { "run_id": { "type": "string" } } },
+                { "properties": { "run_id": { "type": "array" } } }
+            ]
+        });
+        let mut c = call("tool", r#"{"run_id":"[\"a\"]"}"#);
+        mw.repair_call("tool", &schema, &mut c);
+        let value: serde_json::Value = serde_json::from_str(&c.arguments).unwrap();
+        // A formerly string-typed field now becomes ambiguous, so it must survive.
+        assert_eq!(value["run_id"], "[\"a\"]");
+    }
+
+    #[test]
+    fn schemas_without_any_properties_are_left_untouched() {
+        let mw = RepairToolArgsMiddleware;
+        let input = r#"{"anything":"[1,2]"}"#;
+        let mut c = call("tool", input);
+        mw.repair_call("tool", &json!({"type": "object"}), &mut c);
+        assert_eq!(c.arguments, input);
     }
 }
 
