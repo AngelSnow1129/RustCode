@@ -685,9 +685,15 @@ impl LiveViewHub {
             .resume_session_with_lease(session_id, working_dir, lease)
             .await
             .map_err(map_session_transition_error)?;
-        wait_mcp_ready_after_transition(&handle).await;
+        // Commit FIRST, then wait for MCP: the runtime has already moved to the new
+        // generation, and until the hub commits it still holds the old identity. A
+        // submit in that window ran on the runtime while its caller was told
+        // `RuntimeGenerationChanged`, and the commit then cleared an approval that
+        // turn had raised. The caller still gets its answer only once the tools are
+        // published (`wait_mcp_ready_after_transition`).
         self.commit_changed_snapshot(&binding, &handle, &changed)
             .await?;
+        wait_mcp_ready_after_transition(&handle).await;
         Ok(changed)
     }
 
@@ -703,11 +709,12 @@ impl LiveViewHub {
             .fresh_session()
             .await
             .map_err(map_session_transition_error)?;
-        wait_mcp_ready_after_transition(&handle).await;
+        // Commit before waiting for MCP — see `resume_session_with_lease`.
         let projection_error = self
             .commit_changed_snapshot(expected, &handle, &changed)
             .await
             .err();
+        wait_mcp_ready_after_transition(&handle).await;
         Ok(FreshSessionOutcome {
             changed,
             projection_error,
@@ -726,9 +733,10 @@ impl LiveViewHub {
         if session_change_is_noop(&binding, &changed) {
             return Ok(changed);
         }
-        wait_mcp_ready_after_transition(&handle).await;
+        // Commit before waiting for MCP — see `resume_session_with_lease`.
         self.commit_changed_snapshot(&binding, &handle, &changed)
             .await?;
+        wait_mcp_ready_after_transition(&handle).await;
         Ok(changed)
     }
 
@@ -742,10 +750,11 @@ impl LiveViewHub {
             .map_err(|error| HubError::RuntimeRejected(error.to_string()))?;
         // A reload reconnects every server: returning before their tools are
         // published hands the next prompt a model with no MCP tools, which is what
-        // `/mcp/reload` followed by an immediate question used to get.
-        wait_mcp_ready_after_transition(&handle).await;
+        // `/mcp/reload` followed by an immediate question used to get. Commit
+        // before waiting — see `resume_session_with_lease`.
         self.commit_changed_snapshot(&binding, &handle, &changed)
             .await?;
+        wait_mcp_ready_after_transition(&handle).await;
         Ok(changed)
     }
 
