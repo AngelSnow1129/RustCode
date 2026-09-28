@@ -35,6 +35,11 @@ struct Model {
     started: Arc<AtomicUsize>,
     /// Slow turns the model finished — which a cancelled turn never does.
     finished: Arc<AtomicUsize>,
+    /// Turns that reached the model — requests that carry tools. The side
+    /// calls a session makes on its own (its title, the guess at what to say
+    /// next) are answered but not counted: they land whenever they land, and a
+    /// test waiting on this for "the reply reached the model" was satisfied by
+    /// one of them before the reply was sent.
     count: Arc<AtomicUsize>,
 }
 
@@ -102,6 +107,9 @@ impl LlmProvider for Model {
             let _ = gate.wait_for(|open| *open).await;
             self.finished.fetch_add(1, Ordering::SeqCst);
             "slow done".to_string()
+        } else if tools.is_empty() {
+            // A side call, not a turn: answered, and not counted (see `count`).
+            "side".to_string()
         } else {
             let n = self.count.fetch_add(1, Ordering::SeqCst) + 1;
             format!("answer {n}")
@@ -322,6 +330,16 @@ impl Rig {
     }
 
     async fn stored(&self, session: &str) -> String {
+        match self.read_stored(session).await {
+            Ok(lines) => lines,
+            Err(other) => panic!("the log of {session} can be read: {other}"),
+        }
+    }
+
+    /// [`stored`](Self::stored), without giving up on a failed read — for a
+    /// poll that runs while the session is still writing, where the last line
+    /// can be caught half written.
+    async fn read_stored(&self, session: &str) -> Result<String, String> {
         match self
             .control()
             .call(HostCommand::PreviewSession {
@@ -329,8 +347,8 @@ impl Rig {
             })
             .await
         {
-            Ok(HostReply::SessionPreview { lines }) => lines.join("\n"),
-            other => panic!("the log of {session} can be read: {other:?}"),
+            Ok(HostReply::SessionPreview { lines }) => Ok(lines.join("\n")),
+            other => Err(format!("{other:?}")),
         }
     }
 
@@ -637,7 +655,8 @@ async fn taking_the_review_row_leaves_it_on_the_line() {
 /// conversation that started it — not a "go read /bg" pointer — and the model
 /// runs a turn on it, which is what the line promising to verify needs.
 ///
-/// The scripted provider answers `answer N` off one counter, so `answer 1` on
+/// The scripted provider answers `answer N` off one counter of turns (side
+/// calls are not counted, see `Model::count`), so `answer 1` on
 /// this screen can only be the delivered content (the background session's own
 /// transcript is not on screen), and `answer 2` is the turn that followed it.
 #[tokio::test(flavor = "multi_thread")]
@@ -792,6 +811,16 @@ async fn a_question_asked_in_the_background_is_asked_again_on_return() {
     rig.quit().await;
 }
 
+/// Whether a session's preview has `said` on a line and something after it —
+/// the answer to it, since the preview alternates what was said and answered.
+fn answered_after(preview: &str, said: &str) -> bool {
+    let lines: Vec<&str> = preview.lines().collect();
+    lines
+        .iter()
+        .position(|line| line.contains(said))
+        .is_some_and(|at| at + 1 < lines.len())
+}
+
 /// **Space replies to a background session in place.** The words go to the
 /// selected session — its log has them and the model answered — and the screen
 /// stays where it was.
@@ -807,22 +836,40 @@ async fn space_in_the_panel_replies_without_switching() {
     })
     .await;
     let task = rig.background().await[0].session.clone();
-    let before = rig.script.count.load(Ordering::SeqCst);
 
     rig.term.type_line("/bg list");
     rig.until_screen(&t(Msg::BgPlaceholder)).await;
     rig.term.press(KeyPress::ch(' '));
     rig.term.type_line("one more thing");
-    rig.until("the reply reached the model", |rig| {
-        rig.script.count.load(Ordering::SeqCst) > before
-    })
-    .await;
+    // Waited for in that session's own log, which is what is being asserted.
+    // Not on the model's turn counter, and not on the panel's `Done`: the first
+    // turn's result comes home and the foreground runs a turn on it, which moves
+    // the counter before the reply is sent; and the panel still says `Done`
+    // from the first turn until the reply's turn shows as running.
+    // Read while that session may still be writing, so a failed read (a last
+    // line caught half written) is "not yet", not a failure.
+    let mut stored = String::new();
+    for _ in 0..400 {
+        if let Ok(now) = rig.read_stored(&task).await {
+            stored = now;
+            if answered_after(&stored, "one more thing") {
+                break;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(
+        answered_after(&stored, "one more thing"),
+        "the reply is in that session's log, and was answered there:\n{stored}"
+    );
+    // And the reply's turn is over before leaving — the `Done` now is that
+    // turn's, since its answer is already in the log. Leaving with it still
+    // running would stop at "background sessions are running, quit?".
     rig.until_background("the reply's turn is done", |list| {
         list.first()
             .is_some_and(|s| s.state == BackgroundState::Done)
     })
     .await;
-    assert!(rig.stored(&task).await.contains("one more thing"));
     assert_eq!(rig.client.root(), first, "the screen did not switch");
     rig.quit().await;
 }
