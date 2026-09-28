@@ -42,6 +42,7 @@ async fn plan_mode_blocks_a_write_tool_through_the_assembly() {
         request_user_input: true,
         rate_limit_source: None,
         front_end: None,
+        review_delegate: None,
     };
 
     let parts = prepare(&cfg, opts.clone()).await.unwrap();

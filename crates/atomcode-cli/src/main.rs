@@ -2304,6 +2304,9 @@ async fn run() -> Result<i32> {
         == atomcode_config::config::Screen::Rows;
     let tui_front_end =
         (rows_screen && !is_headless).then(atomcode_coding::front_end::FrontEnd::new);
+    // Bound to the background sessions once the screen is up (`tui_front::run`);
+    // until then — and on any other screen — `code_review` runs inline.
+    let review_home = atomcode::background::ReviewHome::new();
     let (native_runtime, native_coding_cfg, continued_session) = spawn_native_cli_runtime(
         &runtime_cfg,
         resume_session_id,
@@ -2315,6 +2318,7 @@ async fn run() -> Result<i32> {
         // error. Headless (`-p`) keeps the fail-closed hard error (no picker).
         !is_headless,
         tui_front_end.clone(),
+        Some(&review_home),
     )
     .await?;
     // The active session id (fresh or resumed) for the on-exit resume hint,
@@ -2599,10 +2603,12 @@ async fn run() -> Result<i32> {
                     let provider = cli.provider.clone();
                     let skip_permissions = cli.dangerously_skip_permissions;
                     let no_tools = cli.no_tools;
+                    let review_home = review_home.clone();
                     std::sync::Arc::new(move |working_dir: std::path::PathBuf| {
                         let config_path = config_path.clone();
                         let telemetry = telemetry.clone();
                         let provider = provider.clone();
+                        let review_home = review_home.clone();
                         Box::pin(async move {
                             let config = if config_path.exists() {
                                 atomcode_config::config::Config::load(&config_path)
@@ -2629,6 +2635,7 @@ async fn run() -> Result<i32> {
                                 true,
                                 true,
                                 Some(front_end.clone()),
+                                Some(&review_home),
                             )
                             .await
                             .map_err(|e| e.to_string())?;
@@ -2657,6 +2664,7 @@ async fn run() -> Result<i32> {
                     // `screen_for`, not here.
                     startup_notice.clone(),
                     Some(spawn),
+                    Some(review_home.clone()),
                 )
                 .await
                 .map_err(|why| anyhow::anyhow!(why));
@@ -3066,6 +3074,11 @@ pub(crate) async fn spawn_native_cli_runtime(
     // A front end outside the runtime's App (`atomcode --tui`), fed from every
     // App the runtime builds. `None` when the driver reads the runtime's events.
     front_end: Option<Arc<atomcode_coding::front_end::FrontEnd>>,
+    // Where `code_review` may run out of view: the terminal's background
+    // sessions, bound once the screen is up. Only a runtime with a front end of
+    // its own can be told apart as "the one in front", so the port is built
+    // only for those; every other driver reviews inline.
+    review_home: Option<&atomcode::background::ReviewHome>,
 ) -> anyhow::Result<(
     atomcode_coding::CodingRuntime,
     atomcode_coding::CodingAgentConfig,
@@ -3136,6 +3149,10 @@ pub(crate) async fn spawn_native_cli_runtime(
     prepare.subagents = atomcode_coding::SubagentPolicy::Enabled;
     prepare.session = session;
     prepare.rate_limit_source = Some(atomcode_daemon::coding_plan_rate_limit_source());
+    prepare.review_delegate = match (review_home, &front_end) {
+        (Some(home), Some(front_end)) => Some(home.delegate_for(front_end)),
+        _ => None,
+    };
     prepare.front_end = front_end;
     let start = atomcode_coding::CodingRuntimeStart {
         agent: agent.clone(),

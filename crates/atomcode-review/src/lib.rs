@@ -51,7 +51,9 @@ pub use impact_plan::render_review_impact_plan;
 pub use persona::review_persona;
 /// The `code_review` SUB-AGENT tool — mount it in a host agent (e.g. coding) to give that
 /// agent a read-only "review the current changes" capability.
-pub use review_tool::{ReviewTool, ReviewToolConfig, SharedReviewProvider};
+pub use review_tool::{
+    DelegatedReview, ReviewDelegate, ReviewTool, ReviewToolConfig, SharedReviewProvider,
+};
 pub use rules::{changed_files_from_diff, is_low_signal_file, render_rules_section};
 
 /// Re-exported so a driver (CLI) can read findings without depending on

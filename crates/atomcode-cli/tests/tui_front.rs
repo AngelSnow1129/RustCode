@@ -87,6 +87,7 @@ fn start(
                 subagents: SubagentPolicy::Disabled,
                 rate_limit_source: None,
                 front_end,
+                review_delegate: None,
             },
             provider_factory: Arc::new(Factory(count.clone())),
             plugin_hooks: Arc::new(StaticPluginHookSource::default()),

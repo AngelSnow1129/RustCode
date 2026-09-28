@@ -45,6 +45,7 @@ async fn sensitive_read_is_gated_and_fails_closed_through_full_assembly() {
         request_user_input: true,
         rate_limit_source: None,
         front_end: None,
+        review_delegate: None,
     };
     let parts = prepare(&cfg, opts.clone()).await.unwrap();
 

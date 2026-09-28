@@ -49,6 +49,7 @@ async fn always_allow_grants_survive_reassembly() {
         request_user_input: true,
         rate_limit_source: None,
         front_end: None,
+        review_delegate: None,
     };
     let parts = prepare(&cfg, opts.clone()).await.unwrap();
 

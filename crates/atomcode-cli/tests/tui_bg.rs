@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use atomcode::background::{Spawn, Spawned};
+use atomcode::background::{ReviewHome, Spawn, Spawned};
 use atomcode::tui_front;
 use atomcode_coding::front_end::FrontEnd;
 use atomcode_coding::{
@@ -83,6 +83,19 @@ impl LlmProvider for Model {
                 StreamEvent::Done { truncated: false },
             ])));
         }
+        // `review it`: the model reaches for `code_review` on its own, the way a
+        // person's "审查下代码改动" makes it.
+        if !tools.is_empty() && last.is_some_and(|m| m.role == Role::User && m.text == "review it")
+        {
+            return Ok(Box::pin(futures::stream::iter(vec![
+                StreamEvent::ToolCall(ToolCall {
+                    id: "call-review".into(),
+                    name: "code_review".into(),
+                    arguments: "{}".into(),
+                }),
+                StreamEvent::Done { truncated: false },
+            ])));
+        }
         let text = if slow {
             self.started.fetch_add(1, Ordering::SeqCst);
             let mut gate = self.gate.clone();
@@ -124,6 +137,7 @@ fn start(
     project: &std::path::Path,
     script: &Script,
     front_end: Arc<FrontEnd>,
+    review_home: &ReviewHome,
 ) -> (CodingRuntimeStart, CodingAgentConfig) {
     let mut agent = CodingAgentConfig::new("key", "https://example.test/v1", "scripted", project);
     agent.interactive = true;
@@ -141,9 +155,12 @@ fn start(
                 external_subagents: Vec::new(),
                 memory: false,
                 web: false,
-                review: false,
+                // Mounted, and handed the terminal's way to run it out of view —
+                // what the launcher does (`spawn_native_cli_runtime`).
+                review: true,
                 subagents: SubagentPolicy::Disabled,
                 rate_limit_source: None,
+                review_delegate: Some(review_home.delegate_for(&front_end)),
                 front_end: Some(front_end),
             },
             provider_factory: Arc::new(script.clone()),
@@ -163,7 +180,7 @@ fn start(
 /// `TempDir` the other is still writing a session into.
 struct Rig {
     _home: tempfile::TempDir,
-    _project: tempfile::TempDir,
+    project: tempfile::TempDir,
     gate: watch::Sender<bool>,
     script: Script,
     term: Arc<atomcode_tui::surface::Headless>,
@@ -188,15 +205,19 @@ impl Rig {
             count: Arc::new(AtomicUsize::new(0)),
         };
         let front_end = FrontEnd::new();
-        let (first, config) = start(project.path(), &script, front_end.clone());
+        let review_home = ReviewHome::new();
+        let (first, config) = start(project.path(), &script, front_end.clone(), &review_home);
         let runtime = CodingRuntime::start(first).await.expect("starts");
         let spawn: Spawn = {
             let script = script.clone();
+            let review_home = review_home.clone();
             Arc::new(move |working_dir: std::path::PathBuf| {
                 let script = script.clone();
+                let review_home = review_home.clone();
                 Box::pin(async move {
                     let front_end = FrontEnd::new();
-                    let (start, config) = start(&working_dir, &script, front_end.clone());
+                    let (start, config) =
+                        start(&working_dir, &script, front_end.clone(), &review_home);
                     let runtime = CodingRuntime::start(start)
                         .await
                         .map_err(|e| e.to_string())?;
@@ -222,6 +243,7 @@ impl Rig {
             None,
             None,
             Some(spawn),
+            Some(review_home),
         )
         .await
         .expect("the screen mounts");
@@ -239,7 +261,7 @@ impl Rig {
         });
         let rig = Self {
             _home: home,
-            _project: project,
+            project,
             gate,
             script,
             term,
@@ -533,6 +555,47 @@ async fn a_review_result_comes_home_labelled_as_the_background_job() {
         "the result itself is here, not only a chip:\n{}",
         rig.term.text()
     );
+    rig.quit().await;
+}
+
+/// **The model's own `code_review` runs where `/review` does.** Asked in plain
+/// words, the model reaches for the tool; in the conversation in front, the
+/// tool hands the review to a background session and returns at once — the turn
+/// is not held for the minutes a review takes — and the review's result comes
+/// home the way `/review`'s does.
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn the_models_code_review_runs_in_a_background_session() {
+    let rig = Rig::new().await;
+    let first = rig.client.root();
+    // Something to review: a repository with an uncommitted change.
+    let dir = rig.project.path();
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .output()
+            .expect("git runs");
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.email", "t@example.com"]);
+    git(&["config", "user.name", "t"]);
+    std::fs::write(dir.join("a.rs"), "fn main() {}\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-qm", "init"]);
+    std::fs::write(dir.join("a.rs"), "fn main() { changed(); }\n").unwrap();
+
+    rig.term.type_line("review it");
+    // Out of view, working for this conversation: an inline review would have
+    // started no session at all.
+    rig.until_background("the review went to a background session", |list| {
+        list.len() == 1 && list[0].origin.as_deref() == Some(first.as_str())
+    })
+    .await;
+    assert_eq!(rig.client.root(), first, "the foreground never moved");
+    // And the review's own answer comes home, folded to its one line.
+    rig.until_screen("结果回来了").await;
     rig.quit().await;
 }
 

@@ -49,6 +49,76 @@ pub struct Spawned {
 /// `spawn_native_cli_runtime`),这里不另建一套。
 pub type Spawn = Arc<dyn Fn(PathBuf) -> BoxFuture<'static, Result<Spawned, String>> + Send + Sync>;
 
+/// 让前台那段对话里的 `code_review` 和 `/review` 走同一条路:开一个后台会话去审,
+/// 调用立刻返回,审完结果投回来(`deliver_home`)。
+///
+/// 端口得在 runtime 建起来**之前**交给它(`PrepareOptions::review_delegate`),而
+/// [`Background`] 要等屏幕接上才有 —— 所以是一个晚绑定的格子:启动器建一个,前台
+/// runtime 与 `/bg` 起的每个 runtime 都拿它造自己的端口,[`connect`] 之后
+/// [`Self::bind`]。没绑上、`Background` 已经没了,都是「不在这里」:就地审。
+///
+/// 只存 `Weak`:`Background` → `Live` → runtime → 工具 → 端口,存强引用就是一个环。
+#[derive(Clone, Debug, Default)]
+pub struct ReviewHome(Arc<Mutex<Weak<Background>>>);
+
+impl ReviewHome {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 屏幕接上了:从现在起,前台的审查交给它。
+    pub fn bind(&self, background: &Arc<Background>) {
+        *self.0.lock().expect("review home poisoned") = Arc::downgrade(background);
+    }
+
+    /// 一个 runtime 的端口。认的是它起的时候带的那个前端 —— 前台换了人(`/bg`
+    /// 把它挪走了),它就不再是替谁开后台会话的那一个。
+    pub fn delegate_for(
+        &self,
+        front_end: &Arc<FrontEnd>,
+    ) -> Arc<dyn atomcode_review::ReviewDelegate> {
+        Arc::new(ReviewElsewhere {
+            home: self.clone(),
+            front_end: Arc::downgrade(front_end),
+        })
+    }
+}
+
+#[derive(Debug)]
+struct ReviewElsewhere {
+    home: ReviewHome,
+    front_end: Weak<FrontEnd>,
+}
+
+#[async_trait]
+impl atomcode_review::ReviewDelegate for ReviewElsewhere {
+    async fn delegate(
+        &self,
+        working_dir: &std::path::Path,
+        task: String,
+        scope: Option<String>,
+    ) -> Option<Result<atomcode_review::DelegatedReview, String>> {
+        let background = self
+            .home
+            .0
+            .lock()
+            .expect("review home poisoned")
+            .upgrade()?;
+        let front_end = self.front_end.upgrade()?;
+        match background
+            .start_for(&front_end, working_dir.to_path_buf(), task, scope)
+            .await
+        {
+            Ok(None) => None,
+            Ok(Some(HostReply::Backgrounded { slot, files, .. })) => {
+                Some(Ok(atomcode_review::DelegatedReview { slot, files }))
+            }
+            Ok(Some(other)) => Some(Err(format!("{other:?}"))),
+            Err(error) => Some(Err(format!("{error:?}"))),
+        }
+    }
+}
+
 /// 一个接上了的 runtime。
 struct Live {
     id: u64,
@@ -966,6 +1036,52 @@ impl Background {
 
     async fn start(&self, text: String, scope: Option<String>) -> Result<HostReply, HostError> {
         let _op = self.op.lock().await;
+        let working_dir = {
+            let state = self.state.lock().expect("background poisoned");
+            state.front.control.clone()
+        }
+        .working_dir_now()
+        .await;
+        self.start_locked(working_dir, text, scope).await
+    }
+
+    /// [`Self::start`],替 `front_end` 那个 runtime —— 只在它**此刻**就是前台那个时。
+    ///
+    /// 模型在前台那段对话里调 `code_review` 时走这里(`ReviewHome`)。`Ok(None)` 是
+    /// 「不在这里」:它已经被挪到后台了(那就不是替谁干活,就地审),或者别的操作正
+    /// 拿着 `op`。后一种**不等**:这个调用发生在前台回合的一次工具调用里,而拿着 `op`
+    /// 的可能正等这个回合停下(退出时的 `shutdown_all`)—— 在这里等就是互相等死。
+    /// 就地审是能被取消的那条路。
+    ///
+    /// 目录由调用方给:它就是那次工具调用的目录。再去问前台 runtime 要,问的正是
+    /// 那个正在跑这次调用的 runtime。
+    async fn start_for(
+        &self,
+        front_end: &Arc<FrontEnd>,
+        working_dir: PathBuf,
+        text: String,
+        scope: Option<String>,
+    ) -> Result<Option<HostReply>, HostError> {
+        let Ok(_op) = self.op.try_lock() else {
+            return Ok(None);
+        };
+        let in_front = {
+            let state = self.state.lock().expect("background poisoned");
+            Arc::ptr_eq(state.front.control.front_end(), front_end)
+        };
+        if !in_front {
+            return Ok(None);
+        }
+        self.start_locked(working_dir, text, scope).await.map(Some)
+    }
+
+    /// 起一个后台会话去做 `text`,替前台那个。调用方拿着 `op`。
+    async fn start_locked(
+        &self,
+        working_dir: PathBuf,
+        text: String,
+        scope: Option<String>,
+    ) -> Result<HostReply, HostError> {
         let control = {
             let state = self.state.lock().expect("background poisoned");
             if state.slots.len() >= MOST {
@@ -973,7 +1089,6 @@ impl Background {
             }
             state.front.control.clone()
         };
-        let working_dir = control.working_dir_now().await;
         // 说得出范围的(审查就是),顺手把"这次有几个文件在变"算出来 —— 那行要说它。
         let files = scope
             .as_deref()
