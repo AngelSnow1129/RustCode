@@ -5302,10 +5302,20 @@ impl Tui {
         // outlived a Backspace or a ← read as words already accepted — words no
         // key could delete, because they were never text. The reference front
         // end drops it on every key but the one that takes it; so does this.
-        // Esc spends itself on this, the way it does on a selection.
+        // Esc spends itself on this, the way it does on a selection — but only on
+        // a guess that is on screen with nothing running. A guess is drawn only
+        // on an idle, empty field (`modules::input::suggested`), and one can be
+        // held unseen while something runs (a member's turn on screen, a turn
+        // that started without a submit and has not said so yet): an Esc there
+        // is a stop, and it must not be spent putting away what nobody can see.
         if m.suggestion.is_some() && dismisses_suggestion(&action) {
+            let shown = m.input.is_empty()
+                && m.secret.is_none()
+                && m.activity == crate::moment::Activity::Idle
+                && !m.turn_in_flight()
+                && client.settled();
             m.suggestion = None;
-            if matches!(action, Action::Escape) {
+            if shown && matches!(action, Action::Escape) {
                 return false;
             }
         }
