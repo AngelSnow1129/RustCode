@@ -640,8 +640,6 @@ impl ActiveChatRegistry {
     }
 }
 
-const DANGEROUS_TOOLS_ENV: &str = "ATOMCODE_DAEMON_ENABLE_DANGEROUS_TOOLS";
-
 /// RAII guard that decrements `active_connections` on drop, ensuring the counter
 /// is always decremented even if the SSE client disconnects abruptly (TCP RST).
 struct SseConnectionGuard(Arc<std::sync::atomic::AtomicUsize>);
@@ -1253,9 +1251,6 @@ fn short_path(path: &str) -> String {
         2 => format!("{}/{}", parts[1], parts[0]),
         _ => format!(".../{}/{}", parts[1], parts[0]),
     }
-}
-fn dangerous_tools_enabled() -> bool {
-    std::env::var(DANGEROUS_TOOLS_ENV).ok().as_deref() == Some("1")
 }
 
 fn cors_layer() -> CorsLayer {
@@ -6750,12 +6745,6 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
             The daemon exposes sensitive endpoints (chat, file-edit, tool-execution). \
             Ensure the network is trusted or use a reverse proxy with authentication.",
             host
-        );
-    }
-    if dangerous_tools_enabled() {
-        eprintln!(
-            "Warning: {}=1 enables bash and write-capable daemon tools.",
-            DANGEROUS_TOOLS_ENV
         );
     }
     // 启动横幅（监听地址 + API 端点清单）仅在非 quiet 模式打印。TUI 内 `/webui`
