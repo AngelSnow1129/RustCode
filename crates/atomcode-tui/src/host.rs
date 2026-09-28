@@ -3905,6 +3905,71 @@ impl Host {
         true
     }
 
+    /// 要不要把一个后台会话的问询提上来 —— 提谁的。
+    ///
+    /// 只在屏幕上**没有**别的问询时要：前台优先（设计 §6）。同一时刻只提一条，
+    /// 已经在取、或已经提上来的不再要第二次。
+    pub fn bg_question_wanted(&self) -> Option<String> {
+        if self.asks.is_waiting() {
+            return None;
+        }
+        let mut m = self.moment.write().expect("moment poisoned");
+        if m.bg_asked.is_some() {
+            return None;
+        }
+        let session = m.bg.sessions().iter().find(|s| s.waiting)?.id.clone();
+        m.bg_asked = Some((session.clone(), None));
+        Some(session)
+    }
+
+    /// 那条问询现在在屏幕上了，带着它的 ask id。
+    pub fn bg_question_shown(&self, session: &str, id: u64) -> bool {
+        let mut m = self.moment.write().expect("moment poisoned");
+        match m.bg_asked.as_mut() {
+            Some((shown, slot)) if shown == session => {
+                *slot = Some(id);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// 那条问询不必再问了：从屏幕上收回去。
+    ///
+    /// 收回**不是**回答：`Asks::withdraw` 丢掉应答通道，等着的那个人看到的是取消
+    /// （`crate::ask`）。屏幕只是不再问它 —— 谁也没替那个后台会话下结论。
+    pub fn withdraw_bg_question(&self, session: &str) -> bool {
+        let ask = {
+            let mut m = self.moment.write().expect("moment poisoned");
+            match m.bg_asked.take() {
+                Some((shown, ask)) if shown == session => ask,
+                Some(other) => {
+                    m.bg_asked = Some(other);
+                    return false;
+                }
+                None => return false,
+            }
+        };
+        match ask {
+            Some(id) => self.asks.withdraw(id),
+            // 还在取：没有可收的，把「在取」这件事忘掉就是全部。
+            None => true,
+        }
+    }
+
+    /// 那个后台会话在列表里怎么称呼：第几个、叫什么。提它的问询时要说得出是谁在问。
+    pub fn bg_name(&self, session: &str) -> Option<(usize, String)> {
+        let m = self.moment.read().expect("moment poisoned");
+        let slot = m.bg.slot_of(session)?;
+        let title =
+            m.bg.sessions()
+                .iter()
+                .find(|s| s.id == session)?
+                .title
+                .clone();
+        Some((slot, title))
+    }
+
     /// Which session row of the background panel is under the pointer, in the
     /// panel's drawn order.
     pub fn bg_row_at(&self, x: u16, y: u16) -> Option<usize> {
@@ -12779,6 +12844,60 @@ mod tests {
             h.compose((80, 24)).part(crate::modules::mcp::ID).is_some(),
             "a panel that is open has to be somewhere on the frame"
         );
+    }
+
+    /// 一个在等人的后台会话，照面板要的样子。
+    fn waiting_bg(session: &str) -> crate::bg::BgView {
+        crate::bg::BgView::from_host(vec![atomcode_host_api::BackgroundSession {
+            session: session.into(),
+            title: Some("review".into()),
+            state: atomcode_host_api::BackgroundState::Waiting,
+            created_at: 1,
+            last: Some("Allow?".into()),
+            stats: None,
+        }])
+    }
+
+    /// 屏幕上有别的问题在等，后台的就先不提 —— 前台优先。
+    #[test]
+    fn a_background_question_stays_out_while_the_screen_has_one() {
+        let h = host();
+        assert!(h.show_bg(waiting_bg("b")));
+        drop(h.asks.push(atomcode_harness::seams::Question::plain(
+            "Allow?",
+            &["yes", "no"],
+        )));
+        assert_eq!(h.bg_question_wanted(), None, "前台有问询，后台的排队");
+
+        // 前台那个答掉、队列空了，才轮到它。
+        h.asks.refuse_all();
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+        assert_eq!(h.bg_question_wanted(), None, "已经在取，不再要第二次");
+    }
+
+    /// 提上来的是哪一条要记得住，才收得回去；收回去是取消，不是回答。
+    #[tokio::test]
+    async fn the_question_that_came_up_can_be_taken_back() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+        let (id, answer) = h
+            .asks
+            .push_with_id(atomcode_harness::seams::Question::plain(
+                "Allow?",
+                &["yes", "no"],
+            ));
+        assert!(h.bg_question_shown("b", id));
+        assert_eq!(h.bg_name("b").map(|(slot, _)| slot), Some(1));
+
+        assert!(h.withdraw_bg_question("b"), "收得回去");
+        assert!(answer.await.is_err(), "收回是取消，谁也不当它答过了");
+        assert_eq!(
+            h.bg_question_wanted().as_deref(),
+            Some("b"),
+            "收回去可以再提"
+        );
+        assert!(!h.withdraw_bg_question("z"), "不是它就没有可收的");
     }
 }
 

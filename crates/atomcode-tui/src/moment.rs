@@ -796,6 +796,12 @@ pub struct Moment {
     /// 放在这儿而不是面板里:面板是纯数据、每一键重算一次,而这个是异步回来的,
     /// 且要能认出「答案回来时人已经走到别的行上了」——那时它作废。
     pub resume_preview: Option<(String, Option<Vec<String>>)>,
+    /// 从后台提上来的那条问询：哪个会话问的，以及它在 `Asks` 里的 id。
+    ///
+    /// `Some((session, None))` 是**正在取**（事实还在路上），`Some((session, Some(id)))`
+    /// 是已经在屏幕上。两件事共用一条状态，就没有「在屏幕上但不知道是哪一条」的中间态
+    /// —— 形状与 `resume_preview` 一样。
+    pub bg_asked: Option<(String, Option<u64>)>,
     /// The sessions kept running in the background, as the host last pushed
     /// them (`HostEvent::BackgroundChanged`). A fact of the host's, not of the
     /// log, so it travels this road — see `crate::bg`.
