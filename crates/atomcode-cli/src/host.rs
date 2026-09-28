@@ -559,18 +559,25 @@ mod scope_tests {
     use super::scope_sessions;
     use atomcode_host_api::StoredSession;
 
-    fn at(dir: &str) -> StoredSession {
-        StoredSession {
-            id: dir.into(),
-            working_dir: Some(dir.into()),
-            ..Default::default()
-        }
+    fn at(dir: &str) -> (String, StoredSession) {
+        in_bucket(dir, &format!("bucket-of{dir}"))
+    }
+
+    fn in_bucket(dir: &str, bucket: &str) -> (String, StoredSession) {
+        (
+            bucket.into(),
+            StoredSession {
+                id: dir.into(),
+                working_dir: Some(dir.into()),
+                ..Default::default()
+            },
+        )
     }
 
     #[test]
     fn a_folder_with_its_own_sessions_sees_only_those() {
         let all = vec![at("/a"), at("/b"), at("/a")];
-        let scoped = scope_sessions(all, Some("/a"));
+        let scoped = scope_sessions(all, Some("/a"), Some("bucket-of/a"));
         assert_eq!(scoped.len(), 2, "only /a's own: {scoped:?}");
         assert!(scoped
             .iter()
@@ -582,7 +589,7 @@ mod scope_tests {
         // The reported bug: after a rename the new path has no sessions, so a
         // filter would show an empty picker. Fall back to every folder's.
         let all = vec![at("/old-name"), at("/other")];
-        let scoped = scope_sessions(all, Some("/new-name"));
+        let scoped = scope_sessions(all, Some("/new-name"), Some("bucket-of/new-name"));
         assert_eq!(
             scoped.len(),
             2,
@@ -593,7 +600,25 @@ mod scope_tests {
     #[test]
     fn no_cwd_means_everything() {
         let all = vec![at("/a"), at("/b")];
-        assert_eq!(scope_sessions(all, None).len(), 2);
+        assert_eq!(scope_sessions(all, None, None).len(), 2);
+    }
+
+    /// A renamed folder pinned back to its old bucket keeps seeing the sessions
+    /// it had under the old name after it gets one of its own: they carry the
+    /// old dir, but they are in this folder's bucket.
+    #[test]
+    fn a_renamed_folder_keeps_its_old_sessions_after_starting_a_new_one() {
+        let all = vec![
+            in_bucket("/old-name", "pinned"),
+            in_bucket("/new-name", "pinned"),
+            in_bucket("/other", "elsewhere"),
+        ];
+        let scoped = scope_sessions(all, Some("/new-name"), Some("pinned"));
+        let dirs: Vec<_> = scoped
+            .iter()
+            .filter_map(|s| s.working_dir.as_deref())
+            .collect();
+        assert_eq!(dirs, ["/old-name", "/new-name"]);
     }
 }
 
@@ -1512,21 +1537,29 @@ impl RuntimeControl {
         // runtime 同时接着一段对话跑(自动分叉的成因就是这个)时,两条都往前走了,
         // 藏掉哪条都是从选择器里再也选不回来。两行同名的麻烦是能读出来的,选不回来
         // 的会话是看不见的——选择器宁可多列一行。
-        let all: Vec<StoredSession> = scan
+        let all: Vec<(String, StoredSession)> = scan
             .entries
             .into_iter()
             .filter(|entry| entry.message_count > 0)
-            .map(|entry| StoredSession {
-                id: entry.id,
-                title: (!entry.name.is_empty()).then_some(entry.name),
-                working_dir: Some(entry.working_dir.display().to_string()),
-                created_at: u64::try_from(entry.created_at_ms).unwrap_or(0),
-                updated_at: u64::try_from(entry.updated_at_ms).unwrap_or(0),
-                turns: u32::try_from(entry.turn_count).unwrap_or(u32::MAX),
-                needs_newer_version: entry.needs_newer_version,
+            .map(|entry| {
+                (
+                    entry.project_bucket,
+                    StoredSession {
+                        id: entry.id,
+                        title: (!entry.name.is_empty()).then_some(entry.name),
+                        working_dir: Some(entry.working_dir.display().to_string()),
+                        created_at: u64::try_from(entry.created_at_ms).unwrap_or(0),
+                        updated_at: u64::try_from(entry.updated_at_ms).unwrap_or(0),
+                        turns: u32::try_from(entry.turn_count).unwrap_or(u32::MAX),
+                        needs_newer_version: entry.needs_newer_version,
+                    },
+                )
             })
             .collect();
-        let mut sessions = scope_sessions(all, working_dir.as_deref());
+        let here_bucket = working_dir
+            .as_deref()
+            .map(|dir| SessionManager::project_hash(std::path::Path::new(dir)));
+        let mut sessions = scope_sessions(all, working_dir.as_deref(), here_bucket.as_deref());
         sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         sessions
     }
@@ -1539,18 +1572,29 @@ impl RuntimeControl {
 /// empty picker (the "sessions lost after rename" report). Falling back to all,
 /// newest-first, puts the just-used renamed session at the top for the person to
 /// pick by its dir. `None` (no cwd given) already means "everything".
-fn scope_sessions(all: Vec<StoredSession>, working_dir: Option<&str>) -> Vec<StoredSession> {
+///
+/// "This folder's own" is the folder's session BUCKET (`here_bucket`, what
+/// `SessionManager::project_hash` resolves — the marker when there is one), or
+/// failing that its recorded dir. By dir alone, a folder pinned back to its old
+/// bucket after a rename lost those sessions again the moment it got one of its
+/// own: they still carry the OLD dir, so the new one's session made `has_local`
+/// true and filtered every one of them out.
+fn scope_sessions(
+    all: Vec<(String, StoredSession)>,
+    working_dir: Option<&str>,
+    here_bucket: Option<&str>,
+) -> Vec<StoredSession> {
     let Some(dir) = working_dir else {
-        return all;
+        return all.into_iter().map(|(_, session)| session).collect();
     };
-    let has_local = all.iter().any(|s| s.working_dir.as_deref() == Some(dir));
-    if has_local {
-        all.into_iter()
-            .filter(|s| s.working_dir.as_deref() == Some(dir))
-            .collect()
-    } else {
-        all
-    }
+    let local = |(bucket, session): &(String, StoredSession)| {
+        here_bucket == Some(bucket.as_str()) || session.working_dir.as_deref() == Some(dir)
+    };
+    let has_local = all.iter().any(local);
+    all.into_iter()
+        .filter(|entry| !has_local || local(entry))
+        .map(|(_, session)| session)
+        .collect()
 }
 
 /// Whether resuming `target` from a folder resolving to `current_bucket` should
