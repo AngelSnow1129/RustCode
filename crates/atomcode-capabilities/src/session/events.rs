@@ -159,7 +159,40 @@ impl SessionManager {
                 actual: next,
             });
         }
-        file.write_all(&buffer).map_err(|e| io_at(&path, e))
+        file.write_all(&buffer).map_err(|e| io_at(&path, e))?;
+        drop(file);
+        self.index_the_chosen_name(id, events);
+        Ok(())
+    }
+
+    /// Keep the index's name with the log's when the person names the session.
+    ///
+    /// A name the person chose is written to the log (`Titled { user_set }`) by
+    /// the screen that reads names from the log, and to the index alone by the
+    /// classic screen's `/rename`. An open reconciles the two the index's way
+    /// ([`Self::record_chosen_name`]) — so an index left holding an older name
+    /// would put that name back over a newer one the moment the session was
+    /// reopened. Written here, beside the one write every fact goes through, the
+    /// index follows the log whoever named it. Best-effort, like the index
+    /// updates beside it: the log is the authority, and it has the fact.
+    fn index_the_chosen_name(&self, id: &str, events: &[LoggedEvent]) {
+        let Some(title) = events.iter().rev().find_map(|logged| match &logged.event {
+            SessionEvent::Titled {
+                title,
+                user_set: true,
+                ..
+            } => Some(title.trim().to_string()),
+            _ => None,
+        }) else {
+            return;
+        };
+        if title.is_empty() {
+            return;
+        }
+        let _ = self.update_meta(id, |meta| {
+            meta.name = title;
+            meta.user_renamed = true;
+        });
     }
 
     /// The header an event session was created with.
@@ -1930,6 +1963,61 @@ mod tests {
         manager.append_events(&lease, &a_turn()).unwrap();
         manager.open_for_resume(&lease).unwrap();
         assert!(titles(&manager, "s2").is_empty());
+    }
+
+    /// The reported regression: a session the classic screen named "A" is renamed
+    /// "B" on the screen that writes names to the log. Reopening it must keep
+    /// "B" — an index still saying "A" would be read as the person's latest
+    /// choice and put back. And a later rename on the classic screen still wins.
+    #[test]
+    fn a_rename_in_the_log_is_not_undone_by_the_next_open() {
+        let (_dir, manager) = store();
+        let lease = created(&manager, "s1");
+        manager.append_events(&lease, &a_turn()).unwrap();
+        manager.rename("s1", "A").unwrap();
+        manager.open_for_resume(&lease).unwrap();
+        assert_eq!(
+            titles(&manager, "s1").last(),
+            Some(&("A".to_string(), true))
+        );
+
+        // Renamed through the log, the way `/rename` does on the new screen.
+        let next = manager.load_events("s1").unwrap().last().unwrap().seq + 1;
+        manager
+            .append_events(
+                &lease,
+                &[logged(
+                    next,
+                    0,
+                    SessionEvent::Titled {
+                        turn: 1,
+                        title: "B".into(),
+                        user_set: true,
+                    },
+                )],
+            )
+            .unwrap();
+        assert_eq!(
+            manager.read_meta("s1").unwrap().name,
+            "B",
+            "the index follows"
+        );
+
+        manager.open_for_resume(&lease).unwrap();
+        assert_eq!(
+            titles(&manager, "s1").last(),
+            Some(&("B".to_string(), true)),
+            "reopening kept the newer name"
+        );
+
+        // The classic screen renames it again: the index's name is the newest
+        // choice now, and the next open records it.
+        manager.rename("s1", "C").unwrap();
+        manager.open_for_resume(&lease).unwrap();
+        assert_eq!(
+            titles(&manager, "s1").last(),
+            Some(&("C".to_string(), true))
+        );
     }
 
     /// A fork's name is the ones it committed itself: a user-set name among
