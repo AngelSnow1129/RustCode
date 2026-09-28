@@ -1081,8 +1081,20 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         }
         Msg::OpenRouterNoAnswer => "浏览器那边没有回应——取消了,或者超时了。".into(),
         Msg::OpenRouterNoFreeModels => "OpenRouter 没有返回可用的免费模型。".into(),
-        Msg::OpenRouterConnected { added, default } => {
-            format!("OpenRouter 接上了:新增 {added} 个免费模型,当前用的是 `{default}`。").into()
+        Msg::OpenRouterConnected {
+            added,
+            removed,
+            default,
+        } => match removed {
+            0 => format!("OpenRouter 接上了:新增 {added} 个免费模型,默认模型是 `{default}`。")
+                .into(),
+            _ => format!(
+                "OpenRouter 接上了:新增 {added} 个免费模型,移除 {removed} 个不在这次推荐里的旧免费模型(下架、开始收费或被挤出前 5),默认模型是 `{default}`。你自己配置的模型没有改动。"
+            )
+            .into(),
+        },
+        Msg::OpenRouterDefaultReplaced { from, to } => {
+            format!("原来的默认模型 `{from}` 不在这次的免费推荐里,已换成 `{to}`。").into()
         }
         Msg::OpenRouterNotReloaded { error } => {
             format!("OpenRouter 接上并已保存,但这次会话没重载({error});下次启动生效。").into()

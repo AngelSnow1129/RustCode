@@ -1827,9 +1827,19 @@ pub enum Msg<'a> {
     },
     OpenRouterNoAnswer,
     OpenRouterNoFreeModels,
+    /// `/openrouter` finished: how many free models came in, how many of the
+    /// ones an earlier run added went (no longer free, or no longer among the
+    /// current ones), and the default model now.
     OpenRouterConnected {
         added: usize,
+        removed: usize,
         default: &'a str,
+    },
+    /// The default was one of the free models `/openrouter` just removed, so it
+    /// was moved to the first current one.
+    OpenRouterDefaultReplaced {
+        from: &'a str,
+        to: &'a str,
     },
     OpenRouterNotReloaded {
         error: &'a str,

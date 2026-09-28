@@ -110,6 +110,10 @@ pub fn put_account(document: &mut DocumentMut, id: &str, patch: &AccountPatch<'_
 /// reason this is a patch and not a rewrite.
 pub fn put_model(document: &mut DocumentMut, id: &str, patch: &ModelPatch<'_>) -> Result<()> {
     let table = sub_table(document, "models", id);
+    // Saved from the panel, it is the person's now: a command that manages its
+    // own set (`/openrouter`'s free models, `ModelProfileConfig::origin`) must
+    // not replace or remove an entry someone has since edited.
+    table.remove("origin");
     set_key(table, "account", value(patch.account));
     set_key(table, "model", value(patch.model));
     set_key(table, "context_window", value(patch.context_window as i64));
@@ -428,6 +432,38 @@ note = "hand-written"
             "{out}"
         );
         assert!(out.contains(r#"note = "hand-written""#), "{out}");
+    }
+
+    /// A model saved from the panel is the person's: the mark a managed set
+    /// (`/openrouter`'s free models) put on it goes, so that command never
+    /// replaces or removes it after someone has edited it.
+    #[test]
+    fn a_model_saved_from_the_panel_is_no_longer_a_managed_one() {
+        let mut document: DocumentMut = r#"
+[models."openrouter/a:free"]
+account = "openrouter"
+model = "a:free"
+context_window = 128000
+origin = "openrouter-free"
+"#
+        .parse()
+        .unwrap();
+        put_model(
+            &mut document,
+            "openrouter/a:free",
+            &ModelPatch {
+                account: "openrouter",
+                model: "a:free",
+                context_window: 64_000,
+                supports_vision: None,
+                reasoning_effort: None,
+                reasoning_effort_levels: None,
+            },
+        )
+        .unwrap();
+        let out = document.to_string();
+        assert!(!out.contains("origin"), "{out}");
+        assert!(out.contains("context_window = 64000"), "{out}");
     }
 
     #[test]

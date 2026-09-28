@@ -180,7 +180,28 @@ pub struct ModelProfileConfig {
     /// each layer's default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retry_max_attempts: Option<u32>,
+    /// Who put this entry here, when it was not the person: a command that
+    /// manages a set of entries it may later replace — `/openrouter` writes
+    /// [`OPENROUTER_FREE_ORIGIN`] on the free models it adds and swaps that set
+    /// for the current one when run again. `None` is the person's own entry,
+    /// which no such command ever changes or removes.
+    ///
+    /// Saving the model from a panel — `/provider` in either terminal UI, the
+    /// web UI — clears it: the entry is the person's from then on. Choosing a
+    /// thinking level for it (`/effort`) does not, and neither does editing
+    /// `config.toml` by hand; deleting the `origin` line is how to keep such an
+    /// entry.
+    ///
+    /// A build that does not know the field loads the file fine (the config is
+    /// not `deny_unknown_fields`), but one that rewrites the whole file drops it.
+    /// That only ever turns a managed entry into the person's own — it is then
+    /// left in place, never removed by mistake.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
 }
+
+/// [`ModelProfileConfig::origin`] of a free model `/openrouter` added.
+pub const OPENROUTER_FREE_ORIGIN: &str = "openrouter-free";
 
 /// One flattened, immutable resolution of a model selection (design §3.4). This
 /// is the single value provider construction consumes — accounts, presets,
