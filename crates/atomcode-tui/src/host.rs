@@ -5755,7 +5755,31 @@ fn asked_height(modules: &Modules, id: &str, moment: &Moment, width: u16) -> u16
     if displaces_composer(moment) && COMPOSER.contains(&id) {
         return 0;
     }
+    // The status line goes too while a panel is up: a panel is a place a hand
+    // is working in — `/model`, `/provider`, `/settings`, `/mcp`, … — and the
+    // line under it (model, cwd, context, cache) is about the conversation it
+    // covers, read as one more row of the panel. Asked here for the same reason
+    // the composer is: it is what the screen does with the row, not what the
+    // row needs.
+    if id == crate::modules::status::ID && panel_is_up(moment) {
+        return 0;
+    }
     asked
+}
+
+/// Whether one of the panels a person works in is up.
+///
+/// Every one of them, listed once: a panel added to [`Moment`] and not here
+/// would be the one panel that still has the status line under it.
+pub fn panel_is_up(moment: &Moment) -> bool {
+    moment.settings_panel.is_some()
+        || moment.providers_panel.is_some()
+        || moment.plugins_panel.is_some()
+        || moment.tools_panel.is_some()
+        || moment.rewind_panel.is_some()
+        || moment.mcp_panel.is_some()
+        || moment.resume_panel.is_some()
+        || moment.bg_panel.is_some()
 }
 
 /// Whether what is on screen stands in the composer's place.
@@ -7156,6 +7180,54 @@ mod tests {
             before,
             "and it is back as it was"
         );
+    }
+
+    /// Every panel a person works in takes the status line's row while it is
+    /// up and gives it back when it closes — `/model` and `/provider` open the
+    /// providers panel, and the line under it read as one more row of it.
+    #[test]
+    fn a_panel_takes_the_status_line_away_and_gives_it_back() {
+        let h = host();
+        let rows = || {
+            let mods = h.modules.clone();
+            let m = h.moment.read().unwrap().clone();
+            crate::host::asked_height(&mods, crate::modules::status::ID, &m, 60)
+        };
+        let before = rows();
+        assert_eq!(before, 1, "the status line has its row");
+
+        let panels: [(&str, fn(&mut Moment, bool)); 8] = [
+            ("settings", |m, up| {
+                m.settings_panel = up.then(crate::settings::Panel::default)
+            }),
+            ("providers", |m, up| {
+                m.providers_panel = up.then(crate::providers::Panel::new)
+            }),
+            ("plugins", |m, up| {
+                m.plugins_panel = up.then(crate::plugins::Panel::default)
+            }),
+            ("tools", |m, up| {
+                m.tools_panel = up.then(crate::tools::Panel::default)
+            }),
+            ("rewind", |m, up| {
+                m.rewind_panel = up.then(crate::rewind::Panel::default)
+            }),
+            ("mcp", |m, up| {
+                m.mcp_panel = up.then(crate::mcp::Panel::default)
+            }),
+            ("resume", |m, up| {
+                m.resume_panel = up.then(crate::resume::Panel::default)
+            }),
+            ("bg", |m, up| {
+                m.bg_panel = up.then(|| crate::bg::Panel::new(None))
+            }),
+        ];
+        for (name, set) in panels {
+            set(&mut h.moment.write().unwrap(), true);
+            assert_eq!(rows(), 0, "the {name} panel left the status line up");
+            set(&mut h.moment.write().unwrap(), false);
+            assert_eq!(rows(), before, "closing the {name} panel lost the line");
+        }
     }
 
     #[test]
