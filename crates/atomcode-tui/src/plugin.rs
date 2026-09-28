@@ -1263,6 +1263,9 @@ impl UserInterface for Tui {
         let mut stale = true;
         // Wakes answered since that frame. See [`COALESCE_LIMIT`].
         let mut coalesced = 0usize;
+        // Whether the question queue had something in it at the last frame, so
+        // the moment it empties is seen once (see [`queue_emptied`]).
+        let mut had_asks = false;
         while !quit {
             // The composer's menu is the one thing here that follows the
             // pointer, so free motion is on exactly while it is up: with it on,
@@ -1366,6 +1369,14 @@ impl UserInterface for Tui {
                 // where the two are reconciled — in one place, before any frame
                 // can be drawn from a disagreement.
                 self.host.sync_asking();
+                // 队列空出来的那一刻（不论是怎么空的）：前台优先，前台的空位一出现就
+                // 轮到后台的。判边沿不判电平 —— 每帧都叫，宿主不认识这条命令时每帧都会
+                // 重发一次取回。
+                let has_asks = self.host.asks.is_waiting();
+                if queue_emptied(had_asks, has_asks) {
+                    self.pour_bg_question();
+                }
+                had_asks = has_asks;
                 self.paint();
                 stale = false;
                 coalesced = 0;
@@ -1486,6 +1497,7 @@ impl UserInterface for Tui {
                     // 这里再报一次"做完了、去 /bg 读",同一件事说两遍,而第二遍还把看
                     // 结果这件事留给人自己去开面板。
                     stale |= self.host.show_bg(crate::bg::BgView::from_host(sessions));
+                    self.pour_bg_question();
                 }
                 Wake::Host(HostEvent::PersistenceFailed { message, .. }) => {
                     self.host.say(
@@ -2835,6 +2847,133 @@ impl Tui {
                     let _ = keys.send(Wake::Fact);
                 }
             }
+        });
+    }
+
+    /// 把一个后台会话问询提到前台来：按需取回它的载荷与那个会话的日志尾巴，照屏幕上
+    /// 一样的面板画出来，答完原样送回那个 runtime（`HostCommand::AnswerBackground`）。
+    ///
+    /// 只在屏幕上没有别的问询时才提（`Host::bg_question_wanted`，前台优先）。这一趟
+    /// 无论成不成，「正在取」这件事都要有个了结，否则下一次没人再提它。
+    fn pour_bg_question(&self) {
+        let Some(session) = self.host.bg_question_wanted() else {
+            return;
+        };
+        let Some(control) = self.client.control() else {
+            // 没有宿主可问：把「在取」忘掉，别让它挡住以后的每一次。
+            self.host.withdraw_bg_question(&session);
+            return;
+        };
+        let host = self.host.clone();
+        let keys = self.wake.lock().expect("wake poisoned").clone();
+        let repaint = move || {
+            if let Some(keys) = &keys {
+                let _ = keys.send(Wake::Fact);
+            }
+        };
+        tokio::spawn(async move {
+            let reply = control
+                .call(HostCommand::BackgroundQuestion {
+                    target: session.clone(),
+                })
+                .await;
+            let Ok(HostReply::BackgroundQuestion {
+                id,
+                kind,
+                payload,
+                facts,
+                ..
+            }) = reply
+            else {
+                // 不在等了，或这个宿主不认识这条命令：当作没要过。屏幕上照旧只有那
+                // 一行提示（设计 §5.3）—— 不崩，也不假装提上来了。
+                host.withdraw_bg_question(&session);
+                return;
+            };
+            let events: Vec<LoggedEvent> = facts
+                .into_iter()
+                .map(|fact| LoggedEvent {
+                    seq: fact.seq,
+                    at: fact.at,
+                    event: fact.event,
+                })
+                .collect();
+            let who = match host.bg_name(&session) {
+                Some((slot, title)) => t(Msg::BgAsker {
+                    slot,
+                    title: &title,
+                })
+                .into_owned(),
+                None => session.clone(),
+            };
+            // 一次问几条：与屏幕自己那个会话的批问询走同一套（`crate::ask::batch_for`）。
+            if let Some(questions) = crate::ask::batch_for(&kind, &payload, &events) {
+                let n = questions.len();
+                let questions = questions
+                    .into_iter()
+                    .map(|one| as_background_question(one, who.clone()))
+                    .collect();
+                let (ask, answer) = host.asks.push_batch_with_id(questions);
+                if !host.bg_question_shown(&session, ask) {
+                    // 取的路上列表变了、这一趟已经被收回：刚放上去的也收回，不留
+                    // 一条没人会送回去的问询在屏幕上。
+                    host.asks.withdraw(ask);
+                    repaint();
+                    return;
+                }
+                repaint();
+                let target = session.clone();
+                tokio::spawn(async move {
+                    // 收回去的那些：接收端是取消，什么都不发。
+                    let Ok(mut replies) = answer.await else {
+                        return;
+                    };
+                    replies.resize(n, None);
+                    let answers: Vec<Value> =
+                        replies.into_iter().map(crate::ask::declinable).collect();
+                    let _ = control
+                        .call(HostCommand::AnswerBackground {
+                            target,
+                            id,
+                            value: serde_json::json!({ "responses": answers }),
+                        })
+                        .await;
+                });
+                return;
+            }
+            let Some(asked) = crate::ask::question_for(&kind, &payload, &events) else {
+                // 这个屏幕画不出来：照前台的规矩 fail-closed 回 Null（不回，那个后台
+                // 会话就永远挂着），并说一声 —— 不说，人只会看到它莫名其妙不动了。
+                let _ = control
+                    .call(HostCommand::AnswerBackground {
+                        target: session.clone(),
+                        id,
+                        value: Value::Null,
+                    })
+                    .await;
+                host.withdraw_bg_question(&session);
+                host.say(t(Msg::BgQuestionUnanswerable).into_owned(), false);
+                repaint();
+                return;
+            };
+            let (ask, answer) = host.asks.push_with_id(as_background_question(asked, who));
+            if !host.bg_question_shown(&session, ask) {
+                host.asks.withdraw(ask);
+                repaint();
+                return;
+            }
+            repaint();
+            let target = session.clone();
+            tokio::spawn(async move {
+                // 收回去的：接收端是取消，什么都不发 —— 收回不是回答。
+                let Ok(chosen) = answer.await else {
+                    return;
+                };
+                let value = crate::ask::response_for(&kind, chosen);
+                let _ = control
+                    .call(HostCommand::AnswerBackground { target, id, value })
+                    .await;
+            });
         });
     }
 
@@ -6638,6 +6777,24 @@ fn recall_forward(m: &mut crate::moment::Moment) {
     m.caret = m.input.len();
 }
 
+/// 把一个后台会话的问询放上屏幕时说清是谁在问。
+///
+/// 没有这一句，人在自己那段对话底下看到一个「允许写文件吗」会以为是自己触发的。
+/// 前缀式，不覆盖原来的问者：审批卡片上那个名字（是哪一个闸门在问）也有用。
+fn as_background_question(mut asked: crate::ask::Asked, who: String) -> crate::ask::Asked {
+    asked.question.asker = Some(match asked.question.asker.take() {
+        Some(asker) if !asker.trim().is_empty() => format!("{who} · {asker}"),
+        _ => who,
+    });
+    asked
+}
+
+/// 前台的问询队列是不是刚刚空出来 —— 判边沿不判电平：每帧都判，只有从有到无的
+/// 那一下才轮到后台的问询（设计 §6）。不论是怎么空的：键、鼠标、流尾兜底、收回。
+fn queue_emptied(had: bool, has: bool) -> bool {
+    had && !has
+}
+
 /// Whether a picture attached to this conversation has somewhere to go. `Err` is
 /// the reason it does not, phrased for the person.
 ///
@@ -8450,6 +8607,77 @@ mod provider_probe_tests {
             conversation(&host).contains("checked gw gw/m"),
             "{}",
             conversation(&host)
+        );
+    }
+}
+
+#[cfg(test)]
+mod bg_question_tests {
+    use super::{as_background_question, queue_emptied};
+    use crate::ask::{Asked, Asks};
+    use atomcode_harness::seams::Question;
+
+    fn question(asker: Option<&str>) -> Asked {
+        Question {
+            prompt: "write it?".into(),
+            options: Vec::new(),
+            asker: asker.map(str::to_string),
+            about: None,
+        }
+        .into()
+    }
+
+    /// 前台那条问询不论怎么答掉(这里走鼠标那条路:`take_id(..).finish(..)`),队列
+    /// 空出来的那一刻就轮到后台 —— 且只有那一刻,下一帧不再轮一次。
+    #[test]
+    fn the_moment_the_queue_empties_is_seen_once() {
+        let asks = Asks::new();
+        let mut had = asks.is_waiting();
+        let fired = std::cell::Cell::new(0);
+        let frame = |asks: &Asks, had: &mut bool| {
+            let has = asks.is_waiting();
+            if queue_emptied(*had, has) {
+                fired.set(fired.get() + 1);
+            }
+            *had = has;
+        };
+        frame(&asks, &mut had);
+        let (id, _answer) = asks.push_with_id(question(None));
+        frame(&asks, &mut had);
+        frame(&asks, &mut had);
+        asks.take_id(id).expect("front").finish(vec![None]);
+        frame(&asks, &mut had);
+        frame(&asks, &mut had);
+        assert_eq!(fired.get(), 1);
+        // 收回也是空出来。
+        let (id, _answer) = asks.push_with_id(question(None));
+        frame(&asks, &mut had);
+        assert!(asks.withdraw(id));
+        frame(&asks, &mut had);
+        frame(&asks, &mut had);
+        assert_eq!(fired.get(), 2);
+    }
+
+    #[test]
+    fn queue_emptied_is_an_edge_not_a_level() {
+        assert!(queue_emptied(true, false));
+        assert!(!queue_emptied(false, false));
+        assert!(!queue_emptied(true, true));
+        assert!(!queue_emptied(false, true));
+    }
+
+    /// 说清是谁在问,而且不抹掉原来的问者(是哪一道闸门在问)。
+    #[test]
+    fn a_background_question_says_who_is_asking() {
+        let who = "background [1] x is asking".to_string();
+        let plain = as_background_question(question(None), who.clone());
+        assert_eq!(plain.question.asker.as_deref(), Some(who.as_str()));
+        let blank = as_background_question(question(Some("  ")), who.clone());
+        assert_eq!(blank.question.asker.as_deref(), Some(who.as_str()));
+        let gated = as_background_question(question(Some("approval")), who.clone());
+        assert_eq!(
+            gated.question.asker.as_deref(),
+            Some("background [1] x is asking · approval")
         );
     }
 }

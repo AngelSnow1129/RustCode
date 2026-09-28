@@ -1212,3 +1212,32 @@ async fn answering_a_session_that_is_not_in_the_background_is_not_found() {
     ));
     rig.quit().await;
 }
+
+/// 后台会话的问询**直接出现在前台**,人不用先 `/bg 1` 切过去 —— 而且那个会话还在后台。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn a_background_question_comes_out_on_the_foreground() {
+    let rig = Rig::new().await;
+    rig.term.type_line("/background ask me");
+    rig.until_background("the background session is waiting", |list| {
+        list.first()
+            .is_some_and(|s| s.state == BackgroundState::Waiting)
+    })
+    .await;
+
+    let list = rig.background().await;
+    let title = list[0].title.clone().unwrap_or_default();
+    // 屏幕上那句话得说得出是谁在问 —— 没有这一句,人会以为是自己那段对话在问。
+    let who = t(Msg::BgAsker {
+        slot: 1,
+        title: &title,
+    });
+    rig.until_screen(&who).await;
+
+    // 而且它没有被换到前台:人还留在自己那段对话里(设计 §4 的目标边界)。
+    assert_eq!(
+        rig.background().await.first().map(|s| s.session.clone()),
+        Some(list[0].session.clone()),
+        "它还在后台"
+    );
+}

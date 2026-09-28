@@ -442,6 +442,8 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::BgQuitStay => "stay".into(),
         Msg::BgWaitingTip { slot, title } => format!("background [{slot}] {title} is waiting for your answer · /bg {slot} opens it").into(),
         Msg::BgAnswerStale => "that background session is no longer waiting on this question".into(),
+        Msg::BgAsker { slot, title } => format!("background [{slot}] {title} is asking").into(),
+        Msg::BgQuestionUnanswerable => "this screen cannot draw that background question — it was answered as a refusal".into(),
         Msg::BgSlotsFull { most } => format!("{most} sessions are already in the background — drop one first (/bg drop <N>)").into(),
 
         // Content only, no instruction: the sentence that used to follow was a
