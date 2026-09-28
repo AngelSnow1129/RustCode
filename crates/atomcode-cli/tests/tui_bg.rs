@@ -1096,3 +1096,45 @@ async fn the_panel_is_worked_with_the_mouse() {
     .await;
     rig.quit().await;
 }
+
+/// 后台会话挂着的那个问询要能整个取回来:id、载荷、以及画它要用的日志尾巴。
+///
+/// 这条脚本里的 "ask me" 走的是 `request_user_input` 工具的请求往返
+/// (`request_user_input.rs:329-333`:「不是 `user-questions` 那个通道，
+/// 没有 `Asked`/`Answered` 事实会为它落盘」)，所以尾巴里不会有一条
+/// `SessionEvent::Asked` —— 断言只留「尾巴不是空的」，按 brief 的兜底走。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn a_background_question_comes_back_whole() {
+    let rig = Rig::new().await;
+    rig.term.type_line("/background ask me");
+    rig.until_background("the background session is waiting", |list| {
+        list.first()
+            .is_some_and(|s| s.state == BackgroundState::Waiting)
+    })
+    .await;
+    let target = rig.background().await[0].session.clone();
+
+    let reply = rig
+        .control()
+        .call(HostCommand::BackgroundQuestion {
+            target: target.clone(),
+        })
+        .await
+        .expect("在等的会话有问询可取");
+    let HostReply::BackgroundQuestion {
+        session,
+        kind,
+        payload,
+        facts,
+        ..
+    } = reply
+    else {
+        panic!("不是一条问询: {reply:?}");
+    };
+    assert_eq!(session, target);
+    assert!(!kind.is_empty(), "kind 要说得出是什么问法");
+    assert!(payload.is_object(), "载荷要原样带回来: {payload:?}");
+    assert!(!facts.is_empty(), "尾巴不能是空的");
+    rig.quit().await;
+}
