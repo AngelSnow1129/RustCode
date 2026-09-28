@@ -280,12 +280,64 @@ fn listed_line(
     } else {
         "  ".to_string()
     };
-    let (mark, label, about, dim) = match what {
+    let Some((mark, label, about, dim)) = listed_parts(view, panel, what, caps) else {
+        return Line::empty();
+    };
+    // The row a second ctrl-d would delete says so where the row's own
+    // description was: a person about to throw something away should read it on
+    // the thing being thrown away, not in a corner.
+    // `is_some_and`, not `==`: two `None`s compare equal, and an unarmed panel
+    // would then draw the warning on the add row, which has no id at all.
+    let armed = panel.pending_delete.as_deref().is_some_and(|armed| {
+        Some(armed)
+            == match what {
+                Listed::Account(i) => view.accounts().get(i).map(|r| r.id.as_str()),
+                Listed::Model(i) => view.models().get(i).map(|r| r.id.as_str()),
+                Listed::Effort(_) | Listed::Group(_) | Listed::Add => None,
+            }
+    });
+    let label_room = label_column(view, panel, w, caps);
+    let shown = width::take_width(&label, label_room);
+    let pad = label_room.saturating_sub(width::str_width(&shown));
+    let label_style = if dim {
+        base.under(theme::fg(Role::Muted))
+    } else {
+        base
+    };
+    let about_style = if armed {
+        base.under(theme::fg(Role::Warning))
+    } else {
+        base.under(theme::fg(Role::Muted))
+    };
+    let about = if armed {
+        t(Msg::ArmedDelete).into_owned()
+    } else {
+        about
+    };
+    let spans = vec![
+        Span::styled(pointer, base),
+        Span::styled(format!("{mark} "), label_style),
+        Span::styled(shown, label_style),
+        Span::styled(" ".repeat(pad + 2), base),
+        Span::styled(about, about_style),
+    ];
+    pad_to(Line::from_spans(spans), w, base)
+}
+
+/// What one listed row says: its mark, its label, what is worth knowing about
+/// it, and whether it is drawn dim. `None` for a row the view no longer has.
+fn listed_parts(
+    view: &ProvidersView,
+    panel: &Panel,
+    what: Listed,
+    caps: crate::caps::Caps,
+) -> Option<(String, String, String, bool)> {
+    Some(match what {
         // 一组的小标题:账号的名字,暗一档,没有标记也没有右侧说明——它不是
         // 一行可以做点什么的东西,是一条分界。
         Listed::Group(first) => {
             let Some(row) = view.models().get(first) else {
-                return Line::empty();
+                return None;
             };
             (" ".to_string(), row.account.clone(), String::new(), true)
         }
@@ -301,7 +353,7 @@ fn listed_line(
         ),
         Listed::Account(i) => {
             let Some(row) = view.accounts().get(i) else {
-                return Line::empty();
+                return None;
             };
             let mut about = vec![row.protocol.clone()];
             if row.configured {
@@ -333,10 +385,10 @@ fn listed_line(
         }
         Listed::Effort(i) => {
             let Some(pick) = panel.efforts.as_ref() else {
-                return Line::empty();
+                return None;
             };
             let Some(level) = pick.levels.get(i) else {
-                return Line::empty();
+                return None;
             };
             // 收尾那一行是把强度交回端点,它要说的正是「不指定」。
             let about = if i + 1 == pick.levels.len() {
@@ -348,7 +400,7 @@ fn listed_line(
         }
         Listed::Model(i) => {
             let Some(row) = view.models().get(i) else {
-                return Line::empty();
+                return None;
             };
             let mut about = vec![format!("{}k", row.window / 1000)];
             if panel.drill.is_none() {
@@ -370,46 +422,33 @@ fn listed_line(
                 false,
             )
         }
-    };
-    // The row a second ctrl-d would delete says so where the row's own
-    // description was: a person about to throw something away should read it on
-    // the thing being thrown away, not in a corner.
-    // `is_some_and`, not `==`: two `None`s compare equal, and an unarmed panel
-    // would then draw the warning on the add row, which has no id at all.
-    let armed = panel.pending_delete.as_deref().is_some_and(|armed| {
-        Some(armed)
-            == match what {
-                Listed::Account(i) => view.accounts().get(i).map(|r| r.id.as_str()),
-                Listed::Model(i) => view.models().get(i).map(|r| r.id.as_str()),
-                Listed::Effort(_) | Listed::Group(_) | Listed::Add => None,
-            }
-    });
-    let label_room = w.saturating_sub(LEAD + 2).clamp(LABEL_MIN, LABEL_MAX);
-    let shown = width::take_width(&label, label_room);
-    let pad = label_room.saturating_sub(width::str_width(&shown));
-    let label_style = if dim {
-        base.under(theme::fg(Role::Muted))
-    } else {
-        base
-    };
-    let about_style = if armed {
-        base.under(theme::fg(Role::Warning))
-    } else {
-        base.under(theme::fg(Role::Muted))
-    };
-    let about = if armed {
-        t(Msg::ArmedDelete).into_owned()
-    } else {
-        about
-    };
-    let spans = vec![
-        Span::styled(pointer, base),
-        Span::styled(format!("{mark} "), label_style),
-        Span::styled(shown, label_style),
-        Span::styled(" ".repeat(pad + 2), base),
-        Span::styled(about, about_style),
-    ];
-    pad_to(Line::from_spans(spans), w, base)
+    })
+}
+
+/// How much room the descriptions keep at the right of a list row, at least.
+const ABOUT_MIN: usize = 20;
+
+/// How wide the label column of the list is drawn: as wide as the widest label
+/// listed, so every row lines up and none is cut — as long as the descriptions
+/// still keep [`ABOUT_MIN`] beside it.
+///
+/// Not the form's fixed [`LABEL_MAX`]: a form's labels are short field names,
+/// while a list's are model ids, and an OpenRouter id
+/// (`openrouter/thinkingmachines/…`) is past thirty columns before it says
+/// which model it is. Capped at thirty, every such row was cut to the same
+/// prefix on a terminal with a hundred columns to spare, and rows that differ
+/// only at the end could not be told apart.
+fn label_column(view: &ProvidersView, panel: &Panel, w: usize, caps: crate::caps::Caps) -> usize {
+    let widest = view
+        .listed(panel)
+        .into_iter()
+        .filter_map(|what| listed_parts(view, panel, what, caps))
+        .map(|(_, label, _, _)| width::str_width(&label))
+        .max()
+        .unwrap_or(0);
+    // Pointer and mark before the label, two spaces after it.
+    let room = w.saturating_sub(LEAD + 2 + 2 + ABOUT_MIN);
+    widest.clamp(LABEL_MIN, room.max(LABEL_MIN))
 }
 
 /// The mark on a row that is the one in use.
@@ -945,6 +984,58 @@ mod tests {
             panic!("a panel hugs");
         };
         assert_eq!(lines(&m, 60, asked).len(), asked as usize);
+    }
+
+    /// OpenRouter ids run past thirty columns before they say which model they
+    /// are. On a wide terminal each is drawn whole, and the descriptions still
+    /// line up; on a narrow one the ids give way first and the descriptions keep
+    /// their room.
+    #[test]
+    fn long_model_ids_are_drawn_whole_when_there_is_room() {
+        let ids = [
+            "openrouter/thinkingmachines/inkling-2-preview",
+            "openrouter/nvidia/nemotron-3-ultra-253b",
+            "openrouter/dots-studio/dots-3-large",
+        ];
+        let m = Moment {
+            providers: ProvidersView::new(
+                vec![account("openrouter", 3)],
+                ids.iter()
+                    .map(|id| model(id, "openrouter", false))
+                    .collect(),
+                Vec::new(),
+                Vec::new(),
+            ),
+            providers_panel: Some(Panel {
+                tab: Tab::Models,
+                ..Panel::new()
+            }),
+            ..Moment::default()
+        };
+
+        let wide = drawn(&m, 200, 24);
+        for id in ids {
+            assert!(wide.contains(id), "{id} is cut:\n{wide}");
+        }
+        let about_at: Vec<usize> = wide
+            .lines()
+            .filter(|l| ids.iter().any(|id| l.contains(id)))
+            .map(|l| width::str_width(&l[..l.find("openrouter · ").expect("described")]))
+            .collect();
+        assert_eq!(about_at.len(), ids.len());
+        assert!(
+            about_at.windows(2).all(|p| p[0] == p[1]),
+            "the descriptions line up: {about_at:?}\n{wide}"
+        );
+
+        let narrow = drawn(&m, 60, 24);
+        assert!(
+            narrow.contains("openrouter · 128k"),
+            "the description keeps its room when the ids cannot:\n{narrow}"
+        );
+        for line in lines(&m, 60, 24) {
+            assert!(line.width() <= 60);
+        }
     }
 
     #[test]
