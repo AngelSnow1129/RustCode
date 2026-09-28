@@ -321,17 +321,30 @@ project,回答回发同一会话。首发平台**钉钉 Stream 长连接**(客�
 持续任务(schedule/loop/wakeup)见 `docs/plans/2026-09-23-continuous-agent-design.md`。
 
 - **分层**:传输/协议/分片/续聊在 `crates/rustcode-cli/src/im/`(`mod.rs` trait +
-  `dingtalk.rs` 适配器 + `bridge.rs` 分片与去重 + `runner.rs` 单渠道服务循环);
-  进程级接线(`CliAgentRunner` 调 headless capture)在 bin 侧 `im_runner.rs`,
-  因 `run_native_headless` 是 bin 的 `pub(crate)`——**lib 不准反向调 bin**。
+  `dingtalk.rs` 适配器 + `bridge.rs` 分片与去重 + `dispatch.rs` 并发调度 +
+  `commands.rs` 聊天命令 + `runner.rs` 单消息管线);进程级接线(`CliAgentRunner`
+  调 headless capture)在 bin 侧 `im_runner.rs`,因 `run_native_headless` 是 bin 的
+  `pub(crate)`——**lib 不准反向调 bin**。**并发语义(2026-09-29 起)**:每通道一个
+  reader 任务 + 每 chat 一个 worker(单 chat 串行,会话绑定不被并发写)+ `Semaphore`
+  全局并发上限(默认 3);`ImAdapter` 全方法 `&self`(DingTalk socket 在内部
+  `tokio::sync::Mutex`),适配器经 `Arc` 共享;审批经 `ChatMailbox` 复用本 chat 队列,
+  不再自行驱动 `next_message`(修复"审批等待吞掉他人消息")。
 - **网关握手单一实现**:`capabilities/src/im_probe.rs`(feature `im = ["egress"]`,
   HTTP-only 不拉 WS 栈,出站走 `build_http_client` 单一工厂)。CLI 适配器委托它,
   daemon 测试路由也消费它——**禁止再写第二份握手**。WS 栈全仓只此一条
   (`tokio-tungstenite 0.24`,与 tunnel 同版本线,勿再引第二套)。
 - **`rustcode im` 子命令**:`serve/add/list/check/remove/register/unregister/setup`
-  (2026-09-23 起;`serve` 是原前台服务循环,`--platform`/`--project` 过滤,
-  run() 内联分发保退出码同 Schedule 模式,断线自动重连 1s/5s)。管理处理器在
-  bin 侧 `im_admin.rs`。
+  (2026-09-23 起;`serve` 是前台服务循环,`--platform`/`--project` 过滤,
+  run() 内联分发保退出码同 Schedule 模式)。管理处理器在 bin 侧 `im_admin.rs`。
+  **2026-09-29 修订**:`serve` 不再是单渠道串行循环——多通道并行 serve(每通道独立
+  任务),断线重连为每通道指数退避 1s→60s(`dispatch.rs` 的 `serve_forever`,取代旧
+  "1s/5s" 两档),未实现平台跳过并报告不致命;渠道级 `allow_senders` 发送者白名单
+  (空=不限制,非空时在 `handle_message` 边缘拒绝并回发 `ImSenderNotAllowed`,
+  validate 标记空项/重复项;配置入口:`add`/`setup` 的 `--allow-senders a,b`,
+  setup 无此 flag 时向导追问一次、留空=任何人,由 `normalize_allow_senders_input`
+  拆分裁剪);聊天命令 `/help` `/status` `/project` 即时应答、`/new`
+  清绑定开新会话(`commands.rs`);慢回合(>8s)先发 `ImTurnProcessing`、失败回发
+  `ImTurnFailed`(原始错误透传)。`/stop` `/cd` 刻意未做(见 `commands.rs` 注释)。
   - `setup` 三步向导(对标 AgentCore 流程:建机器人 -> 配渠道 -> 验证):
     平台+project(project 缺省取 cwd,须为已存在的绝对路径) -> 逐字段收集
     凭据并过 `normalize_credential_input` -> **复用** `handle_im_add` 保存 +
@@ -342,7 +355,8 @@ project,回答回发同一会话。首发平台**钉钉 Stream 长连接**(客�
     非交互驱动。
   - `add <platform> <project>` 按 `(platform, project)` **upsert**(平台拼写归一化,
     否则 `DingTalk`/`dingtalk` 会被 validate 判重复);整渠道**替换**而非合并字段
-    (用户最后传的即所存,无陈旧字段残留)。
+    (用户最后传的即所存,无陈旧字段残留;不传 `--allow-senders` 的 upsert
+    同样把白名单清空回"任何人")。
   - **凭据归一化是安全卡点**(`normalize_credential_input`):只接受 `$VAR`/`${VAR}`
     引用或裸环境变量名(自动补 `$`);`${VAR:-default}` 回退写法**显式拒绝**——
     回退值本身就是明文密钥,接受它会击穿"明文不落盘";其余字面量一律拒绝。
