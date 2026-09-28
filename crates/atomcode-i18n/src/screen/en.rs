@@ -961,7 +961,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::RuntimeAlreadyStopped => "this session's runtime has already stopped".into(),
         Msg::NoProviderConfigured => "no provider is configured — add one before you can start".into(),
         Msg::LoginExpired => "the login has expired; sign in again".into(),
-        Msg::ProviderUnsupportedByBuild => "this build does not support the configured provider".into(),
+        Msg::ProviderUnsupportedByBuild => "this build cannot use the official AtomGit gateway — install an official build, or switch with /model or /provider".into(),
         Msg::ScreenNotConnectedAgent => "the screen is not connected to an agent".into(),
         Msg::HostHasNoControl => "this host has no control surface".into(),
         Msg::HostNotFoundShort => "not found: the session has been changed".into(),

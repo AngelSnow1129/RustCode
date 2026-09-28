@@ -31,6 +31,11 @@ struct Subscription {
     /// are reported on, so a member is never heard of before it is added or
     /// after it is removed, and never added twice.
     members: HashSet<String>,
+    /// Whether the subscriber has been told what it follows (`Described`).
+    /// `false` for one asked for before any App had the session — see
+    /// [`Feed::expect`] — and nothing about it is pushed until an agent for it
+    /// arrives and it is opened.
+    open: bool,
 }
 
 /// Sessions pushed into one event channel.
@@ -64,7 +69,63 @@ impl Feed {
         let mut subscription = Subscription {
             high: from.saturating_sub(1),
             members: HashSet::new(),
+            open: false,
         };
+        let agents = ctx.service::<AgentsSvc>();
+        self.open(&mut subscription, agent, agents.as_deref());
+        subscribed.insert(session, subscription);
+    }
+
+    /// Follow `session` from `from` on, though no App has it yet.
+    ///
+    /// A host can be up with no App at all: its runtime is waiting for a
+    /// provider (none configured, a login that lapsed, a gateway this build
+    /// cannot sign for), and the App is only mounted once one can serve. A
+    /// front end subscribes when it opens, which is before that — and a
+    /// subscription refused then was never asked for again, so the screen was
+    /// fed nothing of the session it was showing once the provider arrived.
+    /// Kept here instead, it is opened by the first App that has the session,
+    /// exactly as [`subscribe`](Self::subscribe) would have opened it.
+    pub fn expect(&self, session: &str, from: SeqNo) {
+        self.subscriptions
+            .lock()
+            .expect("subscriptions poisoned")
+            .entry(session.to_string())
+            .or_insert(Subscription {
+                high: from.saturating_sub(1),
+                members: HashSet::new(),
+                open: false,
+            });
+    }
+
+    /// Open an [`expect`](Self::expect)ed subscription to `session` now, if
+    /// `ctx` has its agent and nothing has opened it yet.
+    ///
+    /// For the host that expected it and then found an App after all: the App
+    /// may have attached — and scanned for waiting subscriptions — in between,
+    /// and would then never open this one. Decided under the same lock the
+    /// scan takes, so it is opened exactly once whichever got there first.
+    pub fn open_expected(&self, ctx: &Context, session: &str) {
+        let Some(agent) = Self::find(ctx, session) else {
+            return;
+        };
+        let agents = ctx.service::<AgentsSvc>();
+        let mut subscribed = self.subscriptions.lock().expect("subscriptions poisoned");
+        if let Some(subscription) = subscribed.get_mut(session).filter(|s| !s.open) {
+            self.open(subscription, &agent, agents.as_deref());
+        }
+    }
+
+    /// Tell the subscriber what it follows: the agent described, where it
+    /// stands, each member, then every fact after `high`.
+    fn open(
+        &self,
+        subscription: &mut Subscription,
+        agent: &Agent,
+        agents: Option<&crate::agent::Agents>,
+    ) {
+        let session = agent.session_id().to_string();
+        subscription.open = true;
         let _ = self.events.send(AgentEvent::Described {
             description: Box::new(agent.describe()),
         });
@@ -72,23 +133,12 @@ impl Feed {
             session: session.clone(),
             status: agent.status(),
         });
-        for member in ctx.service::<AgentsSvc>().iter().flat_map(|a| a.list()) {
+        for member in agents.iter().flat_map(|a| a.list()) {
             if member.parent() == Some(session.as_str()) {
-                self.announce(&mut subscription, &member);
+                self.announce(subscription, &member);
             }
         }
-        for logged in agent.session().events() {
-            if logged.seq >= from {
-                subscription.high = logged.seq;
-                let _ = self.events.send(AgentEvent::Fact(Box::new(Committed {
-                    session: session.clone(),
-                    seq: logged.seq,
-                    at: logged.at,
-                    event: logged.event,
-                })));
-            }
-        }
-        subscribed.insert(session, subscription);
+        self.catch_up(subscription, agent);
     }
 
     /// [`find`](Self::find), then [`subscribe`](Self::subscribe).
@@ -192,7 +242,7 @@ impl Feed {
             ctx.on_emit::<SessionEventCommitted>(move |committed: &Committed| {
                 let mut sessions = feed.subscriptions.lock().expect("subscriptions poisoned");
                 if let Some(subscription) = sessions.get_mut(&committed.session) {
-                    if committed.seq > subscription.high {
+                    if subscription.open && committed.seq > subscription.high {
                         subscription.high = committed.seq;
                         let _ = feed
                             .events
@@ -211,12 +261,12 @@ impl Feed {
                 };
                 let mut sessions = feed.subscriptions.lock().expect("subscriptions poisoned");
                 if let Some(subscription) = sessions.get_mut(created.session_id()) {
-                    feed.catch_up(subscription, &created);
+                    feed.catch_up_or_open(subscription, &created, &agents);
                 }
                 let Some(parent) = created.parent() else {
                     return;
                 };
-                if let Some(subscription) = sessions.get_mut(parent) {
+                if let Some(subscription) = sessions.get_mut(parent).filter(|s| s.open) {
                     feed.announce(subscription, &created);
                 }
             }));
@@ -224,7 +274,7 @@ impl Feed {
             let mut sessions = self.subscriptions.lock().expect("subscriptions poisoned");
             for agent in registry.list() {
                 if let Some(subscription) = sessions.get_mut(agent.session_id()) {
-                    self.catch_up(subscription, &agent);
+                    self.catch_up_or_open(subscription, &agent, &registry);
                 }
             }
         }
@@ -248,7 +298,9 @@ impl Feed {
         listening.push(
             ctx.on_emit::<AgentStatusChanged>(move |change: &AgentChange| {
                 let sessions = feed.subscriptions.lock().expect("subscriptions poisoned");
-                let subscribed = sessions.contains_key(&change.session)
+                let subscribed = sessions
+                    .get(&change.session)
+                    .is_some_and(|subscription| subscription.open)
                     || change
                         .parent
                         .as_ref()
@@ -264,6 +316,21 @@ impl Feed {
         );
 
         listening
+    }
+
+    /// [`catch_up`](Self::catch_up) an open subscription, [`open`](Self::open)
+    /// one that was only [`expect`](Self::expect)ed.
+    fn catch_up_or_open(
+        &self,
+        subscription: &mut Subscription,
+        agent: &Agent,
+        agents: &crate::agent::Agents,
+    ) {
+        if subscription.open {
+            self.catch_up(subscription, agent);
+        } else {
+            self.open(subscription, agent, Some(agents));
+        }
     }
 
     /// The facts of a subscribed session that an App brought with it and nobody

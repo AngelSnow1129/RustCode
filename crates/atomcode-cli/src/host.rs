@@ -190,6 +190,7 @@ pub(crate) fn attach(
         watchers: Mutex::new(Vec::new()),
         front_end: front_end.clone(),
         host_config,
+        unavailable_said: Mutex::new(None),
     });
 
     // Runtime events, as the handle protocol says them.
@@ -212,6 +213,18 @@ pub(crate) fn attach(
                 if let CodingRuntimeEvent::ModeChanged { mode } = &sequenced.event {
                     crate::tui_share::mode_changed(*mode);
                 }
+            }
+            // A provider serving again, by either road back: a model switch
+            // (`ProviderChanged`) or a reload — `/login`, onboarding — which
+            // reprepares and reports `Reconfigured`. Losing it after that is
+            // news, even for the reason already said. A `Reconfigured` that did
+            // not bring one back costs at most saying the reason once more.
+            if matches!(
+                sequenced.event,
+                CodingRuntimeEvent::ProviderChanged { .. }
+                    | CodingRuntimeEvent::Reconfigured { .. }
+            ) {
+                watched.provider_serves();
             }
             match sequenced.event {
                 // 运行时没了。走之前说一声 —— 此前这里直接 `break`,于是一个
@@ -298,6 +311,18 @@ pub(crate) fn attach(
                     // The turn's own completion still goes through the one
                     // mapping, because the turn did complete.
                     if let Some(event) = translate(CodingRuntimeEvent::TurnFinished(completion)) {
+                        if out.send(event).is_err() {
+                            break;
+                        }
+                    }
+                }
+                CodingRuntimeEvent::ProviderUnavailable { reason, forced } => {
+                    if !watched.tell_unavailable(reason) {
+                        continue;
+                    }
+                    if let Some(event) =
+                        translate(CodingRuntimeEvent::ProviderUnavailable { reason, forced })
+                    {
                         if out.send(event).is_err() {
                             break;
                         }
@@ -734,7 +759,15 @@ async fn run(
     receipt: Option<&CommandId>,
 ) -> Answered {
     let refused = |error: RuntimeError| {
-        let message = error.to_string();
+        let message = match error {
+            // The same sentence the screen was told when the provider went,
+            // in the person's language — not the runtime's English `Display`.
+            RuntimeError::ProviderUnavailable(reason) => match readiness_for(Some(reason)) {
+                HostReply::Readiness { why: Some(why), .. } => why,
+                _ => error.to_string(),
+            },
+            _ => error.to_string(),
+        };
         (command_error(error), Some(message))
     };
     match command {
@@ -800,8 +833,18 @@ async fn run(
             Ok(None)
         }
         AgentCommand::Subscribe { session, from } => {
+            // No App yet: the runtime is waiting for a provider and mounts one
+            // when it can serve. Kept rather than refused — the front end asked
+            // once, when it opened, and a refusal then left it fed nothing of
+            // its own session after the provider came.
             let Some(app) = front.app() else {
-                return Err((CommandError::Unavailable, None));
+                front.feed().expect(&session, from);
+                // An App may have mounted since the look above, and scanned
+                // for waiting subscriptions before this one was waiting.
+                if let Some(app) = front.app() {
+                    front.feed().open_expected(&app, &session);
+                }
+                return Ok(None);
             };
             match front.feed().subscribe_to(&app, &session, from) {
                 Ok(()) => Ok(None),
@@ -1277,9 +1320,35 @@ pub(crate) struct RuntimeControl {
     /// end was carrying it for this adapter's benefit, which is what kept a
     /// Product crate holding a front-end contract's type.
     host_config: Option<Arc<dyn HostConfig>>,
+    /// Why no provider can serve, once it has been said — by the runtime's
+    /// event or by the answer to `Readiness`, whichever reached the screen
+    /// first. A runtime that starts without a provider says so on both at the
+    /// same moment, and the person read the same sentence twice. Cleared when a
+    /// provider serves again, so losing it later is said again.
+    unavailable_said: Mutex<Option<ProviderUnavailableReason>>,
 }
 
 impl RuntimeControl {
+    /// Whether `reason` still has to be said: `false` when it is already what
+    /// the screen was told and nothing has served since.
+    fn tell_unavailable(&self, reason: ProviderUnavailableReason) -> bool {
+        let mut said = self
+            .unavailable_said
+            .lock()
+            .expect("unavailable_said poisoned");
+        if *said == Some(reason) {
+            return false;
+        }
+        *said = Some(reason);
+        true
+    }
+
+    fn provider_serves(&self) {
+        *self
+            .unavailable_said
+            .lock()
+            .expect("unavailable_said poisoned") = None;
+    }
     /// The runtime this controls — for a host holding several
     /// (`crate::background`), which cancels and stops them itself.
     pub(crate) fn runtime(&self) -> &CodingRuntimeHandle {
@@ -2647,7 +2716,16 @@ impl HostControl for RuntimeControl {
                         fix: None,
                     });
                 }
-                Ok(readiness_for(self.handle.provider_unavailable_reason()))
+                let reason = self.handle.provider_unavailable_reason();
+                let mut answer = readiness_for(reason);
+                // Still not ready, and the fix is still named — only the
+                // sentence is left out when the runtime's event said it.
+                if let (Some(reason), HostReply::Readiness { why, .. }) = (reason, &mut answer) {
+                    if !self.tell_unavailable(reason) {
+                        *why = None;
+                    }
+                }
+                Ok(answer)
             }
             _ => Err(HostError::Failed {
                 message: "this host does not do that yet".into(),

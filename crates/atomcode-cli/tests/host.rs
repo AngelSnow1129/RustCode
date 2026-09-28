@@ -3050,3 +3050,195 @@ async fn a_stop_answers_the_send_it_withdrew_on_the_shipped_front_end() {
         "还在跑的那句不是被收走的:\n{refused:#?}"
     );
 }
+
+/// A factory whose first build is refused the way a source build refuses the
+/// AtomGit gateway, and every later one serves.
+struct GatewayGap {
+    script: Arc<Script>,
+    refused: std::sync::atomic::AtomicBool,
+}
+
+impl CodingProviderFactory for GatewayGap {
+    fn build(
+        &self,
+        config: &CodingAgentConfig,
+        _session_id: Option<&str>,
+    ) -> Result<Arc<dyn LlmProvider>, ProviderBuildError> {
+        if !self.refused.swap(true, Ordering::SeqCst) {
+            return Err(ProviderBuildError::SourceBuildGatewayUnsupported {
+                base_url: config.base_url.clone(),
+            });
+        }
+        Ok(Arc::new(Scripted {
+            script: self.script.clone(),
+            model: config.model.clone(),
+        }))
+    }
+}
+
+/// A host whose runtime starts with no provider that can serve, and the
+/// handle to give it one later.
+async fn started_without_a_provider(
+    env: &Env,
+) -> (HostConnection, atomcode_coding::CodingRuntimeHandle) {
+    let front_end = FrontEnd::new();
+    let mut agent = CodingAgentConfig::new(
+        "key",
+        "https://llm-api.atomgit.com/v1",
+        "scripted",
+        env.project.path(),
+    );
+    agent.interactive = true;
+    let start = CodingRuntimeStart {
+        agent: agent.clone(),
+        prepare: PrepareOptions {
+            request_user_input: true,
+            session: SessionMode::Fresh,
+            tools: true,
+            skill_dirs: Some(Vec::new()),
+            plugin_skill_dirs: Vec::new(),
+            mcp: false,
+            extra_mcp_servers: Vec::new(),
+            external_subagents: Vec::new(),
+            memory: false,
+            web: false,
+            review: false,
+            subagents: SubagentPolicy::Disabled,
+            rate_limit_source: None,
+            front_end: Some(front_end.clone()),
+        },
+        provider_factory: Arc::new(GatewayGap {
+            script: env.script.clone(),
+            refused: Default::default(),
+        }),
+        plugin_hooks: Arc::new(StaticPluginHookSource::default()),
+        image_preprocessor: None,
+    };
+    let runtime = CodingRuntime::start_with_bootstrap(
+        start,
+        atomcode_coding::ProviderBootstrap::RecoverAuthentication,
+    )
+    .await
+    .expect("a runtime waiting for a provider still starts");
+    let handle = runtime.handle.clone();
+    (
+        connect(runtime, front_end, agent, None).expect("connects once"),
+        handle,
+    )
+}
+
+fn errors(events: &[AgentEvent]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::Error { message, .. } => Some(message.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A screen that opened while no provider could serve still shows its session
+/// once one can.
+///
+/// The screen subscribes when it opens. With no provider there is no App yet,
+/// and the subscription used to be refused — which the screen showed as a bare
+/// "the agent cannot take commands now" under the real reason, and never asked
+/// again. So after `/model` found a provider that serves, the turn ran and the
+/// screen was sent none of the session's facts: not even the person's own
+/// message.
+#[tokio::test]
+async fn a_screen_that_opened_before_any_provider_is_fed_once_one_serves() {
+    let env = env();
+    let (mut connection, handle) = started_without_a_provider(&env).await;
+    let session = connection.session.clone();
+    connection.commands.send(subscribe(&session)).unwrap();
+    let opening = quiet(&mut connection).await;
+    assert_eq!(
+        errors(&opening).len(),
+        1,
+        "the reason, said once, and no refusal of the subscription: {opening:#?}"
+    );
+
+    let serves = CodingAgentConfig::new("key", "https://example.test/v1", "ready", ".");
+    handle.reassemble_provider(serves).await.unwrap();
+    connection.commands.send(message("hello")).unwrap();
+    let turn = through_turn(&mut connection).await;
+    assert_eq!(
+        user_messages(&turn, &session),
+        vec!["hello".to_string()],
+        "the session's facts reach the screen that asked before: {turn:#?}"
+    );
+    assert!(
+        turn.iter()
+            .any(|e| matches!(e, AgentEvent::Described { .. })),
+        "and it is told what it follows first: {turn:#?}"
+    );
+}
+
+/// Why no provider serves is said once — not by the runtime's event and again
+/// by the answer to `Readiness`, which the screen asks as it opens.
+///
+/// Both were right and both reached the screen, so the person read the same
+/// sentence twice. The answer still says it is not ready: only the sentence is
+/// left out. A turn typed meanwhile is refused in the same words, not in the
+/// runtime's English.
+#[tokio::test]
+async fn why_no_provider_serves_is_said_once_and_a_refused_turn_says_the_same() {
+    let env = env();
+    let (mut connection, _handle) = started_without_a_provider(&env).await;
+    let said = errors(&quiet(&mut connection).await);
+    assert_eq!(said.len(), 1, "{said:?}");
+
+    let readiness = connection
+        .control
+        .call(HostCommand::Readiness {
+            session: connection.session.clone(),
+        })
+        .await
+        .unwrap();
+    assert!(
+        matches!(
+            readiness,
+            HostReply::Readiness {
+                ready: false,
+                why: None,
+                ..
+            }
+        ),
+        "not ready, and not said a second time: {readiness:?}"
+    );
+
+    connection.commands.send(message("hello")).unwrap();
+    let refused = errors(&quiet(&mut connection).await);
+    assert_eq!(refused, said, "the refusal is the sentence already said");
+}
+
+/// A provider that comes back by a reload and then goes again is said again.
+///
+/// `/login` and onboarding bring a provider back through `Reload` — a
+/// reprepare, which reports `Reconfigured` and not `ProviderChanged`. The
+/// "said once" memory was only cleared by the latter, so after a reload the
+/// same reason going again was taken for the one already said, and the screen
+/// never heard that the provider had gone.
+#[tokio::test]
+async fn a_provider_back_by_a_reload_that_goes_again_is_said_again() {
+    let env = env();
+    let (mut connection, handle) = started_without_a_provider(&env).await;
+    assert_eq!(errors(&quiet(&mut connection).await).len(), 1);
+
+    let serves = CodingAgentConfig::new(
+        "key",
+        "https://example.test/v1",
+        "ready",
+        env.project.path(),
+    );
+    handle.reprepare_config(serves).await.unwrap();
+    let _ = quiet(&mut connection).await;
+
+    handle
+        .deactivate_provider(ProviderUnavailableReason::UnsupportedBuild)
+        .await
+        .unwrap();
+    let said = errors(&quiet(&mut connection).await);
+    assert_eq!(said.len(), 1, "going again is news: {said:?}");
+}

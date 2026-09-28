@@ -112,11 +112,16 @@ impl Plugin for FrontEndFeedPlugin {
     }
     async fn apply(&self, ctx: &Context, _config: &serde_json::Value) -> Result<(), String> {
         let front = self.0.clone();
+        // The App is published before the feed attaches: a subscription that
+        // found no App is kept by the feed and opened either by the scan
+        // `attach` makes or by the host looking again (`Feed::open_expected`).
+        // Published after, a subscription arriving between the two was seen by
+        // neither, and never opened.
+        let mount = front.mounts.fetch_add(1, Ordering::SeqCst);
+        *front.app.lock().expect("front end poisoned") = Some((mount, ctx.clone()));
         // Registered through this row's context, so they go when it unloads.
         let _ = front.feed.attach(ctx);
         let _ = front.forwarded.listen(ctx, front.events.clone());
-        let mount = front.mounts.fetch_add(1, Ordering::SeqCst);
-        *front.app.lock().expect("front end poisoned") = Some((mount, ctx.clone()));
         let _ = ctx.effect(move || {
             let mut app = front.app.lock().expect("front end poisoned");
             if app.as_ref().is_some_and(|(m, _)| *m == mount) {

@@ -900,7 +900,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::RuntimeAlreadyStopped => "这个会话的运行时已经停了".into(),
         Msg::NoProviderConfigured => "还没有配置任何 provider——先加一个才能开始".into(),
         Msg::LoginExpired => "登录已经失效，需要重新登录".into(),
-        Msg::ProviderUnsupportedByBuild => "这个构建不支持所配置的 provider".into(),
+        Msg::ProviderUnsupportedByBuild => "当前构建不支持 AtomGit 官方网关。请安装官方版本，或用 /model 切换到其他模型、/provider 换一个 provider".into(),
         Msg::ScreenNotConnectedAgent => "屏幕还没接上 agent".into(),
         Msg::HostHasNoControl => "这个宿主没有控制面".into(),
         Msg::HostNotFoundShort => "找不到:会话已经换过了".into(),
