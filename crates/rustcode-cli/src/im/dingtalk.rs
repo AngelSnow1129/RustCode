@@ -259,14 +259,23 @@ pub fn strip_leading_mention(text: &str) -> String {
 }
 
 /// DingTalk adapter over a Stream long connection.
+///
+/// The socket lives behind an async mutex so the adapter is `&self`-shareable:
+/// the serve loop runs a reader task, one task per in-flight chat turn, and the
+/// approval relay, all over one `Arc<DingTalkAdapter>`. `next_message` is called
+/// by the reader task alone (the dispatch layer enforces that); `send_text` is
+/// safe to call from many tasks because it needs no socket at all (replies go
+/// out over HTTP).
 pub struct DingTalkAdapter {
     client_id: String,
     client_secret: String,
     gateway: String,
     /// Live WebSocket, established lazily on first use.
-    socket: Option<
-        tokio_tungstenite::WebSocketStream<
-            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    socket: tokio::sync::Mutex<
+        Option<
+            tokio_tungstenite::WebSocketStream<
+                tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+            >,
         >,
     >,
     http: reqwest::Client,
@@ -289,7 +298,7 @@ impl DingTalkAdapter {
             client_id: client_id.into(),
             client_secret: client_secret.into(),
             gateway: DEFAULT_GATEWAY.to_string(),
-            socket: None,
+            socket: tokio::sync::Mutex::new(None),
             http,
         }
     }
@@ -318,8 +327,13 @@ impl DingTalkAdapter {
     }
 
     /// Establish the long connection if it is not already up.
-    async fn ensure_connected(&mut self) -> Result<(), ImError> {
-        if self.socket.is_some() {
+    ///
+    /// Holds the socket lock across the handshake and the WS dial so two tasks
+    /// cannot open two connections (the platform would serve the same events
+    /// twice). Safe to call repeatedly: an existing socket is returned as-is.
+    async fn ensure_connected(&self) -> Result<(), ImError> {
+        let mut guard = self.socket.lock().await;
+        if guard.is_some() {
             return Ok(());
         }
         let (endpoint, ticket) = self.open_connection().await?;
@@ -331,7 +345,7 @@ impl DingTalkAdapter {
                     ImError::Transport("timed out connecting to the stream endpoint".into())
                 })?
                 .map_err(|e| ImError::Transport(format!("WebSocket connect failed: {e}")))?;
-        self.socket = Some(ws);
+        *guard = Some(ws);
         Ok(())
     }
 
@@ -367,10 +381,10 @@ impl ImAdapter for DingTalkAdapter {
         "dingtalk"
     }
 
-    async fn next_message(&mut self) -> Result<Option<ImMessage>, ImError> {
+    async fn next_message(&self) -> Result<Option<ImMessage>, ImError> {
         self.ensure_connected().await?;
-        let socket = self
-            .socket
+        let mut guard = self.socket.lock().await;
+        let socket = guard
             .as_mut()
             .ok_or_else(|| ImError::Transport("stream not connected".into()))?;
 
@@ -379,7 +393,7 @@ impl ImAdapter for DingTalkAdapter {
             let Some(frame) = next else {
                 // Stream ended. Drop the socket so the caller's next attempt
                 // reconnects instead of reading a dead handle forever.
-                self.socket = None;
+                *guard = None;
                 return Ok(None);
             };
             let message =
@@ -395,7 +409,7 @@ impl ImAdapter for DingTalkAdapter {
                 | tokio_tungstenite::tungstenite::Message::Pong(_)
                 | tokio_tungstenite::tungstenite::Message::Frame(_) => continue,
                 tokio_tungstenite::tungstenite::Message::Close(_) => {
-                    self.socket = None;
+                    *guard = None;
                     return Ok(None);
                 }
             };
@@ -419,7 +433,7 @@ impl ImAdapter for DingTalkAdapter {
                 let _ = socket
                     .send(tokio_tungstenite::tungstenite::Message::text(ack))
                     .await;
-                self.socket = None;
+                *guard = None;
                 return Ok(None);
             }
 

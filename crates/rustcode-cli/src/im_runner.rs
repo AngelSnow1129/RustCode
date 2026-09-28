@@ -144,16 +144,27 @@ impl AgentRunner for CliAgentRunner {
     }
 }
 
-/// Run the IM channel loop for one configured channel.
+/// Run the IM channel loop for every configured channel that matches.
 ///
-/// Resolves the channel from config (platform + project filter), builds the
-/// adapter, and serves until the transport closes. Returns the process exit code
-/// so the subcommand can surface failures the way `schedule run` does.
+/// Resolves the channels from config (platform + project filters), builds one
+/// adapter per channel, and serves them **concurrently** -- one task each, with
+/// independent reconnect backoff, so an unreachable platform cannot stall the
+/// others. Returns the process exit code so the subcommand can surface failures
+/// the way `schedule run` does.
+///
+/// A platform without an implemented adapter is reported and skipped rather
+/// than failing the whole command: configuring Feishu alongside a working
+/// DingTalk bot should not stop the DingTalk bot. If that leaves nothing to
+/// serve, the command fails with the collected reasons.
 pub async fn run_im_command(
     platform_filter: Option<&str>,
     project_filter: Option<&str>,
 ) -> anyhow::Result<i32> {
-    use rustcode::im::{dingtalk::DingTalkAdapter, resolve_project, serve_channel, RecentMessages};
+    use rustcode::im::{
+        dingtalk::DingTalkAdapter, resolve_project, serve_channels, ChannelSpec,
+        DEFAULT_MAX_IN_FLIGHT,
+    };
+    use std::sync::Arc;
 
     // Fail-closed on the master switch: an operator turning channels off in a
     // container must not have a stale shell still serving them.
@@ -184,87 +195,96 @@ pub async fn run_im_command(
         anyhow::bail!("IM channel configuration is invalid; fix the entries above");
     }
 
-    // Pick the channel to serve. Filters are optional so a single-channel setup
-    // needs no flags.
-    let channel = config
-        .im
-        .channels
-        .iter()
-        .find(|c| {
-            if !rustcode_config::config::im::channel_is_active(&config.im, c) {
-                return false;
-            }
-            if let Some(want) = platform_filter {
-                if !c.platform.eq_ignore_ascii_case(want) {
-                    return false;
-                }
-            }
-            if let Some(want) = project_filter {
-                if c.project != want {
-                    return false;
-                }
-            }
-            true
-        })
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "no active IM channel matches (platform={:?}, project={:?})",
-                platform_filter,
-                project_filter
-            )
-        })?;
+    // Collect every matching channel. Filters are optional so a single-channel
+    // setup needs no flags; with no filter, all active channels are served.
+    let mut specs: Vec<ChannelSpec> = Vec::new();
+    let mut unsupported: Vec<String> = Vec::new();
 
-    let platform = channel.parsed_platform().ok_or_else(|| {
-        anyhow::anyhow!(
-            "channel has an unrecognized platform `{}`",
-            channel.platform
-        )
-    })?;
-    let project = resolve_project(&channel.project).map_err(|e| anyhow::anyhow!("{e}"))?;
-
-    match platform {
-        rustcode_config::config::im::ImPlatform::Dingtalk => {
-            let client_id = channel
-                .credential("client_id")
-                .ok_or_else(|| anyhow::anyhow!("channel is missing `client_id`"))?;
-            let client_secret = channel
-                .credential("client_secret")
-                .ok_or_else(|| anyhow::anyhow!("channel is missing `client_secret`"))?;
-
-            let mut adapter = DingTalkAdapter::new(client_id, client_secret);
-            if let Ok(gateway) = std::env::var("RUSTCODE_DINGTALK_GATEWAY") {
-                if !gateway.trim().is_empty() {
-                    adapter = adapter.with_gateway(gateway);
-                }
-            }
-
-            println!(
-                "[*] IM channel `dingtalk` serving project {} (long connection, no public endpoint needed)",
-                project.display()
-            );
-
-            let mut dedupe = RecentMessages::new(1024);
-            loop {
-                match serve_channel(&mut adapter, &CliAgentRunner, &project, &mut dedupe).await {
-                    // A clean stream end is a reconnect, not a failure: the
-                    // platform rotates connections, and exiting here would leave
-                    // the channel dead until an operator noticed.
-                    Ok(()) => {
-                        eprintln!("[*] IM stream closed; reconnecting");
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    }
-                    Err(error) => {
-                        eprintln!("[!] IM stream error: {error}; reconnecting");
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    }
-                }
+    for channel in &config.im.channels {
+        if !rustcode_config::config::im::channel_is_active(&config.im, channel) {
+            continue;
+        }
+        if let Some(want) = platform_filter {
+            if !channel.platform.eq_ignore_ascii_case(want) {
+                continue;
             }
         }
-        other => {
-            anyhow::bail!(
-                "platform `{}` is not implemented yet (only `dingtalk` Stream mode is)",
-                other.as_str()
-            )
+        if let Some(want) = project_filter {
+            if channel.project != want {
+                continue;
+            }
+        }
+
+        let Some(platform) = channel.parsed_platform() else {
+            unsupported.push(format!(
+                "channel has an unrecognized platform `{}`",
+                channel.platform
+            ));
+            continue;
+        };
+        let project = match resolve_project(&channel.project) {
+            Ok(project) => project,
+            Err(error) => {
+                unsupported.push(format!("{error}"));
+                continue;
+            }
+        };
+
+        match platform {
+            rustcode_config::config::im::ImPlatform::Dingtalk => {
+                let client_id = channel
+                    .credential("client_id")
+                    .ok_or_else(|| anyhow::anyhow!("channel is missing `client_id`"))?;
+                let client_secret = channel
+                    .credential("client_secret")
+                    .ok_or_else(|| anyhow::anyhow!("channel is missing `client_secret`"))?;
+
+                let mut adapter = DingTalkAdapter::new(client_id, client_secret);
+                if let Ok(gateway) = std::env::var("RUSTCODE_DINGTALK_GATEWAY") {
+                    if !gateway.trim().is_empty() {
+                        adapter = adapter.with_gateway(gateway);
+                    }
+                }
+
+                println!(
+                    "[*] IM channel `dingtalk` serving project {} (long connection, no public endpoint needed)",
+                    project.display()
+                );
+
+                specs.push(ChannelSpec {
+                    adapter: Arc::new(adapter),
+                    runner: Arc::new(CliAgentRunner),
+                    project,
+                    max_in_flight: DEFAULT_MAX_IN_FLIGHT,
+                    allow_senders: channel.allow_senders.clone(),
+                });
+            }
+            other => {
+                // Reported, not fatal: see the function note.
+                unsupported.push(format!(
+                    "platform `{}` is not implemented yet (only `dingtalk` Stream mode is)",
+                    other.as_str()
+                ));
+            }
         }
     }
+
+    if specs.is_empty() {
+        let mut reason = String::from("no active IM channel matches the given filters");
+        if !unsupported.is_empty() {
+            for entry in &unsupported {
+                reason.push_str(&format!("\n  - {entry}"));
+            }
+        }
+        anyhow::bail!("{reason}");
+    }
+
+    if !unsupported.is_empty() {
+        for entry in &unsupported {
+            eprintln!("[!] IM channel skipped: {entry}");
+        }
+    }
+
+    serve_channels(specs).await;
+    Ok(0)
 }

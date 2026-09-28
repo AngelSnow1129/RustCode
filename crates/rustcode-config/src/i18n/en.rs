@@ -1814,6 +1814,29 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
             format!("approval timed out after {secs}s; treated as denied").into(),
         Msg::ImApprovalUnparsed =>
             "could not parse the reply; answer `y` (allow), `always` (allow for this turn) or `n` (deny)".into(),
+        Msg::ImCmdHelp =>
+            "Available commands in this chat:\n`/help` -- this message\n`/status` -- which project and session this conversation drives\n`/project` -- the working directory bound to this channel\n`/new` -- start a fresh session for the next message\nAnything else is sent to the agent as a prompt.".into(),
+        Msg::ImCmdStatus { project, session, new_session } => {
+            if new_session {
+                format!("Project: {project}\nSession: none yet -- this chat's next message starts one.").into()
+            } else {
+                format!("Project: {project}\nSession: {session}").into()
+            }
+        }
+        Msg::ImCmdProject { project } =>
+            format!("This channel is bound to: {project}").into(),
+        Msg::ImCmdNewSession =>
+            "Started a new session: the next message begins a fresh conversation (the previous history is kept on disk).".into(),
+        Msg::ImTurnProcessing { seconds } =>
+            format!("Working on it… (running for {seconds}s)").into(),
+        Msg::ImTurnFailed { detail } =>
+            format!("The agent turn failed: {detail}").into(),
+        Msg::ImSenderNotAllowed =>
+            "This chat is restricted to a specific list of members; your message was not processed. Contact the channel owner to be added.".into(),
+        Msg::CfgDiagImBadAllowSender { position, platform } =>
+            format!("channel #{position} ({platform}): sender allowlist has a blank entry; remove it or the channel will serve nobody").into(),
+        Msg::CfgDiagImDuplicateAllowSender { position, platform } =>
+            format!("channel #{position} ({platform}): sender allowlist has duplicate ids").into(),
         Msg::CfgDiagModelMissingModel { id } =>
             format!("model `{id}` is missing `model`").into(),
         Msg::CfgDiagModelMissingAccount { id } =>

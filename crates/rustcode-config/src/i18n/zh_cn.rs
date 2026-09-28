@@ -1746,6 +1746,29 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
             format!("审批超时（{secs} 秒），已按拒绝处理").into(),
         Msg::ImApprovalUnparsed =>
             "无法识别回复；请回复 `y`（允许）、`always`（总是允许）或 `n`（拒绝）".into(),
+        Msg::ImCmdHelp =>
+            "本会话可用命令：\n`/help` —— 显示这条说明\n`/status` —— 当前驱动的项目与会话\n`/project` —— 本渠道绑定的工作目录\n`/new` —— 下一条消息开始新会话\n其它内容一律作为提示词交给 agent。".into(),
+        Msg::ImCmdStatus { project, session, new_session } => {
+            if new_session {
+                format!("项目：{project}\n会话：尚未开始 —— 本会话的下一条消息会创建。").into()
+            } else {
+                format!("项目：{project}\n会话：{session}").into()
+            }
+        }
+        Msg::ImCmdProject { project } =>
+            format!("本渠道绑定的工作目录：{project}").into(),
+        Msg::ImCmdNewSession =>
+            "已开始新会话：下一条消息将开启全新对话（此前的历史仍保留在磁盘上）。".into(),
+        Msg::ImTurnProcessing { seconds } =>
+            format!("正在处理…（已运行 {seconds} 秒）").into(),
+        Msg::ImTurnFailed { detail } =>
+            format!("本轮 agent 执行失败：{detail}").into(),
+        Msg::ImSenderNotAllowed =>
+            "本会话仅对指定成员开放，你的消息未被执行。请联系渠道负责人将你加入白名单。".into(),
+        Msg::CfgDiagImBadAllowSender { position, platform } =>
+            format!("第 {position} 个渠道（{platform}）：发送者白名单中存在空项，请移除，否则该渠道不会响应任何人").into(),
+        Msg::CfgDiagImDuplicateAllowSender { position, platform } =>
+            format!("第 {position} 个渠道（{platform}）：发送者白名单存在重复项").into(),
         Msg::CfgDiagModelMissingModel { id } =>
             format!("模型 `{id}` 缺少 `model` 字段").into(),
         Msg::CfgDiagModelMissingAccount { id } =>

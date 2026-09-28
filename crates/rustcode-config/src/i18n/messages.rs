@@ -2642,6 +2642,48 @@ pub enum Msg<'a> {
     },
     /// IM approval: the reply was not a recognizable decision token.
     ImApprovalUnparsed,
+    /// IM chat command `/help`: what a conversation can ask for.
+    ImCmdHelp,
+    /// IM chat command `/status`: which project and session this chat drives.
+    ///
+    /// `session` is empty when the chat has not started a session yet; the
+    /// renderer must then use the `new_session` wording instead of interpolating
+    /// an empty id.
+    ImCmdStatus {
+        project: &'a str,
+        session: &'a str,
+        new_session: bool,
+    },
+    /// IM chat command `/project`: the working directory bound to the channel.
+    ImCmdProject {
+        project: &'a str,
+    },
+    /// IM chat command `/new` acknowledgement.
+    ImCmdNewSession,
+    /// IM: a "working on it" note shown only when a turn is taking longer than a
+    /// quiet grace period, so fast answers are not preceded by chatter.
+    ImTurnProcessing {
+        seconds: u64,
+    },
+    /// IM: an agent turn failed and the failure has been reported back to the chat
+    /// (nothing else is returned, so the user is not left with silence).
+    ImTurnFailed {
+        detail: &'a str,
+    },
+    /// IM: an incoming message came from a sender not on the channel's
+    /// allowlist, so it was dropped. Localized; the sender id is not echoed (it
+    /// is untrusted network input).
+    ImSenderNotAllowed,
+    /// IM validation: a channel's sender allowlist contains a blank entry.
+    CfgDiagImBadAllowSender {
+        position: usize,
+        platform: &'a str,
+    },
+    /// IM validation: a channel's sender allowlist has duplicate ids.
+    CfgDiagImDuplicateAllowSender {
+        position: usize,
+        platform: &'a str,
+    },
     /// Validation: model profile has empty `model` field.
     CfgDiagModelMissingModel {
         id: &'a str,

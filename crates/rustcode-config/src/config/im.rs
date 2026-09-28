@@ -125,6 +125,17 @@ pub struct ImChannelConfig {
     pub bot_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub secret: Option<String>,
+
+    /// Optional sender allowlist for this channel.
+    ///
+    /// When set and non-empty, only messages whose sender id is listed here are
+    /// served; everything else is rejected with a localized notice. The default
+    /// (empty) means "anyone the platform delivers to this bot may drive it" --
+    /// which is right for a 1:1 bot chat but dangerous for a group chat, where a
+    /// whole team would otherwise share one agent. See also `group_mode` for the
+    /// complementary switch.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allow_senders: Vec<String>,
 }
 
 impl Default for ImChannelConfig {
@@ -139,6 +150,7 @@ impl Default for ImChannelConfig {
             app_secret: None,
             bot_id: None,
             secret: None,
+            allow_senders: Vec::new(),
         }
     }
 }
@@ -281,6 +293,33 @@ impl ImConfig {
                 );
             } else {
                 seen.push((project, platform));
+            }
+
+            // Sender allowlist hygiene: an empty entry is a silent no-op that
+            // would make the channel serve nobody, and a duplicate is just a
+            // mistake. Neither is fatal, but both are worth flagging at load
+            // time rather than discovered as "my bot ignores everyone".
+            let mut allow_seen = std::collections::HashSet::new();
+            for sender in &channel.allow_senders {
+                if sender.trim().is_empty() {
+                    diags.push(
+                        t(Msg::CfgDiagImBadAllowSender {
+                            position,
+                            platform: platform.as_str(),
+                        })
+                        .into_owned(),
+                    );
+                }
+                allow_seen.insert(sender.clone());
+            }
+            if allow_seen.len() != channel.allow_senders.len() {
+                diags.push(
+                    t(Msg::CfgDiagImDuplicateAllowSender {
+                        position,
+                        platform: platform.as_str(),
+                    })
+                    .into_owned(),
+                );
             }
         }
         diags

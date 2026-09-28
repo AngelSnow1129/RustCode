@@ -141,23 +141,30 @@ pub trait ApprovalPort: Send {
 
 /// [`ApprovalPort`] implementation that relays to one IM chat.
 ///
-/// v1 semantics, stated plainly: the serve loop is blocked inside this turn,
-/// so the relay polls the adapter's inbound stream itself. Messages that
-/// arrive during the wait are consumed: a parseable decision token answers the
-/// ask, anything else gets the unparsed hint and is otherwise dropped (it is
-/// acked to the platform, so no redelivery). Multi-channel queuing is future
-/// work; the single-channel case -- the only one `rustcode im serve` runs --
-/// is fully served.
+/// v2 semantics: the serve loop runs each chat turn in its own task, so the
+/// relay no longer drives `next_message` itself -- it asks the dispatch broker
+/// for replies addressed to *its* chat (see `dispatch::ReplyBroker`). That is
+/// what makes one conversation's approval wait unable to swallow another
+/// conversation's ordinary message.
+///
+/// The broker is still fail-closed by deadline: when the wait expires the relay
+/// tells the chat and returns `None`, which the caller maps to Deny.
 pub struct ImApprovalRelay<'a> {
-    adapter: &'a mut dyn ImAdapter,
+    adapter: &'a dyn ImAdapter,
     chat_id: &'a str,
     reply_token: Option<&'a str>,
     wait: Duration,
+    /// Reply stream for this chat while the turn is in flight.
+    ///
+    /// Borrowed directly rather than wrapped: a nested
+    /// `&'a mut ChatMailbox<'a>` would force the queue's lifetime and the
+    /// borrow's lifetime to be the same, which the callers cannot satisfy.
+    replies: Option<&'a mut tokio::sync::mpsc::Receiver<super::ImMessage>>,
 }
 
 impl<'a> ImApprovalRelay<'a> {
     pub fn new(
-        adapter: &'a mut dyn ImAdapter,
+        adapter: &'a dyn ImAdapter,
         chat_id: &'a str,
         reply_token: Option<&'a str>,
         wait: Duration,
@@ -167,12 +174,22 @@ impl<'a> ImApprovalRelay<'a> {
             chat_id,
             reply_token,
             wait,
+            replies: None,
         }
+    }
+
+    /// Attach the chat's mailbox so decisions can arrive while the turn runs.
+    pub fn with_mailbox(
+        mut self,
+        mailbox: &'a mut tokio::sync::mpsc::Receiver<super::ImMessage>,
+    ) -> Self {
+        self.replies = Some(mailbox);
+        self
     }
 
     /// Best-effort send: a failed prompt delivery must not escalate into turn
     /// failure; the deadline below still fail-closes the decision.
-    async fn send(&mut self, text: &str) {
+    async fn send(&self, text: &str) {
         let _ = self
             .adapter
             .send_text(self.chat_id, self.reply_token, text)
@@ -185,31 +202,37 @@ impl ApprovalPort for ImApprovalRelay<'_> {
     async fn request_decision(&mut self, card: ApprovalCard) -> Option<ApprovalReply> {
         self.send(&format_card(&card)).await;
         let deadline = Instant::now() + self.wait;
+        // Take the mailbox out of `self` so the borrow of `self` ends here:
+        // the loop below needs `self.send(..)` while still reading the queue.
+        let Some(mailbox) = self.replies.take() else {
+            // Without a live reader there is nobody who can answer: fail closed
+            // now rather than making every unattended caller wait out the full
+            // deadline for a reply that cannot arrive.
+            self.send(&t(Msg::ImApprovalTimeout {
+                secs: self.wait.as_secs(),
+            }))
+            .await;
+            return None;
+        };
+
         loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                self.send(&t(Msg::ImApprovalTimeout {
-                    secs: self.wait.as_secs(),
-                }))
-                .await;
-                return None;
-            }
-            match tokio::time::timeout(remaining, self.adapter.next_message()).await {
-                Err(_elapsed) => {
+            match super::dispatch::ChatMailbox::recv_until(mailbox, deadline).await {
+                // Deadline passed, or the queue closed (the worker is ending):
+                // no answer can arrive anymore.
+                None => {
                     self.send(&t(Msg::ImApprovalTimeout {
                         secs: self.wait.as_secs(),
                     }))
                     .await;
                     return None;
                 }
-                // Transport broke mid-wait: no further replies can arrive, so
-                // fail closed (the caller maps None to Deny).
-                Ok(Err(_error)) => return None,
-                // Stream ended: same -- nobody can answer anymore.
-                Ok(Ok(None)) => return None,
-                Ok(Ok(Some(message))) => match parse_approval_reply(&message.text) {
+                Some(message) => match parse_approval_reply(&message.text) {
                     Some(reply) => return Some(reply),
                     None => {
+                        // Not a decision. We consumed a message from this chat's
+                        // queue, so say so instead of leaving the sender with
+                        // silence -- and keep waiting, since the deadline has
+                        // not moved.
                         let hint = t(Msg::ImApprovalUnparsed).into_owned();
                         self.send(&hint).await;
                     }

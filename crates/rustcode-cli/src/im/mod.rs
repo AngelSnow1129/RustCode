@@ -34,14 +34,20 @@ use async_trait::async_trait;
 
 pub mod approval;
 pub mod bridge;
+pub mod commands;
 pub mod dingtalk;
+pub mod dispatch;
 pub mod runner;
 
 pub use approval::{
     parse_approval_reply, ApprovalCard, ApprovalPort, ApprovalReply, ImApprovalRelay, APPROVAL_WAIT,
 };
 pub use bridge::{split_reply, BridgedReply, RecentMessages};
-pub use runner::{handle_message, resolve_project, serve_channel, AgentRunner, AgentTurn};
+pub use commands::{answer_for, parse_chat_command, ChatCommand, CommandContext};
+pub use dispatch::{
+    serve_channels, ChannelDispatch, ChannelSpec, ChatMailbox, DEFAULT_MAX_IN_FLIGHT,
+};
+pub use runner::{handle_message, resolve_project, AgentRunner, AgentTurn, DispatchOutcome};
 
 /// Typed adapter failure. Kept separate from `anyhow` at the module boundary so
 /// a caller can distinguish "transport died, retry" from "config is wrong, do
@@ -108,6 +114,12 @@ pub struct ImMessage {
 }
 
 /// A platform adapter: pulls inbound messages, posts replies.
+///
+/// Every method takes `&self`, not `&mut self`: a channel is served
+/// concurrently (one reader task, one task per in-flight chat turn, plus the
+/// approval relay), so the adapter is shared behind an `Arc` and its mutable
+/// state -- the live socket -- lives behind an async mutex inside the
+/// implementation. See `dispatch.rs` for how the sharing is arranged.
 #[async_trait]
 pub trait ImAdapter: Send + Sync {
     /// Platform spelling, matching `rustcode_config::config::im::ImPlatform`.
@@ -119,7 +131,11 @@ pub trait ImAdapter: Send + Sync {
     /// Implementations must send the platform's acknowledgement for every frame
     /// they consume -- several platforms redeliver unacked messages, and a
     /// redelivered message would otherwise drive the agent twice.
-    async fn next_message(&mut self) -> Result<Option<ImMessage>, ImError>;
+    ///
+    /// Only the reader task calls this (see `dispatch::ChannelDispatch`); turn
+    /// tasks receive messages through the dispatch broker instead, so two tasks
+    /// never race for one frame.
+    async fn next_message(&self) -> Result<Option<ImMessage>, ImError>;
 
     /// Post one already-chunked piece of text back to a conversation.
     ///
