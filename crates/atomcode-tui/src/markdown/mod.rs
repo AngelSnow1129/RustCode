@@ -439,13 +439,25 @@ fn next_path(s: &str) -> Option<(usize, usize)> {
     None
 }
 
-/// Whether the byte offset `at` in `text` sits inside a bare URL.
+/// Every bare URL in `text`, as `(byte offset, byte length)`, in order.
 ///
 /// An emphasis marker inside a link (`atomgit_atomcode` in a merge-request
 /// address) is part of the address, not the prose around it — styling it as
 /// italics would eat the underscores out of the very URL a person must copy.
-fn in_bare_url(text: &str, at: usize) -> bool {
-    next_url(text).is_some_and(|(start, len)| start <= at && at < start + len)
+/// All of them, not the first: a second address on the line, or one after a
+/// `[label](url)` (whose own URL is found first), is just as much an address.
+fn url_spans(text: &str) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    let mut from = 0;
+    #[allow(
+        clippy::string_slice,
+        reason = "`from` is the end of a URL found by `next_url` — a char boundary"
+    )]
+    while let Some((start, len)) = next_url(&text[from..]) {
+        spans.push((from + start, len));
+        from += start + len.max(1);
+    }
+    spans
 }
 
 /// The first bare openable URL in `s`, as `(byte offset, byte length)`.
@@ -528,6 +540,36 @@ fn inline(text: &str, base: Style) -> Vec<Span> {
             Some(*acc)
         }))
         .collect();
+    let urls = url_spans(text);
+    let in_url = |at: usize| {
+        urls.iter()
+            .any(|&(start, len)| start <= offsets[at] && offsets[at] < start + len)
+    };
+    // CommonMark's intraword rule for `_`: flanked by a letter or digit it neither
+    // opens nor closes emphasis, so `a_very_long_identifier` stays as written.
+    // (`*` may still emphasize inside a word, as CommonMark allows.)
+    let word = |at: Option<usize>| {
+        at.and_then(|at| chars.get(at))
+            .is_some_and(|c| c.is_alphanumeric())
+    };
+    let opens = |at: usize| !in_url(at) && !(chars[at] == '_' && word(at.checked_sub(1)));
+    // The first closer from `from` that is outside every URL and, for `_`, not
+    // followed by a word character. `width` is the marker's length (1 or 2).
+    let closer = |from: usize, marker: char, width: usize| {
+        let mut at = from;
+        loop {
+            let end = if width == 2 {
+                find_pair(&chars, at, marker)?
+            } else {
+                find(&chars, at, marker)?
+            };
+            let after = end + width;
+            if !in_url(end) && !(marker == '_' && word(Some(after))) {
+                return Some(end);
+            }
+            at = end + 1;
+        }
+    };
     let mut i = 0usize;
 
     let flush = |buf: &mut String, out: &mut Vec<Span>| {
@@ -551,13 +593,9 @@ fn inline(text: &str, base: Style) -> Vec<Span> {
                     continue;
                 }
             }
-            '*' | '_'
-                if i + 1 < chars.len()
-                    && chars[i + 1] == chars[i]
-                    && !in_bare_url(text, offsets[i]) =>
-            {
+            '*' | '_' if i + 1 < chars.len() && chars[i + 1] == chars[i] && opens(i) => {
                 let marker = chars[i];
-                if let Some(end) = find_pair(&chars, i + 2, marker) {
+                if let Some(end) = closer(i + 2, marker, 2) {
                     flush(&mut buf, &mut out);
                     let inner: String = chars[i + 2..end].iter().collect();
                     out.push(Span::styled(inner, style_with_bold(base)));
@@ -565,9 +603,9 @@ fn inline(text: &str, base: Style) -> Vec<Span> {
                     continue;
                 }
             }
-            '*' | '_' if !in_bare_url(text, offsets[i]) => {
+            '*' | '_' if opens(i) => {
                 let marker = chars[i];
-                if let Some(end) = find(&chars, i + 1, marker) {
+                if let Some(end) = closer(i + 1, marker, 1) {
                     if end > i + 1 {
                         flush(&mut buf, &mut out);
                         let inner: String = chars[i + 1..end].iter().collect();
@@ -1258,6 +1296,59 @@ mod tests {
             spans.iter().all(|s| !s.style.italic && !s.style.bold),
             "the URL is not a style boundary: {spans:?}"
         );
+    }
+
+    #[test]
+    fn every_bare_url_on_a_line_keeps_its_underscores() {
+        // Not only the first: a second address, or one after a markdown link,
+        // is an address too.
+        let second = "https://gitcode.com/atomgit_atomcode/merge_requests";
+        for line in [
+            format!("见 https://a.example/x 和 {second}"),
+            format!("see [docs](https://example.com/p) then {second}"),
+        ] {
+            let spans = spans_of(&line, 300);
+            assert!(
+                spans.iter().any(|s| s.link.as_deref() == Some(second)),
+                "{line}: {spans:?}"
+            );
+            assert!(
+                spans.iter().all(|s| !s.style.italic && !s.style.bold),
+                "{line}: {spans:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_marker_whose_partner_is_inside_a_url_is_not_emphasis() {
+        let url = "https://a.example/b_c";
+        let spans = spans_of(&format!("_see {url}"), 200);
+        assert!(
+            spans.iter().any(|s| s.link.as_deref() == Some(url)),
+            "{spans:?}"
+        );
+        assert!(spans.iter().all(|s| !s.style.italic), "{spans:?}");
+    }
+
+    #[test]
+    fn underscores_inside_a_word_are_not_emphasis() {
+        // CommonMark: `_` flanked by letters or digits on both sides never opens
+        // or closes emphasis — snake_case identifiers come out as written.
+        let spans = spans_of("rename a_very_long_identifier and item_2_b here", 200);
+        let text: String = spans.iter().map(|s| s.text.as_str()).collect();
+        assert!(text.contains("a_very_long_identifier"), "{spans:?}");
+        assert!(spans.iter().all(|s| !s.style.italic), "{spans:?}");
+
+        // Emphasis at a word boundary still works, next to an identifier.
+        let spans = spans_of("keep snake_case but _this_ is italic", 200);
+        let italic: Vec<&str> = spans
+            .iter()
+            .filter(|s| s.style.italic)
+            .map(|s| s.text.as_str())
+            .collect();
+        assert_eq!(italic, ["this"], "{spans:?}");
+        let text: String = spans.iter().map(|s| s.text.as_str()).collect();
+        assert!(text.contains("snake_case"), "{spans:?}");
     }
 
     #[test]

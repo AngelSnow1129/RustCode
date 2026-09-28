@@ -1257,11 +1257,11 @@ mod tests {
             !out.iter().any(|l| l.contains('：')),
             "a separator between nothing and something: {out:?}"
         );
-        // The values are the cells' own words. Read as *drawn*, not as written:
-        // the inline renderer eats the `_` pairs (`a_very_long_identifier` comes
-        // out `averylong_identifier`), which is that renderer's business.
+        // The values are the cells' own words, underscores included (`_` inside a
+        // word is not emphasis).
         assert!(
-            out.iter().all(|l| l.contains("identifier")),
+            out.iter().any(|l| l.contains("a_very_long_identifier"))
+                && out.iter().any(|l| l.contains("another_long_identifier")),
             "the values are still there: {out:?}"
         );
     }
