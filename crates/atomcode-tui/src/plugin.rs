@@ -4031,27 +4031,33 @@ impl Tui {
             RetractDecision::Keep => None,
             RetractDecision::Take(turn) => Some(turn),
         };
-        {
-            let mut m = self.host.moment.write().expect("moment poisoned");
-            m.retract = None;
-            // Taken back, there is nothing to say was stopped: the screen is as
-            // it was before the words were sent, with the words in the field.
-            if turn.is_some() {
-                m.interrupted = false;
-            }
-        }
+        self.host.moment.write().expect("moment poisoned").retract = None;
         let (Some(turn), Some(control)) = (turn, self.client.control()) else {
             return;
         };
         let based_on = self.client.root_high();
+        let host = self.host.clone();
+        let keys = self.wake.lock().expect("wake poisoned").clone();
         tokio::spawn(async move {
-            let _ = control
+            let undone = control
                 .call(HostCommand::Undo {
                     session: root,
                     turn: Some(turn),
                     based_on,
                 })
                 .await;
+            // Only once it is really gone is there nothing to say was stopped:
+            // the screen is then as it was before the words were sent, with the
+            // words in the field. A refused undo leaves the turn standing, and
+            // the `已中断` note stays with it — cleared early, a turn the model
+            // still has sat above the same words in the composer with nothing
+            // saying so, one Enter from asking it twice.
+            if matches!(undone, Ok(atomcode_host_api::HostReply::Undone { .. })) {
+                host.moment.write().expect("moment poisoned").interrupted = false;
+                if let Some(keys) = keys {
+                    let _ = keys.send(Wake::Fact);
+                }
+            }
         });
     }
 

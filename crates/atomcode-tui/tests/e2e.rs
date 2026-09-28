@@ -5218,6 +5218,8 @@ async fn a_model_that_has_not_answered_yet_says_it_is_being_waited_for() {
 struct UndoRecorder {
     inner: Arc<dyn atomcode_host_api::HostControl>,
     asked: Arc<std::sync::Mutex<Vec<Option<u64>>>>,
+    /// Answer every undo as the host does when the log moved on under it.
+    refuse: bool,
 }
 
 #[async_trait]
@@ -5228,6 +5230,9 @@ impl atomcode_host_api::HostControl for UndoRecorder {
     ) -> Result<atomcode_host_api::HostReply, atomcode_host_api::HostError> {
         if let atomcode_host_api::HostCommand::Undo { turn, .. } = &command {
             self.asked.lock().expect("asked poisoned").push(*turn);
+            if self.refuse {
+                return Err(atomcode_host_api::HostError::Stale { current: 0 });
+            }
             return Ok(atomcode_host_api::HostReply::Undone {
                 prompt: None,
                 restored_files: Vec::new(),
@@ -5240,7 +5245,10 @@ impl atomcode_host_api::HostControl for UndoRecorder {
     }
 }
 
-async fn start_recording_undo(setup: Setup) -> (Session, Arc<std::sync::Mutex<Vec<Option<u64>>>>) {
+async fn start_recording_undo(
+    setup: Setup,
+    refuse: bool,
+) -> (Session, Arc<std::sync::Mutex<Vec<Option<u64>>>>) {
     let asked = Arc::new(std::sync::Mutex::new(Vec::new()));
     let s = start_full(
         setup,
@@ -5250,6 +5258,7 @@ async fn start_recording_undo(setup: Setup) -> (Session, Arc<std::sync::Mutex<Ve
                 control: Arc::new(UndoRecorder {
                     inner: connection.control,
                     asked,
+                    refuse,
                 }),
                 ..connection
             }
@@ -5270,8 +5279,11 @@ async fn start_recording_undo(setup: Setup) -> (Session, Arc<std::sync::Mutex<Ve
 async fn esc_before_the_model_says_anything_takes_the_turn_back() {
     let dir = scratch("esc-retract");
     let stalling = "[[patch]]\nid = \"llm\"\nname = \"test-stalling-llm\"\n";
-    let (s, asked) =
-        start_recording_undo(tree(&dir, &replay(r#"{ text = "unused" }"#), &[stalling])).await;
+    let (s, asked) = start_recording_undo(
+        tree(&dir, &replay(r#"{ text = "unused" }"#), &[stalling]),
+        false,
+    )
+    .await;
     let task = s.open().await;
 
     s.term.type_line("你好");
@@ -5311,6 +5323,47 @@ async fn esc_before_the_model_says_anything_takes_the_turn_back() {
     let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
 }
 
+/// A refused undo leaves the turn standing — and the `已中断` note with it.
+/// Cleared before the host answered, a turn the model still had sat over the
+/// same words in the composer with nothing saying it had been stopped.
+#[tokio::test]
+async fn a_refused_take_back_keeps_saying_the_turn_was_stopped() {
+    let dir = scratch("esc-retract-refused");
+    let stalling = "[[patch]]\nid = \"llm\"\nname = \"test-stalling-llm\"\n";
+    let (s, asked) = start_recording_undo(
+        tree(&dir, &replay(r#"{ text = "unused" }"#), &[stalling]),
+        true,
+    )
+    .await;
+    let task = s.open().await;
+
+    s.term.type_line("你好");
+    for _ in 0..80 {
+        if part_text(&s, "live").contains("正在等待模型") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    s.term.press(KeyPress::plain(Key::Esc));
+    for _ in 0..80 {
+        if !asked.lock().unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    s.quiet().await;
+
+    assert_eq!(*asked.lock().unwrap(), vec![Some(1)]);
+    assert!(
+        s.screen().contains("已中断"),
+        "the undo was refused, so the turn stands and says so:\n{}",
+        s.screen()
+    );
+
+    s.term.press(KeyPress::ctrl('d'));
+    let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+}
+
 /// Once the model has said something, the turn is the person's: a stop hands
 /// the words back as before and takes nothing out of the conversation.
 #[tokio::test]
@@ -5320,7 +5373,7 @@ async fn esc_after_the_model_answered_takes_nothing_back() {
         r#"{ text = "Working.", calls = [ { name = "bash", args = { command = "sleep 0.4" } } ] },
            { text = "Done." }"#,
     );
-    let (s, asked) = start_recording_undo(tree(&dir, &script, &[])).await;
+    let (s, asked) = start_recording_undo(tree(&dir, &script, &[]), false).await;
     let task = s.open().await;
 
     s.term.type_line("fix the parser");
