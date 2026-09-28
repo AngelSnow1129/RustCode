@@ -1473,7 +1473,7 @@ impl CommandSet for SessionCommands {
                     Ok(control) => control,
                     Err(refused) => return refused,
                 };
-                let model_line = match control
+                let (model_line, note) = match control
                     .call(HostCommand::SwitchModel {
                         session: root,
                         model: wanted.to_string(),
@@ -1482,56 +1482,47 @@ impl CommandSet for SessionCommands {
                 {
                     // 宿主说换成了,但有话要说 —— 两句都要说:换确实成了,
                     // 而没存下来是重启之后才看得到的那一半。
-                    Ok(HostReply::DoneWithNote { note }) => {
-                        format!("{}\n{note}", t(Msg::ModelSet { wanted }))
-                    }
-                    Ok(_) => t(Msg::ModelSet { wanted }).into_owned(),
+                    Ok(HostReply::DoneWithNote { note }) => (
+                        format!("{}\n{note}", t(Msg::ModelSet { wanted })),
+                        Some(note),
+                    ),
+                    Ok(_) => (t(Msg::ModelSet { wanted }).into_owned(), None),
                     Err(error) => return Outcome::Refused(refusal(error)),
                 };
                 // 带了档位:走 `/effort` 那一套设过去(只有一份实现),于是
-                // 这一趟不再问第二次。
+                // 这一趟不再问第二次。模型此时已经换过去了,所以强度那一步
+                // 不管成不成,「换成了」这句都得留在屏上 —— 只报强度的拒绝,
+                // 人会以为什么都没变。
                 if let Some(level) = level {
-                    let said = match self.run("effort", level, ctx).await {
-                        Outcome::Said(said) => said,
-                        other => return other,
+                    return match self.run("effort", level, ctx).await {
+                        Outcome::Said(said) => Outcome::Said(format!("{model_line}\n{said}")),
+                        Outcome::Refused(why) => Outcome::Refused(format!("{model_line}\n{why}")),
+                        _ => Outcome::Said(model_line),
                     };
-                    return Outcome::Said(format!("{model_line}\n{said}"));
                 }
                 // 没带档位:新模型声明了思考强度,就把档位递上来让人挑。面板
-                // 选择也派发成这条命令,所以一个入口盖住面板和手打两条路。
-                // 端口里 levels 为空是「没截短,全部都行」,effort 有值才说明
-                // 这个模型真的吃这套;两头都没有的,端点默认就够,不多问。
+                // 选择也派发成这条命令,所以一个入口盖住面板和手打两条路;
+                // 要不要问由 `ModelRow::effort_pick` 一处判,面板回车也用它。
                 let offered = ctx
                     .service::<crate::plugin::ProvidersSvc>()
-                    .map(|port| {
+                    .and_then(|port| {
                         port.rows()
                             .models()
                             .iter()
                             .find(|m| m.id == wanted || m.model == wanted)
-                            .map(|row| match row.levels.is_empty() {
-                                true if row.effort.is_some() => {
-                                    atomcode_harness::REASONING_EFFORT_LEVELS
-                                        .iter()
-                                        .map(|l| l.to_string())
-                                        .collect::<Vec<_>>()
-                                }
-                                true => Vec::new(),
-                                false => row.levels.clone(),
-                            })
-                            .unwrap_or_default()
-                    })
-                    .unwrap_or_default();
-                if offered.is_empty() {
+                            .and_then(crate::providers::ModelRow::effort_pick)
+                    });
+                let Some(levels) = offered else {
                     return Outcome::Said(model_line);
-                }
+                };
                 // 交给 providers 面板去画:`Action::PickEffort` 把它切到挑强度
                 // 那一层,行由面板自己的列表画出来 —— 和挑模型同一套样式、
-                // 同一套按键,不是另开一个弹窗。
-                let mut levels = offered;
-                levels.push("default".to_string());
+                // 同一套按键,不是另开一个弹窗。挑强度那一层顶掉了「换成了」
+                // 这一句,宿主的「没存下来」得跟着带过去,不然就丢了。
                 Outcome::Do(Action::PickEffort {
                     model: wanted.to_string(),
                     levels,
+                    note,
                 })
             }
             "mode" => {
@@ -3060,7 +3051,7 @@ mod tests {
         // 声明了 levels 的:把档位交给 providers 面板去画,一行一档,
         // default 收尾 —— 挑强度那一层(`Action::PickEffort`)。
         match all.dispatch("/model glm", &app.context()).await {
-            Outcome::Do(Action::PickEffort { model, levels }) => {
+            Outcome::Do(Action::PickEffort { model, levels, .. }) => {
                 assert_eq!(model, "glm");
                 assert_eq!(levels, ["low", "high", "default"]);
             }
@@ -3075,7 +3066,7 @@ mod tests {
 
         // 吃思考强度、没截短档位的:全量档位一档一行,default 收尾。
         match all.dispatch("/model reasons", &app.context()).await {
-            Outcome::Do(Action::PickEffort { model, levels }) => {
+            Outcome::Do(Action::PickEffort { model, levels, .. }) => {
                 assert_eq!(model, "reasons");
                 let mut want: Vec<String> = atomcode_harness::REASONING_EFFORT_LEVELS
                     .iter()
@@ -3101,6 +3092,38 @@ mod tests {
         // 模型 id 里带空格也还是 id:尾巴不是一档时不拆。
         match all.dispatch("/model my model", &app.context()).await {
             Outcome::Do(Action::PickEffort { model, .. }) => assert_eq!(model, "my model"),
+            other => panic!("{other:?}"),
+        }
+
+        // 换成了、但没存下来:挑强度那一层顶掉了「换成了」那句,宿主的
+        // 「没存下来」得跟着带过去,不能丢。
+        host.replies
+            .lock()
+            .unwrap()
+            .extend([Ok(HostReply::DoneWithNote {
+                note: "但没存下来 PERM-DENIED".into(),
+            })]);
+        match all.dispatch("/model glm", &app.context()).await {
+            Outcome::Do(Action::PickEffort { note, .. }) => {
+                assert_eq!(note.as_deref(), Some("但没存下来 PERM-DENIED"));
+            }
+            other => panic!("{other:?}"),
+        }
+
+        // 模型换过去了、强度那一步被拒:拒绝要说,「换成了」那句也得留着 ——
+        // 只报拒绝,人会以为什么都没变,可会话已经在新模型上了。
+        host.replies
+            .lock()
+            .unwrap()
+            .extend([Ok(HostReply::Done), Err(HostError::Stale { current: 1 })]);
+        match all.dispatch("/model glm high", &app.context()).await {
+            Outcome::Refused(said) => {
+                assert!(said.contains("glm"), "换成了哪个:{said}");
+                assert!(
+                    said.contains(&*t(Msg::HostStale)),
+                    "以及强度为什么没设上:{said}"
+                );
+            }
             other => panic!("{other:?}"),
         }
     }

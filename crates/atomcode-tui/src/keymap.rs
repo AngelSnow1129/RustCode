@@ -162,6 +162,10 @@ pub enum Action {
         model: String,
         /// The levels to offer, `default` last — the same words `/effort` takes.
         levels: Vec<String>,
+        /// What the switch had to say before the pick opens — the host's note
+        /// that the choice was not saved. Said, not dropped: the pick replaces
+        /// the line the switch would otherwise have put on screen.
+        note: Option<String>,
     },
     /// Step to the next configured model, or the previous one.
     ///

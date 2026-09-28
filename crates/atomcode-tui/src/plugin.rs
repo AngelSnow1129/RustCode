@@ -5471,8 +5471,17 @@ impl Tui {
             }
             // 换到声明了思考强度的模型:档位就列在 providers 面板里,和挑模型
             // 同一张列表、同一套按键 —— 不是另开一个弹窗。
-            Action::PickEffort { model, levels } => {
+            Action::PickEffort {
+                model,
+                levels,
+                note,
+            } => {
                 drop(m);
+                // 宿主说换成了、但没存下来:挑强度那一层顶掉了「换成了」那句,
+                // 这半句得先说,不然人不知道重启后这次选择就没了。
+                if let Some(note) = note {
+                    self.say(&note);
+                }
                 if !self.host.open_providers_for_effort(model, levels) {
                     self.say(&t(Msg::NoProviderPanel));
                     return false;

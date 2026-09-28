@@ -98,6 +98,26 @@ pub struct ModelRow {
     pub managed: bool,
 }
 
+impl ModelRow {
+    /// 换到这个模型时递上来挑的思考强度,`default` 收尾;`None` 是不问。
+    ///
+    /// 面板回车和手打 `/model` 都按这一处判:`levels` 为空是「没截短,全部都
+    /// 行」,`effort` 有值才说明这个模型真的吃这套;两头都没有的,端点默认
+    /// 就够。两处各判一遍的话,面板不问、命令却问,面板就会关上又弹回来。
+    pub fn effort_pick(&self) -> Option<Vec<String>> {
+        let mut levels = match (self.levels.is_empty(), self.effort.is_some()) {
+            (false, _) => self.levels.clone(),
+            (true, true) => atomcode_harness::REASONING_EFFORT_LEVELS
+                .iter()
+                .map(|level| level.to_string())
+                .collect(),
+            (true, false) => return None,
+        };
+        levels.push("default".to_string());
+        Some(levels)
+    }
+}
+
 /// The providers, as of one frame.
 ///
 /// Immutable and cheap to clone, so a `Moment` can carry it and two renders
@@ -1079,8 +1099,18 @@ fn list_key(view: &ProvidersView, panel: &mut Panel, secret: &mut String, press:
         // 挑强度时 Esc 是「退一层」:回到刚选完模型的那张列表,面板留着 ——
         // 和别的面板里 Esc 先退一步、再收起是同一个规矩。
         (Key::Esc, _) if panel.efforts.is_some() => {
-            panel.efforts = None;
+            let chosen = panel.efforts.take().map(|pick| pick.model);
             panel.query.clear();
+            // 光标落回刚选的那个模型:进这一层时它被归了零,不放回去的话
+            // Esc 再回车换到的是列表第一个模型,不是人刚挑的那个。
+            panel.cursor = view
+                .listed(panel)
+                .iter()
+                .position(|row| match row {
+                    Listed::Model(i) => view.models().get(*i).map(|m| &m.id) == chosen.as_ref(),
+                    _ => false,
+                })
+                .unwrap_or(0);
             view.settle_cursor(panel);
             Step::Stay
         }
@@ -1142,22 +1172,20 @@ fn list_key(view: &ProvidersView, panel: &mut Panel, secret: &mut String, press:
             Some(Listed::Model(i)) => match view.models().get(i) {
                 // 这个模型声明了思考强度就接着往下挑:面板不收,把档位换成
                 // 这一层的列表(`Panel::efforts`),挑完才一起派发。
-                Some(row) if !row.levels.is_empty() => {
-                    panel.efforts = Some(EffortPick {
-                        model: row.id.clone(),
-                        levels: {
-                            let mut levels = row.levels.clone();
-                            levels.push("default".to_string());
-                            levels
-                        },
-                    });
-                    panel.query.clear();
-                    panel.cursor = 0;
-                    Step::Stay
-                }
-                Some(row) => Step::Use {
-                    id: row.id.clone(),
-                    effort: None,
+                Some(row) => match row.effort_pick() {
+                    Some(levels) => {
+                        panel.efforts = Some(EffortPick {
+                            model: row.id.clone(),
+                            levels,
+                        });
+                        panel.query.clear();
+                        panel.cursor = 0;
+                        Step::Stay
+                    }
+                    None => Step::Use {
+                        id: row.id.clone(),
+                        effort: None,
+                    },
                 },
                 None => Step::Stay,
             },
@@ -2044,6 +2072,73 @@ mod tests {
                 .any(|row| matches!(row, Listed::Model(_))),
             "退回到模型列表"
         );
+    }
+
+    #[test]
+    fn backing_out_of_the_effort_pick_lands_on_the_model_just_chosen() {
+        let view = ProvidersView::new(
+            vec![account("deepseek", 2)],
+            vec![
+                model("deepseek/chat", "deepseek"),
+                ModelRow {
+                    levels: vec!["low".into(), "high".into()],
+                    ..model("deepseek/reasoner", "deepseek")
+                },
+            ],
+            Vec::new(),
+            vec!["low".into(), "high".into()],
+        );
+        let mut panel = Panel::new();
+        let mut secret = String::new();
+
+        // 挑第二个模型,进挑强度那一层,再 Esc 退回来。
+        run(
+            &view,
+            &mut panel,
+            &mut secret,
+            &[press(Key::Right), press(Key::Down), press(Key::Enter)],
+        );
+        assert!(panel.efforts.is_some(), "第二个模型声明了档位");
+        run(&view, &mut panel, &mut secret, &[press(Key::Esc)]);
+
+        // 光标得在刚挑的那个模型上:再回车进的是它的档位,不是第一个模型。
+        assert_eq!(
+            view.listed(&panel).get(panel.cursor),
+            Some(&Listed::Model(1))
+        );
+    }
+
+    #[test]
+    fn a_model_that_takes_effort_without_narrowing_it_offers_every_level() {
+        // 面板和 `/model` 对「要不要问强度」必须一个判法:这里不问而命令问,
+        // 面板就会先关、再被 `PickEffort` 弹回来。
+        let view = ProvidersView::new(
+            vec![account("deepseek", 1)],
+            vec![ModelRow {
+                effort: Some("high".into()),
+                ..model("deepseek/reasoner", "deepseek")
+            }],
+            Vec::new(),
+            Vec::new(),
+        );
+        let mut panel = Panel::new();
+        let mut secret = String::new();
+
+        assert_eq!(
+            run(
+                &view,
+                &mut panel,
+                &mut secret,
+                &[press(Key::Right), press(Key::Enter)]
+            ),
+            Step::Stay
+        );
+        let mut want: Vec<String> = atomcode_harness::REASONING_EFFORT_LEVELS
+            .iter()
+            .map(|level| level.to_string())
+            .collect();
+        want.push("default".into());
+        assert_eq!(panel.efforts.map(|pick| pick.levels), Some(want));
     }
 
     #[test]
