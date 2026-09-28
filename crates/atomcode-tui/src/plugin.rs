@@ -542,6 +542,29 @@ impl AgentClient {
     }
 }
 
+/// Put `picked`, a row of the `@` menu, in place of the `@…` token under the
+/// caret. See [`Tui::complete_path`]. False when the caret is not in one.
+///
+/// The token and what replaces it are the ones the classic screen uses
+/// (`atomcode_capabilities::file_index`), so the two cannot come to disagree
+/// about where a mention starts and ends: the whole token is replaced, bytes
+/// after the caret included; a folder keeps its separator last so the menu
+/// walks into it, and a file is finished with a space, so the next word is not
+/// taken as more path.
+fn put_path(m: &mut crate::moment::Moment, picked: &str) -> bool {
+    use atomcode_capabilities::file_index::{
+        detect_at_mention_range, format_at_mention_replacement,
+    };
+    let Some((at, end)) = detect_at_mention_range(&m.input, m.caret) else {
+        return false;
+    };
+    let with = format_at_mention_replacement(picked.strip_prefix('@').unwrap_or(picked));
+    m.input.replace_range(at..end, &with);
+    m.caret = at + with.len();
+    m.history_at = None;
+    true
+}
+
 /// What is on disk under `cwd` matching `prefix`, for the `@` menu.
 ///
 /// IO, and deliberately here rather than in a module: a module may not touch
@@ -5975,15 +5998,18 @@ impl Tui {
             }
             // Not a command being named. It may still be a path being typed
             // after `@` — the same discovery surface the slash menu is, for the
-            // other thing people type by name and get wrong. It lists and
-            // nothing more; finishing the word is still the typist's.
+            // other thing people type by name and get wrong. Taking a row puts
+            // the path on the line (`complete_path`).
             None => {
-                let (typed, cwd) = {
+                let (typed, caret, cwd) = {
                     let m = self.host.moment.read().expect("moment poisoned");
-                    (m.input.clone(), m.cwd.clone())
+                    (m.input.clone(), m.caret, m.cwd.clone())
                 };
-                match crate::text::being_pathed(&typed) {
-                    Some(prefix) => paths_under(&self.files, &cwd, prefix),
+                // Where the caret is, not the end of the line: `@` typed in
+                // the middle of a sentence is a mention too. The classic
+                // screen's rule, from the same place.
+                match atomcode_capabilities::file_index::detect_at_mention(&typed, caret) {
+                    Some(token) => paths_under(&self.files, &cwd, &token),
                     None => Vec::new(),
                 }
             }
@@ -6070,6 +6096,13 @@ impl Tui {
     /// leaving `/comp` behind a command that just ran is a composer still holding
     /// half a name, and it would recompute the menu from it.
     fn take_command(&self, name: &str, client: &AgentClient) -> bool {
+        // A row of the `@` menu is a path, not a command: taking it puts the
+        // path on the line (see `complete_path`). Sent as `/{name}` it was
+        // answered with 「没有 /@src/ 这条命令」.
+        if name.starts_with('@') {
+            self.complete_path(name);
+            return false;
+        }
         // A command with a closed set opens that set; one whose free-text
         // argument is required and has no bare form completes onto the line for
         // the argument to be typed (`/rename `). Both are `complete`, not a bare
@@ -6105,6 +6138,10 @@ impl Tui {
     /// against the name, which is where a person would type the space
     /// themselves — the difference between a completion and a spell-check.
     fn complete_command(&self, name: &str) {
+        if name.starts_with('@') {
+            self.complete_path(name);
+            return;
+        }
         let takes = self
             .host
             .commands
@@ -6120,6 +6157,24 @@ impl Tui {
         m.input = text;
         m.history_at = None;
         drop(m);
+        self.refresh_menu();
+    }
+
+    /// Put a path picked from the `@` menu on the line, in place of the `@…`
+    /// being typed.
+    ///
+    /// The `@` menu shares the slash menu's list and keys, so tab, enter and a
+    /// press all land here for its rows. A directory is put on the line with
+    /// its separator and the menu recomputes into what is under it — picking a
+    /// folder is walking into it, the way the menu's own rows say. A file is
+    /// finished: a space after it, so the next word is not taken as more path
+    /// and the menu goes away. Nothing is sent — what is typed around the path
+    /// is still the message being written.
+    fn complete_path(&self, picked: &str) {
+        put_path(
+            &mut self.host.moment.write().expect("moment poisoned"),
+            picked,
+        );
         self.refresh_menu();
     }
 
@@ -7616,6 +7671,50 @@ mod at_menu_tests {
 
     fn labels(items: &[crate::menu::Item]) -> Vec<String> {
         items.iter().map(|i| i.label.clone()).collect()
+    }
+
+    /// Taking a row of the `@` menu puts the path on the line; it is not a
+    /// command. Sent as `/{row}` it came back as 「没有 /@.cargo/ 这条命令」.
+    #[test]
+    fn taking_an_at_row_puts_the_path_on_the_line() {
+        use atomcode_capabilities::file_index::detect_at_mention;
+        let mut m = crate::moment::Moment::default();
+        let typing = |m: &mut crate::moment::Moment, text: &str| {
+            m.input = text.into();
+            m.caret = m.input.len();
+        };
+
+        // A folder: its separator stays last and the caret stays in the
+        // token, so the menu walks into it.
+        typing(&mut m, "看看 @.car");
+        assert!(put_path(&mut m, "@.cargo/"));
+        assert_eq!(m.input, "看看 @.cargo/");
+        assert_eq!(m.caret, m.input.len());
+        assert_eq!(
+            detect_at_mention(&m.input, m.caret).as_deref(),
+            Some(".cargo/")
+        );
+
+        // A file under it: finished with a space, and the caret past it is no
+        // longer in a mention — the menu has nothing left to offer, and what
+        // is typed next is the message, not more path.
+        assert!(put_path(&mut m, "@.cargo/config.toml"));
+        assert_eq!(m.input, "看看 @.cargo/config.toml ");
+        assert_eq!(m.caret, m.input.len());
+        assert_eq!(detect_at_mention(&m.input, m.caret), None);
+
+        // In the middle of the line: the whole token under the caret is
+        // replaced, and what follows it is kept.
+        m.input = "改 @sr 里的 bug".into();
+        m.caret = "改 @s".len();
+        assert!(put_path(&mut m, "@src/main.rs"));
+        assert_eq!(m.input, "改 @src/main.rs  里的 bug");
+        assert_eq!(m.caret, "改 @src/main.rs ".len());
+
+        // Not in a mention: nothing is touched.
+        typing(&mut m, "写信给 li@example.com");
+        assert!(!put_path(&mut m, "@x"));
+        assert_eq!(m.input, "写信给 li@example.com");
     }
 
     /// `@` finds a file by name wherever it is, and never offers an ignored one.
