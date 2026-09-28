@@ -140,7 +140,8 @@ git add -- Cargo.toml Cargo.lock release
 if git diff --cached --quiet; then
   say "[WARN] nothing staged after publish; no commit created."
 else
-  git commit -m "chore(release): bump version to ${NEXT} and publish artifacts"
+  git commit -m "chore(release): bump version to ${NEXT} and publish artifacts" \
+             -m "Co-Authored-By: Claude Code <noreply@anthropic.com>"
 fi
 
 # ---------- 6. tag ----------------------------------------------------------
