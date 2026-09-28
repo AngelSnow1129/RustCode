@@ -1241,10 +1241,10 @@ impl SessionManager {
         let bytes = serialize_bounded(&sidecar, "todo sidecar", MAX_TODO_SIDECAR_BYTES)?;
         atomic_write(&self.todo_sidecar_path(id)?, &bytes)
     }
-    /// Read the todo-list sidecar. The sidecar is written ONLY on a normal
-    /// `turn_complete` — the cancel/undo path (`finish_cancelled`) never reaches
-    /// `turn_complete`, so a truncated history never leaves a freshly-written
-    /// stale list behind. Message count is intentionally NOT used as a staleness
+    /// Read the todo-list sidecar. The sidecar is written at `turn_complete` and,
+    /// mid-turn, whenever the list reflects a todo call it does not yet (so a
+    /// compaction later in the same turn cannot drain a plan the sidecar never
+    /// saw). Message count is intentionally NOT used as a staleness
     /// check here: a compaction ALSO shrinks the transcript (121 → 24 messages)
     /// and must NOT invalidate the todo list — that is exactly the scenario this
     /// sidecar exists for (issue #1503). `Ok(None)` when absent.

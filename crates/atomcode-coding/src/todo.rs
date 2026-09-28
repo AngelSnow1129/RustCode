@@ -505,6 +505,14 @@ fn just_wrote_full_list(messages: &[Message]) -> bool {
 impl LifecycleHooks for TodoHook {
     async fn pre_request(&self, messages: &mut Vec<Message>, ctx: &TurnCtx) {
         let current = current_todos(messages, || self.sidecar(ctx));
+        // Persist as soon as the list moves, not only at turn end. A compaction later
+        // in THIS turn can drain the call that wrote it (a single long turn is split,
+        // see `recent_keep_boundary_splitting`); with the sidecar still one turn behind,
+        // the turn's remaining updates were then laid, by index, over the previous
+        // turn's plan — the model was shown, and turn end saved, a mix of the two.
+        if let Some(current) = current.as_ref() {
+            self.persist_if_ahead(current, messages.len(), ctx);
+        }
         *self.shown.lock().unwrap_or_else(|e| e.into_inner()) = Some(
             current
                 .as_ref()
@@ -583,17 +591,7 @@ impl LifecycleHooks for TodoHook {
         let Some(current) = current_todos(&convo.messages, || self.sidecar(ctx)) else {
             return;
         };
-        let items: Vec<TodoSidecarItem> = current
-            .items
-            .iter()
-            .map(|t| TodoSidecarItem {
-                content: t.content.clone(),
-                status: todo_status_str(&t.status).to_string(),
-            })
-            .collect();
-        let manager = SessionManager::for_project(working_dir);
-        let _ =
-            manager.write_todo_sidecar(session_id, &items, convo.messages.len(), current.through);
+        write_sidecar(working_dir, session_id, &current, convo.messages.len());
     }
 }
 
@@ -602,6 +600,54 @@ impl TodoHook {
     fn sidecar(&self, ctx: &TurnCtx) -> Option<TodoSidecar> {
         read_sidecar(self.working_dir.as_deref(), ctx)
     }
+
+    /// Write `current` to the sidecar when it reflects a todo call the sidecar does
+    /// not (see [`sidecar_is_behind`]). Mid-turn, so best-effort like the turn-end write.
+    ///
+    /// Known limit, the same one [`current_todos`] documents for a completed turn: a
+    /// turn that is later undone may already have been written here, and nothing in a
+    /// compacted transcript tells its calls apart from ones that stand.
+    fn persist_if_ahead(&self, current: &CurrentTodos, message_count: usize, ctx: &TurnCtx) {
+        let Some(working_dir) = self.working_dir.as_deref() else {
+            return;
+        };
+        let Some(session_id) = ctx.session_id.as_deref() else {
+            return;
+        };
+        let persisted = self.sidecar(ctx).and_then(|sidecar| sidecar.through);
+        if sidecar_is_behind(current, persisted) {
+            write_sidecar(working_dir, session_id, current, message_count);
+        }
+    }
+}
+
+/// Whether the list the transcript yields reflects a todo call made after the last one
+/// the sidecar reflects. A list with no positioned call (records from before positions)
+/// is never "ahead": there is nothing to compare, so it waits for turn end as before.
+fn sidecar_is_behind(current: &CurrentTodos, persisted: Option<TodoCallPosition>) -> bool {
+    match (current.through, persisted) {
+        (None, _) => false,
+        (Some(_), None) => true,
+        (Some(now), Some(then)) => now > then,
+    }
+}
+
+fn write_sidecar(
+    working_dir: &std::path::Path,
+    session_id: &str,
+    current: &CurrentTodos,
+    message_count: usize,
+) {
+    let items: Vec<TodoSidecarItem> = current
+        .items
+        .iter()
+        .map(|t| TodoSidecarItem {
+            content: t.content.clone(),
+            status: todo_status_str(&t.status).to_string(),
+        })
+        .collect();
+    let manager = SessionManager::for_project(working_dir);
+    let _ = manager.write_todo_sidecar(session_id, &items, message_count, current.through);
 }
 
 /// The session's persisted todo sidecar, when there is a session to key it on.
@@ -1497,6 +1543,60 @@ mod tests {
             derive_current_todos(&messages).is_empty(),
             "the old path folded to nothing"
         );
+    }
+
+    /// A plan written earlier in THIS turn, drained by a compaction later in the same
+    /// turn. Persisting it the round after it was written means the turn's remaining
+    /// updates land on it — not, by index, on the previous turn's plan.
+    ///
+    /// Negative control: with the sidecar still holding the previous turn's plan, the
+    /// same transcript marks that plan's #2 in progress instead.
+    #[test]
+    fn a_plan_drained_later_in_its_own_turn_is_not_swapped_for_the_last_one() {
+        let previous = sidecar_of(&THREE_STARTED, Some(at(5, 4)));
+        let plan_b = r#"{"todos":[{"content":"write the migration","status":"in_progress"},{"content":"run it on staging","status":"pending"}]}"#;
+        let update = r#"{"action":"update","id":2,"status":"in_progress"}"#;
+
+        // Round 2 of turn 6: the plan from round 1 is in the transcript.
+        let round_two = vec![Message::user("migrate"), todo_call("p", 6, 1, plan_b)];
+        let current =
+            current_todos(&round_two, || Some(previous.clone())).expect("the plan is a list");
+        assert!(sidecar_is_behind(&current, previous.through));
+        let persisted = sidecar_of(
+            &[
+                ("write the migration", "in_progress"),
+                ("run it on staging", "pending"),
+            ],
+            current.through,
+        );
+        assert!(
+            !sidecar_is_behind(&current, persisted.through),
+            "written once, not every round"
+        );
+
+        // A compaction drained round 1; round 3 carries only the update.
+        let compacted = vec![Message::user("migrate"), todo_call("u", 6, 2, update)];
+        let now = current_todos(&compacted, || Some(persisted.clone())).unwrap();
+        assert_eq!(titles(&now), ["write the migration", "run it on staging"]);
+        assert_eq!(now.items[1].status, TodoStatus::InProgress);
+
+        let stale = current_todos(&compacted, || Some(previous.clone())).unwrap();
+        assert_eq!(
+            titles(&stale)[1],
+            "wire the loader into main",
+            "without the mid-turn write the update lands on the old plan"
+        );
+    }
+
+    /// Records from before positions carry none: nothing says the list moved.
+    #[test]
+    fn a_list_with_no_positioned_call_is_left_for_turn_end() {
+        let current = CurrentTodos {
+            items: Vec::new(),
+            through: None,
+        };
+        assert!(!sidecar_is_behind(&current, None));
+        assert!(!sidecar_is_behind(&current, Some(at(1, 1))));
     }
 
     /// The sidecar already reflects every call up to `through`; a compaction that kept
