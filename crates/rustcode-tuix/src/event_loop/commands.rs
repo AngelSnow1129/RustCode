@@ -1587,7 +1587,9 @@ fn execute_slash_command_impl(
             }
         }
         "provider" => {
-            *active_modal = Some(Box::new(crate::modals::ProviderPanel::open()));
+            let mut panel = crate::modals::ProviderPanel::open();
+            panel.attach_wake(ctx.wake_tx.clone());
+            *active_modal = Some(Box::new(panel));
         }
         "proxy" => {
             *active_modal = Some(Box::new(ProxyPicker::open(&ctx.config)));

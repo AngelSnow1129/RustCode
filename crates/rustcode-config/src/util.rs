@@ -23,6 +23,16 @@ pub fn stable_project_hash(path: &Path) -> String {
     format!("{:016x}", hasher.finish())
 }
 
+/// Current unix time in seconds. Returns 0 when the clock is before the epoch
+/// (or reads it) rather than panicking -- a timestamp used for ordering only
+/// must not take a write path down with it.
+pub fn now_epoch_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 /// Resolve the invoking user's real home dir, sudo-aware: under `sudo`, `$HOME`
 /// points at root, so consult `SUDO_USER` via `getpwnam` first (avoids creating a
 /// root-owned `~/.rustcode`). Falls back to `dirs::home_dir()`.

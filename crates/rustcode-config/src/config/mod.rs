@@ -1165,6 +1165,33 @@ impl Config {
         out
     }
 
+    /// Selection ids of every logical model in display order: newest-added first
+    /// (`added_at` DESC), ties falling back to the stable `(account, wire model)`
+    /// grouping so models of one account stay adjacent. The single ordering both
+    /// the `/model` picker and the provider panel consume, so the two lists
+    /// cannot drift. Legacy-projected and old profiles (`added_at == 0`) sort
+    /// last.
+    pub fn logical_model_ids_by_recency(&self) -> Vec<String> {
+        let models = self.logical_models();
+        let mut ids: Vec<String> = models.keys().cloned().collect();
+        ids.sort_by(|a, b| {
+            let key = |id: &String| {
+                models
+                    .get(id)
+                    .map(|m| {
+                        (
+                            std::cmp::Reverse(m.added_at),
+                            m.account.clone(),
+                            m.model.clone(),
+                        )
+                    })
+                    .unwrap_or_else(|| (std::cmp::Reverse(0), id.clone(), String::new()))
+            };
+            key(a).cmp(&key(b))
+        });
+        ids
+    }
+
     /// Diagnostics for exact id collisions between new-schema entries and
     /// legacy provider names (the new-schema entry wins). Visible, not silent.
     pub fn model_catalog_collisions(&self) -> Vec<String> {
@@ -1567,6 +1594,8 @@ fn project_legacy_model(account_id: &str, p: &ProviderConfig) -> ModelProfileCon
         // A legacy provider projects to a single model with no chain of its
         // own; the user opts in by naming targets on the new-schema entry.
         fallback: Vec::new(),
+        // No recorded add time: legacy projections sort below new entries.
+        added_at: 0,
     }
 }
 
@@ -4223,6 +4252,7 @@ capable_model = 5
                 thinking_budget: None,
                 model_mapping: Default::default(),
                 fallback: Vec::new(),
+                added_at: 0,
             },
         );
         let rendered = cfg.serialize_for_disk(None).unwrap();
@@ -4281,6 +4311,7 @@ capable_model = 5
                 thinking_budget: None,
                 model_mapping: Default::default(),
                 fallback: Vec::new(),
+                added_at: 0,
             },
         );
         cfg.default_model = Some("nope".into()); // unresolvable default -> error
@@ -4815,6 +4846,60 @@ capable_model = 3
         assert!(models.contains_key("MyDeepSeek"));
         assert!(models.contains_key("corp/code"));
         assert!(cfg.validate_provider_accounts_and_models().is_empty());
+    }
+
+    #[test]
+    fn model_catalog_orders_newest_added_first() {
+        // Two stamped profiles plus two old ones (no added_at -> 0): the freshly
+        // added models must float to the top newest-first, while old profiles
+        // sink and tie-break alphabetically by (account, wire model).
+        let toml = r#"
+[provider_accounts.anew]
+provider = "openai"
+[provider_accounts.bmid]
+provider = "openai"
+[provider_accounts.zold]
+provider = "openai"
+
+[models."anew/z"]
+account = "anew"
+model = "z"
+context_window = 8000
+added_at = 200
+
+[models."bmid/a"]
+account = "bmid"
+model = "a"
+context_window = 8000
+added_at = 100
+
+[models."zold/s"]
+account = "zold"
+model = "s"
+context_window = 8000
+
+[models."zold/r"]
+account = "zold"
+model = "r"
+context_window = 8000
+"#;
+        let cfg: Config = toml::from_str(toml).unwrap();
+        assert_eq!(
+            cfg.logical_model_ids_by_recency(),
+            vec![
+                "anew/z".to_string(),
+                "bmid/a".to_string(),
+                "zold/r".to_string(),
+                "zold/s".to_string()
+            ]
+        );
+
+        // Legacy projections carry no stamp and therefore sort last, not first.
+        let legacy = toml::from_str::<Config>(LEGACY).unwrap();
+        assert_eq!(
+            legacy.logical_model_ids_by_recency(),
+            vec!["MyDeepSeek".to_string()]
+        );
     }
 
     #[test]

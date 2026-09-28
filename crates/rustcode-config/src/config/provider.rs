@@ -260,6 +260,14 @@ pub struct ModelProfileConfig {
     /// `docs/model-fallback-requirements.md` FR-1.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fallback: Vec<String>,
+    /// Unix seconds when this profile was added; drives newest-first ordering
+    /// so a freshly added custom model appears at the top of `/model` and the
+    /// provider panel instead of being buried in alphabetical order. Missing on
+    /// profiles written before this field existed (they deserialize to 0) and
+    /// therefore sink beneath everything added later, which is the desired
+    /// migration behavior. A rename/re-save keeps the stored value untouched.
+    #[serde(default)]
+    pub added_at: i64,
 }
 
 /// One flattened, immutable resolution of a model selection (design §3.4). This

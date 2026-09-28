@@ -530,6 +530,8 @@ fn insert_account_models(
                 retry_max_attempts: None,
                 // Discovery seeds no chain; the user adds fallback targets.
                 fallback: Vec::new(),
+                // Stamp the add instant so webui-added models also float to top.
+                added_at: rustcode_config::util::now_epoch_secs(),
             },
         );
         created.push(selection_id);

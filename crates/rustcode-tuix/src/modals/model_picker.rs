@@ -42,21 +42,11 @@ pub(crate) fn model_cycle_direction(
 /// Pick the adjacent model profile in stable id order and wrap at both ends.
 /// `/model` exposes the unified model catalog (legacy providers project to one
 /// model each), so the shortcut follows that same source of truth.
-/// Selection ids ordered so models from the same account are adjacent (sort by
-/// `(account, wire model)`), matching the `/model` list order (design §8).
+/// Selection ids in `/model` list order: newest-added first, ties grouped by
+/// `(account, wire model)` (design §8). Shared with the provider panel via
+/// [`Config::logical_model_ids_by_recency`] so the two lists cannot drift.
 fn grouped_selection_ids(config: &Config) -> Vec<String> {
-    let models = config.logical_models();
-    let mut ids: Vec<String> = models.keys().cloned().collect();
-    ids.sort_by(|a, b| {
-        let key = |id: &String| {
-            models
-                .get(id)
-                .map(|m| (m.account.clone(), m.model.clone()))
-                .unwrap_or_else(|| (id.clone(), String::new()))
-        };
-        key(a).cmp(&key(b))
-    });
-    ids
+    config.logical_model_ids_by_recency()
 }
 
 #[cfg(test)]

@@ -242,12 +242,19 @@ fn cycle_protocol(preset_idx: &mut usize, base_url: &mut String, forward: bool) 
 }
 
 impl AddForm {
-    /// A fully-custom provider, protocol defaulting to OpenAI-compatible.
+    /// A fully-custom provider defaulting to the local Ollama endpoint: most
+    /// first-time users run a local model first, and Ollama is keyless, so the
+    /// form needs neither an API key nor typing an endpoint (both stay
+    /// editable -- `←/->` cycles to OpenAI/Anthropic-compatible protocols).
     fn new() -> Self {
+        let ollama_idx = protocol_preset_idx(provider_preset::ProviderType::Ollama);
         Self {
             name: String::new(),
-            preset_idx: protocol_preset_idx(provider_preset::ProviderType::OpenAi),
-            base_url: String::new(),
+            preset_idx: ollama_idx,
+            base_url: provider_preset::PRESETS[ollama_idx]
+                .default_base_url
+                .unwrap_or_default()
+                .to_string(),
             api_key: String::new(),
             focus: FormField::Name,
             cursor_byte: 0,
@@ -845,8 +852,13 @@ pub struct ProviderPanel {
     pending_delete: Option<(String, bool)>,
     /// Async model discovery state.
     discovery_state: DiscoveryState,
-    /// Channel receiver for discovery results (polled in main loop).
+    /// Channel receiver for discovery results (polled when the loop wakes).
     discovery_rx: Option<std::sync::mpsc::Receiver<DiscoveryResult>>,
+    /// Loop wake channel, captured when the panel opens from the app loop. The
+    /// discovery worker pings it after delivering its result; without that ping
+    /// the loop's only poll points are unrelated startup checks and the panel
+    /// would sit on "loading model list..." forever.
+    wake_tx: Option<tokio::sync::mpsc::Sender<()>>,
 }
 
 /// Rows the List layout pushes before the first account/model row: the tab bar,
@@ -1108,7 +1120,15 @@ impl ProviderPanel {
             pending_delete: None,
             discovery_state: DiscoveryState::Idle,
             discovery_rx: None,
+            wake_tx: None,
         }
+    }
+
+    /// Give the panel the event loop's wake sender so its discovery worker can
+    /// wake the loop after a result lands. Called at the production open sites;
+    /// tests keep it `None` and drive `poll_background` directly.
+    pub fn attach_wake(&mut self, wake_tx: tokio::sync::mpsc::Sender<()>) {
+        self.wake_tx = Some(wake_tx);
     }
 
     /// The 账号 tab list: configured accounts first (new-schema, sorted by
@@ -1170,20 +1190,10 @@ impl ProviderPanel {
             .unwrap_or_else(|| id.to_string())
     }
 
-    /// Model selection ids grouped by account (matches the /model order).
+    /// Model selection ids in `/model` order (newest-added first); shared with
+    /// the picker via [`Config::logical_model_ids_by_recency`].
     fn model_ids(config: &Config) -> Vec<String> {
-        let models = config.logical_models();
-        let mut ids: Vec<String> = models.keys().cloned().collect();
-        ids.sort_by(|a, b| {
-            let key = |id: &String| {
-                models
-                    .get(id)
-                    .map(|m| (m.account.clone(), m.model.clone()))
-                    .unwrap_or_else(|| (id.clone(), String::new()))
-            };
-            key(a).cmp(&key(b))
-        });
-        ids
+        config.logical_model_ids_by_recency()
     }
 
     /// Ids for the current tab, filtered by the search query (matched against
@@ -1275,6 +1285,9 @@ impl ProviderPanel {
             skip_tls_verify,
         } = target;
 
+        // Capture the loop-wake sender (the field is borrowed through `self`,
+        // so clone before moving the rest into the thread).
+        let wake = self.wake_tx.clone();
         std::thread::spawn(move || {
             let result = Self::discover_models_sync(
                 &base_url,
@@ -1285,6 +1298,11 @@ impl ProviderPanel {
                 skip_tls_verify,
             );
             let _ = tx.send(DiscoveryResult { account_id, result });
+            // Wake the loop so its wake arm polls the result immediately. A
+            // failed try_send (channel full) means a poll is already pending.
+            if let Some(wake) = wake {
+                let _ = wake.try_send(());
+            }
         });
 
         true
@@ -1905,6 +1923,8 @@ impl ProviderPanel {
                             thinking_budget: None,
                             // A newly added model starts with no chain.
                             fallback: Vec::new(),
+                            // Stamp the add instant so this model sorts to the top.
+                            added_at: rustcode_config::util::now_epoch_secs(),
                         },
                     );
                     model_id
@@ -2068,6 +2088,9 @@ fn commit_discovered_models(
                         retry_max_attempts: None,
                         // Discovered models start with no chain.
                         fallback: Vec::new(),
+                        // Same batch shares one stamp; the (account, model)
+                        // tiebreak keeps their internal order stable.
+                        added_at: rustcode_config::util::now_epoch_secs(),
                     },
                 );
             }
@@ -3663,7 +3686,19 @@ mod tests {
     #[test]
     fn add_form_is_custom_provider_with_protocol_toggle() {
         let mut f = AddForm::new();
-        // Fully-custom: name, protocol, base_url, api_key; base_url starts blank.
+        // Defaults to keyless local Ollama: no API key field, endpoint prefilled.
+        assert_eq!(
+            f.fields(),
+            vec![FormField::Name, FormField::Preset, FormField::BaseUrl]
+        );
+        assert_eq!(f.base_url, "http://localhost:11434");
+        assert_eq!(f.protocol_label(), "Ollama");
+        // ←-> cycles Ollama -> OpenAI -> Anthropic -> Ollama (never a vendor list).
+        f.cycle_preset(true);
+        assert_eq!(f.protocol_label(), "OpenAI");
+        assert_eq!(f.preset().id, "openai-compatible");
+        // The keyed protocols expose the API key field; the prefilled endpoint
+        // is left visible and editable, never cleared.
         assert_eq!(
             f.fields(),
             vec![
@@ -3673,44 +3708,38 @@ mod tests {
                 FormField::ApiKey,
             ]
         );
-        assert!(f.base_url.is_empty());
-        assert_eq!(f.protocol_label(), "OpenAI");
-        // ←-> cycles OpenAI -> Anthropic -> Ollama -> OpenAI (never a vendor list).
+        assert_eq!(f.base_url, "http://localhost:11434");
         f.cycle_preset(true);
         assert_eq!(f.protocol_label(), "Anthropic");
         assert_eq!(f.preset().id, "anthropic-compatible");
         f.cycle_preset(true);
         assert_eq!(f.protocol_label(), "Ollama");
         assert_eq!(f.preset().id, "ollama");
-        f.cycle_preset(true);
-        assert_eq!(f.protocol_label(), "OpenAI");
-        assert_eq!(f.preset().id, "openai-compatible");
     }
 
     #[test]
     fn add_form_protocol_toggle_cycles_backward() {
-        let mut f = AddForm::new(); // OpenAI
-        f.cycle_preset(false);
-        assert_eq!(f.preset().id, "ollama");
+        let mut f = AddForm::new(); // Ollama
         f.cycle_preset(false);
         assert_eq!(f.preset().id, "anthropic-compatible");
         f.cycle_preset(false);
         assert_eq!(f.preset().id, "openai-compatible");
+        f.cycle_preset(false);
+        assert_eq!(f.preset().id, "ollama");
     }
 
     #[test]
     fn add_form_ollama_offers_local_endpoint_and_hides_api_key() {
+        // Ollama IS the starting state: the well-known endpoint is prefilled and
+        // the key field is absent because local Ollama is keyless.
         let mut f = AddForm::new();
-        f.cycle_preset(true); // Anthropic
-        f.cycle_preset(true); // Ollama
         assert_eq!(f.preset().id, "ollama");
-        // Local, keyless: auto-fill the well-known endpoint and drop the key field.
         assert_eq!(f.base_url, "http://localhost:11434");
         assert!(
             !f.fields().contains(&FormField::ApiKey),
             "Ollama is keyless local"
         );
-        // The field is never silently wiped when cycling away -- the value stays
+        // The value is never silently wiped when cycling away -- it stays
         // visible and editable (auto-fill only ever fills a blank field).
         f.cycle_preset(true); // OpenAI
         assert_eq!(f.preset().id, "openai-compatible");
@@ -3759,17 +3788,20 @@ mod tests {
 
     #[test]
     fn add_form_ollama_keeps_user_typed_base_url() {
-        let mut f = AddForm::new();
+        let mut f = AddForm::new(); // starts on Ollama
         f.base_url = "http://box:11434".into();
-        f.cycle_preset(true); // Anthropic
-        f.cycle_preset(true); // Ollama
         assert_eq!(f.preset().id, "ollama");
         assert_eq!(
             f.base_url, "http://box:11434",
             "must not clobber a user-typed endpoint"
         );
-        // A user-typed endpoint survives cycling away, too.
+        // A user-typed endpoint survives cycling away and back (auto-fill only
+        // touches a blank field, so re-landing on Ollama leaves it alone).
         f.cycle_preset(true); // OpenAI
+        assert_eq!(f.base_url, "http://box:11434");
+        f.cycle_preset(true); // Anthropic
+        f.cycle_preset(true); // back to Ollama
+        assert_eq!(f.preset().id, "ollama");
         assert_eq!(f.base_url, "http://box:11434");
     }
 
@@ -4141,6 +4173,7 @@ mod tests {
         let mut panel = ProviderPanel::open();
 
         let mut add = AddForm::new();
+        add.base_url.clear(); // new form prefills Ollama's endpoint; test the blank case
         add.focus = FormField::BaseUrl;
         panel.mode = Mode::Add(add);
         panel.apply_paste_text("  https://api.example.test/v1\r\nignored");
@@ -4532,5 +4565,41 @@ mod tests {
         assert_eq!(plan[0].0, "acc/deepseek-reasoner");
         assert_eq!(plan[0].1.id, "deepseek-reasoner");
         assert_eq!(plan[0].1.name.as_deref(), Some("DeepSeek Reasoner"));
+    }
+
+    #[test]
+    fn discovery_pings_the_loop_and_resolves_without_a_keypress() {
+        // Regression for "正在获取...模型列表..." forever: the worker delivered
+        // its result over its own channel, but nothing WOKE the event loop, and
+        // poll_background ran only when unrelated startup checks fired. With a
+        // wake sender attached the worker must ping, and on that wake the panel
+        // must transition to results with no key pressed.
+        let body = r#"{"data":[{"id":"m1"}]}"#;
+        let (base_url, server) = serve_once("HTTP/1.1 200 OK", body, "/v1/models", None);
+
+        let (wake_tx, mut wake_rx) = tokio::sync::mpsc::channel::<()>(1);
+        let mut panel = ProviderPanel::open();
+        panel.attach_wake(wake_tx);
+
+        let target = DiscoveryTarget {
+            account_id: "acc".into(),
+            provider_type: "openai",
+            base_url,
+            api_key: None,
+            user_agent: None,
+            proxy: None,
+            skip_tls_verify: false,
+        };
+        assert!(panel.start_discovery(target));
+
+        // Blocks on the ping the worker must send; if that regresses this hangs
+        // to the test harness timeout rather than passing on a false premise.
+        wake_rx
+            .blocking_recv()
+            .expect("discovery must wake the loop");
+
+        assert!(panel.poll_background());
+        assert!(matches!(panel.mode, Mode::DiscoveryResults { .. }));
+        server.join().unwrap();
     }
 }

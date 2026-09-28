@@ -685,7 +685,21 @@ i18n 三件套(messages.rs / en.rs / zh_cn.rs)的 Cp 前缀变体与 kernel 注�
   - **G6 复核**:产品内 **0 个 telemetry SDK 依赖/调用**(无 sentry/posthog/... crate 或依赖)。唯一 `sentry` 字符串命中是 seed skill `references/mcp-servers.md` 的**第三方 MCP 目录**——`@sentry/*` 作为"用户项目用了 Sentry 就推荐 Sentry MCP"的栈探测启发式(与同表 `@aws-sdk/*`/`@supabase/*`/GitHub MCP 同类),是外部工具文档,非本产品遥测;判为**已复核的假阳性**,保留。
   - **验证**:G1 `cargo fmt --check` 通过;`cargo check --workspace --all-targets` Finished(仅存量 warnings:capabilities dead_code、tuix `usage_render` unused_parens、cli 未用 `SessionId` 导入,均非本轮引入);tuix qr 7/7、config fallback 3/3 通过;install/uninstall/packaging/sync 脚本 `sh -n`/`bash -n` 通过;`create_tag_release.py` py_compile 通过;`scripts/`、`packages/`、`.github/` 厂商主机 grep 清零。
 - **[DONE] "不与任何模型/平台绑定" 复核(2026-09-01,有证据,非断言)**:针对目标里"不与任何模型有关联、只保留第三方 BYO 配置、零遥测",逐面排查确认产品**不默认、不背书、不私连任何厂商**:
-  - **运行时无厂商默认**:无配置时 headless 走 `headless_missing_provider_message()` 直接 bail(见上轮);TUI/daemon 新建 provider 面板 `protocol_preset_idx(OpenAi) = "openai-compatible"`,`default_base_url: None`、表单起点为中立兼容端点,不预填任何厂商 URL(`provider_panel.rs`)。厂商 preset(deepseek/openai/anthropic/qwen/zhipu/moonshot/… )全是**用户自带 key 手选的第三方 BYO 配置**,中立 `openai-compatible`/`anthropic-compatible` 居 PRESETS 最前(测试 `generic_endpoints_lead_the_registry` 锁定索引 0 中立)。`taotoken`(token 转售商,曾是 invite/referral 漏斗终点)现为非默认、`ModelSource::Manual` 的可选项,且代码里已无任何 affiliate/referral/invite 端点(pending_invite 写入侧随安装器一并删除)。
+  - **运行时无厂商默认**:无配置时 headless 走 `headless_missing_provider_message()` 直接 bail(见上轮);TUI/daemon 新建 provider 面板 `protocol_preset_idx(OpenAi) = "openai-compatible"`,`default_base_url: None`、表单起点为中立兼容端点,不预填任何厂商 URL(`provider_panel.rs`)。
+   **2026-09-29 修订**:新建 provider 表单起点改为**本地 Ollama**(协议=ollama、
+   base_url 预填 `http://localhost:11434`、无 API key 字段)——首发用户多先跑本地
+   模型且 Ollama 免 key;`←/->` 仍可切到 OpenAI/Anthropic 兼容协议,预填值只填
+   空字段、永不覆盖已输入内容。厂商 preset(deepseek/openai/anthropic/qwen/zhipu/moonshot/… )全是**用户自带 key 手选的第三方 BYO 配置**,中立 `openai-compatible`/`anthropic-compatible` 居 PRESETS 最前(测试 `generic_endpoints_lead_the_registry` 锁定索引 0 中立)。
+   - **模型排序(2026-09-29)**:`ModelProfileConfig` 新增 `added_at`(unix 秒,
+     serde default),`/model` 与 provider 面板共用
+     `Config::logical_model_ids_by_recency()`——新添加的自定义模型置顶
+     (added_at 降序),同刻/旧档(0)回退 (account, model) 分组序;重命名保留原
+     戳记。TUI、webui(daemon)、openrouter 接入全部插桩。
+   - **修复"正在获取模型列表..."永久挂起(2026-09-29)**:发现线程只经自己的
+     mpsc 回传,而事件循环仅在 `wake_rx`(一次性启动检查)触发时才 poll,结果
+     无人消费。面板打开时注入 `ctx.wake_tx`(`attach_wake`),worker 送达后 ping
+     唤醒,循环的 wake 臂即 poll 并进入发现结果页;有真实本地服务器 + 阻塞等待
+     ping 的回归测试。`taotoken`(token 转售商,曾是 invite/referral 漏斗终点)现为非默认、`ModelSource::Manual` 的可选项,且代码里已无任何 affiliate/referral/invite 端点(pending_invite 写入侧随安装器一并删除)。
   - **模型相关代码是"兼容性适配"非"背书"**:`persona.rs model_needs_firm_execution`(deepseek/qwen 弱模型加严 reviewer 指令)、`reasoning.rs` 按模型派生 thinking 策略、`openai_compat.rs` 仅在 `is_openrouter_url` 时发 OpenRouter 归属头——都只在**用户已选用**某模型时调整行为,不引导用户去用某厂商;保留。
   - **webui / 扩展无绑定**:webui、VS Code(`daemon/client.ts`)、JetBrains(`RustCodeDaemonClient.kt`)只连本地 daemon(`http://host:port`),默认模型取用户配置里 `is_default`;无硬编码厂商端点、无分析 SDK;文档链接指向自有品牌域 `docs.rustcode.dev`(保留)。webui `SettingsDialogs` 账号名占位 `my-deepseek` 改中立 `my-provider`。
   - **零遥测(再证)**:全部 `package.json`(webui/extensions/site)无 sentry/posthog/mixpanel/amplitude/segment/gtag 依赖;webui/site/extension HTML 无 beacon/gtag/sendBeacon 追踪脚本;生产 .rs 无 `/metrics|collect|track|events|ingest|analytics|report|beacon` 上报端点;`rustcode-telemetry` crate 不存在。唯一 `sentry` 字符串是 seed skill `references/mcp-servers.md` 的第三方 MCP 推荐目录(与 GitHub/AWS MCP 同类),假阳性。

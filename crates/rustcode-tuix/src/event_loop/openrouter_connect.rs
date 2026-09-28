@@ -168,6 +168,7 @@ pub fn provision_openrouter(
                 model_mapping: Default::default(),
                 // Discovered models start with no chain; the user opts in.
                 fallback: Vec::new(),
+                added_at: rustcode_config::util::now_epoch_secs(),
             },
         );
         added.push(selection_id);

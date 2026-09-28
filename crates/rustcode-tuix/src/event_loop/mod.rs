@@ -13401,7 +13401,8 @@ fn handle_input(
                         // `active_modal` access the modals themselves
                         // don't have.
                         if std::mem::take(&mut ctx.pending_open_provider_wizard) {
-                            let panel = crate::modals::ProviderPanel::open();
+                            let mut panel = crate::modals::ProviderPanel::open();
+                            panel.attach_wake(ctx.wake_tx.clone());
                             app.active_modal = Some(Box::new(panel));
                             if let Some(m) = app.active_modal.as_mut() {
                                 m.draw(&app.buf, &app.state, ctx, renderer);
