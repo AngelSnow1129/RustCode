@@ -5088,11 +5088,13 @@ impl Host {
                 if entry.preview {
                     let mut clipped: Vec<Line> = lines[..HEAD_ROWS.min(lines.len())].to_vec();
                     let hidden = lines.len() - 2 * HEAD_ROWS;
-                    // Muted text on the panel ground: a seam in the call, not
-                    // output — and quiet enough to read past.
+                    // On the panel ground, so it reads as a seam in the call
+                    // rather than as output; in the plain ink every `点击展开`
+                    // takes (`content::expand_hint`), because a click on it
+                    // opens the call and muted said so to nobody.
                     let note = Span::styled(
                         crate::i18n::t(crate::i18n::Msg::FoldedLines { hidden }).into_owned(),
-                        crate::theme::fg(crate::theme::Role::Muted)
+                        crate::content::expand_hint()
                             .bg(crate::frame::Color::role(crate::theme::Role::PanelBg)),
                     );
                     clipped.push(Line::from_spans(vec![note]).truncate(room as usize));
@@ -10805,18 +10807,25 @@ mod tests {
         h.absorb(&call);
         h.absorb(&result);
 
-        let rows: Vec<String> = h
-            .compose((80, 80))
-            .part("stream")
-            .expect("the conversation")
-            .lines
-            .iter()
-            .map(|l| l.plain())
-            .collect();
+        let frame = h.compose((80, 80));
+        let lines = &frame.part("stream").expect("the conversation").lines;
+        let rows: Vec<String> = lines.iter().map(|l| l.plain()).collect();
         assert!(
             rows.iter()
                 .any(|r| r.contains("已折叠") && r.contains("点击展开")),
             "the fold note is not on screen:\n{rows:#?}"
+        );
+        // And it says "click here" the way every folded row does: in the
+        // terminal's own ink, not the muted grey that read as more of the
+        // call's output.
+        let note = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .find(|s| s.text.contains("已折叠"))
+            .expect("the fold note");
+        assert_eq!(
+            note.style.fg, None,
+            "the fold note is in the terminal's own ink, not the muted grey"
         );
         assert!(
             rows.iter().any(|r| r.contains("row 60")),

@@ -57,6 +57,19 @@ fn fold() -> Style {
     muted()
 }
 
+/// The `点击展开` a folded row ends with.
+///
+/// The terminal's own foreground — white on a dark screen — against the muted
+/// grey of the row it ends: a tail in the same grey said "this row opens" to
+/// nobody, it read as more of the metadata beside it. Not the accent: the
+/// person asked for it plain, and plain ink on a grey row is already the one
+/// thing that stands out. Used by every such tail — and by the
+/// `已折叠 N 行，点击展开` seam in a call's preview (`host.rs`) — so "click
+/// here" looks the same wherever it is said.
+pub(crate) fn expand_hint() -> Style {
+    Style::new()
+}
+
 fn wrapped(text: &str, w: u16, style: Style, prefix: &str) -> Vec<Line> {
     if w == 0 {
         return Vec::new();
@@ -627,12 +640,17 @@ impl VlCaptionBlock {
         let n = self.text.chars().count();
         let body = pt(PMsg::VisionPreprocessSuccess { char_count: n });
         let mark = ctx.caps.g(Glyph::ToolMark);
-        let rest = format!(" {body}  {}", self.model);
-        let room = (ctx.width as usize).saturating_sub(width::str_width(mark));
+        // The model in the terminal's own foreground, like the `点击展开` after
+        // it: which model read the picture is the part worth reading; the
+        // "recognised, N chars" before it stays muted.
+        let body = format!(" {body}");
+        let model = format!("  {}", self.model);
         Line::from_spans(vec![
             Span::styled(mark.to_string(), ok()),
-            Span::styled(width::take_width(&rest, room), muted()),
+            Span::styled(body, muted()),
+            Span::styled(model, Style::new()),
         ])
+        .truncate(ctx.width as usize)
     }
 }
 
@@ -649,13 +667,14 @@ impl Content for VlCaptionBlock {
         out.extend(wrapped(&self.text, ctx.width, muted(), "  "));
         out
     }
-    /// Folded: the head line with a dim `点击展开` tail, so a reader who does not
-    /// know the row opens finds out it does.
+    /// Folded: the head line with a `点击展开` tail in the terminal's own
+    /// foreground, so a reader who does not know the row opens finds out it does
+    /// (see [`expand_hint`]).
     fn summary(&self, ctx: &RenderCtx) -> Line {
         let mut line = self.head_line(ctx);
         let hint = format!("  {}", pt(PMsg::VlCaptionExpandHint));
         if line.width() + width::str_width(&hint) <= ctx.width as usize {
-            line.spans.push(Span::styled(hint, muted()));
+            line.spans.push(Span::styled(hint, expand_hint()));
         }
         line
     }
@@ -1881,13 +1900,14 @@ impl Content for InjectedBlock {
         let w = ctx.width;
         if self.result {
             // Folded, the way a finished job is announced: its one line, and a
-            // dim tail that says the row opens. The conversation that started
-            // the job answers right under it in its own words, so the report
-            // itself waits behind a click instead of being said twice.
+            // tail that says the row opens (see [`expand_hint`]). The
+            // conversation that started the job answers right under it in its
+            // own words, so the report itself waits behind a click instead of
+            // being said twice.
             let mut line = self.result_head(ctx);
             let hint = format!("  {}", pt(PMsg::VlCaptionExpandHint));
             let room = (w as usize).saturating_sub(line.width());
-            line.push(Span::styled(width::take_width(&hint, room), muted()));
+            line.push(Span::styled(width::take_width(&hint, room), expand_hint()));
             return line;
         }
         Line::styled(
@@ -4001,6 +4021,59 @@ mod tests {
             text.contains("未知的任务 id 5"),
             "the failure text must survive the todo collapse: {text:?}"
         );
+    }
+
+    /// A folded row's `点击展开` is the one thing on it a person can act on, and
+    /// is drawn apart from the muted head it follows — in the terminal's own
+    /// foreground, with the model's name — on a VL caption and on a background
+    /// result alike.
+    #[test]
+    fn the_click_to_expand_tail_stands_apart_from_the_row_it_ends() {
+        let ctx = crate::block::RenderCtx::bare(120);
+        let hint = pt(PMsg::VlCaptionExpandHint).into_owned();
+        let tail_of = |line: &Line| {
+            line.spans
+                .iter()
+                .find(|s| s.text.contains(&hint))
+                .map(|s| s.style.fg)
+                .expect("the folded row says it opens")
+        };
+        // `None` is the terminal's own foreground: white on a dark screen.
+        let plain = None;
+
+        let caption = VlCaptionBlock {
+            model: "qwen3.8-27b".into(),
+            text: "x".repeat(795),
+        }
+        .summary(&ctx);
+        assert_eq!(tail_of(&caption), plain, "{caption:?}");
+        let fg_of = |needle: &str| {
+            caption
+                .spans
+                .iter()
+                .find(|s| s.text.contains(needle))
+                .map(|s| s.style.fg)
+                .unwrap_or_else(|| panic!("`{needle}` is on the row: {caption:?}"))
+        };
+        assert_eq!(
+            fg_of("qwen3.8-27b"),
+            plain,
+            "the model reads as the tail does"
+        );
+        assert_eq!(
+            fg_of("795"),
+            Some(Color::role(Role::Muted)),
+            "the recognised-N-chars part stays muted"
+        );
+
+        let result = InjectedBlock {
+            kind: "injected:background",
+            origin: "background".into(),
+            text: "后台「x」的结果回来了\nthe report".into(),
+            result: true,
+        }
+        .summary(&ctx);
+        assert_eq!(tail_of(&result), plain, "{result:?}");
     }
 
     /// A finished folded call recedes: it is scaffolding over the answer rather
