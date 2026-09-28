@@ -197,13 +197,29 @@ pub fn binary_filename(version: &str, target: &str) -> String {
     }
 }
 
+/// All candidate binary URLs for a version+target, in preference order
+/// (primary download base first, then any configured mirrors). The updater
+/// races/tries these so a slow or blocked primary falls through to a mirror.
+pub fn binary_urls(version: &str, target: &str) -> Vec<String> {
+    let name = binary_filename(version, target);
+    rustcode_config::endpoints::update_download_bases()
+        .iter()
+        .map(|base| format!("{}/{}/{}", base.trim_end_matches('/'), version, name))
+        .collect()
+}
+
 pub fn binary_url(version: &str, target: &str) -> String {
-    format!(
-        "{}/{}/{}",
-        download_base(),
-        version,
-        binary_filename(version, target)
-    )
+    binary_urls(version, target)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| {
+            format!(
+                "{}/{}/{}",
+                download_base(),
+                version,
+                binary_filename(version, target)
+            )
+        })
 }
 
 /// Path of the running `rustcode` executable. Resolved once at the
@@ -701,9 +717,22 @@ pub async fn run_upgrade(
         .get(target)
         .ok_or_else(|| anyhow!("{}", t(Msg::UpgradeNoTarget { target })))?;
 
-    let url = binary_url(&manifest.version, target);
     let download = download_path(&exe);
-    download_and_verify(&url, &entry.sha256, entry.size, &download, &tx).await?;
+    let mut last_err: Option<anyhow::Error> = None;
+    let mut tried = false;
+    for url in binary_urls(&manifest.version, target) {
+        tried = true;
+        match download_and_verify(&url, &entry.sha256, entry.size, &download, &tx).await {
+            Ok(()) => {
+                last_err = None;
+                break;
+            }
+            Err(e) => last_err = Some(e),
+        }
+    }
+    if !tried || last_err.is_some() {
+        return Err(last_err.unwrap_or_else(|| anyhow!("{}", t(Msg::UpgradeNoTarget { target }))));
+    }
 
     let _ = tx.send(UpgradeEvent::Replacing);
     replace_binary(&download, &exe)?;
@@ -961,8 +990,21 @@ pub async fn prepare_deferred_upgrade(
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
 
     let staged_path = staged_binary_path(&manifest.version, target);
-    let url = binary_url(&manifest.version, target);
-    download_and_verify(&url, &entry.sha256, entry.size, &staged_path, &tx).await?;
+    let mut last_err: Option<anyhow::Error> = None;
+    let mut tried = false;
+    for url in binary_urls(&manifest.version, target) {
+        tried = true;
+        match download_and_verify(&url, &entry.sha256, entry.size, &staged_path, &tx).await {
+            Ok(()) => {
+                last_err = None;
+                break;
+            }
+            Err(e) => last_err = Some(e),
+        }
+    }
+    if !tried || last_err.is_some() {
+        return Err(last_err.unwrap_or_else(|| anyhow!("{}", t(Msg::UpgradeNoTarget { target }))));
+    }
 
     let pending = PendingUpgrade {
         version: manifest.version.clone(),

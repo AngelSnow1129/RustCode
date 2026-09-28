@@ -239,8 +239,19 @@ URLFILE="$TMP/urls.txt"
 : > "$URLFILE"
 for VER in $CANDIDATES; do
     BIN="rustcode-${VER}-${os}-${arch}${ext}"
+    # Primary sources (online Release + repo-committed raw fallback).
     printf '%s\n' "${RELEASE_BASE%/}/${VER}/${BIN}" >> "$URLFILE"
     printf '%s\n' "${RELEASE_RAW_BASE%/}/release/${VER}/${BIN}?ref=${RELEASE_RAW_REF}" >> "$URLFILE"
+    # Optional mirror acceleration: RUSTCODE_RELEASE_MIRRORS is an ordered,
+    # space/comma-separated list of full download bases. Each is raced ahead of
+    # the next so a fast mirror wins before a slow primary. Unset = no change.
+    if [ -n "${RUSTCODE_RELEASE_MIRRORS:-}" ]; then
+        OLD_IFS="$IFS"; IFS=', ' read -r -a MIRRORS <<< "$RUSTCODE_RELEASE_MIRRORS"
+        for M in "${MIRRORS[@]}"; do
+            [ -n "$M" ] && printf '%s\n' "${M%/}/${VER}/${BIN}" >> "$URLFILE"
+        done
+        IFS="$OLD_IFS"
+    fi
 done
 NUML=$(grep -c . "$URLFILE" || :)
 echo "==> Racing $NUML candidate URLs (up to $MAXPAR downloads in parallel)"

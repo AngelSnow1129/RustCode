@@ -217,6 +217,29 @@ pub fn update_download_base() -> &'static str {
     URL.get_or_init(|| resolve(UPDATE_DOWNLOAD_BASE_ENV, HOSTED_UPDATE_DOWNLOAD_BASE))
 }
 
+/// Ordered list of download bases to try, most-preferred first. Always begins with
+/// [`update_download_base`]; [`RUSTCODE_RELEASE_MIRRORS`] (comma/space-separated,
+/// full URLs) is appended when set and not already equal to the primary. Empty when
+/// no mirror is configured, so a single-base deployment is unaffected. Used by the
+/// updater to fall through a slow/blocked primary to a mirror.
+pub const RELEASE_MIRRORS_ENV: &str = "RUSTCODE_RELEASE_MIRRORS";
+
+pub fn update_download_bases() -> &'static [String] {
+    static LIST: OnceLock<Vec<String>> = OnceLock::new();
+    LIST.get_or_init(|| {
+        let primary = update_download_base().to_string();
+        let mut bases = vec![primary.clone()];
+        if let Ok(raw) = std::env::var(RELEASE_MIRRORS_ENV) {
+            for m in split_list(&raw) {
+                if m != primary {
+                    bases.push(m);
+                }
+            }
+        }
+        bases
+    })
+}
+
 /// Landing page the `/desktop` command points users at.
 pub fn desktop_download_url() -> &'static str {
     static URL: OnceLock<String> = OnceLock::new();
