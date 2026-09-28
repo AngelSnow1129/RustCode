@@ -1515,6 +1515,8 @@ impl UserInterface for Tui {
                     // 这里再报一次"做完了、去 /bg 读",同一件事说两遍,而第二遍还把看
                     // 结果这件事留给人自己去开面板。
                     stale |= self.host.show_bg(crate::bg::BgView::from_host(sessions));
+                    // 提上来的那条还站得住吗 —— 列表变了就是问它的时机。
+                    stale |= self.host.drop_stale_bg_question();
                     self.pour_bg_question();
                 }
                 Wake::Host(HostEvent::PersistenceFailed { message, .. }) => {

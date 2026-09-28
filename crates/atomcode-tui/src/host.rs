@@ -4077,6 +4077,33 @@ impl Host {
         }
     }
 
+    /// 提上来的那条问询还站得住吗：它来自的那个会话还在等人吗。
+    ///
+    /// 列表每次一变就问一遍。丢了、被换到前台、回合结束、被取消、失败 —— 这五种都推
+    /// `BackgroundChanged`，所以这一个挂点就把设计 §7 那张表全罩住了。取的路上
+    /// （`Some((session, None))`）也一样收：`withdraw_bg_question` 本就两种都接。
+    pub fn drop_stale_bg_question(&self) -> bool {
+        let session = {
+            let m = self.moment.read().expect("moment poisoned");
+            match m.bg_asked.as_ref() {
+                Some((session, _)) => session.clone(),
+                None => return false,
+            }
+        };
+        let still_waiting = self
+            .moment
+            .read()
+            .expect("moment poisoned")
+            .bg
+            .sessions()
+            .iter()
+            .any(|s| s.id == session && s.waiting);
+        match still_waiting {
+            true => false,
+            false => self.withdraw_bg_question(&session),
+        }
+    }
+
     /// 那个后台会话在列表里怎么称呼：第几个、叫什么。提它的问询时要说得出是谁在问。
     pub fn bg_name(&self, session: &str) -> Option<(usize, String)> {
         let m = self.moment.read().expect("moment poisoned");
@@ -13018,6 +13045,32 @@ mod tests {
             "收回去可以再提"
         );
         assert!(!h.withdraw_bg_question("z"), "不是它就没有可收的");
+    }
+
+    /// 它不再等了（被丢了、被换到前台、回合结束、被取消、失败），屏幕就把它收回去。
+    #[tokio::test]
+    async fn a_question_whose_session_stopped_waiting_is_taken_back() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+        let (id, answer) = h
+            .asks
+            .push_with_id(atomcode_harness::seams::Question::plain(
+                "Allow?",
+                &["yes", "no"],
+            ));
+        assert!(h.bg_question_shown("b", id, 7));
+
+        // 列表变了：它不在后台了。
+        assert!(h.show_bg(crate::bg::BgView::new(Vec::new())));
+        assert!(h.drop_stale_bg_question(), "收回去");
+        assert!(answer.await.is_err(), "收回是取消，不是拒绝");
+        assert!(!h.drop_stale_bg_question(), "已经没有了，第二次无事");
+
+        // 换成另一个还在等的会话：它在等，凭什么收。
+        h.show_bg(waiting_bg("c"));
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("c"));
+        assert!(!h.drop_stale_bg_question());
     }
 
     /// 人在打字时不提:弹出来的面板会把他接下来敲的键(连回车)当成回答。
