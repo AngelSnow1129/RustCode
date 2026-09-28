@@ -1161,8 +1161,23 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         }
         Msg::OpenRouterNoAnswer => "No answer from the browser — cancelled or timed out.".into(),
         Msg::OpenRouterNoFreeModels => "OpenRouter returned no free models.".into(),
-        Msg::OpenRouterConnected { added, default } => {
-            format!("OpenRouter is connected: {added} free model(s) added, `{default}` is the one in force.").into()
+        Msg::OpenRouterConnected {
+            added,
+            removed,
+            default,
+        } => match removed {
+            0 => format!(
+                "OpenRouter is connected: {added} free model(s) added, `{default}` is the default."
+            )
+            .into(),
+            _ => format!(
+                "OpenRouter is connected: {added} free model(s) added, {removed} earlier one(s) not in this recommendation removed (gone, no longer free, or outside the top five), `{default}` is the default. Models you configured yourself were not touched."
+            )
+            .into(),
+        },
+        Msg::OpenRouterDefaultReplaced { from, to } => {
+            format!("The default `{from}` is not in this recommendation; it is now `{to}`.")
+                .into()
         }
         Msg::OpenRouterNotReloaded { error } => format!(
             "OpenRouter is connected and saved, but this session was not reloaded ({error}); it takes effect on the next launch."

@@ -13,6 +13,11 @@ use std::time::{Duration, Instant};
 pub const OPENROUTER_AUTH_URL: &str = "https://openrouter.ai/auth";
 pub const OPENROUTER_KEYS_URL: &str = "https://openrouter.ai/api/v1/auth/keys";
 pub const OPENROUTER_MODELS_URL: &str = "https://openrouter.ai/api/v1/models";
+/// The page whose "Free models" list ranks free models by how much they are
+/// used. Not an API: see [`parse_discover_free_ranking`].
+pub const OPENROUTER_DISCOVER_URL: &str = "https://openrouter.ai/discover";
+/// The account `/openrouter` writes, in both front ends.
+pub const OPENROUTER_ACCOUNT_ID: &str = "openrouter";
 
 pub struct PkcePair {
     pub verifier: String,
@@ -85,6 +90,22 @@ pub fn parse_key_response(body: &str) -> Result<String> {
 }
 
 pub fn select_top_free_models(models_json: &str, limit: usize) -> Result<Vec<FreeModel>> {
+    select_top_free_models_ranked(models_json, &[], limit)
+}
+
+/// [`select_top_free_models`], ordered by `ranking` first — the ids OpenRouter's
+/// own "Free models" list names, most used first ([`parse_discover_free_ranking`])
+/// — and by context length after it, for a model the ranking does not name or
+/// when there is no ranking at all.
+///
+/// The ranking only orders. Whether a model is offered is still decided here,
+/// from the API: free, takes tools, answers in text. A ranked model the API
+/// says is paid, or cannot call tools, is left out like any other.
+pub fn select_top_free_models_ranked(
+    models_json: &str,
+    ranking: &[String],
+    limit: usize,
+) -> Result<Vec<FreeModel>> {
     #[derive(Deserialize)]
     struct ModelsResp {
         data: Vec<RawModel>,
@@ -160,14 +181,314 @@ pub fn select_top_free_models(models_json: &str, limit: usize) -> Result<Vec<Fre
             context_length: m.context_length,
         })
         .collect();
-    // context 降序;并列时按 id 稳定排序,保证测试确定性。
+    // 榜单上的按榜单顺序在前;其余按 context 降序;并列时按 id 稳定排序,保证测试确定性。
+    let rank = |id: &str| ranking.iter().position(|r| r == id).unwrap_or(usize::MAX);
     free.sort_by(|a, b| {
-        b.context_length
-            .cmp(&a.context_length)
+        rank(&a.id)
+            .cmp(&rank(&b.id))
+            .then_with(|| b.context_length.cmp(&a.context_length))
             .then_with(|| a.id.cmp(&b.id))
     });
     free.truncate(limit);
     Ok(free)
+}
+
+/// The ids OpenRouter's "Free models" list (<https://openrouter.ai/discover>)
+/// names, most used first, as `/api/v1/models` spells them.
+///
+/// **Not an API.** The page is rendered on the server and carries its data in
+/// the `self.__next_f.push([1,"…"])` chunks a Next.js page streams; the list is
+/// the object `{"id":"free", …, "models":[…], "sheetModels":[…]}` in them
+/// (`sheetModels` is the "View more" list, `models` its first five). Its ids are
+/// dated variants — `nvidia/x-20260604:free` — and the date is dropped to get
+/// the API's `nvidia/x:free`. Anything that does not have that shape gives an
+/// empty ranking, and the caller falls back to ordering by context length: the
+/// page can change without notice, and a page that did must not stop
+/// `/openrouter` from working.
+pub fn parse_discover_free_ranking(html: &str) -> Vec<String> {
+    const CHUNK: &str = "self.__next_f.push(";
+    let mut text = String::new();
+    let mut rest = html;
+    while let Some(at) = rest.find(CHUNK) {
+        rest = rest.get(at + CHUNK.len()..).unwrap_or("");
+        let mut values = serde_json::Deserializer::from_str(rest).into_iter::<serde_json::Value>();
+        match values.next() {
+            Some(Ok(serde_json::Value::Array(items))) => {
+                if let Some(serde_json::Value::String(chunk)) = items.get(1) {
+                    text.push_str(chunk);
+                }
+            }
+            // A chunk that runs to the end of the page without closing: every
+            // later one is inside it, and re-reading from each would read the
+            // rest of the page once per chunk. What was read so far is all
+            // there is.
+            Some(Err(error)) if error.is_eof() => break,
+            _ => {}
+        }
+    }
+    const SECTION: &str = r#"{"id":"free","#;
+    let mut rest = text.as_str();
+    while let Some(at) = rest.find(SECTION) {
+        let from = rest.get(at..).unwrap_or("");
+        rest = rest.get(at + SECTION.len()..).unwrap_or("");
+        let mut values = serde_json::Deserializer::from_str(from).into_iter::<serde_json::Value>();
+        let Some(Ok(section)) = values.next() else {
+            continue;
+        };
+        let list = section
+            .get("sheetModels")
+            .or_else(|| section.get("models"))
+            .and_then(serde_json::Value::as_array);
+        let Some(list) = list else {
+            continue;
+        };
+        let mut ids: Vec<String> = Vec::new();
+        for slug in list.iter().filter_map(|m| {
+            m.get("variantPermaslug")
+                .and_then(serde_json::Value::as_str)
+        }) {
+            let id = undated(slug);
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        if !ids.is_empty() {
+            return ids;
+        }
+    }
+    Vec::new()
+}
+
+/// `vendor/model-20260604:free` → `vendor/model:free`: a dated variant's id as
+/// the models API names it. An id without an 8-digit date before the optional
+/// `:free` is returned as it is.
+fn undated(slug: &str) -> String {
+    let (base, free) = match slug.strip_suffix(":free") {
+        Some(base) => (base, ":free"),
+        None => (slug, ""),
+    };
+    let dated = base.len() > 9
+        && base.is_char_boundary(base.len() - 9)
+        && base.get(base.len() - 9..).is_some_and(|tail| {
+            tail.starts_with('-') && tail[1..].bytes().all(|b| b.is_ascii_digit())
+        });
+    match dated {
+        true => format!("{}{free}", base.get(..base.len() - 9).unwrap_or(base)),
+        false => slug.to_string(),
+    }
+}
+
+/// How long the optional ranking page may take before `/openrouter` goes on
+/// without it.
+const DISCOVER_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The most of the ranking page that is read.
+const DISCOVER_MAX_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Fetch the "Free models" ranking. Empty on any failure — see
+/// [`parse_discover_free_ranking`] for why that is the right answer.
+fn fetch_discover_ranking(client: &reqwest::blocking::Client) -> Vec<String> {
+    // Shorter than the client's own budget: the ranking only orders what the
+    // models API already answered, so a slow page is not worth waiting for.
+    let fetched = client
+        .get(OPENROUTER_DISCOVER_URL)
+        .timeout(DISCOVER_TIMEOUT)
+        .send()
+        .and_then(|resp| resp.error_for_status())
+        .map_err(|error| error.to_string())
+        .and_then(|resp| {
+            // Bounded: the page is about 1MB, and nothing about it is worth more.
+            use std::io::Read as _;
+            let mut body = Vec::new();
+            resp.take(DISCOVER_MAX_BYTES)
+                .read_to_end(&mut body)
+                .map_err(|error| error.to_string())?;
+            Ok(String::from_utf8_lossy(&body).into_owned())
+        });
+    match fetched {
+        Ok(html) => {
+            let ranking = parse_discover_free_ranking(&html);
+            if ranking.is_empty() {
+                tracing::warn!(
+                    "openrouter: no free-model ranking on the discover page; ordering by context"
+                );
+            }
+            ranking
+        }
+        Err(error) => {
+            tracing::warn!("openrouter: discover page not fetched ({error}); ordering by context");
+            Vec::new()
+        }
+    }
+}
+
+/// What [`provision`] did to the configuration.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Provisioned {
+    /// Free models added this time, by selection id.
+    pub added: Vec<String>,
+    /// Free models a previous run added that are no longer among the current
+    /// ones — gone from the list, paid now, or overtaken — and were removed.
+    pub removed: Vec<String>,
+    /// The default model after this run.
+    pub default_model: Option<String>,
+    /// The default this run replaced, when the default was one of the removed
+    /// free models: a default naming a model that is gone would be worse.
+    pub default_replaced: Option<String>,
+}
+
+/// Write the OpenRouter account and its current free models into `config`.
+/// The one implementation both front ends call, so `/openrouter` in either
+/// leaves the same configuration.
+///
+/// - **The account** has a fixed id; an existing one only has its key replaced.
+/// - **The free models are a set this command owns**, marked with
+///   [`OPENROUTER_FREE_ORIGIN`] (`ModelProfileConfig::origin`). Run again, it
+///   swaps that set for `models`: marked entries no longer among them are
+///   removed, ones still among them are refreshed, new ones are added. Free
+///   models change often and a free one can start costing money, so keeping the
+///   old ones would be keeping a bill the person did not ask for.
+/// - **Anything unmarked is the person's** and is never changed or removed —
+///   an entry they added by hand, one they have since saved from a panel
+///   (saving clears the mark; see `ModelProfileConfig::origin` for what does
+///   not), or one an older build added before the mark existed. The same
+///   selection id among `models` does not take it over.
+/// - **The default** is set when there is none (a legacy `default_provider`
+///   that names something counts as one), and moved to the first of `models`
+///   when it named a free model this run removed. A default the person chose
+///   is left alone. A window that is using a removed model while the default is
+///   something else is the front end's to move (see the classic UI's handling).
+/// - **No models** changes nothing but the key: a fetch that found none is not
+///   a reason to empty the set.
+pub fn provision(
+    config: &mut atomcode_config::config::Config,
+    api_key: &str,
+    models: &[FreeModel],
+) -> Provisioned {
+    use atomcode_config::config::provider::{
+        default_context_window_for, ModelProfileConfig, ProviderAccountConfig,
+        OPENROUTER_FREE_ORIGIN,
+    };
+    use atomcode_config::config::provider_preset::preset_or_compatible;
+
+    let provider_type = preset_or_compatible(OPENROUTER_ACCOUNT_ID)
+        .provider_type
+        .wire()
+        .to_string();
+    config
+        .provider_accounts
+        .entry(OPENROUTER_ACCOUNT_ID.to_string())
+        .and_modify(|account| account.api_key = Some(api_key.to_string()))
+        .or_insert_with(|| ProviderAccountConfig {
+            provider: OPENROUTER_ACCOUNT_ID.to_string(),
+            display_name: None,
+            api_key: Some(api_key.to_string()),
+            base_url: None,
+            user_agent: None,
+            skip_tls_verify: false,
+            enterprise_url: None,
+            ephemeral: false,
+        });
+    // Nothing current is no reason to throw away what there is: an empty list
+    // is a fetch that found nothing, not OpenRouter saying every free model
+    // went. Only the key is taken.
+    if models.is_empty() {
+        return Provisioned {
+            default_model: config.default_model.clone(),
+            ..Provisioned::default()
+        };
+    }
+
+    let managed = |m: &ModelProfileConfig| {
+        m.account == OPENROUTER_ACCOUNT_ID && m.origin.as_deref() == Some(OPENROUTER_FREE_ORIGIN)
+    };
+    let wanted: Vec<String> = models
+        .iter()
+        .map(|m| format!("{OPENROUTER_ACCOUNT_ID}/{}", m.id))
+        .collect();
+
+    let removed: Vec<String> = config
+        .models
+        .iter()
+        .filter(|(id, m)| managed(m) && !wanted.contains(id))
+        .map(|(id, _)| id.clone())
+        .collect();
+    for id in &removed {
+        config.models.remove(id);
+    }
+
+    let window = |m: &FreeModel| {
+        if m.context_length > 0 {
+            m.context_length as usize
+        } else {
+            default_context_window_for(&provider_type)
+        }
+    };
+    let mut added = Vec::new();
+    for (selection, model) in wanted.iter().zip(models) {
+        if let Some(existing) = config.models.get_mut(selection) {
+            // Ours: refreshed. The person's own entry under the same id: theirs,
+            // untouched.
+            if managed(existing) {
+                existing.display_name = model.name.clone();
+                existing.context_window = window(model);
+            }
+            continue;
+        }
+        match config.selection_exists(selection) {
+            // A legacy `[providers.<id>]` entry answers to this id: also theirs.
+            true => {}
+            false => {
+                config.models.insert(
+                    selection.clone(),
+                    ModelProfileConfig {
+                        account: OPENROUTER_ACCOUNT_ID.to_string(),
+                        model: model.id.clone(),
+                        display_name: model.name.clone(),
+                        system_prompt: None,
+                        supports_vision: None,
+                        context_window: window(model),
+                        max_tokens: None,
+                        capable_model: None,
+                        note: None,
+                        thinking_type: None,
+                        thinking_keep: None,
+                        reasoning_history: None,
+                        reasoning_effort: None,
+                        reasoning_effort_levels: None,
+                        thinking_enabled: None,
+                        thinking_budget: None,
+                        retry_max_attempts: None,
+                        origin: Some(OPENROUTER_FREE_ORIGIN.to_string()),
+                    },
+                );
+                added.push(selection.clone());
+            }
+        }
+    }
+
+    let first = wanted.first().cloned();
+    let mut default_replaced = None;
+    // A legacy `default_provider` naming something that exists is a default the
+    // person chose; `default_model` would take precedence over it, so it is not
+    // set on top.
+    let legacy_default = !config.default_provider.trim().is_empty()
+        && config.selection_exists(&config.default_provider);
+    match config.default_model.clone() {
+        None if legacy_default => {}
+        None => config.default_model = first,
+        Some(current) if removed.contains(&current) && first.is_some() => {
+            config.default_model = first;
+            default_replaced = Some(current);
+        }
+        Some(_) => {}
+    }
+    Provisioned {
+        added,
+        removed,
+        default_model: config.default_model.clone(),
+        default_replaced,
+    }
 }
 
 pub fn parse_code_from_request_line(line: &str) -> Option<String> {
@@ -325,7 +646,8 @@ pub fn exchange_code_for_key(code: &str, verifier: &str) -> Result<String> {
     parse_key_response(&body)
 }
 
-/// GET /api/v1/models(Bearer)→ 过滤 free、按 context 降序、取 limit。
+/// GET /api/v1/models(Bearer)→ 过滤 free,按 OpenRouter「Free models」榜单(用量)
+/// 排序、榜单外按 context 降序,取 limit。榜单取不到时整体退回按 context 排。
 pub fn fetch_top_free_models(api_key: &str, limit: usize) -> Result<Vec<FreeModel>> {
     let client = blocking_client()?;
     let resp = client
@@ -338,7 +660,8 @@ pub fn fetch_top_free_models(api_key: &str, limit: usize) -> Result<Vec<FreeMode
     if !status.is_success() {
         anyhow::bail!("OpenRouter /models 返回 HTTP {}", status.as_u16());
     }
-    select_top_free_models(&body, limit)
+    let ranking = fetch_discover_ranking(&client);
+    select_top_free_models_ranked(&body, &ranking, limit)
 }
 
 #[cfg(test)]
@@ -465,6 +788,258 @@ mod tests {
         let got = select_top_free_models(MODELS_FIXTURE, 2).unwrap();
         assert_eq!(got.len(), 2);
         assert_eq!(got[0].id, "vendor/big:free"); // 最大 context 优先
+    }
+
+    /// OpenRouter's own ranking orders what is offered; the API still decides
+    /// what may be offered. A ranked model the API says cannot call tools stays
+    /// out, and models the ranking does not name follow by context length.
+    #[test]
+    fn a_ranking_orders_the_free_models_and_the_api_still_filters_them() {
+        let ranking = vec![
+            "vendor/small:free".to_string(),
+            "vendor/notools:free".to_string(),
+            "vendor/zero-priced".to_string(),
+        ];
+        let got = select_top_free_models_ranked(MODELS_FIXTURE, &ranking, 5).unwrap();
+        let ids: Vec<&str> = got.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["vendor/small:free", "vendor/zero-priced", "vendor/big:free"]
+        );
+    }
+
+    /// The page as it streams: the list split across two chunks, escaped the
+    /// way a JS string escapes it, with dated ids.
+    const DISCOVER_FIXTURE: &str = r#"<html><script>self.__next_f.push([1,"prefix {\"id\":\"popular\",\"models\":[]} {\"id\":\"free\",\"title\":\"Free models\",\"models\":[{\"variantPermaslug\":\"stealth/space-bunny-alpha\"}],\"sheetModels\":[{\"variantPermaslug\":\"stealth/space-bunny-alpha\"},"])</script><script>self.__next_f.push([1,"{\"variantPermaslug\":\"nvidia/nemotron-3-ultra-550b-a55b-20260604:free\"},{\"variantPermaslug\":\"dots-studio/dots-3-note-preview-20260813:free\"},{\"variantPermaslug\":\"dots-studio/dots-3-note-preview-20260813\"}]} tail"])</script></html>"#;
+
+    #[test]
+    fn the_discover_page_ranking_is_read_in_order_with_the_dates_dropped() {
+        assert_eq!(
+            parse_discover_free_ranking(DISCOVER_FIXTURE),
+            vec![
+                "stealth/space-bunny-alpha",
+                "nvidia/nemotron-3-ultra-550b-a55b:free",
+                "dots-studio/dots-3-note-preview:free",
+                "dots-studio/dots-3-note-preview",
+            ]
+        );
+    }
+
+    /// A page that changed shape is no ranking, not an error: `/openrouter`
+    /// goes on ordering by context length.
+    #[test]
+    fn a_page_without_the_list_is_no_ranking() {
+        assert!(parse_discover_free_ranking("").is_empty());
+        assert!(parse_discover_free_ranking("<html>nothing here</html>").is_empty());
+        assert!(parse_discover_free_ranking(
+            r#"self.__next_f.push([1,"{\"id\":\"free\",\"models\":\"not a list\"}"])"#
+        )
+        .is_empty());
+        assert!(
+            parse_discover_free_ranking(r#"self.__next_f.push([1,"{\"id\":\"free\", broken"#)
+                .is_empty()
+        );
+    }
+
+    /// A page cut off inside a chunk — a truncated download, a changed page —
+    /// is no ranking, quickly, rather than an error or a hang.
+    #[test]
+    fn a_chunk_that_never_closes_ends_the_read() {
+        let mut page = String::from(r#"self.__next_f.push([1,"never closed "#);
+        for _ in 0..20_000 {
+            page.push_str(r#"self.__next_f.push([1,"x"]) "#);
+        }
+        let started = std::time::Instant::now();
+        assert!(parse_discover_free_ranking(&page).is_empty());
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "read in one pass: {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_dated_id_loses_its_date_and_nothing_else() {
+        assert_eq!(undated("a/b-20260604:free"), "a/b:free");
+        assert_eq!(undated("a/b-20260604"), "a/b");
+        assert_eq!(undated("a/b:free"), "a/b:free");
+        assert_eq!(undated("a/qwen3-2507"), "a/qwen3-2507", "not eight digits");
+        assert_eq!(undated("-20260604"), "-20260604", "nothing before the date");
+    }
+
+    mod provisioning {
+        use super::super::*;
+        use atomcode_config::config::provider::{ModelProfileConfig, OPENROUTER_FREE_ORIGIN};
+        use atomcode_config::config::Config;
+
+        fn free(id: &str) -> FreeModel {
+            FreeModel {
+                id: id.to_string(),
+                name: Some(format!("{id} (free)")),
+                context_length: 128_000,
+            }
+        }
+
+        fn own(account: &str, model: &str) -> ModelProfileConfig {
+            let mut c = Config::default();
+            provision(&mut c, "k", &[free(model)]);
+            let mut m = c.models.remove(&format!("openrouter/{model}")).unwrap();
+            m.account = account.to_string();
+            m.origin = None;
+            m.context_window = 7;
+            m
+        }
+
+        #[test]
+        fn a_fresh_config_gets_the_account_the_models_and_a_default() {
+            let mut c = Config::default();
+            let out = provision(&mut c, "sk-1", &[free("a/x:free"), free("b/y:free")]);
+            assert_eq!(
+                c.provider_accounts[OPENROUTER_ACCOUNT_ID]
+                    .api_key
+                    .as_deref(),
+                Some("sk-1")
+            );
+            assert!(!c.provider_accounts[OPENROUTER_ACCOUNT_ID].ephemeral);
+            assert_eq!(
+                out.added,
+                vec!["openrouter/a/x:free", "openrouter/b/y:free"]
+            );
+            assert!(out.removed.is_empty());
+            assert_eq!(out.default_model.as_deref(), Some("openrouter/a/x:free"));
+            assert_eq!(c.default_model.as_deref(), Some("openrouter/a/x:free"));
+            assert_eq!(
+                c.models["openrouter/a/x:free"].origin.as_deref(),
+                Some(OPENROUTER_FREE_ORIGIN),
+                "marked as this command's"
+            );
+        }
+
+        /// **Run again, the set is swapped.** What it added before and is no
+        /// longer current goes; what is still current stays, refreshed; what is
+        /// new comes in. The key is replaced, and nothing is doubled.
+        #[test]
+        fn running_again_swaps_the_free_models_it_added() {
+            let mut c = Config::default();
+            provision(&mut c, "sk-old", &[free("a/x:free"), free("b/y:free")]);
+            let mut newer = free("b/y:free");
+            newer.context_length = 1_000_000;
+            let out = provision(&mut c, "sk-new", &[newer, free("c/z:free")]);
+            assert_eq!(out.removed, vec!["openrouter/a/x:free"]);
+            assert_eq!(out.added, vec!["openrouter/c/z:free"]);
+            assert!(!c.models.contains_key("openrouter/a/x:free"));
+            assert_eq!(
+                c.models["openrouter/b/y:free"].context_window, 1_000_000,
+                "refreshed"
+            );
+            assert_eq!(c.models.len(), 2);
+            assert_eq!(
+                c.provider_accounts[OPENROUTER_ACCOUNT_ID]
+                    .api_key
+                    .as_deref(),
+                Some("sk-new")
+            );
+        }
+
+        /// **The person's own models are never touched** — one they added by
+        /// hand under the same id, one on the same account, one an older build
+        /// added without the mark, one on another account.
+        #[test]
+        fn the_persons_own_models_are_never_changed_or_removed() {
+            let mut c = Config::default();
+            c.models
+                .insert("openrouter/a/x:free".into(), own("openrouter", "a/x:free"));
+            c.models
+                .insert("openrouter/mine".into(), own("openrouter", "mine"));
+            c.models.insert("elsewhere/m".into(), own("elsewhere", "m"));
+            let before = format!("{:?}", c.models);
+
+            let out = provision(&mut c, "k", &[free("a/x:free"), free("d/w:free")]);
+            assert!(out.removed.is_empty(), "{:?}", out.removed);
+            assert_eq!(
+                out.added,
+                vec!["openrouter/d/w:free"],
+                "the same id is not taken over"
+            );
+            assert_eq!(c.models["openrouter/a/x:free"].origin, None);
+            assert_eq!(
+                c.models["openrouter/a/x:free"].context_window, 7,
+                "not refreshed"
+            );
+
+            // And again with none of them among the current set: still there.
+            provision(&mut c, "k", &[free("e/v:free")]);
+            for id in ["openrouter/a/x:free", "openrouter/mine", "elsewhere/m"] {
+                assert!(c.models.contains_key(id), "{id} was removed");
+            }
+            assert!(
+                !c.models.contains_key("openrouter/d/w:free"),
+                "but its own one went"
+            );
+            let _ = before;
+        }
+
+        /// A default naming a free model this run removed moves to the first
+        /// current one, and says which it replaced. A default the person chose
+        /// stays.
+        #[test]
+        fn a_default_on_a_removed_free_model_moves_and_a_chosen_one_stays() {
+            let mut c = Config::default();
+            provision(&mut c, "k", &[free("a/x:free")]);
+            assert_eq!(c.default_model.as_deref(), Some("openrouter/a/x:free"));
+            let out = provision(&mut c, "k", &[free("b/y:free")]);
+            assert_eq!(out.default_replaced.as_deref(), Some("openrouter/a/x:free"));
+            assert_eq!(c.default_model.as_deref(), Some("openrouter/b/y:free"));
+
+            c.default_model = Some("elsewhere/m".into());
+            let out = provision(&mut c, "k", &[free("c/z:free")]);
+            assert_eq!(out.default_replaced, None);
+            assert_eq!(c.default_model.as_deref(), Some("elsewhere/m"));
+            assert_eq!(out.default_model.as_deref(), Some("elsewhere/m"));
+        }
+
+        /// A fetch that found nothing empties nothing: only the key is taken.
+        #[test]
+        fn no_models_changes_nothing_but_the_key() {
+            let mut c = Config::default();
+            provision(&mut c, "old", &[free("a/x:free")]);
+            let out = provision(&mut c, "new", &[]);
+            assert!(out.removed.is_empty());
+            assert!(c.models.contains_key("openrouter/a/x:free"));
+            assert_eq!(c.default_model.as_deref(), Some("openrouter/a/x:free"));
+            assert_eq!(
+                c.provider_accounts[OPENROUTER_ACCOUNT_ID]
+                    .api_key
+                    .as_deref(),
+                Some("new")
+            );
+        }
+
+        /// A legacy `default_provider` that names something is a default the
+        /// person chose; `default_model` would override it, so it is not set.
+        #[test]
+        fn a_legacy_default_is_a_default() {
+            let mut c: Config = serde_json::from_value(serde_json::json!({
+                "default_provider": "mine",
+                "providers": { "mine": { "type": "openai", "model": "m" } }
+            }))
+            .unwrap();
+            let out = provision(&mut c, "k", &[free("a/x:free")]);
+            assert_eq!(c.default_model, None);
+            assert_eq!(out.default_replaced, None);
+            assert_eq!(c.default_provider, "mine");
+        }
+
+        /// A default on a free model that is still current is not moved.
+        #[test]
+        fn a_default_on_a_current_free_model_stays() {
+            let mut c = Config::default();
+            provision(&mut c, "k", &[free("a/x:free"), free("b/y:free")]);
+            c.default_model = Some("openrouter/b/y:free".into());
+            let out = provision(&mut c, "k", &[free("a/x:free"), free("b/y:free")]);
+            assert_eq!(out.default_replaced, None);
+            assert_eq!(c.default_model.as_deref(), Some("openrouter/b/y:free"));
+        }
     }
 
     #[test]

@@ -1365,6 +1365,9 @@ impl ProviderPanel {
 
                 let selection_id = if let Some(id) = &edit_id {
                     if let Some(model) = persisted.models.get_mut(id) {
+                        // Edited by a person, so theirs: `/openrouter` never
+                        // swaps out a model someone has saved from the panel.
+                        model.origin = None;
                         model.model = model_name.clone();
                         model.supports_vision = supports_vision;
                         model.reasoning_effort = reasoning_effort.clone();
@@ -1408,6 +1411,7 @@ impl ProviderPanel {
                             capable_model: None,
                             note: None,
                             retry_max_attempts: None,
+                            origin: None,
                             thinking_type: None,
                             thinking_keep: None,
                             reasoning_history: None,

@@ -10,8 +10,9 @@
 //! **为什么在后台线程跑**:授权要等人去浏览器点,最长三分钟。命令里直接 await
 //! 会让屏幕停在那儿不画也不收键 —— `/login` 踩过,理由记在那儿。
 //!
-//! **写进配置是幂等的**:账号固定一个 id,已经在就只更新 key;模型已经在就跳过;
-//! `default_model` 只在还没有的时候才设。同一条命令敲两遍,配置文件不会长出第二份。
+//! **写进配置**走 `atomcode_auth::openrouter::provision`,两个前端同一份:账号固定
+//! 一个 id、只换 key;它加的免费模型带来源标记,再敲一遍就整批换成当前的;人自己配的
+//! 模型一概不动。
 
 use atomcode_i18n::screen::{t as tr, Msg as SMsg};
 use std::path::PathBuf;
@@ -19,12 +20,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use atomcode_auth::openrouter::FreeModel;
-use atomcode_config::config::provider::{
-    default_context_window_for, ModelProfileConfig, ProviderAccountConfig,
-};
-use atomcode_config::config::provider_preset::preset_or_compatible;
-use atomcode_config::config::Config;
+use atomcode_auth::openrouter::{provision, FreeModel, Provisioned};
 use atomcode_harness::seams::{UiSvc, UserInterface};
 use atomcode_host_api::HostCommand;
 use atomcode_plexus::{Context, Plugin};
@@ -37,9 +33,6 @@ pub const ROW: &str = "tui-openrouter";
 
 /// 命令名。
 pub const COMMAND: &str = "openrouter";
-
-/// 账号在配置里的固定 id。与经典界面同一个,所以两边接出来的是同一份配置。
-const ACCOUNT: &str = "openrouter";
 
 /// 接几个免费模型。与经典界面同一个数。
 const FREE_MODEL_LIMIT: usize = 5;
@@ -99,13 +92,6 @@ impl Mode {
             Mode::Given(given.to_string())
         }
     }
-}
-
-/// 落地的结果:加了哪些模型、默认模型是哪个。
-#[derive(Debug, Default, PartialEq, Eq)]
-pub(crate) struct Provisioned {
-    pub added: Vec<String>,
-    pub default_model: String,
 }
 
 /// 屏幕之外的那几件事,各自一个口子——判据换掉它们就不必联网,也不必开浏览器。
@@ -238,85 +224,18 @@ fn connect(world: &World, mode: Mode, say: &dyn Fn(String)) {
         Ok(outcome) => outcome,
         Err(error) => return say(tr(SMsg::OpenRouterFailed { error: &error }).into_owned()),
     };
+    let default = outcome.default_model.clone().unwrap_or_default();
     say(tr(SMsg::OpenRouterConnected {
         added: outcome.added.len(),
-        default: &outcome.default_model,
+        removed: outcome.removed.len(),
+        default: &default,
     })
     .into_owned());
+    if let Some(from) = &outcome.default_replaced {
+        say(tr(SMsg::OpenRouterDefaultReplaced { from, to: &default }).into_owned());
+    }
     if let Err(error) = (world.reload)() {
         say(tr(SMsg::OpenRouterNotReloaded { error: &error }).into_owned());
-    }
-}
-
-/// 写进配置。幂等:账号已在就只换 key,模型已在就跳过,`default_model` 只在空着时才设。
-///
-/// 从经典界面的 `openrouter_connect::provision_openrouter` 原样搬来——它是纯函数,
-/// 而这一段决定了两个前端接出来的是不是同一份配置。
-pub(crate) fn provision(config: &mut Config, api_key: &str, models: &[FreeModel]) -> Provisioned {
-    let preset = preset_or_compatible(ACCOUNT);
-    let provider_type = preset.provider_type.wire().to_string();
-
-    config
-        .provider_accounts
-        .entry(ACCOUNT.to_string())
-        .and_modify(|account| account.api_key = Some(api_key.to_string()))
-        .or_insert_with(|| ProviderAccountConfig {
-            provider: ACCOUNT.to_string(),
-            display_name: None,
-            api_key: Some(api_key.to_string()),
-            base_url: None,
-            user_agent: None,
-            skip_tls_verify: false,
-            enterprise_url: None,
-            ephemeral: false,
-        });
-
-    let mut added = Vec::new();
-    let mut first: Option<String> = None;
-    for model in models {
-        let selection = format!("{ACCOUNT}/{}", model.id);
-        if first.is_none() {
-            first = Some(selection.clone());
-        }
-        if config.selection_exists(&selection) {
-            continue;
-        }
-        config.models.insert(
-            selection.clone(),
-            ModelProfileConfig {
-                account: ACCOUNT.to_string(),
-                model: model.id.clone(),
-                display_name: model.name.clone(),
-                context_window: if model.context_length > 0 {
-                    model.context_length as usize
-                } else {
-                    default_context_window_for(&provider_type)
-                },
-                system_prompt: None,
-                supports_vision: None,
-                max_tokens: None,
-                capable_model: None,
-                note: None,
-                thinking_type: None,
-                thinking_keep: None,
-                reasoning_history: None,
-                reasoning_effort: None,
-                reasoning_effort_levels: None,
-                thinking_enabled: None,
-                thinking_budget: None,
-                retry_max_attempts: None,
-            },
-        );
-        added.push(selection);
-    }
-
-    let default_model = first.unwrap_or_default();
-    if config.default_model.is_none() && !default_model.is_empty() {
-        config.default_model = Some(default_model.clone());
-    }
-    Provisioned {
-        added,
-        default_model,
     }
 }
 
@@ -331,36 +250,6 @@ mod tests {
             name: Some(format!("{id} (free)")),
             context_length: 32_768,
         }
-    }
-
-    /// 同一条命令敲两遍,配置不会长出第二份:账号只换 key,模型不重复,
-    /// 已经选定的默认模型不被它抢走。
-    #[test]
-    fn connecting_twice_updates_the_key_and_adds_nothing_twice() {
-        let mut config = Config::default();
-        let models = [model("a/free"), model("b/free")];
-
-        let first = provision(&mut config, "key-1", &models);
-        assert_eq!(first.added.len(), 2);
-        assert_eq!(first.default_model, "openrouter/a/free");
-        assert_eq!(config.default_model.as_deref(), Some("openrouter/a/free"));
-
-        let again = provision(&mut config, "key-2", &models);
-        assert!(again.added.is_empty(), "第二遍不再加:{:?}", again.added);
-        assert_eq!(config.models.len(), 2);
-        assert_eq!(
-            config.provider_accounts[ACCOUNT].api_key.as_deref(),
-            Some("key-2"),
-            "但 key 换成了新的"
-        );
-
-        config.default_model = Some("someone/else".into());
-        provision(&mut config, "key-3", &models);
-        assert_eq!(
-            config.default_model.as_deref(),
-            Some("someone/else"),
-            "人自己选过的默认模型,接一次 OpenRouter 不该把它顶掉"
-        );
     }
 
     struct Fake {
@@ -383,7 +272,8 @@ mod tests {
                     *saved.lock().unwrap() += 1;
                     Ok(Provisioned {
                         added: models.iter().map(|m| m.id.clone()).collect(),
-                        default_model: models[0].id.clone(),
+                        default_model: Some(models[0].id.clone()),
+                        ..Provisioned::default()
                     })
                 }),
                 reload: Arc::new(move || {
@@ -415,6 +305,46 @@ mod tests {
         assert_eq!(*fake.reloaded.lock().unwrap(), 1);
         let said = fake.said.lock().unwrap().join("\n");
         assert!(said.contains("a/free"), "说出接上了什么:{said}");
+    }
+
+    /// 再敲一遍换掉了旧的免费模型,人要被告知换掉了几个;默认模型因此被换了,也要说
+    /// 换成了哪个——不然下一句话落在另一个模型上,人不知道为什么。
+    #[test]
+    fn a_swap_says_what_went_and_where_the_default_moved() {
+        let said = Arc::new(Mutex::new(Vec::new()));
+        let world = World {
+            key: Arc::new(|_, _| Ok("k".into())),
+            models: Arc::new(|_| Ok(vec![model("b/free")])),
+            save: Arc::new(|_, _| {
+                Ok(Provisioned {
+                    added: vec!["openrouter/b/free".into()],
+                    removed: vec!["openrouter/a/free".into()],
+                    default_model: Some("openrouter/b/free".into()),
+                    default_replaced: Some("openrouter/a/free".into()),
+                })
+            }),
+            reload: Arc::new(|| Ok(())),
+        };
+        let lines = said.clone();
+        connect(&world, Mode::Browser, &move |line| {
+            lines.lock().unwrap().push(line)
+        });
+        let said = said.lock().unwrap().join("\n");
+        assert!(
+            said.contains(&*tr(SMsg::OpenRouterConnected {
+                added: 1,
+                removed: 1,
+                default: "openrouter/b/free",
+            })),
+            "{said}"
+        );
+        assert!(
+            said.contains(&*tr(SMsg::OpenRouterDefaultReplaced {
+                from: "openrouter/a/free",
+                to: "openrouter/b/free",
+            })),
+            "{said}"
+        );
     }
 
     /// 拉不到模型就停在那儿,不写配置——半接上的配置比没接更难查。

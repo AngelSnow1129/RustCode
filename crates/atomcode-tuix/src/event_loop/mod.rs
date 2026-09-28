@@ -9513,22 +9513,42 @@ fn handle_openrouter_connect_event(
             renderer.flush();
         }
         OpenRouterConnectEvent::Ready { api_key, models } => {
-            let mut added_count = 0usize;
+            let mut outcome = atomcode_auth::openrouter::Provisioned::default();
             match ctx.config_store.update(|latest| {
-                let out = openrouter_connect::provision_openrouter(latest, &api_key, &models);
-                added_count = out.added.len();
+                outcome = atomcode_auth::openrouter::provision(latest, &api_key, &models);
                 Ok(())
             }) {
                 Ok(commit) => {
+                    // This window may be pinned to a model that was just removed
+                    // (it keeps its own selection over the shared default). Left
+                    // pinned, it would go on calling a model that is gone or now
+                    // costs money; so it follows the default, which `provision`
+                    // has moved off any removed model.
+                    if active_model_was_removed(&ctx.config, &outcome) {
+                        ctx.provider_selection_mode =
+                            crate::ProviderSelectionMode::FollowGlobalDefault;
+                    }
                     apply_persisted_config(
                         ctx,
                         commit.snapshot.config,
                         commit.snapshot.revision,
                         renderer,
                     );
-                    renderer.render(UiLine::CommandOutput(format!(
-                        "已接入 OpenRouter,新增 {added_count} 个免费模型。/model 可切换。"
-                    )));
+                    let added = outcome.added.len();
+                    let removed = outcome.removed.len();
+                    renderer.render(UiLine::CommandOutput(match removed {
+                        0 => format!("已接入 OpenRouter,新增 {added} 个免费模型。/model 可切换。"),
+                        _ => format!(
+                            "已接入 OpenRouter,新增 {added} 个免费模型,移除 {removed} 个不在这次推荐里的旧免费模型(下架、开始收费或被挤出前 5;你自己配置的模型没有改动)。/model 可切换。"
+                        ),
+                    }));
+                    if let (Some(from), Some(to)) =
+                        (&outcome.default_replaced, &outcome.default_model)
+                    {
+                        renderer.render(UiLine::CommandOutput(format!(
+                            "原来的默认模型 `{from}` 不在这次的免费推荐里,已换成 `{to}`。"
+                        )));
+                    }
                     renderer.flush();
                 }
                 Err(e) => {
@@ -10931,6 +10951,19 @@ fn should_deactivate_for_missing_auth(
 /// Both selection fields are pinned to the running selection:
 /// `default_provider` for legacy configs and `default_model` for the canonical
 /// account/model schema.
+/// Whether the model this window runs on is one `/openrouter` just removed —
+/// the window then stops keeping its own selection and follows the default,
+/// which `provision` has already moved off every removed model.
+fn active_model_was_removed(
+    current: &Config,
+    outcome: &atomcode_auth::openrouter::Provisioned,
+) -> bool {
+    current
+        .default_model
+        .as_ref()
+        .is_some_and(|active| outcome.removed.contains(active))
+}
+
 fn merge_persisted_config_preserving_active(
     current: &Config,
     mut persisted: Config,
@@ -11233,6 +11266,23 @@ mod external_config_tests {
             RuntimeUiAvailability::Available,
             true,
         ));
+    }
+
+    /// A window pinned to a model `/openrouter` just removed stops being pinned
+    /// (and follows the default `provision` moved); one on anything else stays.
+    #[test]
+    fn a_window_on_a_removed_free_model_is_the_one_that_follows_the_default() {
+        let outcome = atomcode_auth::openrouter::Provisioned {
+            removed: vec!["openrouter/a:free".into()],
+            ..Default::default()
+        };
+        let mut current = Config::default();
+        current.default_model = Some("openrouter/a:free".into());
+        assert!(active_model_was_removed(&current, &outcome));
+        current.default_model = Some("openrouter/b:free".into());
+        assert!(!active_model_was_removed(&current, &outcome));
+        current.default_model = None;
+        assert!(!active_model_was_removed(&current, &outcome));
     }
 
     #[test]

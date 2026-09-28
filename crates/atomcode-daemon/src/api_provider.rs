@@ -114,6 +114,9 @@ fn apply_patch_to_new_schema_model(
         return false;
     }
     if let Some(model) = config.models.get_mut(name) {
+        // Edited by a person, so theirs: no managed set (`/openrouter`'s free
+        // models) may replace or remove it any more.
+        model.origin = None;
         if let Some(value) = req.model {
             model.model = value;
         }
@@ -560,6 +563,7 @@ fn insert_account_models(
                 thinking_enabled: None,
                 thinking_budget: None,
                 retry_max_attempts: None,
+                origin: None,
             },
         );
         created.push(selection_id);
@@ -1413,7 +1417,7 @@ mod tests {
         let mut config: Config = serde_json::from_value(serde_json::json!({
             "provider_accounts": { "bai": { "provider": "openai", "base_url": "https://api.b.ai/v1", "api_key": "sk-old" } },
             "models": {
-                "bai/deepseek-v4-flash": { "account": "bai", "model": "deepseek-v4-flash", "context_window": 128000 },
+                "bai/deepseek-v4-flash": { "account": "bai", "model": "deepseek-v4-flash", "context_window": 128000, "origin": "openrouter-free" },
                 "bai/glm": { "account": "bai", "model": "glm-4.6" }
             }
         }))
@@ -1433,6 +1437,8 @@ mod tests {
         let model = &config.models["bai/deepseek-v4-flash"];
         assert_eq!(model.model, "deepseek-chat");
         assert_eq!(model.context_window, 64000);
+        // Edited by a person, so theirs: a managed set's mark goes.
+        assert_eq!(model.origin, None);
         // Connection fields land on the shared account…
         let account = &config.provider_accounts["bai"];
         assert_eq!(account.base_url.as_deref(), Some("https://api.c.ai/v1"));
