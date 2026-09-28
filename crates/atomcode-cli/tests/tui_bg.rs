@@ -200,6 +200,9 @@ struct Rig {
     _mounted: atomcode_tui::launch::Mounted,
     /// What holds the runtimes, as the launcher gets it back.
     host: Arc<atomcode::background::Background>,
+    /// How many `HostCommand::AnswerBackground` calls have gone through this
+    /// rig's control, counted by [`CountingControl`].
+    answers: Arc<AtomicUsize>,
 }
 
 /// A host that does not know `HostCommand::BackgroundQuestion` — a host from
@@ -220,6 +223,31 @@ impl HostControl for WithoutBackgroundQuestions {
 
     fn subscribe(&self) -> tokio::sync::mpsc::UnboundedReceiver<atomcode_host_api::HostEvent> {
         self.0.subscribe()
+    }
+}
+
+/// A host wrapper that counts `HostCommand::AnswerBackground` calls and
+/// forwards everything, unchanged, to the real control underneath — so a test
+/// can prove a withdrawn question sent no answer without guessing at the
+/// dropped runtime's own reply (design §6: `Err` and `Ok(None)` are not the
+/// same, and a dropped runtime's `NotFound`/`Busy` must not be mistaken for
+/// "no answer was sent").
+struct CountingControl {
+    inner: Arc<dyn HostControl>,
+    answers: Arc<AtomicUsize>,
+}
+
+#[async_trait::async_trait]
+impl HostControl for CountingControl {
+    async fn call(&self, command: HostCommand) -> Result<HostReply, HostError> {
+        if matches!(command, HostCommand::AnswerBackground { .. }) {
+            self.answers.fetch_add(1, Ordering::SeqCst);
+        }
+        self.inner.call(command).await
+    }
+
+    fn subscribe(&self) -> tokio::sync::mpsc::UnboundedReceiver<atomcode_host_api::HostEvent> {
+        self.inner.subscribe()
     }
 }
 
@@ -286,6 +314,18 @@ impl Rig {
         .await
         .expect("the screen mounts");
         let ctx = mounted.app.context();
+        let answers = Arc::new(AtomicUsize::new(0));
+        {
+            let answers = answers.clone();
+            ctx.service::<atomcode_tui::plugin::ConnectionSvc>()
+                .expect("the connection the screen will take")
+                .wrap_control(move |control| {
+                    Arc::new(CountingControl {
+                        inner: control,
+                        answers,
+                    })
+                });
+        }
         if refuse_background_questions {
             ctx.service::<atomcode_tui::plugin::ConnectionSvc>()
                 .expect("the connection the screen will take")
@@ -312,6 +352,7 @@ impl Rig {
             running,
             _mounted: mounted,
             host: host.expect("a host that can start runtimes"),
+            answers,
         };
         // The first session is on screen before anything is typed.
         rig.until("the first session is followed", |rig| {
@@ -323,6 +364,12 @@ impl Rig {
 
     fn control(&self) -> Arc<dyn HostControl> {
         self.client.control().expect("host control")
+    }
+
+    /// How many `HostCommand::AnswerBackground` calls this rig's control has
+    /// forwarded so far.
+    fn answers_sent(&self) -> usize {
+        self.answers.load(Ordering::SeqCst)
     }
 
     async fn until(&self, what: &str, done: impl Fn(&Self) -> bool) {
@@ -343,6 +390,16 @@ impl Rig {
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
         panic!("`{needle}` never came on screen:\n{}", self.term.text());
+    }
+
+    async fn until_screen_lacks(&self, needle: &str) {
+        for _ in 0..400 {
+            if !self.term.text().contains(needle) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        panic!("`{needle}` never left the screen:\n{}", self.term.text());
     }
 
     async fn background(&self) -> Vec<BackgroundSession> {
@@ -955,6 +1012,11 @@ async fn a_background_session_waiting_for_an_answer_is_told_on_the_foreground() 
         "no background question on the foreground:\n{}",
         rig.term.text()
     );
+    assert_eq!(
+        rig.answers_sent(),
+        0,
+        "a host that cannot bring the question over was not sent an answer for it"
+    );
 
     let before = rig.script.count.load(Ordering::SeqCst);
     rig.term.type_line("/bg 1");
@@ -1351,4 +1413,81 @@ async fn a_background_batch_comes_out_as_a_batch() {
     // 批是一块面板、一页一条：第一条在屏幕上就说明它整批都提上来了
     // （只提第一条的话，`batch_for` 根本不会被走到）。
     rig.until_screen("Which one?").await;
+}
+
+/// **在前台回答后台的问询，答案真的到了那个会话**：它接着跑，人没有离开自己那段对话。
+///
+/// 这是设计 §5.3 那条路由的判据 —— Task 3 只判到「挂着的被答掉了」，判不到答案是
+/// 不是进了**那个 runtime**；这一条靠那个会话自己的下一个回合来证明。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn answering_it_from_the_foreground_sends_the_answer_to_that_session() {
+    let rig = Rig::new().await;
+    rig.term.type_line("/background ask me");
+    rig.until_background("the background session is waiting", |list| {
+        list.first()
+            .is_some_and(|s| s.state == BackgroundState::Waiting)
+    })
+    .await;
+    let title = rig.background().await[0].title.clone().unwrap_or_default();
+
+    // 它在当前这块屏上等着 —— 不用 /bg 切过去。
+    rig.until_screen("Which one?").await;
+    rig.until_screen(&t(Msg::BgAsker {
+        slot: 1,
+        title: &title,
+    }))
+    .await;
+
+    // 就地答掉：面板亮着第一行，enter 取它（`answer_question` 的规矩）。
+    rig.term.press(KeyPress::plain(Key::Enter));
+
+    // 它接着跑：不在等人了。答案真进了那个 runtime，才会这样。
+    rig.until_background("the background session moved on", |list| {
+        list.first()
+            .is_some_and(|s| s.state != BackgroundState::Waiting)
+    })
+    .await;
+
+    // 而人还留在自己那段对话里：后面还能照常打字。
+    rig.term.type_line("still here");
+    rig.until_screen("still here").await;
+    rig.quit().await;
+}
+
+/// 屏幕上正问着一个后台会话，它被 `/bg drop` 了：问询收回，**没有任何答案**被送出去
+/// ——收回是取消，不是替人拒绝。
+///
+/// 设计 §6「等答案的任务必须分开 `Err` 与 `Ok(None)`」的判据。Task 6 的代码写的是
+/// `let Ok(chosen) = answer.await else { return };`，这一条防的是以后有人照前台
+/// `ask()` 的 `.ok().flatten()` / `unwrap_or_default()` 改回去——那样收回会变成一次
+/// 拒绝发出去。不能只断言「那个 runtime 没收到答案」：被 drop 的 runtime 已经停了，
+/// 照抄出来的拒绝会被 `NotFound` 挡掉，这条判据会碰巧绿——所以断言的是
+/// [`Rig::answers_sent`]：整个进程里一次 `AnswerBackground` 都没发生过。
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn a_dropped_background_question_is_withdrawn_not_refused() {
+    let rig = Rig::new().await;
+    rig.term.type_line("/background ask me");
+    rig.until_background("the background session is waiting", |list| {
+        list.first()
+            .is_some_and(|s| s.state == BackgroundState::Waiting)
+    })
+    .await;
+    let target = rig.background().await[0].session.clone();
+    rig.until_screen("Which one?").await;
+
+    // 问询面板亮着,键会被它吃掉——直接调宿主命令,而不是把 `/bg drop 1` 打进输入框。
+    rig.control()
+        .call(HostCommand::DropBackground { target })
+        .await
+        .expect("挂着的那个能被收回");
+    rig.until_background("it is gone", |list| list.is_empty())
+        .await;
+
+    // 问询不在屏幕上了。
+    rig.until_screen_lacks("Which one?").await;
+    // 并且一个 AnswerBackground 都没发过。
+    assert_eq!(rig.answers_sent(), 0, "收回不是拒绝");
+    rig.quit().await;
 }
