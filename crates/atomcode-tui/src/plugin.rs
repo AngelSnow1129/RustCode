@@ -2401,11 +2401,20 @@ impl Tui {
         use crate::providers::Step;
         // Switching model is not a write at all: it is the gesture `/model <id>`
         // already is, dispatched as exactly that command so a panel and a typed
-        // command cannot come to mean different things.
-        if let Step::Use { id } = &step {
+        // command cannot come to mean different things. A thinking level picked
+        // one layer down rides the same road, as `/effort <level>` — the same
+        // line a person would type, in the order they would type them.
+        if let Step::Use { id, effort } = &step {
             let keys = self.wake.lock().expect("wake poisoned").clone();
             if let Some(keys) = keys {
-                let _ = keys.send(Wake::Chose(Some(format!("/model {id}"))));
+                // 一条命令把两件事说完。分两条派发是不行的:换模型那条自己会
+                // 把档位再问一遍(`Action::PickEffort`),面板刚被这一挑选关上
+                // 就又弹回来,永远收不了尾。
+                let line = match effort {
+                    Some(level) => format!("/model {id} {level}"),
+                    None => format!("/model {id}"),
+                };
+                let _ = keys.send(Wake::Chose(Some(line)));
             }
             self.host.close_providers();
             return Ok(None);
@@ -5460,6 +5469,17 @@ impl Tui {
                 }
                 return false;
             }
+            // 换到声明了思考强度的模型:档位就列在 providers 面板里,和挑模型
+            // 同一张列表、同一套按键 —— 不是另开一个弹窗。
+            Action::PickEffort { model, levels } => {
+                drop(m);
+                if !self.host.open_providers_for_effort(model, levels) {
+                    self.say(&t(Msg::NoProviderPanel));
+                    return false;
+                }
+                self.refresh_providers();
+                return false;
+            }
             Action::TogglePlugins => {
                 drop(m);
                 // Refused rather than silently opening a panel with no module to
@@ -8424,6 +8444,27 @@ mod provider_probe_tests {
             tip(&host),
             Some((t(Msg::ProviderProbePassed).into_owned(), false))
         );
+    }
+
+    /// 选完档位派发出去的是**一条**命令:换模型和设强度同一句,与手打的
+    /// 一模一样。分两条是不行的 —— 换模型那条自己会把档位再问一遍
+    /// (`Action::PickEffort`),面板刚被那一挑选关上就又弹回来。
+    #[tokio::test]
+    async fn a_picked_level_goes_out_as_one_command_with_the_model() {
+        let (host, tui, mut woken) = screen_with(Arc::new(Checked));
+        tui.apply_provider_step(Step::Use {
+            id: "glm".into(),
+            effort: Some("high".into()),
+        })
+        .expect("it lands");
+        let line = match woken.try_recv() {
+            Ok(Wake::Chose(line)) => line,
+            Ok(_) => panic!("派发的不是一条命令"),
+            Err(error) => panic!("一条都没派发: {error}"),
+        };
+        assert_eq!(line.as_deref(), Some("/model glm high"));
+        assert!(woken.try_recv().is_err(), "只说了一句");
+        assert!(!host.providers_open(), "面板收起来了");
     }
 
     /// A saved model is checked with the model named, so a wrong model name is

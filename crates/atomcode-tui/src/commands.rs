@@ -1449,7 +1449,19 @@ impl CommandSet for SessionCommands {
                 }
             }
             "model" => {
-                let wanted = args.trim();
+                // 尾巴上再跟一档强度,就是「换过去,并且按这一档想」。
+                // 两件事必须是一条命令:挑强度那一层的收尾就落在这里,分两条
+                // 派发的话第一条(换模型)会再把档位问一遍 —— 面板刚被那一挑
+                // 关上就又弹回来,永远收不了尾。
+                //
+                // 只在尾巴确实是一档时才这么拆:模型 id 本身可以带空格。
+                let levels = atomcode_harness::REASONING_EFFORT_LEVELS;
+                let (wanted, level) = match args.trim().rsplit_once(char::is_whitespace) {
+                    Some((head, tail)) if tail == "default" || levels.contains(&tail) => {
+                        (head.trim(), Some(tail))
+                    }
+                    _ => (args.trim(), None),
+                };
                 // With no argument: open the providers panel on its model list —
                 // one surface for switching and editing models, the same panel
                 // `/provider` opens on its 账号 tab. It replaced a models-only
@@ -1461,7 +1473,7 @@ impl CommandSet for SessionCommands {
                     Ok(control) => control,
                     Err(refused) => return refused,
                 };
-                match control
+                let model_line = match control
                     .call(HostCommand::SwitchModel {
                         session: root,
                         model: wanted.to_string(),
@@ -1471,58 +1483,56 @@ impl CommandSet for SessionCommands {
                     // 宿主说换成了,但有话要说 —— 两句都要说:换确实成了,
                     // 而没存下来是重启之后才看得到的那一半。
                     Ok(HostReply::DoneWithNote { note }) => {
-                        Outcome::Said(format!("{}\n{note}", t(Msg::ModelSet { wanted })))
+                        format!("{}\n{note}", t(Msg::ModelSet { wanted }))
                     }
-                    Ok(_) => {
-                        // 换成了:新模型若声明了思考强度,顺手把档位递上来
-                        // 让人挑。面板选择也派发成这条命令,所以一个入口盖住
-                        // 面板和手打两条路。端口里 levels 为空是「没截短,全部
-                        // 都行」,effort 有值才说明这个模型真的吃这套;两头都
-                        // 没有的,端点默认就够,不多问。
-                        let offered = ctx
-                            .service::<crate::plugin::ProvidersSvc>()
-                            .map(|port| {
-                                port.rows()
-                                    .models()
-                                    .iter()
-                                    .find(|m| m.id == wanted || m.model == wanted)
-                                    .map(|row| match row.levels.is_empty() {
-                                        true if row.effort.is_some() => {
-                                            atomcode_harness::REASONING_EFFORT_LEVELS
-                                                .iter()
-                                                .map(|l| l.to_string())
-                                                .collect::<Vec<_>>()
-                                        }
-                                        true => Vec::new(),
-                                        false => row.levels.clone(),
-                                    })
-                                    .unwrap_or_default()
-                            })
-                            .unwrap_or_default();
-                        if offered.is_empty() {
-                            return Outcome::Said(t(Msg::ModelSet { wanted }).into_owned());
-                        }
-                        let mut choices: Vec<crate::overlay::Choice> = offered
-                            .iter()
-                            .map(|level| {
-                                crate::overlay::Choice::new(
-                                    format!("/effort {level}"),
-                                    level.clone(),
-                                )
-                            })
-                            .collect();
-                        choices.push(
-                            crate::overlay::Choice::new("/effort default", "default")
-                                .about(t(Msg::EffortDefaultAbout).into_owned()),
-                        );
-                        Outcome::Open(crate::overlay::Picker::new(
-                            "effort",
-                            t(Msg::EffortPickAfterModel { model: wanted }),
-                            choices,
-                        ))
-                    }
-                    Err(error) => Outcome::Refused(refusal(error)),
+                    Ok(_) => t(Msg::ModelSet { wanted }).into_owned(),
+                    Err(error) => return Outcome::Refused(refusal(error)),
+                };
+                // 带了档位:走 `/effort` 那一套设过去(只有一份实现),于是
+                // 这一趟不再问第二次。
+                if let Some(level) = level {
+                    let said = match self.run("effort", level, ctx).await {
+                        Outcome::Said(said) => said,
+                        other => return other,
+                    };
+                    return Outcome::Said(format!("{model_line}\n{said}"));
                 }
+                // 没带档位:新模型声明了思考强度,就把档位递上来让人挑。面板
+                // 选择也派发成这条命令,所以一个入口盖住面板和手打两条路。
+                // 端口里 levels 为空是「没截短,全部都行」,effort 有值才说明
+                // 这个模型真的吃这套;两头都没有的,端点默认就够,不多问。
+                let offered = ctx
+                    .service::<crate::plugin::ProvidersSvc>()
+                    .map(|port| {
+                        port.rows()
+                            .models()
+                            .iter()
+                            .find(|m| m.id == wanted || m.model == wanted)
+                            .map(|row| match row.levels.is_empty() {
+                                true if row.effort.is_some() => {
+                                    atomcode_harness::REASONING_EFFORT_LEVELS
+                                        .iter()
+                                        .map(|l| l.to_string())
+                                        .collect::<Vec<_>>()
+                                }
+                                true => Vec::new(),
+                                false => row.levels.clone(),
+                            })
+                            .unwrap_or_default()
+                    })
+                    .unwrap_or_default();
+                if offered.is_empty() {
+                    return Outcome::Said(model_line);
+                }
+                // 交给 providers 面板去画:`Action::PickEffort` 把它切到挑强度
+                // 那一层,行由面板自己的列表画出来 —— 和挑模型同一套样式、
+                // 同一套按键,不是另开一个弹窗。
+                let mut levels = offered;
+                levels.push("default".to_string());
+                Outcome::Do(Action::PickEffort {
+                    model: wanted.to_string(),
+                    levels,
+                })
             }
             "mode" => {
                 let wanted = match args.trim() {
@@ -3010,6 +3020,8 @@ mod tests {
                         row("plain", Vec::new(), None),
                         // 声明了吃思考强度、却没截短档位的:全量档位都递上来。
                         row("reasons", Vec::new(), Some("high".into())),
+                        // id 自己带空格:尾巴不是一档时不许拆。
+                        row("my model", vec!["low".into()], None),
                     ],
                     Vec::new(),
                     Vec::new(),
@@ -3045,50 +3057,50 @@ mod tests {
             .context()
             .provide::<crate::plugin::ProvidersSvc>(Arc::new(Declares));
 
-        // 声明了 levels 的:picker 一张,档位一行一个,default 收尾。
+        // 声明了 levels 的:把档位交给 providers 面板去画,一行一档,
+        // default 收尾 —— 挑强度那一层(`Action::PickEffort`)。
         match all.dispatch("/model glm", &app.context()).await {
-            Outcome::Open(picker) => {
-                assert_eq!(picker.id(), "effort");
-                let text = picker
-                    .render(&crate::moment::Viewport::new(
-                        crate::frame::Rect::sized(80, 20),
-                        &crate::moment::Moment::default(),
-                    ))
-                    .iter()
-                    .map(|l| l.plain())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                assert!(text.contains("low"), "{text}");
-                assert!(text.contains("high"), "{text}");
-                assert!(text.contains("default"), "{text}");
+            Outcome::Do(Action::PickEffort { model, levels }) => {
+                assert_eq!(model, "glm");
+                assert_eq!(levels, ["low", "high", "default"]);
             }
             other => panic!("{other:?}"),
         }
 
-        // 没声明的:还是那一句,不开 picker。
+        // 没声明的:还是那一句,不进挑强度那一层。
         match all.dispatch("/model plain", &app.context()).await {
             Outcome::Said(said) => assert!(said.contains("plain"), "{said}"),
             other => panic!("{other:?}"),
         }
 
-        // 吃思考强度、没截短档位的:全量档位一行一个,default 收尾。
+        // 吃思考强度、没截短档位的:全量档位一档一行,default 收尾。
         match all.dispatch("/model reasons", &app.context()).await {
-            Outcome::Open(picker) => {
-                assert_eq!(picker.id(), "effort");
-                let text = picker
-                    .render(&crate::moment::Viewport::new(
-                        crate::frame::Rect::sized(80, 20),
-                        &crate::moment::Moment::default(),
-                    ))
+            Outcome::Do(Action::PickEffort { model, levels }) => {
+                assert_eq!(model, "reasons");
+                let mut want: Vec<String> = atomcode_harness::REASONING_EFFORT_LEVELS
                     .iter()
-                    .map(|l| l.plain())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                for level in atomcode_harness::REASONING_EFFORT_LEVELS {
-                    assert!(text.contains(level), "{level}: {text}");
-                }
-                assert!(text.contains("default"), "{text}");
+                    .map(|level| level.to_string())
+                    .collect();
+                want.push("default".into());
+                assert_eq!(levels, want);
             }
+            other => panic!("{other:?}"),
+        }
+
+        // 带着档位一起换 —— 挑强度那一层的收尾就是这一句。它必须只说一句
+        // 「换成了、并且按这档想」,不能再回去开一遍挑强度那一层:面板刚被
+        // 那一挑选关上,再开就是把这一挑作废,永远收不了尾。
+        match all.dispatch("/model glm high", &app.context()).await {
+            Outcome::Said(said) => {
+                assert!(said.contains("glm"), "{said}");
+                assert!(said.contains("high"), "{said}");
+            }
+            other => panic!("{other:?}"),
+        }
+
+        // 模型 id 里带空格也还是 id:尾巴不是一档时不拆。
+        match all.dispatch("/model my model", &app.context()).await {
+            Outcome::Do(Action::PickEffort { model, .. }) => assert_eq!(model, "my model"),
             other => panic!("{other:?}"),
         }
     }

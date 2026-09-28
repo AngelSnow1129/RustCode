@@ -150,6 +150,19 @@ pub enum Action {
     /// `/provider` opens (which starts on the 账号 tab) — one surface, not a
     /// second popup that only lists models.
     OpenModels,
+    /// Put the providers panel into its effort pick, for this model and these
+    /// levels. What a model switch lands on when the model declares levels.
+    ///
+    /// Carries the levels rather than asking the panel to look them up: what a
+    /// model offers is the configuration's answer, and the command that read it
+    /// hands it over — the panel draws the rows, the command knows what they
+    /// are.
+    PickEffort {
+        /// The selection id of the model the pick is for.
+        model: String,
+        /// The levels to offer, `default` last — the same words `/effort` takes.
+        levels: Vec<String>,
+    },
     /// Step to the next configured model, or the previous one.
     ///
     /// The one-key form of `/model <id>`, and it runs exactly that — the panel

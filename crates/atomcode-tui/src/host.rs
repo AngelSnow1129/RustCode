@@ -2779,6 +2779,32 @@ impl Host {
         true
     }
 
+    /// Open the providers panel on the effort levels a model declares, opening
+    /// the panel if it is not already up.
+    ///
+    /// What a model switch lands on when the model has levels to pick: the same
+    /// panel, one layer down — the rows are drawn by the panel's own list
+    /// (`Panel::efforts`), so this is a state to put it in, not a second
+    /// surface to open. Returns false only when there is nothing to draw the
+    /// panel with, the same refusal [`Self::toggle_providers`] gives.
+    pub fn open_providers_for_effort(&self, model: String, levels: Vec<String>) -> bool {
+        if !self.providers_open() && !self.toggle_providers() {
+            return false;
+        }
+        let mut m = self.moment.write().expect("moment poisoned");
+        let Some(panel) = m.providers_panel.as_mut() else {
+            return false;
+        };
+        // 页签先落到模型页:`show` 会顺手清掉挑强度那一层,所以它必须在
+        // `efforts` 之前跑 —— 否则手打 `/model <id>` 进来时页签停在账号页,
+        // Esc 退一层会落到账号列表上。
+        panel.show(crate::providers::Tab::Models);
+        panel.efforts = Some(crate::providers::EffortPick { model, levels });
+        panel.query.clear();
+        panel.cursor = 0;
+        true
+    }
+
     /// Put the providers panel away. True when it was up.
     ///
     /// Forgets the key that was being typed into it, wherever the close came

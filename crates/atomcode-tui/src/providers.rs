@@ -268,6 +268,14 @@ impl ProvidersView {
                     .any(|text| text.to_lowercase().contains(q.as_str()))
         };
         let mut out: Vec<Listed> = Vec::new();
+        // 挑强度:这一层列表就是他声明的档位,页签的行先让开。筛选用的是
+        // 同一把尺子,所以打到一半「high」也能把其它档收掉。
+        if let Some(pick) = &panel.efforts {
+            return (0..pick.levels.len())
+                .filter(|at| hit(&[&pick.levels[*at]]))
+                .map(Listed::Effort)
+                .collect();
+        }
         match panel.tab {
             Tab::Accounts => {
                 for (i, a) in self.accounts.iter().enumerate() {
@@ -338,6 +346,9 @@ impl ProvidersView {
 pub enum Listed {
     Account(usize),
     Model(usize),
+    /// 挑思考强度时的一行,索引进 [`Panel::efforts`] 的档位表。最后一行是
+    /// `default` —— 它和其它行一样是一档,只是一个把强度交回端点的选择。
+    Effort(usize),
     /// An account's name, over the models that belong to it — carried as the
     /// index of the first of them, so this stays `Copy` and the name is read
     /// where it is drawn. Not selectable: the cursor walks past it, because
@@ -869,6 +880,24 @@ pub struct Panel {
     /// else. Cleared by everything else, including moving off the row.
     pub pending_delete: Option<String>,
     pub form: Option<Form>,
+    /// 正在为某个模型挑思考强度,`None` 就是平常那两层列表。
+    ///
+    /// 挑强度不是第二块面板:档位用面板自己那张列表、自己那套按键画出来
+    /// (`Listed::Effort`),挑完这一层就收起来。刚在这张列表上选完模型,
+    /// 眼睛不用换地方,按键也不用换一套。
+    pub efforts: Option<EffortPick>,
+}
+
+/// 在面板里为一个刚选中的模型挑思考强度。
+///
+/// `levels` 已经带上收尾的 `default`(把强度交回端点),所以选中哪一行、
+/// 要说什么,是同一句话 —— 派发下去就是 `/effort <那一行>`。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EffortPick {
+    /// 正在为哪个模型挑 —— `/model` 收的那个选择 id。
+    pub model: String,
+    /// 它声明(或全量)的档位,最后一个是 `default`。
+    pub levels: Vec<String>,
 }
 
 impl Panel {
@@ -893,6 +922,8 @@ impl Panel {
         self.query.clear();
         self.drill = None;
         self.pending_delete = None;
+        // 换页是离开:挑强度那一层只属于刚才那张列表。
+        self.efforts = None;
         true
     }
 
@@ -985,6 +1016,9 @@ pub enum Step {
     /// mean different things.
     Use {
         id: String,
+        /// 顺手要设的思考强度,正是 `/effort` 收的那个词(`default` 也在内);
+        /// `None` 是不动它。挑强度那一层选完就落在这里。
+        effort: Option<String>,
     },
     /// Write an account. `id` is `None` for one that does not exist yet.
     SaveAccount {
@@ -1042,6 +1076,14 @@ fn list_key(view: &ProvidersView, panel: &mut Panel, secret: &mut String, press:
     let at = listed.get(panel.cursor).copied();
     let armed = panel.pending_delete.take();
     match (press.key, press.mods) {
+        // 挑强度时 Esc 是「退一层」:回到刚选完模型的那张列表,面板留着 ——
+        // 和别的面板里 Esc 先退一步、再收起是同一个规矩。
+        (Key::Esc, _) if panel.efforts.is_some() => {
+            panel.efforts = None;
+            panel.query.clear();
+            view.settle_cursor(panel);
+            Step::Stay
+        }
         (Key::Esc, _) | (Key::Char('c'), Mods::CTRL) => Step::Close,
         (Key::Tab, _) | (Key::BackTab, _) => {
             panel.show(panel.tab.other());
@@ -1098,7 +1140,35 @@ fn list_key(view: &ProvidersView, panel: &mut Panel, secret: &mut String, press:
                 Step::Stay
             }
             Some(Listed::Model(i)) => match view.models().get(i) {
-                Some(row) => Step::Use { id: row.id.clone() },
+                // 这个模型声明了思考强度就接着往下挑:面板不收,把档位换成
+                // 这一层的列表(`Panel::efforts`),挑完才一起派发。
+                Some(row) if !row.levels.is_empty() => {
+                    panel.efforts = Some(EffortPick {
+                        model: row.id.clone(),
+                        levels: {
+                            let mut levels = row.levels.clone();
+                            levels.push("default".to_string());
+                            levels
+                        },
+                    });
+                    panel.query.clear();
+                    panel.cursor = 0;
+                    Step::Stay
+                }
+                Some(row) => Step::Use {
+                    id: row.id.clone(),
+                    effort: None,
+                },
+                None => Step::Stay,
+            },
+            Some(Listed::Effort(i)) => match panel.efforts.as_ref() {
+                Some(pick) => match pick.levels.get(i) {
+                    Some(level) => Step::Use {
+                        id: pick.model.clone(),
+                        effort: Some(level.clone()),
+                    },
+                    None => Step::Stay,
+                },
                 None => Step::Stay,
             },
             None => Step::Stay,
@@ -1124,6 +1194,10 @@ fn list_key(view: &ProvidersView, panel: &mut Panel, secret: &mut String, press:
 fn begin_add(view: &ProvidersView, panel: &mut Panel, secret: &mut String) {
     secret.clear();
     panel.pending_delete = None;
+    // 挑强度那一层没有「加」:档位是模型声明的,不是一个能新添的东西。
+    if panel.efforts.is_some() {
+        return;
+    }
     panel.form = match panel.tab {
         Tab::Accounts => Some(Form::Account(AccountForm::add(view))),
         // Nothing to hang a model off means no form at all — the row that
@@ -1139,6 +1213,8 @@ fn begin_edit(view: &ProvidersView, panel: &mut Panel, secret: &mut String, at: 
     panel.pending_delete = None;
     panel.form = match at {
         Some(Listed::Group(_)) => None,
+        // 档位不是配置项:没有表单可改,也没有东西可删。
+        Some(Listed::Effort(_)) => None,
         Some(Listed::Account(i)) => view
             .accounts()
             .get(i)
@@ -1164,6 +1240,8 @@ fn delete_key(
 ) -> Step {
     let (id, account, managed) = match at {
         Some(Listed::Group(_)) => return Step::Stay,
+        // 档位是模型声明的,删不掉 —— 一行 ctrl-d 不许碰到模型配置。
+        Some(Listed::Effort(_)) => return Step::Stay,
         Some(Listed::Account(i)) => match view.accounts().get(i) {
             // An offer that was never configured has nothing to delete.
             Some(row) => (row.id.clone(), true, row.managed || !row.configured),
@@ -1904,8 +1982,67 @@ mod tests {
         assert_eq!(
             step,
             Step::Use {
-                id: "deepseek/chat".into()
+                id: "deepseek/chat".into(),
+                effort: None,
             }
+        );
+    }
+
+    #[test]
+    fn a_model_with_levels_asks_for_one_in_the_same_list() {
+        let view = ProvidersView::new(
+            vec![account("deepseek", 1)],
+            vec![ModelRow {
+                levels: vec!["low".into(), "high".into()],
+                ..model("deepseek/chat", "deepseek")
+            }],
+            Vec::new(),
+            vec!["low".into(), "high".into()],
+        );
+        let mut panel = Panel::new();
+        let mut secret = String::new();
+
+        // 在模型行上按回车:面板不收,列表换成它声明的档位,`default` 收尾 ——
+        // 挑强度是同一张列表的下一层,不是一个浮起来的弹窗。
+        assert_eq!(
+            run(
+                &view,
+                &mut panel,
+                &mut secret,
+                &[press(Key::Right), press(Key::Enter)]
+            ),
+            Step::Stay
+        );
+        assert_eq!(
+            view.listed(&panel),
+            vec![Listed::Effort(0), Listed::Effort(1), Listed::Effort(2)]
+        );
+
+        // 挑一档:模型和强度一起出去,人不用再打第二条命令。
+        assert_eq!(
+            run(
+                &view,
+                &mut panel,
+                &mut secret,
+                &[press(Key::Down), press(Key::Enter)]
+            ),
+            Step::Use {
+                id: "deepseek/chat".into(),
+                effort: Some("high".into()),
+            }
+        );
+
+        // Esc 是「退一层」:回到刚选完模型的那张列表,面板还开着。
+        assert_eq!(
+            run(&view, &mut panel, &mut secret, &[press(Key::Esc)]),
+            Step::Stay
+        );
+        assert!(panel.efforts.is_none());
+        assert!(
+            view.listed(&panel)
+                .iter()
+                .any(|row| matches!(row, Listed::Model(_))),
+            "退回到模型列表"
         );
     }
 

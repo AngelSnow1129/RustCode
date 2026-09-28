@@ -331,6 +331,21 @@ fn listed_line(
                 !row.configured,
             )
         }
+        Listed::Effort(i) => {
+            let Some(pick) = panel.efforts.as_ref() else {
+                return Line::empty();
+            };
+            let Some(level) = pick.levels.get(i) else {
+                return Line::empty();
+            };
+            // 收尾那一行是把强度交回端点,它要说的正是「不指定」。
+            let about = if i + 1 == pick.levels.len() {
+                t(Msg::EffortDefaultAbout).into_owned()
+            } else {
+                String::new()
+            };
+            (" ".to_string(), level.clone(), about, false)
+        }
         Listed::Model(i) => {
             let Some(row) = view.models().get(i) else {
                 return Line::empty();
@@ -366,7 +381,7 @@ fn listed_line(
             == match what {
                 Listed::Account(i) => view.accounts().get(i).map(|r| r.id.as_str()),
                 Listed::Model(i) => view.models().get(i).map(|r| r.id.as_str()),
-                Listed::Group(_) | Listed::Add => None,
+                Listed::Effort(_) | Listed::Group(_) | Listed::Add => None,
             }
     });
     let label_room = w.saturating_sub(LEAD + 2).clamp(LABEL_MIN, LABEL_MAX);
@@ -656,6 +671,17 @@ fn legend(panel: &Panel) -> Vec<(String, String)> {
             ]
         }
         None => {
+            // 挑强度那一层:一句话说清这一层是干什么的,按键只有两个要记。
+            if let Some(pick) = &panel.efforts {
+                return vec![
+                    (
+                        t(Msg::EffortPickAfterModel { model: &pick.model }).into_owned(),
+                        String::new(),
+                    ),
+                    key("⏎", Msg::LegendThisOne),
+                    key("esc", Msg::LegendBack),
+                ];
+            }
             if panel.pending_delete.is_some() {
                 // Says what the next press does, because that is the only thing
                 // about this state a person has to know — and it is the press
