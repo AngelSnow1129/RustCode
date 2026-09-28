@@ -2,7 +2,7 @@
 
 use super::cache::PasswordCache;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 use zeroize::Zeroizing;
@@ -43,7 +43,9 @@ fn socket_path() -> io::Result<PathBuf> {
     let filename = format!("atomcode-askpass-{}.sock", pid);
 
     if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
-        return Ok(PathBuf::from(dir).join(filename));
+        let dir = PathBuf::from(dir);
+        ensure_private_dir(&dir)?;
+        return Ok(dir.join(filename));
     }
 
     // Deliberately `$HOME`-anchored and NOT `$ATOMCODE_HOME`, unlike every other
@@ -56,8 +58,24 @@ fn socket_path() -> io::Result<PathBuf> {
     let home = std::env::var("HOME")
         .map_err(|_| io::Error::new(io::ErrorKind::NotFound, "HOME env var not set"))?;
     let dir = PathBuf::from(home).join(".atomcode").join("run");
-    std::fs::create_dir_all(&dir)?;
+    ensure_private_dir(&dir)?;
     Ok(dir.join(filename))
+}
+
+/// Make `dir` exist and be 0700 — the socket's whole exposure is decided here.
+///
+/// `bind()` creates the node with `0777 & ~umask`, and closing that gap used to
+/// be done by tightening the *process* umask around the bind. But umask is
+/// process-global: every other thread's directory created inside that window
+/// came out `0600` — no owner search bit — and every write into it failed with
+/// EACCES, which cost an in-process-parallel e2e suite ~35 of its tests. A 0700
+/// parent closes the same window without touching anything global: no other
+/// user can traverse to the node, so its transient mode is irrelevant.
+/// (`XDG_RUNTIME_DIR` is required to be 0700 by spec; this only enforces it.)
+fn ensure_private_dir(dir: &Path) -> io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
 }
 
 /// Generate a 32-char hex token from 16 random bytes (reads /dev/urandom;
@@ -184,12 +202,11 @@ pub fn start(
     // Remove any stale socket from a previous run.
     let _ = std::fs::remove_file(&sock_path);
 
-    // Tighten umask so the socket is created 0600 from the start (no TOCTOU
-    // window where group/world bits are briefly visible).
-    let old_mask = unsafe { libc::umask(0o177) };
-    let bind_result = tokio::net::UnixListener::bind(&sock_path);
-    unsafe { libc::umask(old_mask) }; // always restore, even on error
-    let listener = bind_result?;
+    // The parent dir is 0700 (`socket_path`), so no other user can traverse to
+    // the node while it is briefly wider than 0600; the chmod below finishes
+    // the job. (This used to tighten the *process* umask around the bind — see
+    // `ensure_private_dir` for why that had to go.)
+    let listener = tokio::net::UnixListener::bind(&sock_path)?;
 
     // Belt-and-suspenders: explicitly enforce 0600 regardless of umask.
     use std::os::unix::fs::PermissionsExt;
@@ -231,6 +248,15 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    /// The socket path is pid-namespaced, so every `start()` in this process
+    /// binds the *same* node: two servers alive at once steal each other's
+    /// clients (the later bind replaces the path, the earlier server's token no
+    /// longer matches, its client gets EOF). Serialize the tests that start one.
+    fn server_slot() -> &'static tokio::sync::Mutex<()> {
+        static SLOT: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+        SLOT.get_or_init(|| tokio::sync::Mutex::new(()))
+    }
+
     #[test]
     fn key_for_prompt_classifies_sudo_and_ssh() {
         assert_eq!(key_for_prompt("[sudo] password for alice:"), "sudo");
@@ -245,6 +271,7 @@ mod tests {
 
     #[tokio::test]
     async fn server_prompts_then_caches() {
+        let _server = server_slot().lock().await;
         let cache = std::sync::Arc::new(crate::askpass::cache::PasswordCache::new(
             Duration::from_secs(300),
         ));
@@ -289,5 +316,85 @@ mod tests {
         let resp: crate::askpass::protocol::Response =
             serde_json::from_str(line.trim_end()).unwrap();
         resp.password
+    }
+
+    #[tokio::test]
+    async fn the_socket_lives_behind_a_0700_dir() {
+        let _server = server_slot().lock().await;
+        let cache = Arc::new(crate::askpass::cache::PasswordCache::new(
+            Duration::from_secs(300),
+        ));
+        let (env, _rx, _guard) = start(cache).unwrap();
+
+        use std::os::unix::fs::PermissionsExt;
+        // The directory decides who can reach the socket: `bind()` creates the
+        // node with `0777 & ~umask`, and a 0700 parent is what keeps group/world
+        // out *while* that node is still wide. This pins the replacement for the
+        // old fix, which tightened the *process* umask around the bind instead —
+        // umask is process-global, so every other thread's `create_dir_all`
+        // inside that window got a directory without the owner search bit, and
+        // every write into it failed with EACCES.
+        let dir = env
+            .sock_path
+            .parent()
+            .expect("the socket has a parent")
+            .to_path_buf();
+        let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode,
+            0o700,
+            "the askpass dir must be 0700, got {mode:o}: {}",
+            dir.display()
+        );
+        let node = std::fs::metadata(&env.sock_path)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(node, 0o600, "the askpass socket must be 0600, got {node:o}");
+    }
+
+    #[tokio::test]
+    async fn starting_the_server_disturbs_no_other_threads_dirs() {
+        let _server = server_slot().lock().await;
+        let base = std::env::temp_dir().join(format!(
+            "askpass-umask-race-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&base).unwrap();
+
+        // Hammer directory creation from another thread *while* the server
+        // starts: under the old process-umask window some of these came out
+        // without the owner search bit, and the write into them failed with
+        // EACCES — which is how an e2e suite lost ~35 tests to a bind.
+        let worker = std::thread::spawn(move || {
+            use std::os::unix::fs::PermissionsExt;
+            let deadline = Instant::now() + Duration::from_millis(150);
+            let mut i = 0u32;
+            while Instant::now() < deadline {
+                let dir = base.join(format!("{i}"));
+                std::fs::create_dir_all(&dir).unwrap();
+                std::fs::write(dir.join("probe"), b"x").unwrap();
+                let mode = std::fs::metadata(&dir).unwrap().permissions().mode();
+                assert!(
+                    mode & 0o100 == 0o100,
+                    "a directory created beside a server start lost its search bit: \
+                     {dir:?} is {mode:o}"
+                );
+                let _ = std::fs::remove_dir_all(&dir);
+                i += 1;
+            }
+            let _ = std::fs::remove_dir_all(&base);
+        });
+
+        let cache = Arc::new(crate::askpass::cache::PasswordCache::new(
+            Duration::from_secs(300),
+        ));
+        let (_env, _rx, _guard) = start(cache).unwrap();
+        worker.join().unwrap();
     }
 }
