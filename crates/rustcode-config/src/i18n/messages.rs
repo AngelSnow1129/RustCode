@@ -2536,6 +2536,8 @@ pub enum Msg<'a> {
     ImAdminSetupCredentialRequired {
         field: &'a str,
     },
+    /// `rustcode im setup`: prompt for the optional sender allowlist.
+    ImAdminSetupAllowSendersPrompt,
     /// `rustcode im setup`: third wizard step.
     ImAdminSetupStepThree,
     /// `rustcode im setup`: save and live probe both succeeded.
@@ -2626,6 +2628,8 @@ pub enum Msg<'a> {
     CliHelpImProject,
     /// Help for the credential flags on `im add`.
     CliHelpImCredential,
+    /// Help for `--allow-senders` on `im add` / `im setup`.
+    CliHelpImAllowSenders,
     /// IM approval card header: the agent asks to run a tool.
     ImApprovalAsk {
         tool: &'a str,

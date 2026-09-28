@@ -1691,6 +1691,8 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
             format!("`{field}` 的环境变量引用：").into(),
         Msg::ImAdminSetupCredentialRequired { field } =>
             format!("所选平台必须提供凭据 `{field}`").into(),
+        Msg::ImAdminSetupAllowSendersPrompt =>
+            "发送者白名单：逗号分隔、允许驱动 Agent 的发送者 id（留空 = 不限制）：".into(),
         Msg::ImAdminSetupStepThree =>
             "第 3/3 步：保存渠道并连接平台验证机器人。".into(),
         Msg::ImAdminSetupSuccess { platform, project } =>
@@ -1736,6 +1738,8 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CliHelpImProject => "仅处理绑定到该绝对路径的渠道".into(),
         Msg::CliHelpImCredential =>
             "环境变量引用（如 $DINGTALK_CLIENT_SECRET）；拒绝明文".into(),
+        Msg::CliHelpImAllowSenders =>
+            "逗号分隔、允许驱动 Agent 的发送者 id（默认不限制）".into(),
         Msg::ImApprovalAsk { tool } =>
             format!("Agent 请求批准运行工具 `{tool}`：").into(),
         Msg::ImApprovalReason { reason } =>

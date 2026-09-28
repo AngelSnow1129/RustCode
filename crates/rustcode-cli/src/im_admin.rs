@@ -231,15 +231,44 @@ fn print_setup_credential_hint(platform: ImPlatform) {
     println!("{}", t(message));
 }
 
+/// Parse a comma-separated sender allowlist into normalized entries.
+///
+/// `None` when the input is empty/whitespace ("no allowlist" = unrestricted).
+/// Entries are split on commas, trimmed, and blanks dropped; the caller (config
+/// `validate`) still flags duplicates, so normalization here only shapes what
+/// the user typed.
+pub(crate) fn normalize_allow_senders_input(
+    raw: Option<&str>,
+) -> Result<Option<Vec<String>>, String> {
+    let Some(raw) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let senders: Vec<String> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+    if senders.is_empty() {
+        // "  ,  " shaped input: treat like empty.
+        return Ok(None);
+    }
+    Ok(Some(senders))
+}
+
 /// `rustcode im setup` — interactively collect, save, and verify one channel.
 ///
 /// Every value is validated before [`handle_im_add`] is called, so a rejected
 /// literal credential or invalid project cannot cause a partial config write.
 /// The optional arguments make the same flow usable without a TTY.
+///
+/// `allow_senders` is the optional raw allowlist spelling (comma-separated);
+/// when absent the wizard prompts once, accepting a blank line as "anyone".
 pub async fn handle_im_setup(
     platform: Option<&str>,
     project: Option<&str>,
     credentials: &[(String, String)],
+    allow_senders: Option<&str>,
 ) -> anyhow::Result<i32> {
     println!("{}", t(Msg::ImAdminSetupStepOne));
 
@@ -294,7 +323,19 @@ pub async fn handle_im_setup(
         collected.push((field.to_string(), value));
     }
 
-    run_im_setup(&platform, &project, &collected).await
+    // Sender allowlist: use the flag spelling when given, otherwise ask once.
+    // A blank answer means "anyone" (None), the same as never configuring it.
+    let allow_senders =
+        match normalize_allow_senders_input(allow_senders).map_err(anyhow::Error::msg)? {
+            Some(list) => Some(list),
+            None => {
+                let prompt = t(Msg::ImAdminSetupAllowSendersPrompt);
+                let raw = prompt_for_setup_value(prompt.as_ref())?;
+                normalize_allow_senders_input(Some(&raw)).map_err(anyhow::Error::msg)?
+            }
+        };
+
+    run_im_setup(&platform, &project, &collected, allow_senders).await
 }
 
 /// Complete setup from already-collected values, without reading stdin.
@@ -306,6 +347,7 @@ async fn run_im_setup(
     platform: &str,
     project: &str,
     credentials: &[(String, String)],
+    allow_senders: Option<Vec<String>>,
 ) -> anyhow::Result<i32> {
     let validated = match validate_im_setup_inputs(platform, project, credentials) {
         Ok(validated) => validated,
@@ -317,7 +359,14 @@ async fn run_im_setup(
 
     println!("{}", t(Msg::ImAdminSetupStepThree));
     let platform = validated.platform.as_str();
-    let add_code = match handle_im_add(platform, &validated.project, &validated.credentials).await {
+    let add_code = match handle_im_add(
+        platform,
+        &validated.project,
+        &validated.credentials,
+        allow_senders,
+    )
+    .await
+    {
         Ok(code) => code,
         Err(error) => {
             eprintln!("{error:#}");
@@ -367,10 +416,15 @@ fn load_config() -> Result<Config, String> {
 ///
 /// Structural checks only (see the module doc for why credentials are not
 /// expansion-checked here). Exits 0 on success, 1 on rejection.
+///
+/// `allow_senders` is the already-normalized allowlist; `None` (or an empty
+/// list) means anyone may drive the agent. It is applied verbatim — duplicates
+/// are left for config validation to flag.
 pub async fn handle_im_add(
     platform: &str,
     project: &str,
     credentials: &[(String, String)],
+    allow_senders: Option<Vec<String>>,
 ) -> anyhow::Result<i32> {
     let parsed = ImPlatform::parse(platform).ok_or_else(|| {
         anyhow::anyhow!(
@@ -395,6 +449,7 @@ pub async fn handle_im_add(
         platform: parsed.as_str().to_string(),
         project: project.trim().to_string(),
         enabled: true,
+        allow_senders: allow_senders.unwrap_or_default(),
         ..ImChannelConfig::default()
     };
     for (field, value) in normalized {
@@ -457,6 +512,13 @@ pub async fn handle_im_list() -> anyhow::Result<i32> {
         println!("  platform: {}", channel.platform);
         println!("  project: {}", channel.project);
         println!("  enabled: {}", channel.enabled);
+        // Same non-translated key/value style as the lines above; the empty
+        // list means unrestricted, shown explicitly so "anyone" is not a guess.
+        if channel.allow_senders.is_empty() {
+            println!("  allow_senders: (anyone)");
+        } else {
+            println!("  allow_senders: {}", channel.allow_senders.join(", "));
+        }
         for field in [
             "client_id",
             "client_secret",
@@ -937,6 +999,89 @@ mod tests {
             ImPlatform::Wecom.required_credentials(),
             &["bot_id", "secret"]
         );
+    }
+
+    // -- normalize_allow_senders_input ---------------------------------------
+
+    #[test]
+    fn allowlist_none_for_blank_input_means_anyone() {
+        assert_eq!(normalize_allow_senders_input(None).unwrap(), None);
+        assert_eq!(normalize_allow_senders_input(Some("   ")).unwrap(), None);
+        // "  ,  " shaped input has no real entries either.
+        assert_eq!(normalize_allow_senders_input(Some(" ,  ,")).unwrap(), None);
+    }
+
+    #[test]
+    fn allowlist_splits_trims_and_keeps_order() {
+        let list = normalize_allow_senders_input(Some(" u1 ,u2, u3 "))
+            .unwrap()
+            .unwrap();
+        assert_eq!(list, vec!["u1", "u2", "u3"]);
+    }
+
+    #[test]
+    fn allowlist_keeps_duplicates_for_validation_to_flag() {
+        // Duplicates survive normalization on purpose: config validation owns
+        // the duplicate diagnosis, just like the empty-entry checks.
+        let list = normalize_allow_senders_input(Some("u1,u1"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(list, vec!["u1", "u1"]);
+    }
+
+    // -- handle_im_add persists the allowlist end-to-end ----------------------
+
+    /// The store writes to `$RUSTCODE_HOME`; point it at a throwaway dir.
+    struct HomeGuard(Option<String>);
+    impl HomeGuard {
+        fn new(dir: &std::path::Path) -> Self {
+            let old = std::env::var("RUSTCODE_HOME").ok();
+            std::env::set_var("RUSTCODE_HOME", dir);
+            HomeGuard(old)
+        }
+    }
+    impl Drop for HomeGuard {
+        fn drop(&mut self) {
+            match &self.0 {
+                Some(v) => std::env::set_var("RUSTCODE_HOME", v),
+                None => std::env::remove_var("RUSTCODE_HOME"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn add_persists_the_sender_allowlist_and_clear_writes_mean_anyone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let _home = HomeGuard::new(tmp.path());
+        let project = std::env::current_dir().unwrap();
+        let project = project.to_string_lossy();
+        let credentials = dingtalk_setup_credentials("DINGTALK_CLIENT_SECRET");
+
+        // First add: restricted to two senders.
+        let code = handle_im_add(
+            "dingtalk",
+            &project,
+            &credentials,
+            Some(vec!["u1".into(), "u2".into()]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(code, 0);
+        let saved = load_config().unwrap();
+        assert_eq!(
+            saved.im.channels[0].allow_senders,
+            vec!["u1".to_string(), "u2".to_string()]
+        );
+
+        // Upsert with no allowlist clears it back to "anyone" (replacement
+        // semantics, same as the credential fields).
+        let code = handle_im_add("dingtalk", &project, &credentials, None)
+            .await
+            .unwrap();
+        assert_eq!(code, 0);
+        let saved = load_config().unwrap();
+        assert!(saved.im.channels[0].allow_senders.is_empty());
     }
 
     // -- locale-independence guard --------------------------------------------

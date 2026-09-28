@@ -652,6 +652,9 @@ fn build_i18n_command() -> clap::Command {
                         .mut_arg("secret", |a| {
                             a.help(t(Msg::CliHelpImCredential).into_owned())
                         })
+                        .mut_arg("allow_senders", |a| {
+                            a.help(t(Msg::CliHelpImAllowSenders).into_owned())
+                        })
                 })
                 .mut_subcommand("add", |s| {
                     s.about(t(Msg::CliAboutImAdd).into_owned())
@@ -678,6 +681,9 @@ fn build_i18n_command() -> clap::Command {
                         })
                         .mut_arg("secret", |a| {
                             a.help(t(Msg::CliHelpImCredential).into_owned())
+                        })
+                        .mut_arg("allow_senders", |a| {
+                            a.help(t(Msg::CliHelpImAllowSenders).into_owned())
                         })
                 })
                 .mut_subcommand("list", |s| {
@@ -1657,6 +1663,9 @@ struct ImSetupArgs {
     /// WeCom app secret (config key `secret`).
     #[arg(long)]
     secret: Option<String>,
+    /// Comma-separated sender ids allowed to drive the agent (default: anyone).
+    #[arg(long, value_name = "ids")]
+    allow_senders: Option<String>,
 }
 
 impl ImSetupArgs {
@@ -1702,6 +1711,9 @@ struct ImAddArgs {
     /// WeCom app secret (config key `secret`).
     #[arg(long)]
     secret: Option<String>,
+    /// Comma-separated sender ids allowed to drive the agent (default: anyone).
+    #[arg(long, value_name = "ids")]
+    allow_senders: Option<String>,
 }
 
 impl ImAddArgs {
@@ -3083,12 +3095,21 @@ async fn run() -> Result<i32> {
                             args.platform.as_deref(),
                             args.project.as_deref(),
                             &args.credentials(),
+                            args.allow_senders.as_deref(),
                         )
                         .await?
                     }
                     ImCommand::Add(args) => {
-                        im_admin::handle_im_add(&args.platform, &args.project, &args.credentials())
-                            .await?
+                        let allow_senders =
+                            im_admin::normalize_allow_senders_input(args.allow_senders.as_deref())
+                                .map_err(anyhow::Error::msg)?;
+                        im_admin::handle_im_add(
+                            &args.platform,
+                            &args.project,
+                            &args.credentials(),
+                            allow_senders,
+                        )
+                        .await?
                     }
                     ImCommand::List => im_admin::handle_im_list().await?,
                     ImCommand::Check(args) => {

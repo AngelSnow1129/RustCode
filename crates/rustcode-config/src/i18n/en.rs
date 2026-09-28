@@ -1748,6 +1748,8 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
             format!("Environment-variable reference for `{field}`:").into(),
         Msg::ImAdminSetupCredentialRequired { field } =>
             format!("credential `{field}` is required for the selected platform").into(),
+        Msg::ImAdminSetupAllowSendersPrompt =>
+            "Sender allowlist: comma-separated sender ids allowed to drive the agent (blank = anyone):".into(),
         Msg::ImAdminSetupStepThree =>
             "Step 3/3: Save the channel and verify the bot against the platform.".into(),
         Msg::ImAdminSetupSuccess { platform, project } =>
@@ -1804,6 +1806,8 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CliHelpImProject => "Only the channel bound to this exact absolute path".into(),
         Msg::CliHelpImCredential =>
             "Environment-variable reference (e.g. $DINGTALK_CLIENT_SECRET); literals are rejected".into(),
+        Msg::CliHelpImAllowSenders =>
+            "Comma-separated sender ids allowed to drive the agent (default: anyone)".into(),
         Msg::ImApprovalAsk { tool } =>
             format!("The agent requests approval to run tool `{tool}`:").into(),
         Msg::ImApprovalReason { reason } =>
