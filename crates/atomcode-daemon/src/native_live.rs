@@ -224,19 +224,40 @@ pub async fn force_release() -> Result<bool, String> {
     if embedded_binding().is_some() {
         return Err("live runtime is owned by the in-process TUI; not force-releasing it".into());
     }
-    let mut owner = headless().lock().await;
-    let Some(old) = owner.take() else {
-        return Ok(false);
+    let old = {
+        let mut owner = headless().lock().await;
+        let Some(old) = owner.take() else {
+            return Ok(false);
+        };
+        // Unbind in the same critical section as the `take`, BEFORE any await.
+        // The handler can be dropped at an await (the client gives up); after
+        // `take` but before an unbind that used to leave `owner == None` with the
+        // hub still bound and `turn_active == true` — the very wedge this exists
+        // to clear, now unreachable by a second release (nothing to take).
+        // Scoped to this runtime's binding (`unbind_retired`), and it clears
+        // `turn_active` too, so the next bind succeeds. `Unbound`/`StaleBinding`
+        // mean the hub no longer holds this runtime: nothing left to clear.
+        let _ = hub().unbind_retired(&old.binding);
+        old
+        // The headless lock is released here: a wedged runtime's shutdown must
+        // not hold every `GET /live` / `/live/message` behind it.
     };
-    // Best-effort shutdown: a handle whose task already died still needs the hub
-    // reset, so a shutdown error must not stop it. Then `force_unbind` (NOT
-    // `unbind`) — the wedge is `turn_active == true`, which ordinary `unbind`
-    // refuses; force_unbind clears it too, so the next bind actually succeeds.
-    // The runtime handle is gone by now, so there is no live turn to protect.
-    let _ = old.handle.shutdown().await;
-    hub().force_unbind();
+    // Bounded: the target is a runtime that may not be processing commands at
+    // all, and `shutdown` waits for its terminal. Past the bound the task is
+    // abandoned (its handle is already out of the owner and the hub).
+    match tokio::time::timeout(FORCE_RELEASE_SHUTDOWN_TIMEOUT, old.handle.shutdown()).await {
+        Ok(_) => {}
+        Err(_) => tracing::warn!(
+            session = %old.binding.session_id,
+            "force-released runtime did not shut down within {:?}; abandoned",
+            FORCE_RELEASE_SHUTDOWN_TIMEOUT
+        ),
+    }
     Ok(true)
 }
+
+/// How long [`force_release`] waits for the released runtime to shut down.
+const FORCE_RELEASE_SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 pub fn dispatch(command: DriverCommand) -> Result<(), HubError> {
     hub().dispatch(command)
