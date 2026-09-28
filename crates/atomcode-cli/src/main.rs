@@ -193,6 +193,27 @@ fn resolve_in_catalog(
     find_catalog_entry(catalog, selector).map(|e| e.id.clone())
 }
 
+/// The sessions a `resume <id|name>` is matched against, across every project.
+///
+/// **An exact id is looked up in the raw catalog.** Fork lineages are collapsed
+/// to their newest member for display and for NAME matching — a name must not
+/// land on a stale fork sibling — but an id names one session, and the one a
+/// fork's exit hint prints (`atomcode resume <fork id>`) is exactly the one the
+/// collapse hides once the original has moved on. Collapsed first, that hint
+/// answered "no session matches id or name … in any project" for a session
+/// sitting on disk. (`collapse_fork_lineages` itself says exact-id loading is
+/// meant to see past it.)
+fn resume_candidates(
+    mut entries: Vec<atomcode_capabilities::session::CatalogEntry>,
+    selector: &str,
+) -> Vec<atomcode_capabilities::session::CatalogEntry> {
+    if let Some(at) = entries.iter().position(|e| e.id == selector) {
+        return vec![entries.swap_remove(at)];
+    }
+    atomcode_capabilities::session::SessionManager::collapse_fork_lineages(&mut entries);
+    entries
+}
+
 /// Outcome of resolving a `resume <id|name>` selector that was NOT found in the
 /// current project, against the GLOBAL (all-projects) catalog. Plan A: a session
 /// is anchored to its own directory (its recorded file paths only make sense
@@ -2224,14 +2245,12 @@ async fn run() -> Result<i32> {
                     let scan = atomcode_capabilities::session::SessionManager::scan_catalog(
                         &atomcode_capabilities::session::SessionManager::sessions_root(),
                     );
-                    // Collapse busy-continue fork lineages exactly like the
-                    // in-project view (`catalog_for_project`) so a cross-project
-                    // name match can't land on a hidden stale fork sibling.
-                    let mut entries = scan.entries;
-                    atomcode_capabilities::session::SessionManager::collapse_fork_lineages(
-                        &mut entries,
-                    );
+                    let entries = resume_candidates(scan.entries, sel);
                     match resolve_resume_elsewhere(&entries, sel, |p| p.is_dir()) {
+                        // Found by the raw catalog after all, and it is this
+                        // project's own — a fork the in-project views collapsed
+                        // away. Nothing to switch to.
+                        ResumeElsewhere::SwitchTo { id, dir } if dir == working_dir => Some(id),
                         ResumeElsewhere::SwitchTo { id, dir } => {
                             let notice = format!(
                                 "Resumed a session from another project — working directory switched to {} (was {}).",
@@ -4858,8 +4877,9 @@ mod tests {
         headless_completion_notify_reason, headless_denial_exit_code,
         interactive_provider_bootstrap, is_completion_invocation, launch_warnings,
         merge_startup_notices, print_shell_completion, resolve_in_catalog, resolve_working_dir,
-        resume_hint_line, runtime_config_from, should_fork_busy_continue, startup_notices,
-        truncate_log_line, Cli, Commands, HeadlessOutputFormat, DEFAULT_LOG_DIRECTIVES,
+        resume_candidates, resume_hint_line, runtime_config_from, should_fork_busy_continue,
+        startup_notices, truncate_log_line, Cli, Commands, HeadlessOutputFormat,
+        DEFAULT_LOG_DIRECTIVES,
     };
     use clap::Parser;
     use clap_complete::Shell;
@@ -4883,6 +4903,31 @@ mod tests {
             presence: atomcode_capabilities::session::CatalogPresence::NativeOnly,
             needs_newer_version: false,
         }
+    }
+
+    /// A fork the original has since moved past is hidden from the lists — and
+    /// still resumable by the id its own exit hint printed. A name still lands
+    /// on the newest member of the lineage.
+    #[test]
+    fn a_fork_hidden_by_its_lineage_is_still_found_by_its_id() {
+        let root = catalog_entry("root", "读配置", 300);
+        let mut fork = catalog_entry("fork", "读配置", 100);
+        fork.fork_root_id = Some("root".into());
+        let all = vec![root, fork];
+
+        let by_id = resume_candidates(all.clone(), "fork");
+        assert_eq!(resolve_in_catalog(&by_id, "fork").as_deref(), Some("fork"));
+
+        let by_name = resume_candidates(all.clone(), "读配置");
+        assert_eq!(
+            resolve_in_catalog(&by_name, "读配置").as_deref(),
+            Some("root")
+        );
+
+        // The collapse is what hid it: through it alone the id matches nothing.
+        let mut collapsed = all;
+        atomcode_capabilities::session::SessionManager::collapse_fork_lineages(&mut collapsed);
+        assert_eq!(resolve_in_catalog(&collapsed, "fork"), None);
     }
 
     #[test]
