@@ -1020,7 +1020,10 @@ mod tests {
         let about_at: Vec<usize> = wide
             .lines()
             .filter(|l| ids.iter().any(|id| l.contains(id)))
-            .map(|l| width::str_width(&l[..l.find("openrouter · ").expect("described")]))
+            .map(|l| {
+                let (before, _) = l.split_once("openrouter · ").expect("described");
+                width::str_width(before)
+            })
             .collect();
         assert_eq!(about_at.len(), ids.len());
         assert!(
