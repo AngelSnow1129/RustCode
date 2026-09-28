@@ -1583,6 +1583,10 @@ impl Host {
     /// waiting on this one — a question, the members — goes with it.
     pub fn switch_session(&self) {
         self.switch_view();
+        // A question brought up from a background session is not this session's:
+        // it is taken back, unanswered, before the rest are refused — refusing it
+        // would be deciding for somebody else's session.
+        self.withdraw_any_bg_question();
         // A question belongs to a turn of the session that asked it.
         self.asks.refuse_all();
         let mut m = self.moment.write().expect("moment poisoned");
@@ -3927,6 +3931,11 @@ impl Host {
             return None;
         }
         let mut m = self.moment.write().expect("moment poisoned");
+        if matches!(m.bg_asked, Some((_, None))) {
+            // 正在取：不要第二次，但记下这次被挡掉了（`take_bg_repull`）。
+            m.bg_repull = true;
+            return None;
+        }
         if !m.input.is_empty() || m.bg_asked.is_some() {
             return None;
         }
@@ -3948,6 +3957,8 @@ impl Host {
         match m.bg_asked.as_mut() {
             Some((shown, slot)) if shown == session => {
                 *slot = Some((ask, request));
+                // 提上来了：取的路上挡掉的那次变化由它答完之后的那一刻接着。
+                m.bg_repull = false;
                 true
             }
             _ => false,
@@ -3967,28 +3978,80 @@ impl Host {
         }
         m.bg_asked = None;
         m.bg_answered = Some((session, request));
+        m.bg_answered_repulled = false;
         true
     }
 
     /// 记住这个会话的这个请求已经从这块屏幕答过了（画不出来、按拒绝回掉的那种也算）。
     pub fn bg_question_done(&self, session: &str, request: atomcode_kernel::event::RequestId) {
-        self.moment.write().expect("moment poisoned").bg_answered =
-            Some((session.to_string(), request));
+        let mut m = self.moment.write().expect("moment poisoned");
+        m.bg_answered = Some((session.to_string(), request));
+        m.bg_answered_repulled = false;
     }
 
     /// 取回来的这一条是不是刚在这块屏幕上答过的那一条 —— 答案还在路上，宿主报回来的
     /// 仍是它。是就别再摆一次。
+    ///
+    /// 同一个会话报回来的是**别的**请求：记着的那一条已经走了，忘掉它 —— 否则一个
+    /// 以后碰巧复用的 id 会被永远挡住。
     pub fn bg_question_answered(
         &self,
         session: &str,
         request: atomcode_kernel::event::RequestId,
     ) -> bool {
-        self.moment
-            .read()
+        let mut m = self.moment.write().expect("moment poisoned");
+        match m.bg_answered.as_ref() {
+            Some((s, r)) if s == session && *r == request => true,
+            Some((s, _)) if s == session => {
+                m.bg_answered = None;
+                false
+            }
+            _ => false,
+        }
+    }
+
+    /// 那个会话没有挂着的请求了（宿主答 `NotFound`）：记着的那一条也就走了。
+    pub fn bg_question_gone(&self, session: &str) {
+        let mut m = self.moment.write().expect("moment poisoned");
+        if m.bg_answered.as_ref().is_some_and(|(s, _)| s == session) {
+            m.bg_answered = None;
+        }
+    }
+
+    /// 为「刚答过、答案还在路上」再取一次 —— 每条答过的只取这一次。
+    pub fn bg_answered_repull_once(&self) -> bool {
+        let mut m = self.moment.write().expect("moment poisoned");
+        !std::mem::replace(&mut m.bg_answered_repulled, true)
+    }
+
+    /// 取的路上有没有列表变化被挡掉 —— 取走这个记号。
+    pub fn take_bg_repull(&self) -> bool {
+        std::mem::take(&mut self.moment.write().expect("moment poisoned").bg_repull)
+    }
+
+    /// 这一趟没提上来：放下「在取」，并报出要不要替挡掉的那次变化再取一次。
+    pub fn let_go_bg_question(&self, session: &str) -> bool {
+        self.withdraw_bg_question(session);
+        self.take_bg_repull()
+    }
+
+    /// 屏幕要换走或关掉了：提上来的（或正在取的）那条收回去，**不回答**。
+    ///
+    /// 必须在 `Asks::refuse_all` 之前：那一个是替人拒绝（`finish(vec![])`），用在这块
+    /// 屏幕自己那个会话的问询上是对的 —— 那个回合跟着会话走了；用在后台会话的问询上
+    /// 就是替人把别人的会话拒了。收回之后等着的那一头看到的是取消，什么都不送。
+    pub fn withdraw_any_bg_question(&self) -> bool {
+        let taken = self
+            .moment
+            .write()
             .expect("moment poisoned")
-            .bg_answered
-            .as_ref()
-            .is_some_and(|(s, r)| s == session && *r == request)
+            .bg_asked
+            .take();
+        match taken {
+            Some((_, Some((ask, _)))) => self.asks.withdraw(ask),
+            Some((_, None)) => true,
+            None => false,
+        }
     }
 
     /// 那条问询不必再问了：从屏幕上收回去。
@@ -12998,6 +13061,87 @@ mod tests {
             Some("b"),
             "放下之后可以再要"
         );
+    }
+
+    /// 换会话时提上来的那条后台问询被**收回**,不是被替人拒绝:等着的那一头看到的是
+    /// 取消(`Err`),不是 `Ok(None)` —— 后者会被当成一次拒绝送回那个后台会话。
+    #[tokio::test]
+    async fn switching_sessions_takes_a_background_question_back_unanswered() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        h.bg_question_wanted();
+        let (ask, answer) = h
+            .asks
+            .push_with_id(atomcode_harness::seams::Question::plain(
+                "Allow?",
+                &["yes", "no"],
+            ));
+        assert!(h.bg_question_shown("b", ask, 7));
+        // 前台自己那条照旧是拒绝。
+        let mine = h.asks.push(atomcode_harness::seams::Question::plain(
+            "Mine?",
+            &["yes", "no"],
+        ));
+        h.switch_session();
+        assert!(answer.await.is_err(), "收回,不是回答");
+        assert_eq!(mine.await.ok(), Some(None), "自己那条是拒绝");
+        assert!(!h.settle_bg_question(), "收回去的不算答过");
+        assert!(!h.bg_question_answered("b", 7));
+    }
+
+    /// 正在取的时候被挡掉的那次列表变化不丢:这一趟没提上来,就报出要再取一次。
+    #[test]
+    fn a_change_turned_away_while_fetching_asks_for_another_pull() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+        assert!(!h.let_go_bg_question("b"), "没有被挡掉的,不再取");
+
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+        assert_eq!(h.bg_question_wanted(), None, "正在取");
+        assert!(h.let_go_bg_question("b"), "挡掉过一次,再取");
+        assert!(!h.take_bg_repull(), "只报一次");
+
+        // 提上来了就不必替它再取:答完那一刻接着。
+        assert_eq!(h.bg_question_wanted().as_deref(), Some("b"));
+        assert_eq!(h.bg_question_wanted(), None);
+        let (ask, _answer) = h
+            .asks
+            .push_with_id(atomcode_harness::seams::Question::plain("Allow?", &["yes"]));
+        assert!(h.bg_question_shown("b", ask, 7));
+        assert!(!h.take_bg_repull());
+    }
+
+    /// 在取的时候换走:收回「在取」,取回来的那一趟就放不上去。
+    #[test]
+    fn a_fetch_in_flight_is_superseded_by_a_switch() {
+        let h = host();
+        h.show_bg(waiting_bg("b"));
+        h.bg_question_wanted();
+        assert!(h.withdraw_any_bg_question());
+        assert!(!h.bg_question_shown("b", 1, 7), "这一趟已经被收回");
+        assert!(!h.withdraw_any_bg_question(), "没有可收的");
+    }
+
+    /// 记着的那条答过的:同一会话报回别的请求或不在等了,就忘掉它;为它再取只取一次。
+    #[test]
+    fn the_answered_request_is_forgotten_once_it_is_gone() {
+        let h = host();
+        h.bg_question_done("b", 7);
+        assert!(h.bg_answered_repull_once());
+        assert!(!h.bg_answered_repull_once(), "只取这一次");
+        assert!(h.bg_question_answered("b", 7));
+        assert!(!h.bg_question_answered("c", 8), "别的会话不碰它");
+        assert!(h.bg_question_answered("b", 7));
+        assert!(!h.bg_question_answered("b", 8), "同一会话报回了别的请求");
+        assert!(!h.bg_question_answered("b", 7), "记着的那条已经忘了");
+
+        h.bg_question_done("b", 9);
+        assert!(h.bg_answered_repull_once(), "新记下的一条重新算");
+        h.bg_question_gone("c");
+        assert!(h.bg_question_answered("b", 9), "别的会话不在等,不碰它");
+        h.bg_question_gone("b");
+        assert!(!h.bg_question_answered("b", 9));
     }
 
     /// 收回去的不算答过:下一次取回来还是它,照样提。

@@ -808,6 +808,12 @@ pub struct Moment {
     /// 答案送出去到那个会话真的收到之间有一段路；这段路上再取一次，宿主报回来的还是
     /// 同一个请求。认得出它，才不会把刚答过的问题再摆一次（`Host::bg_question_answered`）。
     pub bg_answered: Option<(String, atomcode_kernel::event::RequestId)>,
+    /// 那条答过的已经为「答案还在路上」再取过一次了：只取这一次，不对着一个迟迟不走
+    /// 的请求一直取下去。每次记下新的 `bg_answered` 时放回 `false`。
+    pub bg_answered_repulled: bool,
+    /// 取的路上有一次列表变化被 `bg_question_wanted` 挡掉了（正在取，不要第二次）。
+    /// 这一趟没提上来就得替它再取一次，否则那次变化就丢了。
+    pub bg_repull: bool,
     /// The sessions kept running in the background, as the host last pushed
     /// them (`HostEvent::BackgroundChanged`). A fact of the host's, not of the
     /// log, so it travels this road — see `crate::bg`.
