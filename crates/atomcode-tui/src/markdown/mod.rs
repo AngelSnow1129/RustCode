@@ -518,11 +518,28 @@ fn next_url(s: &str) -> Option<(usize, usize)> {
     None
 }
 
-/// A character no URL's text holds, so one ends where it appears: CJK symbols
-/// and punctuation (`、。「」【】`…), the full-width forms (`（），：！？`…) and
-/// the curly quotes Chinese text is written with.
+/// A punctuation mark no URL's text holds, so one ends where it appears: the
+/// CJK marks (`、。「」【】〔〕〜`…), the full-width punctuation (`（），：！？`…)
+/// and the curly quotes Chinese text is written with.
+///
+/// The marks themselves, not their Unicode blocks: those blocks also hold
+/// letters a URL does carry unencoded — the iteration mark `々` and `〇` in
+/// `…/wiki/佐々木` or `…/二〇二六年`, the half-width katakana in `…/wiki/ｶﾀｶﾅ` —
+/// and a block-wide stop cut those links short.
 fn ends_a_url(c: char) -> bool {
-    matches!(c, '\u{3000}'..='\u{303F}' | '\u{FF00}'..='\u{FFEF}' | '\u{2018}'..='\u{201F}')
+    matches!(
+        c,
+        // 、。〃 — then 〈〉《》「」『』【】 — then 〔〕〖〗〘〙〚〛〜〝〞〟
+        '\u{3001}'..='\u{3003}' | '\u{3008}'..='\u{3011}' | '\u{3014}'..='\u{301F}'
+            // ！＂＃＄％＆＇（）＊＋，－．／ — ：；＜＝＞？＠ — ［＼］＾＿｀
+            | '\u{FF01}'..='\u{FF0F}'
+            | '\u{FF1A}'..='\u{FF20}'
+            | '\u{FF3B}'..='\u{FF40}'
+            // ｛｜｝～｟｠ and the half-width ｡｢｣､･
+            | '\u{FF5B}'..='\u{FF65}'
+            // ‘ ’ ‚ ‛ “ ” „ ‟
+            | '\u{2018}'..='\u{201F}'
+    )
 }
 
 /// Sentence punctuation off the end of a URL candidate; a `)` only when the URL
@@ -1431,6 +1448,22 @@ mod tests {
             format!("详见{url}。下一句"),
             format!("（{url}）"),
         ] {
+            let spans = spans_of(&line, 200);
+            let links: Vec<&str> = spans.iter().filter_map(|s| s.link.as_deref()).collect();
+            assert_eq!(links, [url], "{line}: {spans:?}");
+        }
+    }
+
+    /// Letters living beside the punctuation in the same Unicode blocks are part
+    /// of a URL: only the marks end one.
+    #[test]
+    fn letters_in_the_cjk_blocks_do_not_end_a_url() {
+        for url in [
+            "https://ja.wikipedia.org/wiki/佐々木",
+            "https://example.com/二〇二六年",
+            "https://ja.wikipedia.org/wiki/ｶﾀｶﾅ",
+        ] {
+            let line = format!("见 {url}。");
             let spans = spans_of(&line, 200);
             let links: Vec<&str> = spans.iter().filter_map(|s| s.link.as_deref()).collect();
             assert_eq!(links, [url], "{line}: {spans:?}");
