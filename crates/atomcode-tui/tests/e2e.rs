@@ -2189,6 +2189,58 @@ async fn ctrl_r_finds_an_earlier_line_by_a_word_in_it() {
     task.abort();
 }
 
+/// A search opened over a half-typed command takes the command menu down: the
+/// matches are drawn in the menu's place, and a menu left up would hide them —
+/// and outlive the search, so the Enter after accepting ran `/model` instead of
+/// sending the line that was picked.
+#[tokio::test]
+async fn ctrl_r_over_a_slash_menu_takes_the_menu_down() {
+    let dir = scratch("reverse-search-over-menu");
+    let s = start(tree(
+        &dir,
+        &replay(r#"{ text = "a" }, { text = "b" }"#),
+        &[],
+    ))
+    .await;
+    let task = s.open().await;
+    s.quiet().await;
+
+    s.term.type_line("run the parser tests");
+    s.quiet().await;
+
+    s.term.type_text("/mo");
+    s.quiet().await;
+    assert!(
+        s.term.last().unwrap().part("menu").is_some(),
+        "the command menu is up:\n{}",
+        s.screen()
+    );
+
+    s.term.press(KeyPress::ctrl('r'));
+    s.term.type_text("parser");
+    s.quiet().await;
+    assert!(
+        s.term.last().unwrap().part("menu").is_none(),
+        "the command menu went with the line it was about:\n{}",
+        s.screen()
+    );
+    assert!(
+        part_text(&s, "history-search").contains("run the parser tests"),
+        "and the matches are drawn in its place:\n{}",
+        s.screen()
+    );
+
+    s.term.press(KeyPress::plain(Key::Enter));
+    s.quiet().await;
+    assert!(
+        s.term.last().unwrap().part("menu").is_none(),
+        "no menu is left to take the next Enter:\n{}",
+        s.screen()
+    );
+    assert!(part_text(&s, "input").contains("run the parser tests"));
+    task.abort();
+}
+
 /// Esc out of a search gives back the draft it was opened over. A chord pressed
 /// by accident has to cost nothing — that is the whole reason the draft is
 /// stashed rather than overwritten.

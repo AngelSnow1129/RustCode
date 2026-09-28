@@ -3694,6 +3694,11 @@ impl Tui {
             let mut m = self.host.moment.write().expect("moment poisoned");
             crate::search::key(&mut m, press)
         };
+        // Every key the search takes changes the field (the query, or the
+        // entry it accepted, or the draft Esc gave back), and the menu is read
+        // off the field: a search that closed onto `/model` is a line with a
+        // menu again.
+        self.refresh_menu();
         match step {
             crate::search::Step::Took => false,
             crate::search::Step::Left => match self.keys.resolve(press) {
@@ -5363,6 +5368,11 @@ impl Tui {
             Action::SearchHistory => {
                 crate::search::begin(&mut m);
                 drop(m);
+                // A slash menu left up from the line the search set aside would
+                // be drawn in the matches' place — and outlive the search, so
+                // the Enter after accepting ran its command instead of sending
+                // what was picked.
+                self.refresh_menu();
                 // The other moment the project's older history is worth paying
                 // for — the same reason as the first press of Up, and the same
                 // one-shot latch, so pressing both costs one scan and not two.
@@ -6214,7 +6224,19 @@ impl Tui {
     /// cursor to the first of them — the row that was lit a keystroke ago is not
     /// the same command once the list has narrowed.
     fn refresh_menu(&self) {
-        let menu = match self.slash_prefix() {
+        // A `Ctrl+R` search owns the composer while it is up: what the field
+        // shows is a query, not a command being typed — a history search for
+        // `/model` must list the lines that said it, not open the command menu
+        // over them. And the search's matches are drawn in the menu's place.
+        let searching = self
+            .host
+            .moment
+            .read()
+            .expect("moment poisoned")
+            .search
+            .is_some();
+        let prefix = if searching { None } else { self.slash_prefix() };
+        let menu = match prefix {
             Some(rest) => {
                 let matches = self.host.commands.matching(&rest);
                 // The agent's description, for a command that expands its closed
