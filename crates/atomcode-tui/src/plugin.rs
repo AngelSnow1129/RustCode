@@ -5296,6 +5296,19 @@ impl Tui {
                 return false;
             }
         }
+        // A guess at what to say next is put away by any gesture on the field
+        // other than the two that take it (→ and Tab, handled where they land).
+        // It is drawn on the field's own line, in its own place, so a guess that
+        // outlived a Backspace or a ← read as words already accepted — words no
+        // key could delete, because they were never text. The reference front
+        // end drops it on every key but the one that takes it; so does this.
+        // Esc spends itself on this, the way it does on a selection.
+        if m.suggestion.is_some() && dismisses_suggestion(&action) {
+            m.suggestion = None;
+            if matches!(action, Action::Escape) {
+                return false;
+            }
+        }
         // Typing means this is yours now, not the entry you arrowed back to.
         // The stashed draft goes: there is only one thing being composed.
         if matches!(
@@ -7243,6 +7256,31 @@ pub fn took_suggestion(
     }
     m.suggestion = Some(text);
     true
+}
+
+/// Whether this action puts a pending guess away: every gesture on the field
+/// but the ones that take it. → takes it (`accept_ghost`), Tab takes it
+/// (`take_the_guess`), and a submit clears it on its own — what is left here is
+/// editing, moving the caret, and Esc. Scrolling, selecting and folding are
+/// about the conversation, not the field, and leave it where it is.
+fn dismisses_suggestion(action: &Action) -> bool {
+    matches!(
+        action,
+        Action::Insert(_)
+            | Action::Paste(_)
+            | Action::Backspace
+            | Action::DeleteForward
+            | Action::DeleteWord
+            | Action::DeleteToEnd
+            | Action::Clear
+            | Action::CaretLeft
+            | Action::CaretHome
+            | Action::CaretEnd
+            | Action::CaretUp
+            | Action::CaretDown
+            | Action::Newline
+            | Action::Escape
+    )
 }
 
 /// Take the guess at what to say next into an empty field, if there is one.

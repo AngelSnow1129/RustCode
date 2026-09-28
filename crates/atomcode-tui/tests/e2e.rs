@@ -8886,6 +8886,61 @@ async fn a_guess_at_what_to_say_next_reaches_the_field_and_right_takes_it() {
     task.abort();
 }
 
+/// 猜的那句话被退格、← 或 Esc 收走,而不是赖在输入行上。
+///
+/// 它画在输入行自己的位置上,原先只有收下和发送会清掉它:按了退格、往左移之后
+/// 它还挂着,读起来就是「已经收进输入框」—— 而且哪个键都删不掉,因为它从来不是
+/// 字。参照的前端在收下之外的任何一个键上都放下它;这里对齐。
+///
+/// 反向对照:去掉 `plugin.rs` 里 `dismisses_suggestion` 那一段,三种键下它都还在。
+#[tokio::test]
+async fn a_guess_is_put_away_by_backspace_left_and_esc() {
+    let dir = scratch("suggested-dismiss");
+    let (s, host) = start_with_mode_host(
+        tree(&dir, &replay(r#"{ text = "ok" }"#), &[]),
+        None,
+        Some(atomcode_host_api::Mode::Ask),
+    )
+    .await;
+    let task = s.open().await;
+    s.quiet().await;
+    let session = s.client().root();
+
+    for (i, key) in [Key::Backspace, Key::Left, Key::Esc]
+        .into_iter()
+        .enumerate()
+    {
+        // A fresh guess each round: the text differs, or the host's "the same
+        // guess again is not news" rule would not show it a second time.
+        let guess = format!("接着把登录那条补上 {i}");
+        host.push(atomcode_host_api::HostEvent::Suggested {
+            session: session.clone(),
+            text: guess.clone(),
+        });
+        for _ in 0..200 {
+            if composer_text(&s).contains(&guess) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(composer_text(&s).contains(&guess), "shown:\n{}", s.screen());
+
+        s.term.press(KeyPress::plain(key));
+        for _ in 0..200 {
+            if !composer_text(&s).contains(&guess) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(
+            !composer_text(&s).contains(&guess),
+            "{key:?} put the guess away:\n{}",
+            s.screen()
+        );
+    }
+    task.abort();
+}
+
 /// Plain `Tab` takes the guess too — the key the reference front end's hint row
 /// named (`Tab: …`). The guess is drawn in the line without a key name, and
 /// both `→` and `Tab` take it.
