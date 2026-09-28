@@ -19,6 +19,21 @@ use crate::surface::KeyPress;
 use crate::theme::Role;
 use crate::width;
 
+/// A flow on screen this frame, drawn: what the bottom panel that shows it
+/// (`crate::modules::flow`) needs.
+///
+/// A snapshot rather than the overlay itself because a module draws from the
+/// moment, and the moment is plain data cloned once a frame; the overlay is
+/// live state the host keeps talking to (`Wizard::say`, `resolve`). The host
+/// draws it into this when it composes a frame (`Host::compose`), at the
+/// screen's width, so the panel is exactly as tall as what the flow says.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Shown {
+    pub id: String,
+    pub title: String,
+    pub lines: Vec<Line>,
+}
+
 /// What a key did to a modal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Step {

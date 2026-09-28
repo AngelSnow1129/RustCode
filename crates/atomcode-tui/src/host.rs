@@ -5207,6 +5207,22 @@ impl Host {
         // road `members` travels. One `Arc` bump per frame: the map is rebuilt on
         // a write, not on a draw.
         moment.rasters = self.rasters.view();
+        // A flow that is up (the onboarding or pairing wizard), drawn into the
+        // moment at this width so the bottom panel that shows it
+        // (`modules::flow`) is as tall as what it says. Here for the reason the
+        // rasters are: a module draws from the moment, and the flow is live
+        // state the host keeps. Without that module mounted, it is drawn in a
+        // box over the screen instead (below).
+        if self.modules.has_view(crate::modules::flow::ID) {
+            if let Some(modal) = self.overlays.current() {
+                let lines = modal.render(&crate::moment::Viewport::new(Rect::sized(w, h), &moment));
+                moment.flow = Some(crate::overlay::Shown {
+                    id: modal.id().to_string(),
+                    title: modal.title(),
+                    lines,
+                });
+            }
+        }
         // The shape half of what this terminal can draw, taken once from the
         // moment this frame was composed against and handed down. Built here
         // rather than read inside `rows_at` because `stream_height`'s contract is
@@ -5415,8 +5431,15 @@ impl Host {
             }
         }
 
-        // A modal is drawn last, over everything, in a box of its own.
-        if let Some(modal) = self.overlays.current() {
+        // A flow is at the foot of the screen, where the composer was: the
+        // keys are its, not the field's, so nothing puts a caret there.
+        if moment.flow.is_some() {
+            frame.cursor = None;
+        }
+        // Without the panel that draws it at the foot of the screen, a flow is
+        // drawn last, over everything, in a box of its own — still on screen,
+        // still answering its keys.
+        if let (None, Some(modal)) = (moment.flow.as_ref(), self.overlays.current()) {
             let rect = crate::overlay::modal_rect(Rect::sized(w, h), modal.size(), modal.rows());
             if !rect.is_empty() {
                 let vp = crate::moment::Viewport::new(
@@ -5974,6 +5997,7 @@ pub fn panel_is_up(moment: &Moment) -> bool {
         || moment.resume_panel.is_some()
         || moment.bg_panel.is_some()
         || moment.sheet.is_some()
+        || moment.flow.is_some()
 }
 
 /// Whether what is on screen stands in the composer's place.
@@ -6005,6 +6029,9 @@ pub fn displaces_composer(moment: &Moment) -> bool {
         // the same reason as the background panel — and the text being read
         // wants the rows the composer would take.
         || moment.sheet.is_some()
+        // And a flow (a wizard): its keys are its own, and a field under it
+        // would be a second place that looks like it is being typed into.
+        || moment.flow.is_some()
 }
 
 /// The view modules whose rows ride at the foot of the conversation.
@@ -6052,6 +6079,7 @@ pub const TAIL: &[&str] = &[
     crate::modules::rewind::ID,
     crate::modules::resume::ID,
     crate::modules::sheet::ID,
+    crate::modules::flow::ID,
     crate::modules::bg::ID,
     crate::modules::ask::ID,
     crate::modules::steering::ID,
@@ -7479,6 +7507,53 @@ mod tests {
             rows(crate::modules::input::ID),
             before,
             "and it is back as it was"
+        );
+    }
+
+    /// A flow (the onboarding or pairing wizard) is drawn at the foot of the
+    /// screen like the other working panels — where the composer was, with the
+    /// status line gone — and not in a framed box over the conversation.
+    #[test]
+    fn a_wizard_is_drawn_at_the_foot_where_the_composer_was() {
+        let h = host();
+        h.modules
+            .add_view(Arc::new(Mounted::<crate::modules::flow::FlowView>::new()))
+            .unwrap();
+        let wizard = crate::wizard::Wizard::new(
+            "setup",
+            "first-run",
+            vec![crate::wizard::StepDef::new(
+                "lang",
+                "pick a language",
+                crate::wizard::StepKind::Note,
+            )
+            .saying(vec!["one line of body".into()])],
+            Box::new(|_| {}),
+            "/done",
+        );
+        h.overlays.open(wizard, Box::new(|_| {}));
+
+        let frame = h.compose((60, 30));
+        let part = frame
+            .part(crate::modules::flow::ID)
+            .expect("the flow is drawn as a panel");
+        let drawn: Vec<String> = part.lines.iter().map(|l| l.plain()).collect();
+        assert!(drawn.iter().any(|l| l.contains("first-run")), "{drawn:?}");
+        assert!(
+            drawn.iter().any(|l| l.contains("one line of body")),
+            "{drawn:?}"
+        );
+        assert!(
+            frame.part("setup").is_none(),
+            "no box over the conversation"
+        );
+        let m = h.moment.read().unwrap().clone();
+        let mut shown = m.clone();
+        shown.flow = Some(crate::overlay::Shown::default());
+        assert!(displaces_composer(&shown) && panel_is_up(&shown));
+        assert!(
+            frame.cursor.is_none(),
+            "no caret in a field that is not there"
         );
     }
 

@@ -834,6 +834,10 @@ pub struct Moment {
     pub resume_preview: Option<(String, Option<Vec<String>>)>,
     /// 底部那张单子(`/agents`、`/cd`、`/diff`、`/view`),`None` 是没升着。
     pub sheet: Option<crate::sheet::Sheet>,
+    /// 一个多步的流程(引导、配对的向导),这一帧画出来的样子。宿主合成每一帧时
+    /// 从开着的那个 overlay 画进来(`Host::compose`),`crate::modules::flow` 把它
+    /// 画在底下 —— 和别的面板一样占住输入框的位置,而不是盖在对话上的一个框。
+    pub flow: Option<crate::overlay::Shown>,
     /// The sessions kept running in the background, as the host last pushed
     /// them (`HostEvent::BackgroundChanged`). A fact of the host's, not of the
     /// log, so it travels this road — see `crate::bg`.

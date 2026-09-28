@@ -3,6 +3,7 @@
 pub mod ask;
 pub mod bg;
 pub mod chrome;
+pub mod flow;
 pub mod input;
 pub mod live;
 pub mod mcp;
