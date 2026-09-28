@@ -1663,6 +1663,11 @@ fn json_error_retry(body: &str) -> (bool, Option<u16>) {
         "not_found",
         "invalid_request",
         "context_length",
+        // Content moderation: it is for the person to resend or reword
+        // (`super::content_blocked` says so), not for the loop to retry.
+        "data_inspection",
+        "content_filter",
+        "content_policy",
     ];
     let Ok(envelope) = serde_json::from_str::<serde_json::Value>(body) else {
         return (true, None);
@@ -1847,13 +1852,15 @@ impl SseDecoder {
                     out.push(StreamEvent::Error(ProviderError {
                         retryable,
                         http_status,
-                        message: atomcode_config::i18n::t(
-                            atomcode_config::i18n::Msg::ChatUpstreamErrorBody {
-                                url: &shown,
-                                detail: &detail,
-                            },
-                        )
-                        .into_owned(),
+                        message: super::content_blocked(&detail).unwrap_or_else(|| {
+                            atomcode_config::i18n::t(
+                                atomcode_config::i18n::Msg::ChatUpstreamErrorBody {
+                                    url: &shown,
+                                    detail: &detail,
+                                },
+                            )
+                            .into_owned()
+                        }),
                         code: Some("upstream_error_body".to_string()),
                         ..Default::default()
                     }));
@@ -1985,7 +1992,11 @@ impl SseDecoder {
             let http_status = inband_error_http_status(err);
             out.push(StreamEvent::Error(ProviderError {
                 retryable: http_status.is_some_and(retry::is_retryable_status),
-                message: format!("provider error: {}", parse_error_obj(err)),
+                message: {
+                    let detail = parse_error_obj(err);
+                    super::content_blocked(&detail)
+                        .unwrap_or_else(|| format!("provider error: {detail}"))
+                },
                 http_status,
                 code: error_code(err),
                 retry_after_secs: None, // mid-stream error: no response headers
@@ -3710,6 +3721,47 @@ mod tests {
             .collect();
         assert_eq!(said, "the answer", "no tags reach the answer: {ev:?}");
         assert_eq!(thought, "weighing it up", "and the thinking is kept");
+    }
+
+    /// The reported case, as DashScope sends it: a reply flagged by its output
+    /// moderation mid-stream. It reaches the person as what happened and what to
+    /// do — not a bare `provider error: [data_inspection_failed/…]` — keeps the
+    /// provider's code, and is not retried behind their back.
+    #[test]
+    fn a_moderation_refusal_mid_stream_says_what_to_do() {
+        let mut d = SseDecoder::new();
+        let mut ev = d.feed(line(json!({"choices":[{"delta":{"content":"好的，"}}]})).as_bytes());
+        ev.extend(
+            d.feed(
+                line(json!({"error":{
+                    "code":"data_inspection_failed",
+                    "type":"data_inspection_failed",
+                    "message":"Output data may contain inappropriate content."
+                }}))
+                .as_bytes(),
+            ),
+        );
+        let err = ev
+            .iter()
+            .find_map(|e| match e {
+                StreamEvent::Error(err) => Some(err),
+                _ => None,
+            })
+            .expect("the refusal is an error");
+        assert!(!err.retryable);
+        assert_eq!(err.code.as_deref(), Some("data_inspection_failed"));
+        assert!(
+            !err.message.starts_with("provider error:"),
+            "{}",
+            err.message
+        );
+        assert!(err.message.contains("/model"), "{}", err.message);
+        assert!(
+            err.message
+                .contains("Output data may contain inappropriate content."),
+            "{}",
+            err.message
+        );
     }
 
     #[test]

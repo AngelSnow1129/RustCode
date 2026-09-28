@@ -37,6 +37,29 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             "上游没有返回流式数据，而是回了一条错误：{detail}（POST {url}）。多半是上游临时故障或限流，稍后再试。"
         )
         .into(),
+        Msg::ProviderContentBlocked { output, detail } => {
+            let (what, reword) = match output {
+                Some(true) => (
+                    "这次回复（判定模型的输出可能包含不当内容）",
+                    "换个说法，或让它别整段贴出原文、配置、日志",
+                ),
+                Some(false) => (
+                    "这次请求（判定发送的内容可能包含不当内容）",
+                    "去掉或改写可能被误判的内容（如大段日志、敏感字词）后再发",
+                ),
+                None => (
+                    "这次对话内容",
+                    "换个说法，或去掉可能被误判的内容后再发",
+                ),
+            };
+            format!(
+                "模型服务商的内容审核拦截了{what}，这是服务商那边的判定，不是 atomcode 出错。可以：\
+                 ① 直接重发一次（模型每次生成的内容不同，常能通过）；\
+                 ② {reword}；\
+                 ③ 用 /model 换一个其他服务商的模型。原始错误：{detail}"
+            )
+            .into()
+        }
         Msg::ProbeReachable { url } => format!("✓ 连通检测：{url} 能按 OpenAI 兼容接口正常应答。").into(),
         Msg::ProbeKeyRejected { url, status } => format!(
             "⚠ 连通检测：地址 {url} 是对的，但 API key 被拒绝（HTTP {status}）——请检查 key。"
