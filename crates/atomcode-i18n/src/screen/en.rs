@@ -779,6 +779,8 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::NothingWorthCompacting => "there is nothing worth folding yet".into(),
         Msg::CompactFailed { error } => format!("folding did not work: {error}").into(),
         Msg::ClipboardHasNoImage => "there is no image on the clipboard".into(),
+        Msg::OpeningLink { url } => format!("opening {url} in the browser").into(),
+        Msg::OpenLinkFailed { reason } => format!("could not open the link: {reason}").into(),
         Msg::ImagePreviewFailed { reason } => format!("could not open the image: {reason}").into(),
         Msg::NoOpener => "this front end cannot open files".into(),
         Msg::ImageGone => "that image is no longer available".into(),

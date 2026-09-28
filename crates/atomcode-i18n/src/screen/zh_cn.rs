@@ -724,6 +724,8 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::NothingWorthCompacting => "暂时没有值得压缩的".into(),
         Msg::CompactFailed { error } => format!("没压缩成：{error}").into(),
         Msg::ClipboardHasNoImage => "剪贴板里没有图片".into(),
+        Msg::OpeningLink { url } => format!("正在浏览器中打开 {url}").into(),
+        Msg::OpenLinkFailed { reason } => format!("打不开链接：{reason}").into(),
         Msg::ImagePreviewFailed { reason } => format!("打不开图片：{reason}").into(),
         Msg::NoOpener => "这个界面不能打开文件".into(),
         Msg::ImageGone => "这张图已经找不到了".into(),

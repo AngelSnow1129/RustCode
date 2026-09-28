@@ -982,6 +982,16 @@ pub struct Tui {
     /// on first open and reused after — the picture is decoded once, not on every
     /// click. Session-scoped, like the gallery it mirrors.
     image_files: Mutex<std::collections::HashMap<usize, std::path::PathBuf>>,
+    /// What a click hands a picture or a link to: this machine's desktop.
+    ///
+    /// [`LocalOpener`](atomcode_capabilities::tools::LocalOpener) directly, not
+    /// the `OpenerSvc` seam (see [`Tui::preview_image`]); a field so a test can
+    /// see what a click opened without a browser coming up.
+    opener: Arc<dyn atomcode_capabilities::tools::Opener>,
+    /// Every press of the button, counted — so a click on a link can wait out
+    /// the double-click window and stand down if a second press came, which is
+    /// the person selecting the address to copy it rather than opening it.
+    presses: Arc<AtomicU64>,
     /// How many provider checks have been started, so one that lands after a
     /// later save is dropped rather than said (see [`Tui::say_when_probed`]).
     probes: Arc<std::sync::atomic::AtomicU64>,
@@ -1684,6 +1694,7 @@ impl UserInterface for Tui {
                         Click::WheelUp => Some(Action::Scroll(-WHEEL_LINES)),
                         Click::WheelDown => Some(Action::Scroll(WHEEL_LINES)),
                         Click::Press => {
+                            self.presses.fetch_add(1, Ordering::SeqCst);
                             *self.pressed_at.lock().expect("press poisoned") = Some((x, y));
                             // How many presses have landed on this cell in a
                             // row: a second within the window is a word, a third
@@ -4656,11 +4667,54 @@ impl Tui {
         // Off the render loop: launching Preview.app (`open`, `xdg-open`, …) is a
         // process spawn, and `act` returns to paint. A failure here is rare and
         // not actionable, so it is left to the opener's own logging.
+        let opener = self.opener.clone();
         tokio::spawn(async move {
-            use atomcode_capabilities::tools::Opener as _;
-            let _ = atomcode_capabilities::tools::LocalOpener
+            let _ = opener
                 .open(&atomcode_capabilities::tools::OpenTarget::Path(path))
                 .await;
+        });
+    }
+
+    /// Hand a clicked link to the desktop's browser, and say so on the tip row:
+    /// the browser may come up behind the terminal, and a click that seemed to
+    /// do nothing gets clicked again. Off the render loop, like
+    /// [`preview_image`](Self::preview_image), and through the same opener.
+    ///
+    /// Not at once: the first click of a double-click is a click too, and a
+    /// double-click on an address is how a person selects it to copy — which
+    /// must not also throw a browser in front of them. So it waits out
+    /// [`MULTI_CLICK`] and opens only if no press came in the meantime.
+    ///
+    /// A refusal is said, not swallowed: over SSH or with no display the
+    /// opener declines, and "opening…" followed by nothing would be a screen
+    /// that says it did something it did not.
+    fn open_link(&self, url: String) {
+        let presses = self.presses.clone();
+        let seen = presses.load(Ordering::SeqCst);
+        let host = self.host.clone();
+        let opener = self.opener.clone();
+        let wake = self.wake.lock().expect("wake poisoned").clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(MULTI_CLICK).await;
+            if presses.load(Ordering::SeqCst) != seen {
+                return;
+            }
+            let said = |text: String, refused: bool| {
+                host.say(text, refused);
+                if let Some(wake) = &wake {
+                    let _ = wake.send(Wake::Fact);
+                }
+            };
+            said(t(Msg::OpeningLink { url: &url }).into_owned(), false);
+            if let Err(reason) = opener
+                .open(&atomcode_capabilities::tools::OpenTarget::Url(url))
+                .await
+            {
+                said(
+                    t(Msg::OpenLinkFailed { reason: &reason }).into_owned(),
+                    true,
+                );
+            }
         });
     }
 
@@ -5393,6 +5447,19 @@ impl Tui {
                     }
                 }
                 drop(m);
+                // A click on a link opens it. The screen draws links as OSC 8
+                // for the terminal to open, but this screen captures the mouse,
+                // so the click comes here instead and the terminal never sees
+                // it — the same reason an `[Image #N]` is opened from here. Read
+                // off the frame as painted, so it is the text a person sees at
+                // that cell; asked before the fold, because a URL inside a tool
+                // result is something to open, not a reason to fold the call.
+                if let Some(url) = self.host.compose(self.surface.size()).link_at(x, y) {
+                    if let Some(url) = link_to_open(&url) {
+                        self.open_link(url);
+                        return false;
+                    }
+                }
                 let Some((id, kind)) = self.host.block_at(x, y) else {
                     return false;
                 };
@@ -6746,6 +6813,25 @@ fn recall_forward(m: &mut crate::moment::Moment) {
     m.caret = m.input.len();
 }
 
+/// The address a click on `link` may open, or `None` for one it must not.
+///
+/// Web addresses only. A link is text the model wrote, and opening is a single
+/// click with no question asked, so the one kind that cannot do anything on
+/// this machine is the only kind taken: a `file://` link to a `.command` or an
+/// `.app` would run it, and any other scheme is some application's command.
+/// Those stay what they were before — OSC 8 for a terminal that opens links on
+/// its own gesture. A control byte refuses it outright, the same guard the OSC 8
+/// writer keeps (`ansi::write_line`).
+fn link_to_open(link: &str) -> Option<String> {
+    let lower = link.to_ascii_lowercase();
+    let web = lower.starts_with("https://") || lower.starts_with("http://");
+    let has_host = link
+        .split_once("://")
+        .is_some_and(|(_, rest)| !rest.is_empty());
+    let clean = !link.chars().any(char::is_control);
+    (web && has_host && clean).then(|| link.to_string())
+}
+
 /// Whether a picture attached to this conversation has somewhere to go. `Err` is
 /// the reason it does not, phrased for the person.
 ///
@@ -6906,6 +6992,8 @@ pub fn assemble(surface: Arc<dyn Surface>) -> (Arc<Host>, Tui) {
             members: Arc::new(Roster::default()),
             named: Mutex::new(None),
             image_files: Mutex::new(std::collections::HashMap::new()),
+            opener: Arc::new(atomcode_capabilities::tools::LocalOpener),
+            presses: Arc::default(),
             probes: Arc::default(),
         },
     )
@@ -8638,5 +8726,179 @@ mod provider_probe_tests {
             "{}",
             conversation(&host)
         );
+    }
+}
+
+#[cfg(test)]
+mod link_click_tests {
+    use super::*;
+    use crate::surface::Headless;
+
+    /// What a click handed to the desktop, instead of a browser.
+    #[derive(Default)]
+    struct Recorded(Mutex<Vec<String>>);
+
+    #[async_trait]
+    impl atomcode_capabilities::tools::Opener for Recorded {
+        fn describe(&self) -> String {
+            "recorded".into()
+        }
+        async fn open(
+            &self,
+            target: &atomcode_capabilities::tools::OpenTarget,
+        ) -> Result<String, String> {
+            if let atomcode_capabilities::tools::OpenTarget::Url(url) = target {
+                self.0.lock().unwrap().push(url.clone());
+            }
+            Ok(String::new())
+        }
+    }
+
+    /// An opener that declines, the way the desktop one does over SSH.
+    struct Declines;
+
+    #[async_trait]
+    impl atomcode_capabilities::tools::Opener for Declines {
+        fn describe(&self) -> String {
+            "declines".into()
+        }
+        async fn open(
+            &self,
+            _target: &atomcode_capabilities::tools::OpenTarget,
+        ) -> Result<String, String> {
+            Err("no display (SSH session)".into())
+        }
+    }
+
+    const SIZE: (u16, u16) = (60, 24);
+
+    fn screen_saying(text: &str) -> (Arc<Host>, Tui, Arc<Recorded>) {
+        let (host, mut tui) = assemble(Headless::new(SIZE.0, SIZE.1));
+        let recorded = Arc::new(Recorded::default());
+        tui.opener = recorded.clone();
+        {
+            let mut stream = host.stream.write().expect("stream poisoned");
+            let mut w = stream.writer("commands");
+            w.emit(
+                crate::block::Coord::default(),
+                // What the model said: the reply a link like this arrives in.
+                Arc::new(crate::content::ModelSaid(text.to_string())),
+            );
+        }
+        (host, tui, recorded)
+    }
+
+    /// Every cell the painted frame draws `url` on, top to bottom.
+    fn cells_of(host: &Host, url: &str) -> Vec<(u16, u16)> {
+        let frame = host.compose(SIZE);
+        (0..SIZE.1)
+            .flat_map(|y| (0..SIZE.0).map(move |x| (x, y)))
+            .filter(|&(x, y)| frame.link_at(x, y).as_deref() == Some(url))
+            .collect()
+    }
+
+    /// What was opened once the double-click window is over — on the paused
+    /// clock these tests run on, so the wait costs nothing.
+    async fn opened(recorded: &Recorded) -> Vec<String> {
+        tokio::time::sleep(MULTI_CLICK * 2).await;
+        recorded.0.lock().unwrap().clone()
+    }
+
+    fn tip(host: &Host) -> Option<(String, bool)> {
+        let m = host.moment.read().unwrap();
+        m.notice.as_ref().map(|n| (n.text.clone(), n.refused))
+    }
+
+    /// **The case this exists for.** The screen captures the mouse, so a click
+    /// on a link never reached the terminal that OSC 8 left it to — a link
+    /// drawn as a link that nothing opened. The click now opens it, from
+    /// either row of an address too long for one, and says so on the tip row.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn a_click_on_a_link_opens_the_whole_address() {
+        let url = "https://gitcode.com/atomgit_atomcode/atomcode/merge_requests/new?source_branch=release/v5.2.0";
+        for pick_last_row in [false, true] {
+            let (host, tui, recorded) = screen_saying(&format!("如需建 MR：{url}"));
+            let cells = cells_of(&host, url);
+            let rows: std::collections::BTreeSet<u16> = cells.iter().map(|c| c.1).collect();
+            assert!(rows.len() > 1, "at 60 columns the address wraps: {cells:?}");
+            let (x, y) = match pick_last_row {
+                false => cells[0],
+                true => *cells.last().unwrap(),
+            };
+            tui.act(Action::ClickAt(x, y), &tui.client);
+            assert_eq!(opened(&recorded).await, vec![url.to_string()]);
+            let (tip, refused) = tip(&host).unwrap_or_default();
+            assert!(
+                tip.contains(url),
+                "the tip row says what is opening: {tip:?}"
+            );
+            assert!(!refused);
+        }
+    }
+
+    /// A second press inside the double-click window is a double-click —
+    /// selecting the address to copy it — and the first click stands down
+    /// rather than also opening a browser.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn a_double_click_on_a_link_selects_it_and_opens_nothing() {
+        let url = "https://example.com/x";
+        let (host, tui, recorded) = screen_saying(&format!("见 {url}"));
+        let (x, y) = cells_of(&host, url)[0];
+        tui.act(Action::ClickAt(x, y), &tui.client);
+        // The second press, as the pointer loop counts it.
+        tui.presses.fetch_add(1, Ordering::SeqCst);
+        assert!(opened(&recorded).await.is_empty());
+        assert_eq!(tip(&host), None, "and says nothing about opening");
+    }
+
+    /// Over SSH or with no display the opener declines, and the tip row says
+    /// why rather than leaving "opening…" up over nothing.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn a_link_that_cannot_be_opened_says_why() {
+        let url = "https://example.com/x";
+        let (host, mut tui, _) = screen_saying(&format!("见 {url}"));
+        tui.opener = Arc::new(Declines);
+        let (x, y) = cells_of(&host, url)[0];
+        tui.act(Action::ClickAt(x, y), &tui.client);
+        tokio::time::sleep(MULTI_CLICK * 2).await;
+        let (tip, refused) = tip(&host).expect("something is said");
+        assert!(tip.contains("SSH"), "{tip:?}");
+        assert!(refused);
+    }
+
+    /// A click beside the link opens nothing.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn a_click_beside_a_link_opens_nothing() {
+        let url = "https://example.com/x";
+        let (host, tui, recorded) = screen_saying(&format!("见 {url}"));
+        let (x, y) = cells_of(&host, url)[0];
+        tui.act(Action::ClickAt(x.saturating_sub(3), y), &tui.client);
+        assert!(opened(&recorded).await.is_empty());
+    }
+
+    /// Only a web address opens on a click. A `file://` link to a script would
+    /// run it — one click, no question asked, on text the model wrote.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn a_click_on_a_file_link_opens_nothing() {
+        let url = "file:///tmp/run-me.command";
+        let (host, tui, recorded) = screen_saying(&format!("see {url}"));
+        let cells = cells_of(&host, url);
+        assert!(!cells.is_empty(), "it is drawn as a link all the same");
+        tui.act(Action::ClickAt(cells[0].0, cells[0].1), &tui.client);
+        assert!(opened(&recorded).await.is_empty());
+    }
+
+    #[test]
+    fn only_a_web_address_with_a_host_is_opened() {
+        assert_eq!(
+            link_to_open("https://a.example/b").as_deref(),
+            Some("https://a.example/b")
+        );
+        assert!(link_to_open("HTTP://a.example").is_some());
+        assert_eq!(link_to_open("https://"), None);
+        assert_eq!(link_to_open("file:///Applications/Calculator.app"), None);
+        assert_eq!(link_to_open("vscode://file/x"), None);
+        assert_eq!(link_to_open("javascript:alert(1)"), None);
+        assert_eq!(link_to_open("https://a.example/\u{1b}]52;c;x"), None);
     }
 }

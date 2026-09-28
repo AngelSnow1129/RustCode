@@ -297,8 +297,12 @@ impl Line {
             let room = w - used;
             let cut = crate::width::take_width(&span.text, room);
             used += crate::width::str_width(&cut);
+            // `recut`, not `styled`: the cut keeps its link. The painter
+            // (`ansi::write_line`) clips a span and keeps its OSC 8, so a line cut
+            // here that lost it would be a link on screen that a click on the
+            // same text — read through this — could not find.
             if !cut.is_empty() {
-                out.push(Span::styled(cut, span.style));
+                out.push(span.recut(cut));
             }
         }
         Line { spans: out }
@@ -589,6 +593,36 @@ impl Frame {
         })
     }
 
+    /// The link the text drawn at `(x, y)` carries, if it carries one.
+    ///
+    /// Read the way [`rows`](Self::rows) paints: parts in order, each writing
+    /// only the cells its own text reaches, so the last part to draw on the
+    /// cell is the one asked — the link is the one on the text a person sees
+    /// there, not on something drawn underneath it. A wrapped URL is found from
+    /// either of its rows, because every piece of it carries the whole address.
+    pub fn link_at(&self, x: u16, y: u16) -> Option<Arc<str>> {
+        let mut found = None;
+        for part in &self.parts {
+            let rect = part.rect;
+            if y < rect.y || y >= rect.y + rect.h || x < rect.x {
+                continue;
+            }
+            let Some(line) = part.lines.get((y - rect.y) as usize) else {
+                continue;
+            };
+            let mut at = rect.x as usize;
+            for span in &line.truncate(rect.w as usize).spans {
+                let end = at + crate::width::str_width(&span.text);
+                if (at..end).contains(&(x as usize)) {
+                    found = span.link.clone();
+                    break;
+                }
+                at = end;
+            }
+        }
+        found
+    }
+
     /// Every cell a module drew is inside the rect it was given.
     ///
     /// The machine-checkable form of "a module occupies its part of the window
@@ -628,6 +662,63 @@ impl Frame {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A click finds the link on the text drawn where it landed: on either
+    /// row of a wrapped address, not on the text beside it, and not on a link
+    /// that something drawn later covers.
+    #[test]
+    fn the_link_at_a_cell_is_the_one_on_the_text_drawn_there() {
+        let url = "https://example.com/a_b";
+        let mut f = Frame::new(20, 4);
+        f.place(
+            "stream",
+            Rect::new(2, 0, 18, 3),
+            vec![
+                Line::from_spans(vec![
+                    Span::raw("见 "),
+                    Span::linked("https://exa", Style::new(), url),
+                ]),
+                Line::from_spans(vec![
+                    Span::linked("mple.com/a_b", Style::new(), url),
+                    Span::raw(" 。"),
+                ]),
+            ],
+        );
+        assert_eq!(f.link_at(2, 0), None, "the text before it");
+        assert_eq!(f.link_at(4, 0), None, "the second cell of the wide `见`");
+        assert_eq!(f.link_at(5, 0).as_deref(), Some(url), "its first cell");
+        assert_eq!(f.link_at(2, 1).as_deref(), Some(url), "its wrapped half");
+        assert_eq!(f.link_at(14, 1), None, "the text after it");
+        assert_eq!(f.link_at(1, 0), None, "left of the part");
+        assert_eq!(f.link_at(5, 2), None, "a row the part left empty");
+
+        // A line wider than its part is cut, and what is left of a link is
+        // still that link — the painter keeps it, and so must the lookup.
+        let mut g = Frame::new(20, 1);
+        g.place(
+            "stream",
+            Rect::new(0, 0, 10, 1),
+            vec![Line::from_spans(vec![
+                Span::linked("https://example.com", Style::new(), url),
+                Span::raw(" and more past the edge"),
+            ])],
+        );
+        assert_eq!(
+            g.link_at(3, 0).as_deref(),
+            Some(url),
+            "cut, and still a link"
+        );
+        assert_eq!(g.link_at(12, 0), None, "past the part's edge");
+
+        // Something drawn over it later is what the click lands on.
+        f.place("menu", Rect::new(4, 1, 6, 1), vec![Line::raw("menu")]);
+        assert_eq!(f.link_at(5, 1), None, "covered by the menu");
+        assert_eq!(
+            f.link_at(12, 1).as_deref(),
+            Some(url),
+            "past the menu's text"
+        );
+    }
 
     #[test]
     fn a_split_saturates_instead_of_panicking() {

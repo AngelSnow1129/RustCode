@@ -1275,6 +1275,15 @@ pub enum Msg<'a> {
         error: &'a str,
     },
     ClipboardHasNoImage,
+    /// A link in the conversation was clicked and is being handed to the
+    /// browser — said on the tip row, since the browser may come up behind.
+    OpeningLink {
+        url: &'a str,
+    },
+    /// The desktop declined to open a clicked link (no display, over SSH, …).
+    OpenLinkFailed {
+        reason: &'a str,
+    },
     /// Opening an attached image in the desktop viewer did not work.
     ImagePreviewFailed {
         reason: &'a str,
