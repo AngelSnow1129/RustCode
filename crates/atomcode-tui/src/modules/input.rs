@@ -482,11 +482,7 @@ impl View for Input {
             // and a completion of the draft drawn after the mask would offer to
             // finish something nobody is typing.
             if i + first == typed.len().saturating_sub(1) && vp.moment.secret.is_none() {
-                if let Some(rest) = crate::text::ghost(
-                    &vp.moment.input,
-                    &vp.moment.history,
-                    vp.moment.history_at.is_some(),
-                ) {
+                if let Some(rest) = vp.moment.completion() {
                     row.push(El::styled(rest.to_string(), theme::fg(Role::Muted)));
                 }
                 // 猜你接下来要说的那一句也写在这儿:同一行、同一身暗字,因为它是同一

@@ -412,6 +412,12 @@ pub struct Moment {
     /// Which entry is being shown, when arrowing through them. `None` means
     /// what is in the field is the person's own draft.
     pub history_at: Option<usize>,
+    /// The completion from history is held back until the next character is
+    /// typed. Set by deleting: what was just deleted is what the person does
+    /// not want, and a completion drawing it straight back — a whole earlier
+    /// line cut back to its first words, its tail reappearing dim after them —
+    /// reads as text that will not go away. See [`Moment::completion`].
+    pub completion_held: bool,
     /// The draft that was set aside to go browsing, so leaving the history
     /// gives it back rather than losing it.
     pub draft: String,
@@ -1082,6 +1088,18 @@ impl Moment {
     /// raises the working line (see `Host::arm_working`), and in that window a
     /// turn is very much in flight. `pending_working` closes that gap, so a stop
     /// gesture the instant after a send still stops.
+    /// The rest of an earlier line that starts with what is typed, as drawn
+    /// dim after the caret and taken by →. `None` while it is held back after a
+    /// deletion ([`Moment::completion_held`]). The one question both the
+    /// drawing and the key ask, so the key never takes a completion nobody can
+    /// see.
+    pub fn completion(&self) -> Option<&str> {
+        if self.completion_held {
+            return None;
+        }
+        crate::text::ghost(&self.input, &self.history, self.history_at.is_some())
+    }
+
     pub fn turn_in_flight(&self) -> bool {
         self.activity != Activity::Idle || self.pending_working
     }

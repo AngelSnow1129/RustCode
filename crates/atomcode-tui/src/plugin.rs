@@ -5558,6 +5558,19 @@ impl Tui {
                 return false;
             }
         }
+        // Deleting holds the completion back until something is typed again:
+        // cut an earlier line down to its first words and the rest of it must
+        // not come straight back, dim, after them (`Moment::completion_held`).
+        match &action {
+            Action::Backspace
+            | Action::DeleteForward
+            | Action::DeleteWord
+            | Action::DeleteToEnd => m.completion_held = true,
+            Action::Insert(_) | Action::Paste(_) | Action::Submit | Action::Clear => {
+                m.completion_held = false
+            }
+            _ => {}
+        }
         // A guess at what to say next is put away by any gesture on the field
         // other than the two that take it (→ and Tab, handled where they land).
         // It is drawn on the field's own line, in its own place, so a guess that
@@ -7622,9 +7635,7 @@ fn accept_ghost(m: &mut crate::moment::Moment) -> bool {
     if m.caret != m.input.len() {
         return false;
     }
-    let Some(rest) =
-        crate::text::ghost(&m.input, &m.history, m.history_at.is_some()).map(str::to_string)
-    else {
+    let Some(rest) = m.completion().map(str::to_string) else {
         return false;
     };
     m.input.push_str(&rest);

@@ -9215,6 +9215,52 @@ async fn a_guess_at_what_to_say_next_is_taken_by_plain_tab() {
     task.abort();
 }
 
+/// 历史补全:删掉的东西不能马上又灰着冒回来。
+///
+/// 测试反馈的原样:输入时补出了一句以前说过的话,退格删掉不想要的尾巴,删完
+/// 剩下的仍是那句话的开头,于是刚删的尾巴又灰着画回来 —— 看上去就是「删不掉
+/// 的字」,只有打个空格让开头对不上了才消失。删过之后先不补,再打字才补。
+#[tokio::test]
+async fn a_deleted_tail_does_not_come_back_as_a_completion() {
+    let dir = scratch("ghost-after-delete");
+    let s = start(tree(&dir, &replay(r#"{ text = "ok" }"#), &[])).await;
+    let task = s.open().await;
+
+    s.term.type_line("补全 删掉的尾巴");
+    until(&s, "ok").await;
+    s.quiet().await;
+
+    // Typed back as a prefix, the rest of it is offered.
+    s.term.type_text("补全 删");
+    s.quiet().await;
+    assert!(
+        composer_text(&s).contains("掉的尾巴"),
+        "a prefix of something said is completed:\n{}",
+        s.screen()
+    );
+
+    // Cut back: what is left is still a prefix, but the completion stays away.
+    s.term.press(KeyPress::plain(Key::Backspace));
+    s.quiet().await;
+    assert!(
+        !composer_text(&s).contains("尾巴"),
+        "what was just deleted came back dim:\n{}",
+        s.screen()
+    );
+
+    // Typing again brings it back: it was held, not switched off.
+    s.term.type_text("删");
+    s.quiet().await;
+    assert!(
+        composer_text(&s).contains("掉的尾巴"),
+        "typing again offers it again:\n{}",
+        s.screen()
+    );
+
+    s.term.press(KeyPress::ctrl('d'));
+    let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+}
+
 /// With `ui.mode_switch_key = "tab"` plain Tab cycles — the setting, not a
 /// second key.
 #[tokio::test]
