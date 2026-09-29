@@ -30,6 +30,40 @@ pub struct State {
 
 pub struct Status;
 
+/// The provider label to put in front of the model name, or `""`.
+///
+/// Only when the wire name is ambiguous. Two configured accounts sending the
+/// same name is the one case where the bare name cannot say which budget or
+/// channel is live — so it reads `AtomGit/deepseek-flash` there, and
+/// `deepseek-flash` everywhere else. The same rule tuix applies to its
+/// `(Channel)` suffix, asked of the same list.
+///
+/// The row that is `current` is the session's own; a name no row answers to, or
+/// one that is unique, says nothing and the bare model name stands.
+fn provider_prefix(providers: &crate::providers::ProvidersView, model: &str) -> String {
+    let Some(row) = providers.models().iter().find(|m| m.current) else {
+        return String::new();
+    };
+    if row.model != model
+        || providers
+            .models()
+            .iter()
+            .filter(|m| m.model == model)
+            .count()
+            < 2
+    {
+        return String::new();
+    }
+    let label = providers
+        .account(&row.account)
+        .map(|a| a.label.as_str())
+        .unwrap_or(row.account.as_str());
+    if label.is_empty() {
+        return String::new();
+    }
+    format!("{label}/")
+}
+
 impl View for Status {
     type State = State;
 
@@ -263,6 +297,14 @@ impl View for Status {
         } else {
             "atomcode".to_string()
         };
+        // Which account is answering, said only where the bare name cannot: the
+        // name goes in front, so it reads as the qualified name the way the
+        // model picker lists it. Asked of the name alone — the level is not
+        // part of what any row carries, so it must not be in what is matched.
+        let prefix = provider_prefix(&vp.moment.providers, &model_str);
+        if !prefix.is_empty() {
+            model_str.insert_str(0, &prefix);
+        }
         if let Some(level) = vp.moment.effort {
             model_str.push_str(&format!(" [{}]", level.as_str()));
         }
@@ -1594,6 +1636,114 @@ mod tests {
             !line.contains("grok-4.6"),
             "the stale folded model must not shadow the switch: {line:?}"
         );
+    }
+
+    /// Which account is answering, said only where the bare name cannot tell two
+    /// of them apart: two accounts configured with the same wire model name
+    /// read `AtomGit/deepseek-flash`, and a name only one account has reads
+    /// `glm5.3-flash-pro`. The prefix is the account's drawn label, in front of
+    /// the name, the way the model picker qualifies it.
+    #[test]
+    fn the_provider_is_named_only_where_the_model_name_alone_is_ambiguous() {
+        use crate::providers::{AccountRow, ModelRow, ProvidersView};
+
+        let account = |id: &str| AccountRow {
+            id: id.into(),
+            label: id.into(),
+            protocol: "OpenAI".into(),
+            endpoint: String::new(),
+            models: 1,
+            has_key: true,
+            managed: false,
+            configured: true,
+        };
+        // `id` is the selection, `wire` what goes on the wire — an alias row
+        // differs, which is the whole reason the two are separate fields.
+        let row = |id: &str, account: &str, wire: &str, current: bool| ModelRow {
+            id: id.into(),
+            account: account.into(),
+            model: wire.into(),
+            window: 128_000,
+            vision: None,
+            effort: None,
+            levels: Vec::new(),
+            current,
+            managed: false,
+        };
+        let moment_of = |model: &str, providers: ProvidersView| Moment {
+            model: model.into(),
+            providers,
+            ..Moment::default()
+        };
+        let shared = ProvidersView::new(
+            vec![account("AtomGit"), account("TaoToken")],
+            vec![
+                row("atomgit/ds", "AtomGit", "deepseek-flash", true),
+                row("taotoken/ds", "TaoToken", "deepseek-flash", false),
+            ],
+            Vec::new(),
+            Vec::new(),
+        );
+
+        // Two accounts, one name: the bare name cannot say which is live.
+        let line = draw::<Status>(
+            &State::default(),
+            120,
+            &moment_of("deepseek-flash", shared.clone()),
+        );
+        assert!(line.contains("AtomGit/deepseek-flash"), "{line:?}");
+
+        // The same name with the *other* account on: the label follows the
+        // session, not the first row that happens to match.
+        let other = ProvidersView::new(
+            vec![account("AtomGit"), account("TaoToken")],
+            vec![
+                row("atomgit/ds", "AtomGit", "deepseek-flash", false),
+                row("taotoken/ds", "TaoToken", "deepseek-flash", true),
+            ],
+            Vec::new(),
+            Vec::new(),
+        );
+        let line = draw::<Status>(&State::default(), 120, &moment_of("deepseek-flash", other));
+        assert!(line.contains("TaoToken/deepseek-flash"), "{line:?}");
+
+        // A name only one account has says nothing: the prefix would be noise
+        // on the common single-account case.
+        let unique = ProvidersView::new(
+            vec![account("AtomGit")],
+            vec![row("atomgit/glm", "AtomGit", "glm5.3-flash-pro", true)],
+            Vec::new(),
+            Vec::new(),
+        );
+        let line = draw::<Status>(
+            &State::default(),
+            120,
+            &moment_of("glm5.3-flash-pro", unique),
+        );
+        assert!(line.contains("glm5.3-flash-pro"), "{line:?}");
+        assert!(!line.contains("AtomGit/"), "{line:?}");
+
+        // No providers read at all (a build that mounted no port): the bare
+        // name, never a guess. Asserting the qualified form is absent rather
+        // than any `/` at all — the row's other segments (a cwd, a count) may
+        // legitimately contain one.
+        let line = draw::<Status>(
+            &State::default(),
+            120,
+            &moment_of("deepseek-flash", ProvidersView::default()),
+        );
+        assert!(line.contains("deepseek-flash"), "{line:?}");
+        assert!(!line.contains("/deepseek-flash"), "{line:?}");
+
+        // The prefix rides in front of the name and ahead of the thinking
+        // level, so the qualified name is still one readable string:
+        // `AtomGit/deepseek-flash [high]`.
+        let m = Moment {
+            effort: Some(atomcode_kernel::provider::ReasoningEffort::High),
+            ..moment_of("deepseek-flash", shared)
+        };
+        let line = draw::<Status>(&State::default(), 120, &m);
+        assert!(line.contains("AtomGit/deepseek-flash [high]"), "{line:?}");
     }
 
     /// The reference footer: usage against the window and the cache ratio, in

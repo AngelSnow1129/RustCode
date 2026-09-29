@@ -215,6 +215,17 @@ struct SessionView {
     high: Option<SeqNo>,
     events: Vec<LoggedEvent>,
     described: Option<AgentDescription>,
+    /// The **selection id** the session is on — `AtomGit/deepseek-flash`, which
+    /// an alias differs from — as of the last `/model` this screen saw land.
+    ///
+    /// The description reports the name sent on the wire, which is exactly what
+    /// cannot tell two accounts running the same model apart (see
+    /// [`crate::providers::ProvidersView::marked_row`]). This is the other name
+    /// for the same choice, and the one the providers list is keyed by. It is
+    /// the screen's own fact, not one the agent reports about itself: a build
+    /// whose rows never carried a selection id would leave this empty, and
+    /// `ProvidersView` falls back to matching the wire name.
+    selection: Option<String>,
     status: Option<AgentStatus>,
     /// Messages sent and not yet taken by a turn.
     outstanding: HashSet<CommandId>,
@@ -298,6 +309,27 @@ impl AgentClient {
             .expect("client poisoned")
             .screen()
             .and_then(|v| v.described.clone())
+    }
+
+    /// The selection id host control accepted, so the providers list can mark
+    /// the row the session is on while the two accounts running the same model
+    /// are still indistinguishable by the wire name alone.
+    pub(crate) fn chose_model(&self, selection: Option<String>) {
+        let mut views = self.view.lock().expect("client poisoned");
+        let on_screen = views.on_screen.clone();
+        if let Some(view) = views.sessions.get_mut(&on_screen) {
+            view.selection = selection;
+        }
+    }
+
+    /// The selection id the session on screen is on, when this screen knows it
+    /// ([`Self::chose_model`]).
+    pub fn selection(&self) -> Option<String> {
+        self.view
+            .lock()
+            .expect("client poisoned")
+            .screen()
+            .and_then(|v| v.selection.clone())
     }
 
     /// Host control, once connected.
@@ -2601,8 +2633,26 @@ impl Tui {
         // The file says which model the *next* session starts on; this one may
         // have been switched with `/model` since. The screen knows that, so it
         // marks the row rather than asking the port to know it.
-        let live = self.client.described().and_then(|d| d.model);
-        let view = port.rows().with_current(live.as_deref());
+        //
+        // The selection id first when this screen has one: it is the only name
+        // that can tell two accounts running the same model apart, and a wire
+        // name alone is exactly what `marked_row` refuses to guess from. The
+        // wire name is the fallback, for a session opened on a model this
+        // screen never switched.
+        //
+        // The id only while it still names a row. One the configuration has
+        // since dropped — a model deleted or renamed in the panel — resolves to
+        // nothing, and marking nothing is not neutral: `model_after` steps from
+        // the marked row, so F2 would step off the first one every time. The
+        // wire name is never stale in that way (it tracks what the agent
+        // reports), so it is the right thing to fall back to.
+        let rows = port.rows();
+        let live = self
+            .client
+            .selection()
+            .filter(|id| rows.model(id).is_some())
+            .or_else(|| self.client.described().and_then(|d| d.model));
+        let view = rows.with_current(live.as_deref());
         self.host.show_providers(view)
     }
 
@@ -4914,21 +4964,30 @@ impl Tui {
                 // model: it is the agent's, and the row draws it beside the
                 // model the way tuix does (`glm-5 [high]`).
                 let effort = described.as_ref().and_then(|d| d.reasoning_effort);
-                let mut moment = self.host.moment.write().expect("moment poisoned");
-                // An agent describing itself is what a `/login` or `/provider`
-                // that brought a provider back looks like from here. Whether a
-                // turn would now be taken is the host's to say, so it is asked
-                // again rather than assumed: a session whose sign-in expired
-                // still has an agent that describes itself.
-                if moment.unready.is_some() {
-                    self.recheck_readiness(moment.lead.clone());
-                }
-                let changed =
-                    moment.ctx_window != window || moment.model != model || moment.effort != effort;
-                moment.ctx_window = window;
-                moment.model = model;
-                moment.effort = effort;
-                changed
+                let changed = {
+                    let mut moment = self.host.moment.write().expect("moment poisoned");
+                    // An agent describing itself is what a `/login` or `/provider`
+                    // that brought a provider back looks like from here. Whether a
+                    // turn would now be taken is the host's to say, so it is asked
+                    // again rather than assumed: a session whose sign-in expired
+                    // still has an agent that describes itself.
+                    if moment.unready.is_some() {
+                        self.recheck_readiness(moment.lead.clone());
+                    }
+                    let changed = moment.ctx_window != window
+                        || moment.model != model
+                        || moment.effort != effort;
+                    moment.ctx_window = window;
+                    moment.model = model;
+                    moment.effort = effort;
+                    changed
+                };
+                // The providers rows too, and only now that the moment is free:
+                // `refresh_providers` writes the same lock this branch held, and
+                // a status row that names the account has to be marked against
+                // the model that just landed — a description is the one moment
+                // that knows both moved.
+                changed | self.refresh_providers()
             }
             AgentEvent::Accepted { command, .. } => {
                 self.client.answered(&command);
