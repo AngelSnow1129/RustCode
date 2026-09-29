@@ -5522,6 +5522,62 @@ async fn a_skipped_role_file_reaches_the_driver_as_a_warning() {
     );
 }
 
+/// What the configuration asked for that was left out is told to the person
+/// when the runtime starts — as `ControllerWarning`s, which every front end
+/// renders — whether the config reader found it (a malformed permission rule)
+/// or preparing did (`eager = always` on an adapter that cannot force a tool).
+/// Not stderr, which a full-screen front end is holding.
+async fn what_the_configuration_lost_is_said_when_the_runtime_starts() {
+    let env = env();
+    let mut file = atomcode_config::config::Config::default();
+    file.permissions.allow = vec!["Bash(git *".into()];
+    let from_file = atomcode_coding::CodingRuntimeConfig::from_config(
+        &file,
+        env.project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+        None,
+        None,
+        false,
+        true,
+    );
+    let recorder = Arc::new(Recorder::default());
+    let mut started = start(env.project.path(), &recorder, SessionMode::Fresh);
+    started.agent.startup_warnings = from_file.startup_warnings.clone();
+    started.agent.todo.eager = atomcode_config::config::TodoEagerness::Always;
+    started.agent.provider_type = "ollama".into();
+    let mut runtime = CodingRuntime::start(started).await.unwrap();
+
+    runtime
+        .handle
+        .submit(UserInput::from("hello"))
+        .await
+        .unwrap();
+    let mut warnings = Vec::new();
+    loop {
+        let event = tokio::time::timeout(std::time::Duration::from_secs(10), runtime.events.recv())
+            .await
+            .expect("turn did not finish")
+            .expect("runtime event stream closed");
+        match event.event {
+            CodingRuntimeEvent::TurnFinished(_) => break,
+            CodingRuntimeEvent::ControllerWarning(text) => warnings.push(text),
+            _ => {}
+        }
+    }
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("malformed rule") && w.contains("Bash(git *")),
+        "the malformed permission rule is not told: {warnings:?}"
+    );
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("eager=always") && w.contains("ollama")),
+        "the eager downgrade is not told: {warnings:?}"
+    );
+}
+
 /// Each scenario as its own test. Serialized because they share the process's
 /// environment (`ATOMCODE_HOME`, the offline verdict), which is also why each is
 /// its own process under `cargo nextest`.
@@ -5627,5 +5683,6 @@ mod criteria {
         a_runtime_under_another_name_keeps_to_its_own_dirs,
         our_own_skills_lead_the_catalog,
         a_skipped_role_file_reaches_the_driver_as_a_warning,
+        what_the_configuration_lost_is_said_when_the_runtime_starts,
     );
 }

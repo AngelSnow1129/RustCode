@@ -15,6 +15,12 @@ use atomcode_kernel::agent::ToolLoopPolicy;
 /// stalled provider or silent driver can never park a turn forever.
 #[derive(Clone)]
 pub struct CodingAgentConfig {
+    /// What the configuration asked for that was left out or changed — a
+    /// malformed permission rule, an external agent with an unknown kind — said
+    /// in one line each. The runtime tells the person when it starts
+    /// (`CodingRuntimeEvent::ControllerWarning`), which every front end renders;
+    /// not stderr, which a full-screen front end is holding.
+    pub startup_warnings: Vec<String>,
     /// Where the product keeps its data — the one place this runtime learns it.
     /// Every capability that persists or guards something (skills, memory, MCP,
     /// sessions, plugins, the credential gates) is built from this, and nothing
@@ -245,6 +251,8 @@ pub fn settle_dir_names(dirs: &atomcode_capabilities::ProductDirs) {
 /// This is a driver configuration object, not a legacy command protocol.
 #[derive(Clone)]
 pub struct CodingRuntimeConfig {
+    /// See [`CodingAgentConfig::startup_warnings`].
+    pub startup_warnings: Vec<String>,
     /// See [`CodingAgentConfig::dirs`].
     pub dirs: atomcode_capabilities::ProductDirs,
     pub api_key: String,
@@ -332,20 +340,24 @@ pub fn lsp_settings_from_config(
 }
 
 /// Parse `[permissions] allow/deny` into the neutral capabilities rule set. Malformed rules
-/// are skipped and reported on stderr rather than silently widening or narrowing the policy —
-/// a typo in a permission rule is exactly the kind of mistake that must not pass unnoticed.
+/// are skipped and come back as warnings rather than silently widening or narrowing the
+/// policy — a typo in a permission rule is exactly the kind of mistake that must not pass
+/// unnoticed. The caller puts them in [`CodingAgentConfig::startup_warnings`].
 pub fn permission_rules_from_config(
     permissions: &atomcode_config::config::PermissionsConfig,
-) -> atomcode_capabilities::tools::PermissionRules {
+) -> (atomcode_capabilities::tools::PermissionRules, Vec<String>) {
     let (rules, invalid) =
         atomcode_capabilities::tools::PermissionRules::parse(&permissions.allow, &permissions.deny);
-    for raw in &invalid {
-        eprintln!(
-            "[permissions] ignoring malformed rule {raw:?} \
-             (expected `Tool` or `Tool(pattern)`, e.g. `Bash(git *)`)"
-        );
-    }
-    rules
+    let warnings = invalid
+        .iter()
+        .map(|raw| {
+            format!(
+                "[permissions] ignoring malformed rule {raw:?} \
+                 (expected `Tool` or `Tool(pattern)`, e.g. `Bash(git *)`)"
+            )
+        })
+        .collect();
+    (rules, warnings)
 }
 
 /// What this runtime takes from `config.toml`, for an agent asked how AtomCode is
@@ -471,7 +483,15 @@ impl CodingRuntimeConfig {
                 .find_map(|id| config.resolve_model(Some(&id)).ok())
         });
         let r = resolved.as_ref();
+        let (permission_rules, mut startup_warnings) =
+            permission_rules_from_config(&config.permissions);
+        // The external agents are resolved again at each spawn site
+        // (`parts::prepare_from_config`); what they said about the file is said
+        // once, here.
+        startup_warnings
+            .extend(crate::parts::resolve_external_subagents(&config.subagent, interactive).1);
         Self {
+            startup_warnings,
             dirs,
             api_key: r.and_then(|r| r.api_key.clone()).unwrap_or_default(),
             base_url: r.and_then(|r| r.base_url.clone()).unwrap_or_default(),
@@ -509,9 +529,7 @@ impl CodingRuntimeConfig {
             credential_shell_policy: credential_shell_policy_from_config(
                 config.coding.shell_guard_policy,
             ),
-            permission_rules: std::sync::Arc::new(permission_rules_from_config(
-                &config.permissions,
-            )),
+            permission_rules: std::sync::Arc::new(permission_rules),
             user_agent: r.and_then(|r| r.user_agent.clone()),
             skip_tls_verify: r.map(|r| r.skip_tls_verify).unwrap_or(false),
             retry_max_attempts: r.and_then(|r| r.retry_max_attempts),
@@ -543,6 +561,7 @@ impl CodingRuntimeConfig {
             &self.working_dir,
             self.dirs.clone(),
         );
+        config.startup_warnings = self.startup_warnings.clone();
         config.context_window = self.context_window;
         config.supports_vision = self.supports_vision;
         config.supports_reasoning_effort =
@@ -1030,6 +1049,7 @@ impl CodingAgentConfig {
     ) -> Self {
         let model = model.into();
         Self {
+            startup_warnings: Vec::new(),
             dirs,
             api_key: api_key.into(),
             base_url: base_url.into(),

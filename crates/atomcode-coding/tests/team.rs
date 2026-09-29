@@ -8,7 +8,7 @@ use std::time::Duration;
 use atomcode_harness::agent::{Agent, AgentStatus};
 use atomcode_harness::seams::{AgentsSvc, ToolsSvc};
 use atomcode_harness::session::{InjectionOrigin, SessionEvent};
-use atomcode_harness::{bundle, create_agent, drive, plugins, run_turn};
+use atomcode_harness::{create_agent, drive, run_turn};
 use atomcode_kernel::provider::ReasoningEffort;
 use atomcode_kernel::tool::{ProgressSink, ToolContext};
 use atomcode_plexus::{App, ConfigTree, Layer};
@@ -1738,6 +1738,94 @@ fn turns_ended(agent: &Agent) -> usize {
         .iter()
         .filter(|e| matches!(e.event, SessionEvent::TurnEnd { .. }))
         .count()
+}
+
+/// A member a resume cannot bring back — its role file is gone since — is
+/// told on the lead's screen: a notice in its log at the next turn, not a line
+/// on the stderr a full-screen front end is holding.
+#[tokio::test]
+async fn a_member_a_resume_cannot_bring_back_is_told() {
+    let dir = scratch("lost-member");
+    let sessions = scratch("lost-member-sessions");
+    write_role(
+        &dir,
+        "scribe",
+        "---\npermission: explore\ndifficulty: simple\nwhen: writing a note\n---\nYou write what you are told.\n",
+    );
+    let lead_id = "lost-lead";
+    let scribe_id = format!("{lead_id}/scribe");
+    {
+        let app = start(kept(
+            &dir,
+            &sessions,
+            (lead_id, false),
+            r#"{ text = "ok" }"#,
+            r#"{ text = "noted" }"#,
+            "",
+        ))
+        .await;
+        let lead = create_agent(&app).await.unwrap();
+        run_turn(&app, "put a team together").await.unwrap();
+        let told = as_lead(
+            &app,
+            &lead,
+            r#"{"action":"delegate","name":"scribe","role":"scribe","task":"keep the notes"}"#,
+        )
+        .await;
+        assert!(!told.is_error, "{}", told.content);
+        let agents = app.context().service::<AgentsSvc>().unwrap();
+        until_idle(&agents.by_session(&scribe_id).unwrap()).await;
+        stored_until(&app, &scribe_id, "ended its turn", |events| {
+            events
+                .iter()
+                .any(|e| matches!(e.event, SessionEvent::TurnEnd { .. }))
+        })
+        .await;
+    }
+    std::fs::remove_file(
+        dir.join(atomcode_config::distribution::PROJECT_DIR_NAME)
+            .join("agents")
+            .join("scribe.md"),
+    )
+    .unwrap();
+
+    let app = start(kept(
+        &dir,
+        &sessions,
+        (lead_id, true),
+        r#"{ text = "ok" }"#,
+        r#"{ text = "noted" }"#,
+        "",
+    ))
+    .await;
+    let lead = create_agent(&app).await.unwrap();
+    // Restoring runs beside the lead, so the notice is waited for, not raced.
+    let told = || -> Vec<String> {
+        lead.session()
+            .events()
+            .into_iter()
+            .filter_map(|e| match e.event {
+                SessionEvent::Notice {
+                    notice: atomcode_harness::session::NoticeKind::MemberNotRestored,
+                    detail,
+                    ..
+                } => Some(detail),
+                _ => None,
+            })
+            .collect()
+    };
+    for _ in 0..200 {
+        if !told().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let told = told();
+    assert!(
+        told.iter()
+            .any(|d| d.contains("`scribe`") && d.contains("gone")),
+        "the lead is not told its member was left behind: {told:?}"
+    );
 }
 
 /// A team outlives a restart (`docs/adr/0024` §11, §13). Every member's log is

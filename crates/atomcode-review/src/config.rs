@@ -76,6 +76,12 @@ pub struct ReviewAgentConfig {
     /// Engineering callers (e.g. the service, which reviews huge repos on NFS) set a bound
     /// like `8000` so a kernel-scale repo degrades automatically. `0` ⇒ never mount.
     pub graph_max_indexed_files: usize,
+    /// Write a one-line trace to stderr when the round budget forces the
+    /// reviewer to land (`[budget] round N/M: …`). For the `atomcode review`
+    /// command, which owns its terminal; off by default, because the same agent
+    /// runs inside the `code_review` tool while a full-screen front end holds
+    /// the terminal.
+    pub trace_budget_to_stderr: bool,
     /// Skill directories to load `use_skill` / `list_skills` tools from. Empty (default)
     /// ⇒ NO skill tools mounted, matching bare-CLI behavior: only some deployments / repos
     /// opt into skills via `--skill-dir`. Each dir is scanned for `SKILL.md` (directory
@@ -127,8 +133,9 @@ impl ReviewAgentConfig {
             progress_label: None,
             no_web: false,
             graph_max_indexed_files: usize::MAX, // no degrade by default (bare-CLI behavior)
-            skill_dirs: Vec::new(),              // no skills by default (bare-CLI behavior)
-            review_paths: Vec::new(),            // no file allowlist by default (root-only confine)
+            trace_budget_to_stderr: false,
+            skill_dirs: Vec::new(), // no skills by default (bare-CLI behavior)
+            review_paths: Vec::new(), // no file allowlist by default (root-only confine)
         }
     }
 

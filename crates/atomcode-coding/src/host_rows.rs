@@ -1471,10 +1471,19 @@ async fn publish_mcp(
     let adapters: Vec<Arc<dyn atomcode_kernel::tool::Tool>> = infos
         .into_iter()
         .filter_map(|info| {
+            let server = info.server_name.clone();
             match atomcode_capabilities::mcp::McpToolAdapter::new(Arc::clone(registry), info) {
                 Ok(adapter) => Some(Arc::new(adapter) as Arc<dyn atomcode_kernel::tool::Tool>),
                 Err(error) => {
-                    eprintln!("[mcp] tool publication skipped: {error}");
+                    // Through the registry's own event channel, the one a
+                    // failed tools/list already takes to the front end — not
+                    // stderr, which a full-screen front end is holding.
+                    if let Some(events) = registry.event_sender() {
+                        let _ = events.send(atomcode_capabilities::mcp::McpConnectEvent::Warning {
+                            name: server,
+                            message: format!("a tool was not published: {error}"),
+                        });
+                    }
                     None
                 }
             }
@@ -1914,10 +1923,9 @@ impl Plugin for NativeCompactionCheckpointPlugin {
                 let convo =
                     crate::native_log::conversation_from_log(system, &agent.session().events());
                 let snapshot = SessionSnapshot::from_conversation(&convo);
-                use atomcode_kernel::checkpoint::CompactionCheckpoint;
-                if let Err(error) = hook.save(&snapshot) {
-                    eprintln!("[native-compaction-checkpoint] {error}");
-                }
+                // A failure is told by the hook itself (an uncertain commit
+                // fail-stops; a recoverable one is a warning the driver shows).
+                hook.save_compaction_or_warn(&snapshot);
             },
         );
         Ok(())

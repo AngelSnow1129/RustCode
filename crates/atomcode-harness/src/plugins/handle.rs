@@ -409,7 +409,8 @@ impl Projector {
                         AgentEvent::CompactionStarted { trigger }
                     }
                     crate::session::NoticeKind::CompactionDegraded
-                    | crate::session::NoticeKind::ConfigSkipped => {
+                    | crate::session::NoticeKind::ConfigSkipped
+                    | crate::session::NoticeKind::MemberNotRestored => {
                         AgentEvent::Warning(detail.clone())
                     }
                 }]

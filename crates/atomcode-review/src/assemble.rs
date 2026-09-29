@@ -163,9 +163,10 @@ pub fn build_review_agent_with_cancel(
     // the round-budget pressure hook so the reviewer LANDS findings before the fuse trips
     // instead of dying empty in a read-exploration loop (see `round_budget`).
     if let Some(n) = cfg.max_rounds {
-        builder = builder
-            .max_rounds(n)
-            .hook(Arc::new(crate::round_budget::RoundBudgetHook::new()));
+        builder = builder.max_rounds(n).hook(Arc::new(
+            crate::round_budget::RoundBudgetHook::new()
+                .tracing_to_stderr(cfg.trace_budget_to_stderr),
+        ));
     }
     if let Some(progress) = cfg.progress.clone() {
         builder = builder.hook(Arc::new(crate::review_tool::ReviewProgressHook::new(

@@ -292,7 +292,10 @@ pub(crate) fn chat_runtime_config(
     // (which no longer lives in `config.providers`) still builds a runtime.
     let resolved = config.provider_config_for_selection(provider_name);
     let p = resolved.as_ref();
+    let (permission_rules, startup_warnings) =
+        atomcode_coding::config::permission_rules_from_config(&config.permissions);
     atomcode_coding::CodingRuntimeConfig {
+        startup_warnings,
         dirs: atomcode_coding::config::product_dirs_from_env(),
         api_key: p.and_then(|p| p.api_key.clone()).unwrap_or_default(),
         base_url: p.and_then(|p| p.base_url.clone()).unwrap_or_default(),
@@ -334,9 +337,7 @@ pub(crate) fn chat_runtime_config(
         credential_shell_policy: atomcode_coding::config::credential_shell_policy_from_config(
             config.coding.shell_guard_policy,
         ),
-        permission_rules: std::sync::Arc::new(
-            atomcode_coding::config::permission_rules_from_config(&config.permissions),
-        ),
+        permission_rules: std::sync::Arc::new(permission_rules),
         user_agent: p.and_then(|p| p.user_agent.clone()),
         skip_tls_verify: p.map(|p| p.skip_tls_verify).unwrap_or(false),
         retry_max_attempts: p.and_then(|p| p.retry_max_attempts),

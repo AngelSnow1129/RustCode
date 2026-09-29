@@ -13,7 +13,7 @@ use atomcode_harness::seams::{
     OpenerSvc, Question, SessionTitleSvc, StopReason, ToolsSvc, UserQuestions, UserQuestionsSvc,
     ANSWER_ALLOW, ANSWER_ALWAYS, ANSWER_DENY,
 };
-use atomcode_harness::{bundle, plugins, run_turn};
+use atomcode_harness::{bundle, run_turn};
 use atomcode_plexus::{App, ConfigTree, Context, Layer, Plugin};
 use serde_json::Value;
 

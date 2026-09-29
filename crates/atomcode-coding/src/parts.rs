@@ -183,29 +183,36 @@ impl Default for PrepareOptions {
 /// the caller's context permits it (`allow_dangerous_context`, false for
 /// non-interactive/headless/scheduled runs); otherwise it is downgraded to
 /// `read-only` — the fail-closed default.
+///
+/// What was skipped or downgraded comes back as the second list, one line
+/// each, for the runtime to tell the person (`startup_warnings`).
 pub fn external_subagent_profiles(
     configs: &[atomcode_config::config::ExternalSubagentConfig],
     allow_dangerous_context: bool,
-) -> Vec<atomcode_capabilities::subagent::ExternalSubagentProfile> {
+) -> (
+    Vec<atomcode_capabilities::subagent::ExternalSubagentProfile>,
+    Vec<String>,
+) {
     use atomcode_capabilities::subagent::{ExternalSubagentProfile, PermissionMode, SubagentKind};
     let mut out = Vec::new();
+    let mut warnings = Vec::new();
     for c in configs {
         if !c.enabled {
             continue;
         }
         let Some(kind) = SubagentKind::from_config_str(&c.kind) else {
-            eprintln!(
+            warnings.push(format!(
                 "subagent: skipping external agent `{}` — unknown kind `{}`",
                 c.name, c.kind
-            );
+            ));
             continue;
         };
         let mut permission = match &c.permission {
             Some(p) => PermissionMode::from_config_str(p).unwrap_or_else(|| {
-                eprintln!(
+                warnings.push(format!(
                     "subagent: `{}` has unknown permission `{p}`; using read-only",
                     c.name
-                );
+                ));
                 PermissionMode::ReadOnly
             }),
             None => PermissionMode::ReadOnly,
@@ -214,11 +221,11 @@ pub fn external_subagent_profiles(
         // context permits. Otherwise downgrade to the fail-closed default.
         let allow_dangerous = c.allow_dangerous && allow_dangerous_context;
         if permission.is_dangerous() && !allow_dangerous {
-            eprintln!(
+            warnings.push(format!(
                 "subagent: `{}` requested bypass without allowance in this context; \
                  downgrading to read-only",
                 c.name
-            );
+            ));
             permission = PermissionMode::ReadOnly;
         }
         out.push(ExternalSubagentProfile {
@@ -230,7 +237,7 @@ pub fn external_subagent_profiles(
             timeout: c.timeout_secs.map(std::time::Duration::from_secs),
         });
     }
-    out
+    (out, warnings)
 }
 
 /// Resolve ALL external-agent subagent profiles for a `[subagent]` config: the
@@ -238,11 +245,16 @@ pub fn external_subagent_profiles(
 /// `[[subagent.external]]` entries. Explicit entries win on a name clash (the
 /// built-in `codex` / `claude-code` names are only added if not already taken),
 /// so an advanced user can override a switch with a full profile.
+///
+/// The second list is what [`external_subagent_profiles`] skipped or downgraded.
 pub fn resolve_external_subagents(
     sub: &atomcode_config::config::SubAgentConfig,
     allow_dangerous_context: bool,
-) -> Vec<atomcode_capabilities::subagent::ExternalSubagentProfile> {
-    let mut out = external_subagent_profiles(&sub.external, allow_dangerous_context);
+) -> (
+    Vec<atomcode_capabilities::subagent::ExternalSubagentProfile>,
+    Vec<String>,
+) {
+    let (mut out, warnings) = external_subagent_profiles(&sub.external, allow_dangerous_context);
     // Reserve EVERY explicitly-named instance — including entries that were
     // dropped for being disabled or having an unknown kind — so a `/config`
     // convenience switch never silently overrides (or resurrects) an explicit
@@ -268,7 +280,7 @@ pub fn resolve_external_subagents(
             }
         }
     }
-    out
+    (out, warnings)
 }
 
 /// Build a built-in convenience profile from a `/config` level string. `off` (or
@@ -313,7 +325,7 @@ pub fn prepare_from_config(cfg: &crate::config::CodingRuntimeConfig) -> PrepareO
     let external_subagents = cfg
         .subagent_config
         .as_ref()
-        .map(|c| resolve_external_subagents(&c.subagent, cfg.interactive))
+        .map(|c| resolve_external_subagents(&c.subagent, cfg.interactive).0)
         .unwrap_or_default();
     PrepareOptions {
         mcp: cfg.mcp,
@@ -380,6 +392,12 @@ fn register_atomgit_capabilities(
 /// Everything `assemble` composes — and everything a respawn must REUSE so state
 /// survives (approval grants, hook state, session identity).
 pub struct CodingParts {
+    /// What preparing left out or changed that the person should be told —
+    /// [`CodingAgentConfig::startup_warnings`] plus what `prepare` found (an
+    /// external agent whose binary is missing, an in-flight prompt a resume
+    /// could not read). The runtime sends each as a `ControllerWarning` when
+    /// it starts; nothing here writes to stderr.
+    startup_warnings: Vec<String>,
     registry: ToolRegistry,
     tool_names: Vec<String>,
     /// Capability-graph decision made at prepare time. Like request-user-input,
@@ -543,6 +561,9 @@ async fn prepare_with_plugin_hooks_reusing_lease(
     // no harness row provides them, or the product's own version is the one that
     // ships and the row's is a different contract under the same capability.
     let mut host_only_tools: Vec<String> = Vec::new();
+    // What preparing left out or changed that the person should be told —
+    // the runtime says it when it starts (see `CodingParts::startup_warnings`).
+    let mut startup_warnings: Vec<String> = cfg.startup_warnings.clone();
     let turn_execution_policy = Arc::new(TurnExecutionPolicy::new());
 
     // Always-on core: neutral fs/bash toolset + codeintel. Vision gating: a VL model
@@ -598,10 +619,12 @@ async fn prepare_with_plugin_hooks_reusing_lease(
     if !opts.tools || opts.external_subagents.is_empty() {
         false
     } else {
-        let mounted = atomcode_capabilities::subagent::tool::register_external_subagent_tools(
-            &mut registry,
-            &opts.external_subagents,
-        );
+        let (mounted, skipped) =
+            atomcode_capabilities::subagent::tool::register_external_subagent_tools(
+                &mut registry,
+                &opts.external_subagents,
+            );
+        startup_warnings.extend(skipped);
         let any = !mounted.is_empty();
         host_only_tools.extend(mounted.iter().cloned());
         names.extend(mounted);
@@ -877,8 +900,9 @@ async fn prepare_with_plugin_hooks_reusing_lease(
             // would bypass ownership and manufacture an incomplete native session.
             // A session a released build stored as a snapshot becomes a log here,
             // once (`docs/adr/0024` §10).
-            let (loaded, pending_resume_prompt) =
-                manager.open_for_resume(&lease).map_err(io::Error::from)?;
+            let (loaded, pending_resume_prompt) = manager
+                .open_for_resume_noting(&lease, &mut startup_warnings)
+                .map_err(io::Error::from)?;
             // A version-mismatched snapshot must FAIL here, not fall through to the
             // kernel's empty-start seam — that would silently fresh-start under the
             // SAME session id and corrupt on-disk state.
@@ -994,7 +1018,18 @@ async fn prepare_with_plugin_hooks_reusing_lease(
         names.clear();
     }
 
+    // `eager = always` needs a forced tool choice, which the Ollama adapter
+    // cannot express; the hook falls back to `preferred` and this says so.
+    if cfg.todo.eager == atomcode_config::config::TodoEagerness::Always
+        && cfg.provider_type.eq_ignore_ascii_case("ollama")
+    {
+        startup_warnings.push(
+            "[todo] eager=always is unsupported by provider type ollama; using preferred".into(),
+        );
+    }
+
     Ok(CodingParts {
+        startup_warnings,
         runtime_commands: None,
         tool_switches: atomcode_harness::seams::ToolSwitches::new(),
         tool_catalog: Arc::new(std::sync::RwLock::new(None)),
@@ -1147,6 +1182,11 @@ impl SessionBinding {
 }
 
 impl CodingParts {
+    /// Take what preparing wants said to the person; empty after the first call.
+    pub fn take_startup_warnings(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.startup_warnings)
+    }
+
     /// The host-owned CodingPlan quota source, if any. Used at `/goal` start to
     /// size the round budget from the live request quota.
     pub(crate) fn rate_limit_source(&self) -> Option<&Arc<dyn RateLimitWindowSource>> {
@@ -1918,8 +1958,16 @@ mod tests {
         ];
 
         // Interactive context: bypass allowed (profile opted in).
-        let ctx_on = external_subagent_profiles(&configs, true);
+        let (ctx_on, said) = external_subagent_profiles(&configs, true);
         assert_eq!(ctx_on.len(), 3, "unknown kind + disabled are dropped");
+        // The unknown kind is said, not only dropped — the person is told at
+        // startup (`startup_warnings`). A disabled entry is a choice and says
+        // nothing.
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said[0].contains("bad-kind") && said[0].contains("gemini"),
+            "{said:?}"
+        );
         assert_eq!(ctx_on[0].permission, PermissionMode::ReadOnly);
         assert_eq!(ctx_on[0].kind, SubagentKind::Codex);
         assert_eq!(ctx_on[1].permission, PermissionMode::AcceptEdits);
@@ -1927,8 +1975,14 @@ mod tests {
         assert!(ctx_on[2].allow_dangerous);
 
         // Non-interactive context: bypass downgraded to read-only (fail-closed).
-        let ctx_off = external_subagent_profiles(&configs, false);
+        let (ctx_off, said_off) = external_subagent_profiles(&configs, false);
         assert_eq!(ctx_off[2].permission, PermissionMode::ReadOnly);
+        assert!(
+            said_off
+                .iter()
+                .any(|w| w.contains("codex-bypass") && w.contains("read-only")),
+            "the downgrade is said: {said_off:?}"
+        );
         assert!(!ctx_off[2].allow_dangerous);
     }
 
@@ -1941,7 +1995,7 @@ mod tests {
         let mut sub = SubAgentConfig::default();
         sub.codex = "read-only".into();
         sub.claude = "off".into();
-        let profiles = resolve_external_subagents(&sub, true);
+        let profiles = resolve_external_subagents(&sub, true).0;
         assert_eq!(profiles.len(), 1);
         assert_eq!(profiles[0].name, "codex");
         assert_eq!(profiles[0].kind, SubagentKind::Codex);
@@ -1961,19 +2015,19 @@ mod tests {
             timeout_secs: None,
             enabled: true,
         }];
-        let profiles = resolve_external_subagents(&sub, true);
+        let profiles = resolve_external_subagents(&sub, true).0;
         assert_eq!(profiles.len(), 1, "the built-in codex is not added on top");
         assert_eq!(profiles[0].permission, PermissionMode::AcceptEdits);
         assert_eq!(profiles[0].model.as_deref(), Some("gpt-5-codex"));
 
         // off + no explicit → nothing.
-        let empty = resolve_external_subagents(&SubAgentConfig::default(), true);
+        let empty = resolve_external_subagents(&SubAgentConfig::default(), true).0;
         assert!(empty.is_empty());
 
         // Off-spelling level still parses (reuses from_config_str normalization).
         let mut sub = SubAgentConfig::default();
         sub.codex = "Read_Only".into();
-        let p = resolve_external_subagents(&sub, true);
+        let p = resolve_external_subagents(&sub, true).0;
         assert_eq!(p.len(), 1);
         assert_eq!(p[0].permission, PermissionMode::ReadOnly);
 
@@ -1990,7 +2044,7 @@ mod tests {
             timeout_secs: None,
             enabled: false,
         }];
-        let p = resolve_external_subagents(&sub, true);
+        let p = resolve_external_subagents(&sub, true).0;
         assert!(
             p.is_empty(),
             "disabled explicit codex blocks the built-in switch"

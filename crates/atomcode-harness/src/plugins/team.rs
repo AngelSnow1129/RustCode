@@ -1017,8 +1017,22 @@ impl TeamTool {
             if stopped || known {
                 continue;
             }
+            let name = member.name.clone();
             if let Err(e) = self.restore(lead, member).await {
-                eprintln!("team: a member was not brought back: {e}");
+                // Straight into the lead's log: only a resumed lead restores,
+                // and a resumed session's file is already there to be written
+                // (a fresh one's is not — see the skipped-roles notice). Not
+                // stderr, which a full-screen front end is holding.
+                let log = lead.session();
+                crate::session::commit(
+                    lead.ctx(),
+                    &log,
+                    SessionEvent::Notice {
+                        turn: log.current_turn(),
+                        notice: crate::session::NoticeKind::MemberNotRestored,
+                        detail: format!("team member `{name}` was not brought back: {e}"),
+                    },
+                );
             }
         }
     }
@@ -1689,7 +1703,7 @@ impl Plugin for TeamPlugin {
         // over the screen or kept in a file nobody opens.
         //
         // At the agent's first turn of this launch, not when it is created: a
-        // runtime makes the session's file after the agent, and a fact
+        // runtime makes a fresh session's file after the agent, and a fact
         // committed before that has nowhere to be written — the store fails
         // closed on it. Once per session per launch, so a resumed conversation
         // is told again (the file is still bad) and a long one is told once.

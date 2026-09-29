@@ -259,15 +259,11 @@ impl ApprovalMiddleware {
 /// the kernel emits when the driver's oneshot sender was dropped, the bounded round-trip
 /// timed out, or the turn was cancelled (see `RequestCtx::request` / `cancel_pending`). A
 /// genuine user "deny" arrives as `{"decision":"deny"}` (non-null); this is NOT that. We
-/// fail closed either way, but surface the difference — on stderr AND in the deny reason
-/// the model/UI sees — so an internal channel failure can be told apart from a real user
+/// fail closed either way, but surface the difference — in the deny reason the model and
+/// the UI see — so an internal channel failure can be told apart from a real user
 /// denial (issue #173). SHARED by every gate that round-trips the driver so the contract +
 /// wording can never drift between copies.
 pub fn approval_channel_failure_deny(tool_name: &str) -> BeforeOutcome {
-    eprintln!(
-        "[approval] no decision received for tool '{tool_name}' (driver disconnected, \
-         timed out, or cancelled); denying due to internal channel failure, not a user decision"
-    );
     BeforeOutcome::deny(format!(
         "approval unresolved for '{tool_name}': no decision received (driver disconnected, \
          timed out, or cancelled) — internal channel failure, not a user denial"

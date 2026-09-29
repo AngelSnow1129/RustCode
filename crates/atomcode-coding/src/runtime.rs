@@ -2848,6 +2848,10 @@ impl CodingRuntime {
         // it like any other.
         let (handle, controls) = coding_runtime_control_channel();
         parts.set_runtime_commands(Arc::new(handle.clone()));
+        // Said once, first, before anything the runtime does: what the
+        // configuration asked for that was left out (see
+        // `CodingParts::startup_warnings`).
+        let startup_warnings = parts.take_startup_warnings();
         let session_id = parts.session.as_ref().map(|binding| binding.id.as_str());
         let session = parts.session.as_ref().map(|binding| RuntimeSessionInfo {
             id: binding.id.clone(),
@@ -2940,6 +2944,14 @@ impl CodingRuntime {
             let mut raw_open = true;
             let mut kernel_open = true;
             let mut receiver_dropped = false;
+            for warning in startup_warnings {
+                let _ = event_tx.send(SequencedRuntimeEvent {
+                    generation: task_handle.status().generation,
+                    sequence,
+                    event: CodingRuntimeEvent::ControllerWarning(warning),
+                });
+                sequence = sequence.wrapping_add(1);
+            }
 
             while raw_open || kernel_open {
                 tokio::select! {

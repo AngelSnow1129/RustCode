@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use atomcode_harness::seams::{StopReason, ToolsSvc};
-use atomcode_harness::{bundle, create_agent, drive, plugins};
+use atomcode_harness::{bundle, create_agent, drive};
 use atomcode_kernel::tool::{RiskLevel, Tool, ToolContext, ToolResult};
 use atomcode_plexus::{App, ConfigTree, Layer};
 use serde_json::{json, Value};

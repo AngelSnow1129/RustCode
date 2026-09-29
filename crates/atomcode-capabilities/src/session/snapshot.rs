@@ -849,24 +849,48 @@ fn reindex_compacted_sidecars(
     meta.updated_at = now_ms();
 }
 
+impl SnapshotHook {
+    fn save_compaction(&self, snapshot: &SessionSnapshot) -> Result<(), SessionStoreError> {
+        if let Some(lease) = &self.lease {
+            return self.mgr.commit_native_runtime_mutation(
+                lease,
+                snapshot,
+                |current_snapshot, meta, presentation| {
+                    reindex_compacted_sidecars(current_snapshot, snapshot, meta, presentation);
+                    Ok(())
+                },
+            );
+        }
+        self.mgr.save_snapshot(&self.session_id, snapshot)
+    }
+
+    /// Save a compaction the way [`CompactionCheckpoint::save`] does, for a
+    /// caller that has nobody to hand the error to: an uncertain commit
+    /// fail-stops as always, and a recoverable failure becomes a warning the
+    /// driver shows at the turn's end instead of a line on stderr.
+    pub fn save_compaction_or_warn(&self, snapshot: &SessionSnapshot) {
+        if let Err(error) = self.save_compaction(snapshot) {
+            self.record_persistence_error(&error);
+            if !error.is_uncertain_commit() {
+                self.persistence_status.report_auxiliary_warning(format!(
+                    "the compaction could not be saved ({error}); \
+                     the last saved state is intact — resolve the error and compact again"
+                ));
+            }
+        }
+    }
+}
+
 impl CompactionCheckpoint for SnapshotHook {
     fn save(&self, snapshot: &SessionSnapshot) -> Result<(), CompactionCheckpointError> {
-        if let Some(lease) = &self.lease {
-            return self
-                .mgr
-                .commit_native_runtime_mutation(
-                    lease,
-                    snapshot,
-                    |current_snapshot, meta, presentation| {
-                        reindex_compacted_sidecars(current_snapshot, snapshot, meta, presentation);
-                        Ok(())
-                    },
-                )
-                .map_err(|error| self.compaction_error(error));
-        }
-        self.mgr
-            .save_snapshot(&self.session_id, snapshot)
-            .map_err(|error| CompactionCheckpointError::new(error.to_string()))
+        let leased = self.lease.is_some();
+        self.save_compaction(snapshot).map_err(|error| {
+            if leased {
+                self.compaction_error(error)
+            } else {
+                CompactionCheckpointError::new(error.to_string())
+            }
+        })
     }
 }
 
@@ -948,7 +972,13 @@ impl LifecycleHooks for SnapshotHook {
                 .save_inflight_snapshot(&self.session_id, &snapshot, true),
         };
         if let Err(error) = result {
-            eprintln!("[SnapshotHook] inflight save at turn_start failed: {error}");
+            // What a crash would have recovered is not kept this turn; said to
+            // the person at the turn's end (the driver renders it), not on a
+            // stderr a full-screen front end is holding.
+            self.persistence_status.report_auxiliary_warning(format!(
+                "this turn's prompt could not be checkpointed ({error}); \
+                 a crash now would lose it"
+            ));
         }
     }
 
@@ -983,7 +1013,10 @@ impl LifecycleHooks for SnapshotHook {
         }
         drop(a);
         if let Err(error) = self.mgr.mark_inflight_not_replayable(&self.session_id) {
-            eprintln!("[SnapshotHook] inflight phase update failed: {error}");
+            self.persistence_status.report_auxiliary_warning(format!(
+                "this turn's checkpoint could not be updated ({error}); \
+                 a resume after a crash may offer its prompt again"
+            ));
         }
     }
 
@@ -1114,7 +1147,6 @@ impl LifecycleHooks for SnapshotHook {
                 // instead of dropping the unsaved turn silently. `save_snapshot`
                 // is a single atomic write, so it never yields an uncertain commit.
                 self.warn_turn_not_persisted(&error);
-                eprintln!("[SnapshotHook] save_snapshot failed: {error}");
                 return;
             }
             let fresh = SessionMeta::new(&self.session_id, &self.working_dir, now);
@@ -1129,7 +1161,6 @@ impl LifecycleHooks for SnapshotHook {
             if !error.is_uncertain_commit() {
                 self.warn_turn_not_persisted(&error);
             }
-            eprintln!("[SnapshotHook] update_meta failed: {error}");
             // Preserve the accepted-prompt checkpoint until a later successful
             // aggregate commit supersedes it.
             return;
@@ -1152,7 +1183,10 @@ impl LifecycleHooks for SnapshotHook {
             };
             if let Some(checkpoint) = rewind.checkpoint.as_ref() {
                 if let Err(error) = checkpoint.retain_points(&ledger.points) {
-                    eprintln!("[SnapshotHook] rewind refs update failed: {error}");
+                    self.persistence_status.report_auxiliary_warning(format!(
+                        "this turn's rewind point could not be kept ({error}); \
+                         `/rewind` will not offer it"
+                    ));
                     rewind.points = previous_points;
                     return;
                 }
@@ -1162,7 +1196,10 @@ impl LifecycleHooks for SnapshotHook {
                 None => self.mgr.save_rewind_ledger(&self.session_id, &ledger),
             };
             if let Err(error) = saved {
-                eprintln!("[SnapshotHook] rewind ledger save failed: {error}");
+                self.persistence_status.report_auxiliary_warning(format!(
+                    "this turn's rewind point could not be saved ({error}); \
+                     `/rewind` will not offer it"
+                ));
                 if let Some(checkpoint) = rewind.checkpoint.as_ref() {
                     let _ = checkpoint.retain_points(&previous_points);
                 }

@@ -15,9 +15,7 @@ use atomcode_kernel::provider::ReasoningEffort;
 use atomcode_plexus::{App, ConfigTree, Layer, Next, Waterfall};
 use serde_json::{json, Value};
 
-use atomcode_harness::bundle;
 use atomcode_harness::events::{AgentRequest, ModelRequest, ModelResponse, RequestError};
-use atomcode_harness::plugins;
 use atomcode_harness::run_turn;
 
 #[ctor::ctor]

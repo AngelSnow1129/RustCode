@@ -14,7 +14,7 @@ use atomcode_harness::events::{
 };
 use atomcode_harness::seams::{AgentsSvc, FsSvc, SessionSvc, StopReason, ToolsSvc};
 use atomcode_harness::session::{InjectionOrigin, SessionEvent};
-use atomcode_harness::{bundle, create_agent, drive, plugins, run_turn};
+use atomcode_harness::{bundle, create_agent, drive, run_turn};
 use atomcode_kernel::tool::ToolResult;
 use atomcode_plexus::{App, ConfigTree, Layer, Next, Waterfall};
 

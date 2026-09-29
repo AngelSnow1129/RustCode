@@ -5,6 +5,7 @@
 use atomcode_harness::agent::{CreateAgent, OnlySession};
 use std::sync::Arc;
 
+use atomcode_harness::run_turn;
 use atomcode_harness::seams::{
     AgentsSvc, SessionPersistenceSvc, SessionProjectionsSvc, StopReason,
 };
@@ -12,7 +13,6 @@ use atomcode_harness::session::{
     assert_model_visible_is_logged, derive_messages, HeaderReason, InjectionOrigin, LoggedEvent,
     SessionEvent, SessionLog,
 };
-use atomcode_harness::{bundle, plugins, run_turn};
 use atomcode_kernel::message::{Message, Role};
 use atomcode_kernel::tool::ToolCall;
 use atomcode_plexus::{App, ConfigTree, Layer};

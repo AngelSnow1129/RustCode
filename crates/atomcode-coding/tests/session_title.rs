@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use atomcode_harness::session::SessionEvent;
-use atomcode_harness::{bundle, create_agent, plugins, run_turn};
+use atomcode_harness::{create_agent, run_turn};
 use atomcode_plexus::{App, ConfigTree, Layer};
 
 #[ctor::ctor]

@@ -442,15 +442,26 @@ impl SessionManager {
         &self,
         lease: &SessionLease,
     ) -> SessionResult<(super::manager::LoadedSession, Option<Message>)> {
+        self.open_for_resume_noting(lease, &mut Vec::new())
+    }
+
+    /// [`Self::open_for_resume`], with what the person should be told about
+    /// the resume in `notes` (see
+    /// [`SessionManager::load_native_session_for_resume_noting`]).
+    pub fn open_for_resume_noting(
+        &self,
+        lease: &SessionLease,
+        notes: &mut Vec<String>,
+    ) -> SessionResult<(super::manager::LoadedSession, Option<Message>)> {
         self.validate_active_lease(lease)?;
         let id = lease.id();
         self.refuse_newer(id)?;
         if self.is_event_session(id) {
             self.move_snapshot_files_aside(id)?;
             self.record_chosen_name(lease);
-            return self.load_native_session_for_resume(lease);
+            return self.load_native_session_for_resume_noting(lease, notes);
         }
-        let (loaded, pending) = self.load_native_session_for_resume(lease)?;
+        let (loaded, pending) = self.load_native_session_for_resume_noting(lease, notes)?;
         self.convert(lease, loaded)?;
         Ok((self.load_native_session(id)?, pending))
     }

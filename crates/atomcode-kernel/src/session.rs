@@ -106,6 +106,9 @@ pub enum NoticeKind {
     /// a team role file, say — rather than keeping the session from starting.
     /// `detail` names the file and why.
     ConfigSkipped,
+    /// A team member the resumed lead had and had not stopped could not be
+    /// brought back. `detail` names it and why.
+    MemberNotRestored,
 }
 
 /// One durable fact about a session.
@@ -526,10 +529,13 @@ impl SessionEvent {
 /// left out at startup, told on the screen rather than written to a stderr a
 /// full-screen UI is holding.
 ///
+/// **12** — added [`NoticeKind::MemberNotRestored`]: a team member a resume
+/// could not bring back, told the same way.
+///
 /// A file's header records the version that created it; a later build may
 /// append facts of a kind added since. A reader that meets a kind it does not
 /// know treats the file as newer than itself, the same refusal.
-pub const SESSION_FORMAT_VERSION: u32 = 11;
+pub const SESSION_FORMAT_VERSION: u32 = 12;
 
 /// One replacement a [`SessionEvent::MessagesRewritten`] makes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use atomcode_harness::seams::{Aspect, LlmSvc, OperationsSvc, SystemPromptSvc, ToolsSvc};
-use atomcode_harness::{bundle, plugins, run_turn};
+use atomcode_harness::{bundle, run_turn};
 use atomcode_kernel::tool::{ProgressSink, Tool, ToolContext, ToolResult};
 use atomcode_plexus::{App, ConfigTree, Layer};
 

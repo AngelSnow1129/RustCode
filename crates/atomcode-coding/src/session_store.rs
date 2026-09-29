@@ -137,6 +137,15 @@ impl Store {
         )
     }
 
+    /// Tell the person something about a session this store could not keep —
+    /// a member's log, say — through the runtime's warning channel, which every
+    /// front end renders. Not stderr: a full-screen front end is holding it.
+    fn warn(&self, message: String) {
+        if let Some(status) = &self.session.status {
+            status.report_auxiliary_warning(format!("session-store: {message}"));
+        }
+    }
+
     fn append_now(&self, events: &[LoggedEvent]) -> Result<(), String> {
         if self.broken.load(Ordering::SeqCst) {
             return Err(format!(
@@ -275,10 +284,10 @@ impl Plugin for SessionStorePlugin {
                 return;
             }
             if let Err(e) = created_store.keep(&agent) {
-                eprintln!(
-                    "session-store: session {}: its log cannot be kept, so it does not run: {e}",
+                created_store.warn(format!(
+                    "session {}: its log cannot be kept, so it does not run: {e}",
                     agent.session_id()
-                );
+                ));
                 agent.cancel();
             }
         });
@@ -313,7 +322,7 @@ impl Plugin for SessionStorePlugin {
                 match written {
                     Some(Ok(())) => {}
                     Some(Err(e)) => {
-                        eprintln!("session-store: {e}; stopping it");
+                        store.warn(format!("{e}; stopping it"));
                         agent.cancel();
                     }
                     // Its log could not be kept when it was created.
@@ -321,17 +330,12 @@ impl Plugin for SessionStorePlugin {
                 }
                 return;
             }
-            let was_broken = store.broken.load(Ordering::SeqCst);
+            // A failed write is already reported as an uncertain commit by
+            // `append_now`, which the runtime turns into its fail-closed stop.
             if store
                 .append_now(std::slice::from_ref(&committed.logged()))
                 .is_err()
             {
-                if !was_broken {
-                    eprintln!(
-                        "session-store: session {}: a write failed; stopping",
-                        store.id()
-                    );
-                }
                 agent.cancel();
             }
         });

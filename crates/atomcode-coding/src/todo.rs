@@ -118,10 +118,8 @@ impl TodoEagerHook {
             TodoEagerness::Auto => TodoEagerness::Auto,
             other => other,
         };
+        // Said to the person by `parts::prepare` (a startup warning), not here.
         if eagerness == TodoEagerness::Always && provider_type.eq_ignore_ascii_case("ollama") {
-            eprintln!(
-                "[todo] eager=always is unsupported by provider type ollama; using preferred"
-            );
             eagerness = TodoEagerness::Preferred;
         }
         // Ollama's adapter cannot express a forced tool choice. Keep the

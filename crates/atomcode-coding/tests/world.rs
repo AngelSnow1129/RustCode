@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use atomcode_capabilities::world::{Chunk, Exit, Process, Shell, SpawnError, SpawnOptions};
 use atomcode_harness::seams::{FsSvc, ShellSvc, ToolsSvc};
-use atomcode_harness::{bundle, plugins, run_turn};
+use atomcode_harness::{bundle, run_turn};
 use atomcode_plexus::{App, ConfigTree, Context, Layer, Plugin};
 use serde_json::Value;
 

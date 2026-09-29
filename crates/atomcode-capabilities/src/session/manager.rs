@@ -1517,6 +1517,18 @@ impl SessionManager {
         &self,
         lease: &SessionLease,
     ) -> SessionResult<(LoadedSession, Option<Message>)> {
+        self.load_native_session_for_resume_noting(lease, &mut Vec::new())
+    }
+
+    /// [`Self::load_native_session_for_resume`], saying in `notes` what the
+    /// person should be told about the resume — an in-flight prompt that could
+    /// not be read and was dropped. The host shows them; nothing here writes to
+    /// stderr, which a full-screen front end may be holding.
+    pub fn load_native_session_for_resume_noting(
+        &self,
+        lease: &SessionLease,
+        notes: &mut Vec<String>,
+    ) -> SessionResult<(LoadedSession, Option<Message>)> {
         self.validate_active_lease(lease)?;
         let mut loaded = self.load_native_session(lease.id())?;
         // An event session's accepted prompt is already a fact in its log.
@@ -1527,10 +1539,11 @@ impl SessionManager {
             Ok(Some(checkpoint)) => checkpoint,
             Ok(None) => return Ok((loaded, None)),
             Err(error) => {
-                eprintln!(
-                    "[SessionManager] ignoring unreadable inflight snapshot for {}: {error}",
+                notes.push(format!(
+                    "the prompt session {} was answering when it stopped could not be read \
+                     and was dropped: {error}",
                     lease.id()
-                );
+                ));
                 self.clear_inflight_snapshot(lease.id());
                 return Ok((loaded, None));
             }

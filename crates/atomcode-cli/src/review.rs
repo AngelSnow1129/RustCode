@@ -324,6 +324,8 @@ pub async fn review(args: ReviewArgs) -> Result<()> {
     cfg.max_rounds = args.max_rounds;
     cfg.max_turn_duration = args.max_duration.map(std::time::Duration::from_secs);
     cfg.no_web = args.no_web;
+    // This command owns its terminal: say when the round budget forces landing.
+    cfg.trace_budget_to_stderr = true;
     // Diff-mode: pin tools to the changed-file set so the model cannot read_file
     // siblings already dropped from scope (notes.md / manifest after ignore).
     // Task/custom mode leaves this empty → root-only confinement (legacy).
