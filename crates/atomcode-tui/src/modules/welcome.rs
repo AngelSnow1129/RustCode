@@ -202,6 +202,7 @@ impl Producer for Welcome {
             heading: words.heading(),
             tips,
             brand: self.brand.clone(),
+            note: open.note.clone(),
         }))
     }
 }

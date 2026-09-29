@@ -169,6 +169,39 @@ pub mod tui_front {
         spawn: Option<crate::background::Spawn>,
         review_home: Option<crate::background::ReviewHome>,
     ) -> Result<(launch::Mounted, Option<Arc<crate::background::Background>>), String> {
+        mount_noted(
+            runtime,
+            front_end,
+            config,
+            host_config,
+            screen,
+            config_path,
+            telemetry,
+            opening_notice,
+            None,
+            spawn,
+            review_home,
+        )
+        .await
+    }
+
+    /// [`mount_with_background`], with the first-launch keys line for the foot
+    /// of the welcome (`crate::tui_opening::keys_note`). Only a person's launch
+    /// passes one: `mount` is every test's way in, and a test must not see it.
+    #[allow(clippy::too_many_arguments)]
+    async fn mount_noted(
+        runtime: CodingRuntime,
+        front_end: Arc<FrontEnd>,
+        config: CodingAgentConfig,
+        host_config: Option<Arc<dyn crate::host::HostConfig>>,
+        screen: &Screen,
+        config_path: std::path::PathBuf,
+        telemetry: Option<Arc<atomcode_telemetry::Telemetry>>,
+        opening_notice: Option<String>,
+        keys_note: Option<crate::tui_opening::KeysNote>,
+        spawn: Option<crate::background::Spawn>,
+        review_home: Option<crate::background::ReviewHome>,
+    ) -> Result<(launch::Mounted, Option<Arc<crate::background::Background>>), String> {
         // Both additions belong: the host configuration is what makes
         // `HostCommand::Settings`/`SwitchModel` answerable, and the settings row
         // is the panel `/config` pulls up. They are not alternatives — one is
@@ -243,6 +276,7 @@ pub mod tui_front {
             Arc::new(crate::tui_welcome_words::WelcomeWordsRow),
             Arc::new(crate::tui_opening::OpeningRow {
                 notice: opening_notice,
+                keys: keys_note,
             }),
             Arc::new(crate::tui_shell::ShellRow {
                 working_dir: working_dir.clone(),
@@ -860,9 +894,8 @@ model = "vendor-b"
         // write its marker.
         let keys_marker =
             crate::tui_opening::keys_notice_marker(&atomcode_config::config::Config::config_dir());
-        let keys_due = !keys_marker.exists();
-        let opening_notice = crate::tui_opening::with_keys_notice(opening_notice, &keys_marker);
-        let (mounted, background) = mount_with_background(
+        let keys_note = crate::tui_opening::keys_note(&keys_marker);
+        let (mounted, background) = mount_noted(
             runtime,
             front_end,
             config,
@@ -871,14 +904,11 @@ model = "vendor-b"
             config_path,
             telemetry,
             opening_notice,
+            keys_note,
             spawn,
             review_home,
         )
         .await?;
-        // The screen is up and the notice is on it: only now is it spent.
-        if keys_due {
-            crate::tui_opening::remember_keys_notice(&keys_marker);
-        }
         let ctx = mounted.app.context();
         let result = mounted.ui.run(&ctx, None).await;
         // 屏幕没了,后台的会话也停下:取消跑着的回合(半截回复落进日志),放掉租约

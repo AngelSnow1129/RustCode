@@ -58,6 +58,7 @@ plexus_service!(WelcomeWordsSvc => dyn crate::content::WelcomeWords, "tui-welcom
 // `content::OpeningNotices`. Unfilled means a launch with nothing to report,
 // which is the ordinary case.
 plexus_service!(OpeningNoticesSvc => crate::content::OpeningNotices, "tui-opening-notices", Seam, "What the launcher has to say about this launch, the moment the screen opens");
+plexus_service!(WelcomeNoteSeenSvc => dyn crate::content::WelcomeNoteSeen, "tui-welcome-note-seen", Seam, "Told once the welcome's note has actually been drawn");
 // 跑一条本机命令。手势(`!`)归屏幕,开一个进程归启动器 —— 这块屏幕
 // 碰不到操作系统。没填就没有这个功能,`!git status` 还是一句发给模型的话。
 plexus_service!(ShellSvc => dyn crate::shell::Shell, "tui-shell", Seam, "Running a command on this machine, for the `!` gesture");
@@ -1179,10 +1180,19 @@ impl UserInterface for Tui {
         // `open_conversation` stands down only for a block some *other*
         // producer made, and these are `commands`, like the readiness notice
         // below that has always been able to arrive first.
+        // The note for the welcome's foot goes to the first welcome only: it is
+        // this launch's, and `owes_opening` comes round again per session.
+        let mut welcome_note = ctx
+            .service::<OpeningNoticesSvc>()
+            .and_then(|notices| notices.welcome_note.clone());
         if let Some(notices) = ctx.service::<OpeningNoticesSvc>() {
             let mut stream = self.host.stream.write().expect("stream poisoned");
             let mut writer = stream.writer("commands");
-            for detail in notices.0.iter().filter(|line| !line.trim().is_empty()) {
+            for detail in notices
+                .notices
+                .iter()
+                .filter(|line| !line.trim().is_empty())
+            {
                 writer.emit(
                     crate::block::Coord::default(),
                     Arc::new(crate::content::NoticeBlock {
@@ -1403,10 +1413,26 @@ impl UserInterface for Tui {
                                 words: self.ctx.lock().expect("ctx poisoned").as_ref().and_then(
                                     |ctx| ctx.service::<crate::plugin::WelcomeWordsSvc>(),
                                 ),
+                                note: welcome_note.clone(),
                             };
-                        stale |= self
+                        // Spent only by a welcome that was drawn: a session whose
+                        // history stood the welcome down leaves it for the next.
+                        let opened = self
                             .host
                             .open_conversation(crate::block::Coord::default(), &open);
+                        if opened && welcome_note.take().is_some() {
+                            // Drawn: only now is it spent on the launcher's side.
+                            if let Some(seen) = self
+                                .ctx
+                                .lock()
+                                .expect("ctx poisoned")
+                                .as_ref()
+                                .and_then(|ctx| ctx.service::<WelcomeNoteSeenSvc>())
+                            {
+                                seen.seen();
+                            }
+                        }
+                        stale |= opened;
                         // Answered once per session, whatever the answer: a
                         // stream that was not empty will not become empty
                         // again, and one that opened is no longer empty. It is

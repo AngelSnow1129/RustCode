@@ -132,6 +132,9 @@ pub struct WelcomeBlock {
     /// producer, so a downstream build changes it in the config tree rather
     /// than in this file.
     pub brand: std::sync::Arc<Brand>,
+    /// A dim line under the working directory and the model
+    /// (`OpeningNotices::welcome_note`).
+    pub note: Option<String>,
 }
 
 /// What the welcome block says, in the language in force.
@@ -175,7 +178,26 @@ pub trait WelcomeWords: Send + Sync + 'static {
 /// session gets: these are not about the session, they are about how this
 /// process started.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct OpeningNotices(pub Vec<String>);
+pub struct OpeningNotices {
+    /// One block each, above the welcome.
+    pub notices: Vec<String>,
+    /// One line at the foot of this launch's first welcome block, under the
+    /// working directory and the model — a quiet aside that belongs with the
+    /// block that says how the session starts (the first-launch keys hint),
+    /// not a piece of news standing over it.
+    pub welcome_note: Option<String>,
+}
+
+/// Told when [`OpeningNotices::welcome_note`] has actually been drawn.
+///
+/// The note is a one-time thing on the launcher's side (the first-launch keys
+/// line records that it was shown), and only the screen knows when it was: it
+/// waits for the agent to describe itself, and a welcome can stand down for a
+/// session that already has history. A launcher that recorded it as shown when
+/// the screen merely came up could spend it on a launch that never drew it.
+pub trait WelcomeNoteSeen: Send + Sync + 'static {
+    fn seen(&self);
+}
 
 /// What this build calls itself, as data rather than as constants.
 ///
@@ -296,6 +318,9 @@ impl Content for WelcomeBlock {
         if let Some(model) = &self.model {
             parts.push(model);
         }
+        if let Some(note) = &self.note {
+            parts.push(note);
+        }
         for (command, about) in &self.tips {
             parts.push(command);
             parts.push(about);
@@ -343,6 +368,11 @@ impl Content for WelcomeBlock {
                 Style::default(),
                 &format!("{bullet} "),
             ));
+        }
+        // Under them, dim and without a bullet: an aside about the screen, not
+        // a fact about the session.
+        if let Some(note) = self.note.as_deref().filter(|n| !n.trim().is_empty()) {
+            below.extend(wrapped(note, content_w as u16, muted(), ""));
         }
 
         // ---- The right column: a heading and the tips ----
@@ -2949,6 +2979,41 @@ mod tests {
             .all(|line| line.spans.iter().all(|span| span.link.is_none())));
     }
 
+    /// The first-launch keys line sits at the foot of the welcome, under the
+    /// working directory and the model, dim and without a bullet — an aside,
+    /// not news standing over the block.
+    #[test]
+    fn a_welcome_note_sits_under_the_working_directory_and_the_model() {
+        let mut block = welcome();
+        block.note = Some("按键提示:全部按键见 /keys".into());
+        let lines = block.lines(&crate::block::RenderCtx::bare(100));
+        let rows: Vec<String> = lines.iter().map(|l| l.plain()).collect();
+        let at = |needle: &str| {
+            rows.iter()
+                .position(|r| r.contains(needle))
+                .unwrap_or_else(|| panic!("`{needle}` is drawn: {rows:#?}"))
+        };
+        let note = at("/keys");
+        assert!(
+            note > at(&block.cwd),
+            "under the working directory: {rows:#?}"
+        );
+        if let Some(model) = block.model.clone() {
+            assert!(note > at(&model), "and under the model: {rows:#?}");
+        }
+        let span = lines[note]
+            .spans
+            .iter()
+            .find(|s| s.text.contains("/keys"))
+            .expect("the note's text");
+        assert_eq!(span.style.fg, Some(Color::role(Role::Muted)), "dim");
+        assert!(!rows[note].contains(crate::caps::Caps::default().g(Glyph::Bullet)));
+
+        // And it is part of what the block says.
+        let bare = welcome();
+        assert_ne!(block.content_hash(), bare.content_hash());
+    }
+
     fn welcome() -> WelcomeBlock {
         WelcomeBlock {
             cwd: "~/proj".into(),
@@ -2960,6 +3025,7 @@ mod tests {
                 ("/help".into(), "列出所有命令".into()),
             ],
             brand: std::sync::Arc::new(Brand::default()),
+            note: None,
         }
     }
 
@@ -3054,6 +3120,7 @@ mod tests {
         };
         let block = WelcomeBlock {
             brand: std::sync::Arc::new(mine.clone()),
+            note: None,
             ..welcome()
         };
         let all = lines_of(&block, 80, true).join("\n");

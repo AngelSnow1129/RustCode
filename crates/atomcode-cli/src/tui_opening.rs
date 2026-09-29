@@ -22,8 +22,8 @@
 
 use async_trait::async_trait;
 use atomcode_plexus::{Context, Plugin};
-use atomcode_tui::content::OpeningNotices;
-use atomcode_tui::plugin::OpeningNoticesSvc;
+use atomcode_tui::content::{OpeningNotices, WelcomeNoteSeen};
+use atomcode_tui::plugin::{OpeningNoticesSvc, WelcomeNoteSeenSvc};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -39,6 +39,26 @@ pub fn row_layer() -> String {
 pub struct OpeningRow {
     /// The merged notice as the launcher built it, `None` on an ordinary launch.
     pub notice: Option<String>,
+    /// The first-launch keys line ([`keys_note`]), for the foot of the first
+    /// welcome block. `None` on every launch after the first.
+    pub keys: Option<KeysNote>,
+}
+
+/// The first-launch keys line, and where to record that it was drawn.
+#[derive(Clone, Debug)]
+pub struct KeysNote {
+    pub text: String,
+    pub marker: PathBuf,
+}
+
+/// Records the keys line as shown when the screen says it was drawn — not
+/// when the screen came up, which is before the welcome it rides on.
+struct RememberWhenSeen(PathBuf);
+
+impl WelcomeNoteSeen for RememberWhenSeen {
+    fn seen(&self) {
+        remember_keys_notice(&self.0);
+    }
 }
 
 /// One notice per line.
@@ -49,15 +69,16 @@ pub struct OpeningRow {
 /// three unrelated pieces of news from reading as one paragraph. Blank lines are
 /// dropped rather than drawn as empty blocks.
 pub fn notices(notice: Option<&str>) -> OpeningNotices {
-    OpeningNotices(
-        notice
+    OpeningNotices {
+        notices: notice
             .into_iter()
             .flat_map(|text| text.lines())
             .map(str::trim_end)
             .filter(|line| !line.trim().is_empty())
             .map(str::to_string)
             .collect(),
-    )
+        welcome_note: None,
+    }
 }
 
 /// Where the first-launch keys notice records that it has been said.
@@ -65,24 +86,23 @@ pub fn keys_notice_marker(config_dir: &Path) -> PathBuf {
     config_dir.join("tui-keys-notice-shown")
 }
 
-/// This launch's notice, with a line of keys after it — on the first launch of
+/// A line of keys for the foot of the welcome block — on the first launch of
 /// this screen only.
 ///
 /// Reasoning is hidden and tool output has its own key, and neither says so on
-/// screen. Said once,
-/// and last: what just happened to this launch is news first.
+/// screen. It is an aside about the screen, so it sits under the working
+/// directory and the model, dim, rather than above the welcome with the news
+/// about this launch (a config that did not parse) — where it read as the
+/// most important thing on the screen.
 ///
-/// Only decides: the marker is written by [`remember_keys_notice`] once the
-/// screen is up, so a launch that fails before drawing anything has not spent
-/// the notice.
-pub fn with_keys_notice(notice: Option<String>, marker: &Path) -> Option<String> {
-    if marker.exists() {
-        return notice;
-    }
-    let keys = atomcode_config::i18n::t(atomcode_config::i18n::Msg::TuiKeysHint).into_owned();
-    Some(match notice {
-        Some(notice) => format!("{notice}\n{keys}"),
-        None => keys,
+/// Only decides: the marker is written by [`remember_keys_notice`] when the
+/// screen reports the line drawn ([`WelcomeNoteSeen`]), so a launch that never
+/// drew it — no welcome yet when it quit, a config that stopped the agent from
+/// describing itself — has not spent it.
+pub fn keys_note(marker: &Path) -> Option<KeysNote> {
+    (!marker.exists()).then(|| KeysNote {
+        text: atomcode_config::i18n::t(atomcode_config::i18n::Msg::TuiKeysHint).into_owned(),
+        marker: marker.to_path_buf(),
     })
 }
 
@@ -101,15 +121,23 @@ impl Plugin for OpeningRow {
         ROW
     }
     fn provides(&self) -> &'static [&'static str] {
-        &["tui-opening-notices"]
+        &["tui-opening-notices", "tui-welcome-note-seen"]
     }
     fn description(&self) -> &'static str {
         "what this launch has to say for itself: a config that did not parse, a working directory that moved, a session that was forked"
     }
     async fn apply(&self, ctx: &Context, _config: &Value) -> Result<(), String> {
         let _ = ctx
-            .provide::<OpeningNoticesSvc>(Arc::new(notices(self.notice.as_deref())))
+            .provide::<OpeningNoticesSvc>(Arc::new(OpeningNotices {
+                welcome_note: self.keys.as_ref().map(|keys| keys.text.clone()),
+                ..notices(self.notice.as_deref())
+            }))
             .map_err(|e| e.to_string())?;
+        if let Some(keys) = &self.keys {
+            let _ = ctx
+                .provide::<WelcomeNoteSeenSvc>(Arc::new(RememberWhenSeen(keys.marker.clone())))
+                .map_err(|e| e.to_string())?;
+        }
         Ok(())
     }
 }
@@ -128,7 +156,7 @@ mod tests {
     fn a_merged_notice_becomes_one_notice_per_piece() {
         let merged = "resume moved to ~/other\nconfig.toml did not parse\nforked from s-1";
         assert_eq!(
-            notices(Some(merged)).0,
+            notices(Some(merged)).notices,
             vec![
                 "resume moved to ~/other",
                 "config.toml did not parse",
@@ -137,10 +165,11 @@ mod tests {
         );
     }
 
-    /// The keys notice is said on the first launch, after whatever else this
-    /// launch has to say, and never again.
+    /// The keys line is offered on the first launch only, and for the foot of
+    /// the welcome — not as one more notice over it, where it read as the most
+    /// important thing on the screen.
     #[test]
-    fn the_keys_notice_is_said_once_and_last() {
+    fn the_keys_line_is_for_the_first_launch_and_the_welcomes_foot() {
         let dir = std::env::temp_dir().join(format!(
             "atomcode-keys-notice-{}-{:?}",
             std::process::id(),
@@ -148,25 +177,30 @@ mod tests {
         ));
         let marker = keys_notice_marker(&dir);
 
-        let first = with_keys_notice(Some("config.toml did not parse".into()), &marker)
-            .expect("the first launch has something to say");
-        let lines: Vec<&str> = first.lines().collect();
-        assert_eq!(lines.len(), 2, "{first}");
-        assert_eq!(lines[0], "config.toml did not parse", "news first");
-        assert!(lines[1].contains("ctrl-o"), "then the keys: {first}");
+        let keys = keys_note(&marker).expect("the first launch has it").text;
+        assert!(keys.contains("/keys"), "{keys}");
         assert!(
-            with_keys_notice(None, &marker).is_some(),
+            keys_note(&marker).is_some(),
             "deciding does not spend it: a launch that never drew says it again"
         );
 
-        remember_keys_notice(&marker);
-        assert!(marker.exists(), "remembered once the screen is up");
+        // Carried apart from the news about this launch, never merged into it.
+        let row = OpeningRow {
+            notice: Some("config.toml did not parse".into()),
+            keys: keys_note(&marker),
+        };
+        let said = OpeningNotices {
+            welcome_note: row.keys.as_ref().map(|k| k.text.clone()),
+            ..notices(row.notice.as_deref())
+        };
+        assert_eq!(said.notices, vec!["config.toml did not parse".to_string()]);
+        assert_eq!(said.welcome_note.as_deref(), Some(keys.as_str()));
 
-        assert_eq!(with_keys_notice(None, &marker), None, "never again");
-        assert_eq!(
-            with_keys_notice(Some("forked from s-1".into()), &marker).as_deref(),
-            Some("forked from s-1")
-        );
+        assert!(!marker.exists(), "not spent by being handed to the screen");
+        // Spent when the screen says it drew it.
+        RememberWhenSeen(marker.clone()).seen();
+        assert!(marker.exists(), "remembered once it was drawn");
+        assert!(keys_note(&marker).is_none(), "never again");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -174,8 +208,8 @@ mod tests {
     /// empty block: a blank notice is a `⚑` with no words after it.
     #[test]
     fn an_ordinary_launch_has_nothing_to_say() {
-        assert_eq!(notices(None).0, Vec::<String>::new());
-        assert_eq!(notices(Some("")).0, Vec::<String>::new());
-        assert_eq!(notices(Some("\n  \n")).0, Vec::<String>::new());
+        assert_eq!(notices(None).notices, Vec::<String>::new());
+        assert_eq!(notices(Some("")).notices, Vec::<String>::new());
+        assert_eq!(notices(Some("\n  \n")).notices, Vec::<String>::new());
     }
 }

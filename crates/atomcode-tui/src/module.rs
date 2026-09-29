@@ -194,6 +194,9 @@ pub struct Opening {
     /// `None` means a launcher that provides none, and the producer falls back
     /// to the sentences this crate ships.
     pub words: Option<Arc<dyn crate::content::WelcomeWords>>,
+    /// A dim line for the foot of the block — this launch's
+    /// `OpeningNotices::welcome_note`, on the first welcome only.
+    pub note: Option<String>,
 }
 
 /// Hand-written because `words` is a trait object and the trait is deliberately
@@ -209,6 +212,7 @@ impl std::fmt::Debug for Opening {
             .field("version", &self.version)
             .field("commands", &self.commands)
             .field("words", &self.words.as_ref().map(|_| "<provided>"))
+            .field("note", &self.note)
             .finish()
     }
 }
