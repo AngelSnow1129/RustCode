@@ -20,10 +20,17 @@ pub struct State {
     pub model: String,
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
-    /// The cached part of the last request's context. Read off the same reading
-    /// as `prompt_tokens` so the hit rate the row shows (`cache 96%`) is a share
-    /// of the request it came from, not two figures from different requests.
+    /// The cached part of the last request's context, read off the same reading
+    /// as `prompt_tokens`. The row's `cache NN%` is the session's rate
+    /// (`session_cached` over `session_prompt`), not this one request's.
     pub cached_tokens: u32,
+    /// Every request's prompt and cached tokens, summed over the session — what
+    /// the row's `cache NN%` is a share of, the way the classic screen's footer
+    /// reads it: how well the cache is doing for this conversation, not for the
+    /// last request (which the turn's own summary line already says). A resumed
+    /// session's log is replayed through `absorb`, so its history counts too.
+    pub session_prompt: u64,
+    pub session_cached: u64,
     pub tool_calls: u32,
     pub last_stop: Option<String>,
 }
@@ -58,6 +65,8 @@ impl View for Status {
                 // reading rather than a max: a hit rate is only meaningful against
                 // the context it was measured on.
                 state.cached_tokens = usage.cached;
+                state.session_prompt += u64::from(usage.prompt);
+                state.session_cached += u64::from(usage.cached);
             }
             SessionEvent::StepEnd { tool_calls, .. } => state.tool_calls += tool_calls,
             SessionEvent::TurnEnd { stop, .. } => state.last_stop = Some(format!("{stop:?}")),
@@ -283,7 +292,7 @@ impl View for Status {
             String::new()
         };
         let cache_str =
-            cache_indicator(state.cached_tokens, state.prompt_tokens).unwrap_or_default();
+            cache_indicator(state.session_cached, state.session_prompt).unwrap_or_default();
 
         let budget = (w as usize).saturating_sub(reserved);
         let segs = fit_status_segments(
@@ -465,9 +474,9 @@ fn gauge_tokens(state: &State, moment: &Moment) -> u32 {
 /// The cache-hit segment (`cache 96%`), or `None` when the provider reported no
 /// caching — a `cache 0%` would state a fact we do not have, the same rule the
 /// zero token counter follows.
-fn cache_indicator(cached: u32, prompt: u32) -> Option<String> {
+fn cache_indicator(cached: u64, prompt: u64) -> Option<String> {
     (cached > 0 && prompt > 0).then(|| {
-        let pct = (cached as u64 * 100 / prompt as u64).min(100);
+        let pct = (cached * 100 / prompt).min(100);
         format!("cache {pct}%")
     })
 }
@@ -1320,6 +1329,31 @@ mod tests {
         );
     }
 
+    /// The cache rate is the session's, as tuix shows it: a background review's
+    /// cold first request must not drag the footer down to its own 0%.
+    #[test]
+    fn the_cache_rate_is_the_sessions_not_the_last_requests() {
+        use atomcode_kernel::stream::TokenUsage;
+        let usage = |prompt, cached| SessionEvent::Usage {
+            turn: 1,
+            round: 1,
+            usage: TokenUsage {
+                prompt,
+                completion: 10,
+                cached,
+            },
+        };
+        let mut st = State::default();
+        Status::absorb(&mut st, &usage(10_000, 9_000));
+        Status::absorb(&mut st, &usage(10_000, 0)); // a cold request
+        let m = Moment {
+            ctx_window: 1_000_000,
+            ..Default::default()
+        };
+        let line = Status::render(&st, &Viewport::new(Rect::sized(120, 1), &m))[0].plain();
+        assert!(line.contains("cache 45%"), "{line:?}");
+    }
+
     /// A compaction is not a request, so the row cannot wait for one to report
     /// the drop: it stands on the fold's own byte ratio until a reading lands.
     #[test]
@@ -1604,6 +1638,8 @@ mod tests {
             model: "glm5.3-flash-pro".into(),
             prompt_tokens: 49_000,
             cached_tokens: 47_040, // 96% of 49_000
+            session_prompt: 49_000,
+            session_cached: 47_040,
             ..Default::default()
         };
         let m = Moment {
@@ -1665,6 +1701,8 @@ mod tests {
             model: "glm5.3-flash-pro".into(),
             prompt_tokens: 49_000,
             cached_tokens: 47_040,
+            session_prompt: 49_000,
+            session_cached: 47_040,
             ..Default::default()
         };
         let m = Moment {
@@ -1691,6 +1729,8 @@ mod tests {
             model: "glm".into(),
             prompt_tokens: 100, // 10% of the window — well below the warn threshold
             cached_tokens: 50,
+            session_prompt: 100,
+            session_cached: 50,
             ..Default::default()
         };
         let m = Moment {
@@ -1759,6 +1799,8 @@ mod tests {
             model: "some-extremely-long-model-name-v2.5-preview".into(),
             prompt_tokens: 123_456,
             cached_tokens: 120_000,
+            session_prompt: 123_456,
+            session_cached: 120_000,
             ..Default::default()
         };
         for w in 1u16..80 {
