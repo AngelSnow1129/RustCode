@@ -4295,7 +4295,7 @@ async fn the_menu_asks_the_terminal_for_the_pointer_only_while_it_is_open() {
     // button reporting. Asserted as the state rather than as the bytes, because
     // the bug was that the two were thought to be the same thing — the old pair
     // of flags said "no hover" and could not say "and still no buttons", so the
-    // pointer was gone for the rest of the session and `ctrl-o` needed two
+    // pointer was gone for the rest of the session and the mouse key needed two
     // presses to return it: the first turned off what was already off.
     assert_eq!(
         s.term.pointer_mode(),

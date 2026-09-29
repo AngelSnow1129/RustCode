@@ -211,7 +211,7 @@ impl Presentation {
     ///
     /// Reasoning and the environment's own injections both open off the screen,
     /// and both come back one step at a time: a one-row lid, then the whole
-    /// thing, then away again — `alt-r` for the first, `/showinject` for the
+    /// thing, then away again — `ctrl-o` (or `alt-r`) for the first, `/showinject` for the
     /// second. The difference is the audience: a thought is the model working and
     /// a person may want to watch it arrive, while an injection is the harness
     /// talking to the model and nobody is reading `<system-reminder>` on purpose.
@@ -13000,7 +13000,7 @@ mod tests {
     }
 
     /// Hidden reasoning in the turn that just ended is what the one-time
-    /// "alt-r shows it" line is said for — and only that: once reasoning is
+    /// "ctrl-o shows it" line is said for — and only that: once reasoning is
     /// on the screen, or the latest turn did not think, there is nothing to
     /// point at.
     #[test]
@@ -13042,7 +13042,7 @@ mod tests {
         // The reasoning channel is the working, not the answer. A lid between
         // every call — `◐ 思考 7 行` — is a row spent telling someone who is not
         // reading the working how much working there is that they are not
-        // reading. So it opens off the screen, and alt-r (or `/reasoning`)
+        // reading. So it opens off the screen, and ctrl-o (or `/reasoning`)
         // brings it back: a lid, then the whole thought, then away again.
         let h = fed();
         let away = h.compose((80, 40)).rows().join("\n");

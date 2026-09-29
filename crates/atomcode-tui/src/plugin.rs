@@ -961,7 +961,7 @@ pub struct Tui {
     /// Once per screen: the account stays out until the window turns over, and a
     /// line that came back every turn would be one more thing to read past.
     allowance_nudged: Arc<AtomicBool>,
-    /// Whether "this turn's reasoning is hidden — alt-r" has been said. Once
+    /// Whether "this turn's reasoning is hidden — ctrl-o" has been said. Once
     /// per screen, for the reason `allowance_nudged` is: it is news the first
     /// time, and after that it is one more line to read past.
     reasoning_hinted: AtomicBool,

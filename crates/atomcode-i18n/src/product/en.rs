@@ -627,7 +627,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             "/webui  open a synced session in the browser".into(),
 
         // ── Welcome screen tips ──
-        Msg::TuiKeysHint => "keys: reasoning alt-r (or /reasoning) · tool output ctrl-t · ctrl-o hands the mouse to the terminal and back · every key: /keys".into(),
+        Msg::TuiKeysHint => "keys: reasoning ctrl-o · tool output ctrl-t · ctrl-g hands the mouse to the terminal and back · every key: /keys".into(),
         Msg::WelcomeTipsHeading => "Tips for getting started".into(),
         Msg::WelcomeTipLogin => "claim a free token quota".into(),
         Msg::WelcomeTipProvider => "add a custom model".into(),

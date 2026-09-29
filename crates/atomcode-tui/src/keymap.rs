@@ -416,7 +416,15 @@ impl Keymap for Default_ {
             // its mnemonic letter and moves one modifier over: `Alt+R`. A
             // person who learned the old chord finds the new one by the same
             // letter, which is the cheapest a moved binding gets.
+            //
+            // `Ctrl+O` does the same, and is the one most people will press:
+            // on a Mac, Option is a character key unless the terminal is told
+            // otherwise, so `Option+R` types a symbol (`®`, or `@`, by layout)
+            // and never arrives as `Alt+R`. `Ctrl+O` arrives on every terminal,
+            // and it is the key the classic screen and other agents' screens use
+            // for "show me the details".
             (KeyPress::ctrl('r'), Action::SearchHistory),
+            (KeyPress::ctrl('o'), Action::ToggleFold("reasoning")),
             (
                 KeyPress::new(
                     Key::Char('r'),
@@ -450,9 +458,11 @@ impl Keymap for Default_ {
                 ),
                 Action::AttachImage,
             ),
-            // Hand the mouse back, and take it again. `o` for "off", and one of
-            // the few control keys a terminal does not already claim.
-            (KeyPress::ctrl('o'), Action::ToggleMouse),
+            // Hand the mouse back, and take it again (`/mouse` does the same).
+            // `Ctrl+G` because `Ctrl+O` went to reasoning (see above) and this is
+            // one of the few control keys neither a terminal nor a shell's line
+            // editor claims.
+            (KeyPress::ctrl('g'), Action::ToggleMouse),
             // ctrl-l is "redraw" in every terminal there has ever been, and
             // that is the reflex to serve: it is the key a person reaches for
             // when the screen is wrong.
@@ -542,6 +552,31 @@ mod tests {
     /// Both directions asserted: a cycle you cannot walk back is one a person
     /// has to walk all the way round, and on a list of two that is the same
     /// key twice.
+    /// Reasoning is on a key every terminal delivers. `Alt+R` stays, but on a
+    /// Mac `Option+R` types a symbol unless the terminal is set up otherwise,
+    /// so `Ctrl+O` is the one that has to work; the mouse moved to `Ctrl+G`.
+    #[test]
+    fn reasoning_is_ctrl_o_and_the_mouse_is_ctrl_g() {
+        let keys = Keys::new();
+        keys.add(&Default_).unwrap();
+        let reasoning = Some(Action::ToggleFold("reasoning"));
+        assert_eq!(keys.resolve(KeyPress::ctrl('o')), reasoning);
+        assert_eq!(
+            keys.resolve(KeyPress::new(
+                Key::Char('r'),
+                Mods {
+                    ctrl: false,
+                    alt: true,
+                    shift: false,
+                    cmd: false,
+                },
+            )),
+            reasoning,
+            "alt-r still works where the terminal sends it"
+        );
+        assert_eq!(keys.resolve(KeyPress::ctrl('g')), Some(Action::ToggleMouse));
+    }
+
     #[test]
     fn f2_steps_between_models_and_shift_f2_steps_back() {
         let keys = Keys::new();

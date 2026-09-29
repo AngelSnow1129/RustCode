@@ -69,7 +69,7 @@ pub fn keys_notice_marker(config_dir: &Path) -> PathBuf {
 /// this screen only.
 ///
 /// Reasoning is hidden and tool output has its own key, and neither says so on
-/// screen (ctrl-o, which a person may reach for, is the mouse here). Said once,
+/// screen. Said once,
 /// and last: what just happened to this launch is news first.
 ///
 /// Only decides: the marker is written by [`remember_keys_notice`] once the
@@ -153,7 +153,7 @@ mod tests {
         let lines: Vec<&str> = first.lines().collect();
         assert_eq!(lines.len(), 2, "{first}");
         assert_eq!(lines[0], "config.toml did not parse", "news first");
-        assert!(lines[1].contains("alt-r"), "then the keys: {first}");
+        assert!(lines[1].contains("ctrl-o"), "then the keys: {first}");
         assert!(
             with_keys_notice(None, &marker).is_some(),
             "deciding does not spend it: a launch that never drew says it again"
