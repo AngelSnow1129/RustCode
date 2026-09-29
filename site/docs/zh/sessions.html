@@ -102,14 +102,15 @@
       <pre><code>/session</code></pre>
       <p>在不切换工作目录的前提下开启全新的上下文。适合"刚刚那个任务已经收尾,我要开始完全不相关的另一件事"。</p>
 
-      <h2 id="bg">后台会话(<code>/bg</code>)</h2>
-      <p>需要同时跟进多条任务、又不想丢失当前对话上下文?<code>/bg</code> 把当前会话挪到后台、打开一个全新前台,随时可以切回去。最多 <strong>16 个并行后台槽位</strong>。</p>
+      <h2 id="bg">后台会话(<code>/background</code> · <code>/bg</code>)</h2>
+      <p>需要同时跟进多条任务、又不想丢失当前对话上下文?<code>/background</code>(别名 <code>/bg</code>,二者等价)把当前会话挪到后台、打开一个全新前台,随时可以切回去。最多 <strong>16 个并行后台槽位</strong>。</p>
       <table>
         <thead>
           <tr><th>命令</th><th>作用</th></tr>
         </thead>
         <tbody>
           <tr><td><code>/bg</code></td><td>把当前会话送到后台,打开新的前台</td></tr>
+          <tr><td><code>/background &lt;任务&gt;</code>(<code>/bg &lt;任务&gt;</code> 同)</td><td>不切换前后台,直接在一个后台槽位里启动一次性任务(见下文)</td></tr>
           <tr><td><code>/bg list</code>(别名 <code>/bg ls</code>)</td><td>列出所有后台会话:编号、ID、状态、创建时间、摘要</td></tr>
           <tr><td><code>/bg &lt;N&gt;</code></td><td>恢复第 N 号后台为前台(当前前台会被换下到后台)</td></tr>
           <tr><td><code>/bg drop &lt;N&gt;</code></td><td>丢弃第 N 号后台会话</td></tr>
@@ -128,7 +129,7 @@
       <p>所以 <code>/bg</code> 后台并不只是"挂起"——模型真的会在后台继续干活,切回来时直接拿到结果。</p>
 
       <h3 id="background-任务-一次性后台派发"><code>/background &lt;任务&gt;</code> —— 一次性后台派发</h3>
-      <p>如果你不想专门切换前后台、只是"顺手让它跑一下查个东西",用 <code>/background</code> 兼容入口:</p>
+      <p>如果你不想专门切换前后台、只是"顺手让它跑一下查个东西",直接带任务即可(两个名字等价)——<code>/background &lt;任务&gt;</code> 或 <code>/bg &lt;任务&gt;</code>:</p>
       <pre><code>/background 列出 src 下未使用的依赖</code></pre>
       <p>会在一个 <code>/bg</code> 槽位里启动一次性任务(默认配置为只读工具子集,不污染主对话上下文)。跑完后用 <code>/bg list</code> 看状态,<code>/bg &lt;N&gt;</code> 切过去读结果,<code>/bg drop &lt;N&gt;</code> 丢弃。</p>
 
