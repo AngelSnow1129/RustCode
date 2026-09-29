@@ -428,7 +428,17 @@ fn load_roles(dirs: &[PathBuf]) -> Result<Vec<Role>, String> {
             .collect();
         files.sort();
         for file in files {
-            let mut role = parse_role_file(&file)?;
+            // Role files under a user-writable directory are configuration:
+            // one malformed file must not prevent the whole runtime from
+            // assembling. Skip it and tell the person; built-in roles still
+            // cover the session.
+            let mut role = match parse_role_file(&file) {
+                Ok(role) => role,
+                Err(reason) => {
+                    eprintln!("team: skipping a role file: {reason}");
+                    continue;
+                }
+            };
             // The first directory is the project's own; see `Role::model`.
             role.from_project = index == 0;
             match roles.iter_mut().find(|r| r.id == role.id) {
