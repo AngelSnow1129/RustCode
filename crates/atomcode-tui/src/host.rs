@@ -6216,19 +6216,12 @@ impl Host {
 
     /// Fold or unfold what a click landed on.
     ///
-    /// A run of calls is drawn as one lid, so a click on it opens the whole run:
-    /// a lid that says `4 个工具` and then hands over one of them would be a lie
-    /// about what was behind it. The run is found by the block clicked, not by
-    /// where the lid is drawn, so the same call answers the same way whether it
-    /// is behind a lid or open on its own.
-    ///
-    /// Fold or unfold what a click landed on.
-    ///
-    /// A run of calls is drawn as one lid, so a click on it opens the whole run:
-    /// a lid that says `4 个工具` and then hands over one of them would be a lie
-    /// about what was behind it. The run is found by the block clicked, not by
-    /// where the lid is drawn, so the same call answers the same way whether it
-    /// is behind a lid or open on its own.
+    /// In the grouped mode a run of calls is drawn as one lid, so a click on it
+    /// opens the whole run: a lid that says `4 个工具` and then hands over one of
+    /// them would be a lie about what was behind it. The run is found by the
+    /// block clicked, not by where the lid is drawn, so the same call answers the
+    /// same way whether it is behind a lid or open on its own. In any other mode
+    /// each call is drawn on its own row, and a click moves only the one clicked.
     ///
     /// One state for the whole run, both ways: folding any call of an open run
     /// puts the run away. Keeping them in step is what makes the merged form a
@@ -6244,9 +6237,19 @@ impl Host {
         let slots = stream.slots();
         // Read first and let the guard go: the run is asked of the state a click
         // was answered against, and the write below needs the lock to itself.
+        // The whole run only where the run IS one thing on screen: the grouped
+        // mode, which merges a run behind a lid. In every other mode each call
+        // is drawn on its own row, and opening all of them because one was
+        // clicked buried the one asked for among the rest — the person scrolled
+        // through every call's output to reach it.
         let (run, show) = {
             let pres = self.presentation.read().expect("presentation poisoned");
-            (run_around(slots, &pres, id), pres.tool_show(id))
+            let run = if pres.merges_tool_runs() {
+                run_around(slots, &pres, id)
+            } else {
+                vec![id]
+            };
+            (run, pres.tool_show(id))
         };
         let mut pres = self.presentation.write().expect("presentation poisoned");
         if kind == "tool_call" && pres.tool_output == ToolOutput::Head {
@@ -12898,13 +12901,63 @@ mod tests {
         assert!(frame.containment_violations().is_empty());
     }
 
+    /// Outside the grouped mode each call is drawn on its own row, so a click
+    /// opens the call it landed on and leaves its neighbours as they were —
+    /// opening all of them buried the one asked for among the rest.
+    #[test]
+    fn a_click_opens_only_the_call_it_landed_on() {
+        let h = fed();
+        let _ = h.compose((80, 40));
+        assert!(
+            !h.presentation.read().unwrap().merges_tool_runs(),
+            "the default does not merge"
+        );
+        let calls: Vec<_> = {
+            let stream = h.stream.read().unwrap();
+            stream
+                .slots()
+                .iter()
+                .filter(|s| s.block().kind() == "tool_call")
+                .map(|s| s.block().id)
+                .collect()
+        };
+        assert!(calls.len() >= 2, "need two calls in a row");
+        let folded = |id| {
+            h.presentation
+                .read()
+                .unwrap()
+                .is_block_folded(id, "tool_call")
+        };
+        let (clicked, neighbour) = (calls[0], calls[1]);
+        let (was, neighbour_was) = (folded(clicked), folded(neighbour));
+
+        h.toggle_block(clicked, "tool_call");
+
+        assert_eq!(
+            folded(clicked),
+            !was,
+            "the call that was clicked did not move"
+        );
+        assert_eq!(
+            folded(neighbour),
+            neighbour_was,
+            "its neighbour moved with it"
+        );
+    }
+
     #[test]
     fn folding_one_block_moves_its_run_and_nothing_else() {
         // The pointing gesture is still the narrow one: ctrl-t moves every tool
-        // call in the transcript, and a click must not. What it does move is the
-        // run the clicked call belongs to — a lid that says `2 个工具` and then
-        // hands over one of them is a lie about what was behind it.
+        // call in the transcript, and a click must not. In the grouped mode what
+        // it does move is the run the clicked call belongs to — a lid that says
+        // `2 个工具` and then hands over one of them is a lie about what was
+        // behind it. (Any other mode draws each call on its own and a click moves
+        // only that one: `a_click_opens_only_the_call_it_landed_on`.)
         let h = fed();
+        h.presentation
+            .write()
+            .unwrap()
+            .set_tool_output(crate::host::ToolOutput::Group);
         let size = (80, 40);
         let _ = h.compose(size);
         let calls: Vec<_> = {
