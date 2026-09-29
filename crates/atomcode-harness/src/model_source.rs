@@ -357,10 +357,11 @@ impl ModelEndpoint {
             return Err(format!(
                 "this row needs {}.\n  \
                  - already configured AtomCode? use the `llm-atomcode-config` row instead, \
-                 which reads ~/.atomcode/config.toml\n  \
+                 which reads ~/{}/config.toml\n  \
                  - just trying it out? add --offline for a scripted model that needs no key\n  \
                  - or set them: export {}=…",
                 missing.join(", "),
+                atomcode_config::distribution::HOME_DIR_NAME,
                 missing.join("=… ")
             ));
         }
@@ -432,19 +433,22 @@ fn key_env(named: Option<&str>) -> &str {
     named.unwrap_or(DEFAULT_API_KEY_ENV)
 }
 
-/// The trust this process runs under — `$ATOMCODE_HOME`, else `$HOME/.atomcode`.
+/// The tree this process runs under when it is the host — `$ATOMCODE_HOME`, else
+/// `$HOME/<distribution::HOME_DIR_NAME>`. Rows never call this: they read the
+/// `product-dirs` seam ([`crate::product_dirs`]), whose row falls back to this.
 ///
 /// A *named* resolver rather than an `env_var` anyone can call: "which variable
 /// holds this" is a decision, and a decision belongs next to the thing it is
 /// about. Handing out a generic reader is how the reads went back to being
 /// scattered the first time.
 pub fn atomcode_home() -> PathBuf {
-    if let Some(dir) = env("ATOMCODE_HOME") {
+    if let Some(dir) = env(atomcode_config::distribution::HOME_ENV) {
         return PathBuf::from(dir);
     }
+    let name = atomcode_config::distribution::HOME_DIR_NAME;
     user_home()
-        .map(|h| h.join(".atomcode"))
-        .unwrap_or_else(|| PathBuf::from(".atomcode"))
+        .map(|h| h.join(name))
+        .unwrap_or_else(|| PathBuf::from(name))
 }
 
 /// The user's home directory (`$HOME`, or `$USERPROFILE` on Windows).

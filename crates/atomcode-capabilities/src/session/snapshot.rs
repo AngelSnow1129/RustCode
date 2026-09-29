@@ -98,6 +98,8 @@ impl SnapshotPersistenceStatus {
 /// Saves `<id>.snapshot` (the compacted working set) + updates `<id>.meta` each turn.
 pub struct SnapshotHook {
     mgr: Arc<SessionManager>,
+    /// Where the Code Rewind store goes (`<user tree>/rewind/…`).
+    dirs: crate::ProductDirs,
     session_id: String,
     working_dir: String,
     lease: Option<SessionLease>,
@@ -197,16 +199,20 @@ impl SnapshotHook {
         mgr: Arc<SessionManager>,
         session_id: impl Into<String>,
         working_dir: impl Into<String>,
+        dirs: &crate::ProductDirs,
     ) -> Self {
         let session_id = session_id.into();
         let working_dir = working_dir.into();
         // Code Rewind is off by default.  When the user opts in via
         // ATOMCODE_CODE_REWIND=1 we construct the bounded workspace checkpoint
-        // whose store lives under $ATOMCODE_HOME/rewind/<bucket>/<session_id> —
+        // whose store lives under <user tree>/rewind/<bucket>/<session_id> —
         // NOT inside the worktree or on a hard-coded C: path.
         let (checkpoint, unavailable) = if crate::session::rewind::code_rewind_opt_in() {
-            match WorkspaceCheckpoint::for_session(std::path::Path::new(&working_dir), &session_id)
-            {
+            match WorkspaceCheckpoint::for_session(
+                std::path::Path::new(&working_dir),
+                &session_id,
+                dirs,
+            ) {
                 Ok(cp) => (Some(Arc::new(cp)), None),
                 Err(e) => (
                     None,
@@ -222,6 +228,7 @@ impl SnapshotHook {
             .unwrap_or_default();
         Self {
             mgr,
+            dirs: dirs.clone(),
             session_id,
             working_dir,
             lease: None,
@@ -752,6 +759,7 @@ impl SnapshotHook {
                         let checkpoint = WorkspaceCheckpoint::for_session_recovery(
                             std::path::Path::new(&self.working_dir),
                             &self.session_id,
+                            &self.dirs,
                         )?;
                         checkpoint.compensate(tree, &journal.restored_files)?;
                         let _ = checkpoint.unpin_recovery_ref();
@@ -1168,6 +1176,7 @@ impl LifecycleHooks for SnapshotHook {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::product_dirs::test_dirs;
     use crate::session::StorageOwner;
     use atomcode_kernel::message::{Message, MessageMeta};
     use atomcode_kernel::stream::TokenUsage;
@@ -1175,7 +1184,11 @@ mod tests {
     fn hook(id: &str) -> (SnapshotHook, Arc<SessionManager>, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let mgr = Arc::new(SessionManager::with_root(dir.path()));
-        (SnapshotHook::new(mgr.clone(), id, "/proj"), mgr, dir)
+        (
+            SnapshotHook::new(mgr.clone(), id, "/proj", &test_dirs()),
+            mgr,
+            dir,
+        )
     }
 
     fn convo_with(n_user: usize) -> Conversation {
@@ -1230,15 +1243,16 @@ mod tests {
         manager.save_snapshot(id, &original).unwrap();
 
         let lease = manager.acquire_lease(id).unwrap();
-        let hook = SnapshotHook::new(manager.clone(), id, "/not-a-git-worktree").with_lease(lease);
+        let hook = SnapshotHook::new(manager.clone(), id, "/not-a-git-worktree", &test_dirs())
+            .with_lease(lease);
         let target = SessionSnapshot::from_conversation(&convo_with(0));
         let _receipt = hook.begin_rewind(&points[0], false, Some(target)).unwrap();
         assert!(hook.rewind_points().is_empty());
         drop(hook); // Simulate process death before conversation persistence.
 
         let lease = manager.acquire_lease(id).unwrap();
-        let recovered =
-            SnapshotHook::new(manager.clone(), id, "/not-a-git-worktree").with_lease(lease);
+        let recovered = SnapshotHook::new(manager.clone(), id, "/not-a-git-worktree", &test_dirs())
+            .with_lease(lease);
         assert_eq!(recovered.rewind_points(), points);
         assert!(manager.load_rewind_transaction(id).unwrap().is_none());
     }
@@ -1263,7 +1277,8 @@ mod tests {
             .unwrap();
 
         let lease = manager.acquire_lease(id).unwrap();
-        let hook = SnapshotHook::new(manager.clone(), id, "/not-a-git-worktree").with_lease(lease);
+        let hook = SnapshotHook::new(manager.clone(), id, "/not-a-git-worktree", &test_dirs())
+            .with_lease(lease);
         let target = SessionSnapshot::from_conversation(&convo_with(0));
         let _receipt = hook
             .begin_rewind(&points[0], false, Some(target.clone()))
@@ -1272,8 +1287,8 @@ mod tests {
         drop(hook); // Simulate death after conversation commit, before finalization.
 
         let lease = manager.acquire_lease(id).unwrap();
-        let recovered =
-            SnapshotHook::new(manager.clone(), id, "/not-a-git-worktree").with_lease(lease);
+        let recovered = SnapshotHook::new(manager.clone(), id, "/not-a-git-worktree", &test_dirs())
+            .with_lease(lease);
         assert!(recovered.rewind_points().is_empty());
         assert!(manager.load_rewind_transaction(id).unwrap().is_none());
     }
@@ -1302,7 +1317,8 @@ mod tests {
             ],
         );
         let checkpoint = Arc::new(
-            WorkspaceCheckpoint::for_session(worktree.path(), "rewind-code-crash").unwrap(),
+            WorkspaceCheckpoint::for_session(worktree.path(), "rewind-code-crash", &test_dirs())
+                .unwrap(),
         );
         let before = checkpoint.capture().unwrap().unwrap();
         std::fs::write(worktree.path().join("tracked.txt"), "after\n").unwrap();
@@ -1335,6 +1351,7 @@ mod tests {
             manager.clone(),
             "rewind-code-crash",
             worktree.path().to_string_lossy(),
+            &test_dirs(),
         );
         hook.rewind
             .lock()
@@ -1353,6 +1370,7 @@ mod tests {
             manager.clone(),
             "rewind-code-crash",
             worktree.path().to_string_lossy(),
+            &test_dirs(),
         )
         .with_lease(lease);
 
@@ -1416,7 +1434,9 @@ mod tests {
                     "initial",
                 ],
             );
-            let cp = Arc::new(WorkspaceCheckpoint::for_session(worktree.path(), name).unwrap());
+            let cp = Arc::new(
+                WorkspaceCheckpoint::for_session(worktree.path(), name, &test_dirs()).unwrap(),
+            );
             (worktree, cp)
         }
 
@@ -1447,8 +1467,12 @@ mod tests {
                 )
                 .unwrap();
             let lease = manager.acquire_lease(name).unwrap();
-            let hook =
-                SnapshotHook::new(manager.clone(), name, worktree.to_string_lossy().as_ref());
+            let hook = SnapshotHook::new(
+                manager.clone(),
+                name,
+                worktree.to_string_lossy().as_ref(),
+                &test_dirs(),
+            );
             hook.rewind
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -1607,7 +1631,7 @@ mod tests {
             )
             .unwrap();
         let lease = manager.acquire_lease(id).unwrap();
-        let hook = SnapshotHook::new(manager.clone(), id, "/p").with_lease(lease);
+        let hook = SnapshotHook::new(manager.clone(), id, "/p", &test_dirs()).with_lease(lease);
         let after = SessionSnapshot::new(vec![
             Message::user("summary"),
             Message::user("u3"),
@@ -1697,7 +1721,7 @@ mod tests {
         });
         pause.wait_until_read();
 
-        let hook = SnapshotHook::new(manager.clone(), id, "/p").with_lease(lease);
+        let hook = SnapshotHook::new(manager.clone(), id, "/p", &test_dirs()).with_lease(lease);
         let (done_tx, done_rx) = mpsc::channel();
         let compact = std::thread::spawn(move || {
             let result = CompactionCheckpoint::save(&hook, &compacted);
@@ -2066,7 +2090,7 @@ mod tests {
             &meta,
         )
         .unwrap();
-        let hook = SnapshotHook::new(mgr.clone(), id, "/proj").with_lease(lease);
+        let hook = SnapshotHook::new(mgr.clone(), id, "/proj", &test_dirs()).with_lease(lease);
 
         mgr.rename(id, "User title").unwrap();
         mgr.append_presentation(
@@ -2109,7 +2133,7 @@ mod tests {
             &meta,
         )
         .unwrap();
-        let hook = SnapshotHook::new(mgr.clone(), id, "/proj").with_lease(lease);
+        let hook = SnapshotHook::new(mgr.clone(), id, "/proj", &test_dirs()).with_lease(lease);
         hook.user_prompt_submit(&mut "go".to_string())
             .await
             .unwrap();
@@ -2271,7 +2295,12 @@ mod tests {
         // A bare init has no commits; for_session only needs a valid git dir.
         let store_dir = tempfile::tempdir().unwrap();
         let mgr = Arc::new(SessionManager::with_root(store_dir.path()));
-        let hook = SnapshotHook::new(mgr.clone(), id, worktree.path().to_string_lossy());
+        let hook = SnapshotHook::new(
+            mgr.clone(),
+            id,
+            worktree.path().to_string_lossy(),
+            &test_dirs(),
+        );
         (hook, mgr, worktree, store_dir)
     }
 

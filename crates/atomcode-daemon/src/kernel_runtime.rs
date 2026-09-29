@@ -95,6 +95,7 @@ async fn start_native_runtime_with_session_bootstrap(
         SessionMode::Resume(id) => {
             let manager = atomcode_capabilities::session::SessionManager::for_project(
                 &coding_cfg.working_dir,
+                &atomcode_coding::config::product_dirs_from_env(),
             );
             let lease = manager.acquire_lease(&id).map_err(|error| {
                 atomcode_coding::RuntimeStartError::Prepare(std::io::Error::from(error))
@@ -107,6 +108,7 @@ async fn start_native_runtime_with_session_bootstrap(
         SessionMode::ExternalSnapshot { id, snapshot } => {
             let manager = atomcode_capabilities::session::SessionManager::for_project(
                 &coding_cfg.working_dir,
+                &atomcode_coding::config::product_dirs_from_env(),
             );
             let lease = manager.acquire_lease(&id).map_err(|error| {
                 atomcode_coding::RuntimeStartError::Prepare(std::io::Error::from(error))
@@ -463,6 +465,7 @@ mod tests {
         let cfg = CodingRuntimeConfig::from_config(
             &config,
             home._dir.path(),
+            atomcode_coding::config::product_dirs_from_env(),
             None,
             Some(telemetry),
             false,
@@ -477,8 +480,15 @@ mod tests {
         let _home = ScopedHome::new();
         let working_dir = tempfile::tempdir().unwrap();
         let config = atomcode_config::config::Config::default();
-        let cfg =
-            CodingRuntimeConfig::from_config(&config, working_dir.path(), None, None, false, true);
+        let cfg = CodingRuntimeConfig::from_config(
+            &config,
+            working_dir.path(),
+            atomcode_coding::config::product_dirs_from_env(),
+            None,
+            None,
+            false,
+            true,
+        );
         let (control_tx, mut event_rx, mut state_rx) = spawn_native_runtime_for_session_deferred(
             cfg,
             "deferred-test".into(),
@@ -512,8 +522,15 @@ mod tests {
         let _home = ScopedHome::new();
         let working_dir = tempfile::tempdir().unwrap();
         let config = atomcode_config::config::Config::default();
-        let mut cfg =
-            CodingRuntimeConfig::from_config(&config, working_dir.path(), None, None, false, true);
+        let mut cfg = CodingRuntimeConfig::from_config(
+            &config,
+            working_dir.path(),
+            atomcode_coding::config::product_dirs_from_env(),
+            None,
+            None,
+            false,
+            true,
+        );
         cfg.provider_name = "main".into();
         cfg.api_key = "test".into();
         cfg.base_url = "http://127.0.0.1:9/v1".into();
@@ -573,7 +590,15 @@ mod tests {
         let working_dir = tempfile::tempdir().unwrap();
         let config = atomcode_config::config::Config::default();
         let cfg = || {
-            CodingRuntimeConfig::from_config(&config, working_dir.path(), None, None, false, true)
+            CodingRuntimeConfig::from_config(
+                &config,
+                working_dir.path(),
+                atomcode_coding::config::product_dirs_from_env(),
+                None,
+                None,
+                false,
+                true,
+            )
         };
         let snapshot = || atomcode_kernel::message::SessionSnapshot::new(Vec::new());
         let (first_tx, _first_events, mut first_state) = spawn_native_runtime_for_session_deferred(

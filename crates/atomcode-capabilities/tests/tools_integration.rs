@@ -24,7 +24,10 @@ fn done() -> StreamEvent {
 #[test]
 fn full_toolset_registers_and_mounts() {
     let mut reg = ToolRegistry::new();
-    register_coding_tools(&mut reg);
+    register_coding_tools(
+        &mut reg,
+        &atomcode_capabilities::ProductDirs::new("/nonexistent/tree", ".ours"),
+    );
     let mounted = reg.mount(coding_tool_names());
     let names: Vec<String> = mounted.defs().into_iter().map(|d| d.name).collect();
 
@@ -75,7 +78,10 @@ fn full_toolset_registers_and_mounts() {
 async fn approval_allows_risky_write_and_it_lands() {
     let d = tempfile::tempdir().unwrap();
     let mut reg = ToolRegistry::new();
-    register_coding_tools(&mut reg);
+    register_coding_tools(
+        &mut reg,
+        &atomcode_capabilities::ProductDirs::new("/nonexistent/tree", ".ours"),
+    );
     let provider = Arc::new(MockProvider::new(vec![
         vec![
             tool_call(
@@ -116,7 +122,10 @@ async fn approval_allows_risky_write_and_it_lands() {
 async fn approval_denies_risky_write_and_it_is_blocked() {
     let d = tempfile::tempdir().unwrap();
     let mut reg = ToolRegistry::new();
-    register_coding_tools(&mut reg);
+    register_coding_tools(
+        &mut reg,
+        &atomcode_capabilities::ProductDirs::new("/nonexistent/tree", ".ours"),
+    );
     let provider = Arc::new(MockProvider::new(vec![
         vec![
             tool_call(
@@ -160,7 +169,10 @@ async fn safe_tools_run_without_approval_prompt() {
     let d = tempfile::tempdir().unwrap();
     std::fs::write(d.path().join("data.txt"), "alpha\nbeta\n").unwrap();
     let mut reg = ToolRegistry::new();
-    register_coding_tools(&mut reg);
+    register_coding_tools(
+        &mut reg,
+        &atomcode_capabilities::ProductDirs::new("/nonexistent/tree", ".ours"),
+    );
     let provider = Arc::new(MockProvider::new(vec![
         vec![
             tool_call("c1", "read_file", r#"{"file_path":"data.txt"}"#),
@@ -192,7 +204,10 @@ async fn safe_tools_run_without_approval_prompt() {
 async fn multi_tool_task_write_then_read_roundtrips() {
     let d = tempfile::tempdir().unwrap();
     let mut reg = ToolRegistry::new();
-    register_coding_tools(&mut reg);
+    register_coding_tools(
+        &mut reg,
+        &atomcode_capabilities::ProductDirs::new("/nonexistent/tree", ".ours"),
+    );
     let provider = Arc::new(MockProvider::new(vec![
         vec![
             tool_call(

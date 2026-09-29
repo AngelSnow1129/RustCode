@@ -617,13 +617,16 @@ pub enum DefaultModelPolicy {
 /// (background sync) — see [`DefaultModelPolicy`].
 ///
 /// Emits exactly one `TakeCodingplan { Success | Fail }` event at each exit path.
+///
+/// `user_dir` is the user tree the login is read from and saved to.
 pub fn run(
     config: &mut Config,
+    user_dir: &std::path::Path,
     tel: Option<&Arc<atomcode_telemetry::Telemetry>>,
     default_policy: DefaultModelPolicy,
 ) -> Result<SetupReport> {
     // Step 1: login
-    let login = step_login(tel);
+    let login = step_login(user_dir, tel);
     if login.is_err() {
         // No point continuing — every downstream call needs a token.
         if let Some(t) = tel {
@@ -654,7 +657,7 @@ pub fn run(
     }
 
     // Step 2: claim — cascade Max → Pro → Lite, first success wins.
-    let (claim, claim_attempts, claim_auth_expired) = step_claim();
+    let (claim, claim_attempts, claim_auth_expired) = step_claim(user_dir);
     if claim.is_err() {
         // Claim failed at every tier — adding providers / fetching
         // status both make no sense without an active plan. Bail
@@ -688,7 +691,7 @@ pub fn run(
 
     // Step 3: models — critical. Without models there's nothing to set up.
     let (models, models_auth_expired) =
-        step_models_and_register(config, plan_type_for_models, default_policy);
+        step_models_and_register(user_dir, config, plan_type_for_models, default_policy);
     if models.is_err() {
         if let Some(t) = tel {
             t.track(atomcode_telemetry::Event::TakeCodingplan {
@@ -719,7 +722,7 @@ pub fn run(
     // Step 4: status — warn-only. A 401 here is rare (claim+models
     // both passed) but still worth surfacing so a retry has a chance
     // to capture the warm token.
-    let (status, status_auth_expired) = step_status();
+    let (status, status_auth_expired) = step_status(user_dir);
 
     // All critical steps (login + models) succeeded. Emit success event.
     if let Some(t) = tel {
@@ -751,13 +754,16 @@ pub fn run(
 /// failure line above already explains why nothing came after it.
 const CASCADE_FROM_UPSTREAM_FAIL: &str = "__cascade_upstream_fail__";
 
-fn step_login(tel: Option<&Arc<atomcode_telemetry::Telemetry>>) -> StepResult<LoginInfo> {
-    if auth::is_logged_in() {
+fn step_login(
+    user_dir: &std::path::Path,
+    tel: Option<&Arc<atomcode_telemetry::Telemetry>>,
+) -> StepResult<LoginInfo> {
+    if auth::is_logged_in(user_dir) {
         // Already authed — surface the stored identity so the report
         // shows *who* we're running as, not a bare "skipped". When
         // display-name and username differ (the common case), show
         // both so the user can tell them apart: `TheoCui(saulcy)`.
-        if let Some(info) = auth::get_stored_auth() {
+        if let Some(info) = auth::get_stored_auth(user_dir) {
             let display = match info.user.name.as_deref() {
                 Some(name) if !name.is_empty() && name != info.user.username => {
                     format!("{}({})", name, info.user.username)
@@ -773,7 +779,7 @@ fn step_login(tel: Option<&Arc<atomcode_telemetry::Telemetry>>) -> StepResult<Lo
     // Not logged in — run OAuth. This prints to stdout + opens a browser.
     // Callers in TUI context must have already suspended raw mode before
     // calling `run`.
-    match auth::login(tel).and_then(|a| auth::save_auth(&a).map(|_| a)) {
+    match auth::login(user_dir, tel).and_then(|a| auth::save_auth(user_dir, &a).map(|_| a)) {
         Ok(auth_info) => StepResult::Ok(LoginInfo {
             username: auth_info.user.username.clone(),
             display_name: auth_info.user.name.clone(),
@@ -816,8 +822,8 @@ fn step_login(tel: Option<&Arc<atomcode_telemetry::Telemetry>>) -> StepResult<Lo
 ///   `claim-v2` (or a `from_stored_auth` refresh failure). Bubbled
 ///   up to `SetupReport.auth_expired` so the shell knows to
 ///   re-OAuth and retry instead of just printing the failure.
-fn step_claim() -> (StepResult<ClaimInfo>, Vec<TierAttempt>, bool) {
-    let client = match Client::from_stored_auth() {
+fn step_claim(user_dir: &std::path::Path) -> (StepResult<ClaimInfo>, Vec<TierAttempt>, bool) {
+    let client = match Client::from_stored_auth(user_dir) {
         Ok(c) => c,
         Err(e) => {
             let auth_expired = is_auth_expired(&e);
@@ -916,11 +922,12 @@ fn step_claim() -> (StepResult<ClaimInfo>, Vec<TierAttempt>, bool) {
 }
 
 fn step_models_and_register(
+    user_dir: &std::path::Path,
     config: &mut Config,
     plan_type: PlanType,
     default_policy: DefaultModelPolicy,
 ) -> (StepResult<ModelsInfo>, bool) {
-    let client = match Client::from_stored_auth() {
+    let client = match Client::from_stored_auth(user_dir) {
         Ok(c) => c,
         Err(e) => {
             let auth_expired = is_auth_expired(&e);
@@ -1310,8 +1317,8 @@ fn persist_codingplan_as_new_schema(config: &mut Config) {
     }
 }
 
-fn step_status() -> (StepResult<StatusResponse>, bool) {
-    let client = match Client::from_stored_auth() {
+fn step_status(user_dir: &std::path::Path) -> (StepResult<StatusResponse>, bool) {
+    let client = match Client::from_stored_auth(user_dir) {
         Ok(c) => c,
         Err(e) => {
             let auth_expired = is_auth_expired(&e);

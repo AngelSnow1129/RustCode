@@ -14,8 +14,8 @@
 //! 老前端在 tokio 里用 `block_in_place` 硬扛,那是它跑在事件循环线程上的形状;
 //! 这里的端口是 async 的,于是一个阻塞线程就够,而且不拖住别人的回合。
 //!
-//! **种子装到哪**:`$ATOMCODE_HOME`(装了 `ATOMCODE_HOME` 就是它,否则 `~/.atomcode`)
-//! —— 和 `SkillRegistry` 扫的是同一个目录(`runtime_skill_dirs`),所以装完重载一下
+//! **种子装到哪**:宿主交进来的用户目录(`ProductDirs::user`)
+//! —— 和 `SkillRegistry` 扫的是同一个目录(`standard_skill_dirs`),所以装完重载一下
 //! agent 就看得见。老前端装的是**同一个位置**,不是项目级:`/setup` 在一台新机器上
 //! 装的那一个 `setup` skill,是全机器共用的。
 
@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use atomcode_capabilities::ProductDirs;
 use atomcode_i18n::screen::{t as tr, Msg as SMsg};
 use atomcode_tui::setup::Setup;
 
@@ -35,13 +36,15 @@ use atomcode_tui::setup::Setup;
 pub struct DiskSetup {
     home: PathBuf,
     working_dir: PathBuf,
+    dirs: ProductDirs,
 }
 
 impl DiskSetup {
-    pub fn new(working_dir: PathBuf) -> Arc<Self> {
+    pub fn new(working_dir: PathBuf, dirs: ProductDirs) -> Arc<Self> {
         Arc::new(Self {
             home: dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")),
             working_dir,
+            dirs,
         })
     }
 }
@@ -56,10 +59,16 @@ impl DiskSetup {
 ///
 /// 走注册表而不是自己拼路径：`SkillRegistry` 扫哪些目录、按什么优先级，是加载器的
 /// 事，第二份路径知识迟早和它分家。拆成自由函数是为了让判据能拿临时目录问一遍，
-/// 而不必去动进程里的 `ATOMCODE_HOME` 和真实家目录。
-fn seed_installed(home: &std::path::Path, project: &std::path::Path) -> bool {
-    let dirs = atomcode_capabilities::skills::runtime_skill_dirs(home, project);
-    atomcode_capabilities::skills::SkillRegistry::load(&dirs)
+/// 而不必去动真实家目录。
+fn seed_installed(home: &std::path::Path, project: &std::path::Path, dirs: &ProductDirs) -> bool {
+    let scanned = atomcode_capabilities::skills::standard_skill_dirs(
+        atomcode_capabilities::skills::SkillRoots {
+            home,
+            project,
+            dirs,
+        },
+    );
+    atomcode_capabilities::skills::SkillRegistry::load(&scanned)
         .user_invocable()
         .iter()
         .any(|skill| skill.name.rsplit(':').next() == Some("setup"))
@@ -68,13 +77,13 @@ fn seed_installed(home: &std::path::Path, project: &std::path::Path) -> bool {
 #[async_trait]
 impl Setup for DiskSetup {
     fn installed(&self) -> bool {
-        seed_installed(&self.home, &self.working_dir)
+        seed_installed(&self.home, &self.working_dir, &self.dirs)
     }
 
     async fn install(&self) -> Result<String, String> {
         let root = self.working_dir.clone();
         // 装在项目上,但写的是用户级的 skill 目录 —— 见文件头「种子装到哪」。
-        let opts = atomcode_capabilities::setup::RunOptions::new(root);
+        let opts = atomcode_capabilities::setup::RunOptions::new(root, self.dirs.clone());
         let report = tokio::task::spawn_blocking(move || atomcode_capabilities::setup::run(opts))
             .await
             .map_err(|e| {
@@ -96,38 +105,23 @@ impl Setup for DiskSetup {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, OnceLock};
 
-    /// `ATOMCODE_HOME` 是进程级的,而装种子和查种子都读它。nextest 下每个测试是
-    /// 自己的进程,这个锁是给 `cargo test` 那种同进程跑法留的。
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
-    /// 设 `ATOMCODE_HOME` 到临时目录,跑完还原 —— 和 `schedule_cmd` 的
-    /// `with_temp_home` 同一条理由,只是这里还要一个**空的家目录**:种子写进
-    /// `ATOMCODE_HOME`,查的时候也要只查那儿,否则机器上真实的 `~/.claude/skills`
-    /// 里恰好有个 `setup` 就能让判据永远为真。
-    fn with_home<T>(f: impl FnOnce(std::path::PathBuf) -> T) -> T {
-        let _guard = env_lock().lock().unwrap_or_else(|p| p.into_inner());
-        let previous = std::env::var_os("ATOMCODE_HOME");
+    /// 一个**空的家目录**加一棵临时的用户目录:种子写进用户目录,查的时候也只查那儿,
+    /// 否则机器上真实的 `~/.claude/skills` 里恰好有个 `setup` 就能让判据永远为真。
+    /// 目录是交进来的,不经进程环境,所以测试之间不必互相排队。
+    fn with_home<T>(f: impl FnOnce(std::path::PathBuf, ProductDirs) -> T) -> T {
         let home = tempfile::tempdir().unwrap();
         let config = tempfile::tempdir().unwrap();
-        std::env::set_var("ATOMCODE_HOME", config.path());
-        let result = f(home.path().to_path_buf());
-        match previous {
-            Some(v) => std::env::set_var("ATOMCODE_HOME", v),
-            None => std::env::remove_var("ATOMCODE_HOME"),
-        }
-        result
+        let dirs = ProductDirs::new(config.path().to_path_buf(), ".ours");
+        f(home.path().to_path_buf(), dirs)
     }
 
-    fn port(home: std::path::PathBuf) -> (tempfile::TempDir, Arc<DiskSetup>) {
+    fn port(home: std::path::PathBuf, dirs: ProductDirs) -> (tempfile::TempDir, Arc<DiskSetup>) {
         let project = tempfile::tempdir().unwrap();
         let setup = Arc::new(DiskSetup {
             home,
             working_dir: project.path().to_path_buf(),
+            dirs,
         });
         (project, setup)
     }
@@ -136,8 +130,8 @@ mod tests {
     /// 时候 agent 的命令目录里没有它。
     #[test]
     fn a_machine_that_never_ran_setup_has_none() {
-        with_home(|home| {
-            let (_project, port) = port(home);
+        with_home(|home, dirs| {
+            let (_project, port) = port(home, dirs);
             assert!(
                 !port.installed(),
                 "a fresh home must not claim to have the seeds"
@@ -150,8 +144,8 @@ mod tests {
     /// `/setup` 才会在重载后存在。装到别处等于没装。
     #[test]
     fn installing_puts_the_seed_where_the_registry_looks() {
-        with_home(|home| {
-            let (_project, port) = port(home);
+        with_home(|home, dirs| {
+            let (_project, port) = port(home, dirs);
             assert!(!port.installed(), "nothing yet");
 
             let report = tokio::runtime::Builder::new_current_thread()
@@ -178,8 +172,10 @@ mod tests {
     fn the_answer_comes_from_the_dirs_the_registry_scans() {
         let empty = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
+        let config = tempfile::tempdir().unwrap();
+        let dirs = ProductDirs::new(config.path().to_path_buf(), ".ours");
         assert!(
-            !seed_installed(empty.path(), project.path()),
+            !seed_installed(empty.path(), project.path(), &dirs),
             "an empty home has no skills, whatever this machine has"
         );
     }

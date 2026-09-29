@@ -50,6 +50,36 @@ pub fn set_brand(brand: &str, oauth: &str) {
     }
 }
 
+/// Where the product keeps its data, as sentences name it: the user tree for
+/// `{user_dir}` (`~/.atomcode`, or the path it was moved to) and the per-project
+/// dir's name for `{project_dir}`. Settled by the host from its own dirs
+/// ([`set_dirs`]) — this crate spells neither, so a renamed build's help text
+/// and panels name its own directories, and a person who moved the tree reads
+/// where it really is.
+static USER_DIR: RwLock<String> = RwLock::new(String::new());
+static PROJECT_DIR: RwLock<String> = RwLock::new(String::new());
+
+/// Settle `{user_dir}` / `{project_dir}`. `user_dir` is shown as given — pass
+/// `~/…` for a tree under the home. Called by the host next to [`set_brand`].
+pub fn set_dirs(user_dir: &str, project_dir: &str) {
+    if let Ok(mut guard) = USER_DIR.write() {
+        *guard = user_dir.to_string();
+    }
+    if let Ok(mut guard) = PROJECT_DIR.write() {
+        *guard = project_dir.to_string();
+    }
+}
+
+/// Unset (a host that never said) reads as a description rather than a raw
+/// `{user_dir}` token — visible, and wrong in an obvious way.
+fn settled(slot: &RwLock<String>, unset: &str) -> String {
+    slot.read()
+        .map(|g| g.clone())
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| unset.to_string())
+}
+
 fn brand() -> String {
     BRAND
         .read()
@@ -68,7 +98,8 @@ fn oauth() -> String {
         .unwrap_or_else(|| "AtomGit OAuth".to_string())
 }
 
-/// Replace `{brand}` and `{oauth}` placeholders in a rendered i18n string.
+/// Replace `{brand}`, `{oauth}`, `{user_dir}` and `{project_dir}` placeholders in a
+/// rendered i18n string.
 /// Static when no placeholder is present (the common case), so `Cow` stays
 /// borrowed and no allocation happens on the hot path.
 ///
@@ -81,7 +112,9 @@ pub fn substitute_placeholders<'a>(raw: Cow<'a, str>) -> Cow<'a, str> {
     }
     let owned = raw
         .replace("{brand}", &brand())
-        .replace("{oauth}", &oauth());
+        .replace("{oauth}", &oauth())
+        .replace("{user_dir}", &settled(&USER_DIR, "<config dir>"))
+        .replace("{project_dir}", &settled(&PROJECT_DIR, "<project dir>"));
     Cow::Owned(owned)
 }
 

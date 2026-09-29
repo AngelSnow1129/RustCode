@@ -293,6 +293,7 @@ pub(crate) fn chat_runtime_config(
     let resolved = config.provider_config_for_selection(provider_name);
     let p = resolved.as_ref();
     atomcode_coding::CodingRuntimeConfig {
+        dirs: atomcode_coding::config::product_dirs_from_env(),
         api_key: p.and_then(|p| p.api_key.clone()).unwrap_or_default(),
         base_url: p.and_then(|p| p.base_url.clone()).unwrap_or_default(),
         model: p.map(|p| p.model.clone()).unwrap_or_default(),
@@ -445,8 +446,10 @@ pub(crate) async fn run_chat_turn_v2(
         &user_images,
     );
     let naming_session_id = session_id.clone();
-    let naming_project_bucket =
-        atomcode_capabilities::session::SessionManager::project_hash(&runtime_cfg.working_dir);
+    let naming_project_bucket = atomcode_capabilities::session::SessionManager::project_hash(
+        &runtime_cfg.working_dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let (runtime, coding_cfg) = match crate::start_native_runtime_with_session(
         runtime_cfg,
         atomcode_coding::SessionMode::ExternalSnapshot {
@@ -1358,7 +1361,10 @@ pub(crate) async fn live_stream(
         }
     };
     let snapshot_wd = join.binding.working_dir.clone();
-    let project_hash = atomcode_capabilities::session::SessionManager::project_hash(&snapshot_wd);
+    let project_hash = atomcode_capabilities::session::SessionManager::project_hash(
+        &snapshot_wd,
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let (session_name, session_meta, turn_timestamps) = {
         match crate::legacy_convert::load_catalog_session_view_in_project(
             &project_hash,
@@ -1682,7 +1688,11 @@ fn stash_vl_display_images(
     // before any snapshot save has created the dir — without this the sidecar write would
     // silently fail and the image would still be lost after refresh.
     let _ = std::fs::create_dir_all(
-        atomcode_capabilities::session::SessionManager::for_project(working_dir).root(),
+        atomcode_capabilities::session::SessionManager::for_project(
+            working_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        )
+        .root(),
     );
     let display: Vec<crate::ImageData> = original_images
         .iter()
@@ -2605,7 +2615,10 @@ pub(crate) async fn live_compact(State(_state): State<AppState>) -> impl IntoRes
 pub(crate) async fn live_mcp_trust(State(state): State<AppState>) -> impl IntoResponse {
     let fallback = { state.project.read().await.working_dir.clone() };
     let working_dir = live_current_working_dir(&fallback);
-    match atomcode_capabilities::mcp::trust::trust_project(&working_dir) {
+    match atomcode_capabilities::mcp::trust::trust_project(
+        &working_dir,
+        atomcode_coding::config::product_dirs_from_env().user(),
+    ) {
         Ok(()) => {
             // Re-prepare the persistent native runtime so it mounts the newly
             // trusted project servers immediately. Best-effort: before the first
@@ -2764,10 +2777,9 @@ mod tests {
     }
 
     /// Trust round-trip at the daemon layer: trust_project → is_project_trusted → partition_by_trust
-    /// clears blocked list.  Uses ATOMCODE_MCP_TRUST_STORE as the test seam so we never touch the
-    /// developer's real trust store.
+    /// clears blocked list. The store is a temp user tree handed in, so the
+    /// developer's real trust store is never touched.
     #[test]
-    #[serial_test::serial]
     fn mcp_trust_round_trip_clears_blocked() {
         use atomcode_capabilities::mcp::config::{
             McpConfigSource, McpServerConfig, McpTransportConfig,
@@ -2777,13 +2789,7 @@ mod tests {
         };
 
         let store_dir = tempfile::tempdir().unwrap();
-        // SAFETY: test seam; serial attribute prevents concurrent mutation.
-        unsafe {
-            std::env::set_var(
-                "ATOMCODE_MCP_TRUST_STORE",
-                store_dir.path().join("mcp_trust_daemon_test.json"),
-            );
-        }
+        let tree = store_dir.path().join("tree");
 
         let proj = store_dir.path().join("fake-project");
 
@@ -2801,7 +2807,7 @@ mod tests {
             trust: false,
             auto_approve: vec![],
         };
-        let part_before = partition_by_trust(vec![project_cfg.clone()], &proj);
+        let part_before = partition_by_trust(vec![project_cfg.clone()], &proj, &tree);
         assert_eq!(
             part_before.blocked.len(),
             1,
@@ -2809,19 +2815,19 @@ mod tests {
         );
         assert!(part_before.allowed.is_empty());
         assert!(
-            !is_project_trusted(&proj),
+            !is_project_trusted(&proj, &tree),
             "fresh store: project must be untrusted"
         );
 
         // Trust the project.
-        trust_project(&proj).expect("trust_project must not fail");
+        trust_project(&proj, &tree).expect("trust_project must not fail");
         assert!(
-            is_project_trusted(&proj),
+            is_project_trusted(&proj, &tree),
             "after trust_project: project must be trusted"
         );
 
         // After trust: same config yields empty blocked.
-        let part_after = partition_by_trust(vec![project_cfg], &proj);
+        let part_after = partition_by_trust(vec![project_cfg], &proj, &tree);
         assert!(
             part_after.blocked.is_empty(),
             "trusted project: blocked must be empty"
@@ -2829,7 +2835,6 @@ mod tests {
         assert_eq!(part_after.allowed.len(), 1);
 
         // Cleanup env so other serial tests see a clean state.
-        unsafe { std::env::remove_var("ATOMCODE_MCP_TRUST_STORE") };
     }
 
     #[test]
@@ -3470,8 +3475,14 @@ mod tests {
         std::fs::create_dir_all(&proj1_dir).unwrap();
         std::fs::create_dir_all(&proj2_dir).unwrap();
 
-        let bucket1 = SessionManager::project_hash(&proj1_dir);
-        let bucket2 = SessionManager::project_hash(&proj2_dir);
+        let bucket1 = SessionManager::project_hash(
+            &proj1_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
+        let bucket2 = SessionManager::project_hash(
+            &proj2_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
 
         let mgr2 = SessionManager::with_root(root.path().join(&bucket2));
         let lease2 = mgr2.acquire_lease("session-in-proj2").unwrap();

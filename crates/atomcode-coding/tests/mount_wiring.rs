@@ -63,7 +63,13 @@ async fn telemetry_reports_the_model_the_mount_was_built_for() {
     let (telemetry, captured) = atomcode_telemetry::Telemetry::in_memory("test".into());
     let project = tempfile::tempdir().unwrap();
     // Onboarding: no resolvable provider, so no model name at prepare.
-    let mut cfg = CodingAgentConfig::new("k", "http://localhost", "", project.path());
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost",
+        "",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     cfg.telemetry = Some(telemetry);
     let opts = quiet_options();
     let parts = prepare(&cfg, opts.clone()).await.unwrap();
@@ -96,7 +102,13 @@ async fn the_configured_datalog_records_the_turn() {
     std::env::set_var("ATOMCODE_HOME", home.path());
     let project = tempfile::tempdir().unwrap();
     let datalog_root = home.path().join("custom-datalog");
-    let mut cfg = CodingAgentConfig::new("k", "http://localhost", "logged-model", project.path());
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost",
+        "logged-model",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     cfg.datalog.enabled = true;
     cfg.datalog.dir = Some(datalog_root.display().to_string());
 
@@ -156,7 +168,13 @@ async fn a_sessions_cost_is_recorded_per_model_across_a_switch() {
     let home = tempfile::tempdir().unwrap();
     std::env::set_var("ATOMCODE_HOME", home.path());
     let project = tempfile::tempdir().unwrap();
-    let mut cfg = CodingAgentConfig::new("k", "http://localhost", "model-a", project.path());
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost",
+        "model-a",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     cfg.provider_name = "provider-a".into();
 
     let opts = PrepareOptions {
@@ -221,6 +239,7 @@ async fn ai_session_naming_picks_the_namer_rather_than_starting_a_second_one() {
         let mut cfg = atomcode_coding::CodingRuntimeConfig::from_config(
             &file,
             project.path(),
+            atomcode_coding::config::product_dirs_from_env(),
             None,
             None,
             false,
@@ -273,6 +292,7 @@ async fn a_configured_credential_never_enters_the_config_tree() {
     let cfg = atomcode_coding::CodingRuntimeConfig::from_config(
         &file,
         project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
         None,
         None,
         false,
@@ -393,6 +413,7 @@ async fn a_checkout_bounds_the_write_and_leaves_the_read_alone() {
     let cfg = atomcode_coding::CodingRuntimeConfig::from_config(
         &atomcode_config::config::Config::default(),
         &checkout,
+        atomcode_coding::config::product_dirs_from_env(),
         None,
         None,
         false,
@@ -467,6 +488,7 @@ async fn a_configured_output_threshold_reaches_the_row_that_cuts() {
         atomcode_coding::CodingRuntimeConfig::from_config(
             file,
             project.path(),
+            atomcode_coding::config::product_dirs_from_env(),
             None,
             None,
             false,

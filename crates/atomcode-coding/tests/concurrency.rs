@@ -157,7 +157,7 @@ fn repeats(tool: &str) -> String {
 }
 
 async fn start_with(tree: ConfigTree, tools: Vec<Arc<dyn Tool>>) -> App {
-    let mut app = App::new(plugins::catalog(), tree);
+    let mut app = App::new(atomcode_coding::on_harness::catalog(), tree);
     app.start().await.expect("must mount");
     // Register into the live catalog rather than replacing the service: the
     // `tools` row already fills that slot in this realm, and `provide` refuses

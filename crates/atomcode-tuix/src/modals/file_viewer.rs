@@ -269,7 +269,10 @@ impl FileViewer {
 
     /// `/view` (no arg): open the files-only fuzzy picker.
     pub fn open_picker(working_dir: PathBuf) -> Self {
-        let index = FileIndex::new(working_dir.clone());
+        let index = FileIndex::new(
+            working_dir.clone(),
+            atomcode_coding::config::product_dirs_from_env().project_dir_name(),
+        );
         let mut picker = Picker {
             index,
             working_dir,

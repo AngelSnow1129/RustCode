@@ -27,7 +27,13 @@ async fn always_allow_grants_survive_reassembly() {
     let outside_dir = tempfile::tempdir_in(workspace_target).unwrap();
     std::env::set_var("ATOMCODE_HOME", home.path());
 
-    let mut cfg = CodingAgentConfig::new("k", "http://unused", "test-model", project.path());
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://unused",
+        "test-model",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     // A person is at the screen: a write next door is a question they can answer
     // with "always", which is what this is about. With nobody there the world is
     // fenced instead and the write never gets as far as asking.

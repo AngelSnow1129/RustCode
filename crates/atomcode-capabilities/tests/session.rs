@@ -4,56 +4,21 @@
 //! third-party provider/tool/hook is held to.
 #![cfg(feature = "session")]
 
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 
 use atomcode_capabilities::session::{
     RecallTool, SessionManager, SnapshotHook, StatusReminderHook,
 };
+use atomcode_capabilities::ProductDirs;
 use atomcode_kernel::conformance;
 use atomcode_kernel::hook::LifecycleHooks;
 use atomcode_kernel::tool::Tool;
 
-// Redirect ATOMCODE_HOME to a throwaway temp dir before any test in this binary runs,
-// so tests that persist without setting their own ATOMCODE_HOME never write into the
-// developer's real home. Inherited shell values are replaced before tests run.
-#[ctor::ctor]
-fn _isolate_atomcode_home() {
-    atomcode_kernel::test_support::isolate_home();
-}
-
-struct AtomcodeHomeGuard {
-    _lock: std::sync::MutexGuard<'static, ()>,
-    prev: Option<std::ffi::OsString>,
-}
-
-impl AtomcodeHomeGuard {
-    fn set(path: &std::path::Path) -> Self {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        let lock = LOCK.get_or_init(|| Mutex::new(()));
-        let guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-        let prev = std::env::var_os("ATOMCODE_HOME");
-        std::env::set_var("ATOMCODE_HOME", path);
-        Self { _lock: guard, prev }
-    }
-}
-
-impl Drop for AtomcodeHomeGuard {
-    fn drop(&mut self) {
-        match self.prev.take() {
-            Some(v) => std::env::set_var("ATOMCODE_HOME", v),
-            None => std::env::remove_var("ATOMCODE_HOME"),
-        }
-    }
-}
-
 #[tokio::test]
 async fn recall_tool_passes_kernel_tool_conformance() {
-    // Isolate $ATOMCODE_HOME so the tool resolves an empty (temp) sessions tree rather
-    // than the developer's real one.
+    // An empty temp sessions tree, handed in — nothing reads the environment.
     let home = tempfile::tempdir().unwrap();
-    let _home = AtomcodeHomeGuard::set(home.path());
-
-    let tool: Arc<dyn Tool> = Arc::new(RecallTool::new());
+    let tool: Arc<dyn Tool> = Arc::new(RecallTool::new(home.path().join("sessions")));
     conformance::tool::check(tool, &[r#"{"query":"oauth refresh"}"#, "{\"query\":\"\"}"])
         .await
         .assert_conformant();
@@ -63,7 +28,8 @@ async fn recall_tool_passes_kernel_tool_conformance() {
 async fn snapshot_hook_passes_lifecycle_conformance() {
     let dir = tempfile::tempdir().unwrap();
     let mgr = Arc::new(SessionManager::with_root(dir.path()));
-    let h: Arc<dyn LifecycleHooks> = Arc::new(SnapshotHook::new(mgr, "s1", "/proj"));
+    let dirs = ProductDirs::new(dir.path().join("tree"), ".ours");
+    let h: Arc<dyn LifecycleHooks> = Arc::new(SnapshotHook::new(mgr, "s1", "/proj", &dirs));
     conformance::hooks::check(h).await.assert_conformant();
 }
 

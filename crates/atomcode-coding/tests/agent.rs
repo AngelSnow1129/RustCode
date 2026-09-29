@@ -71,7 +71,7 @@ fn talker(steps: &[&str]) -> String {
 }
 
 async fn start(tree: ConfigTree) -> App {
-    let mut app = App::new(plugins::catalog(), tree);
+    let mut app = App::new(atomcode_coding::on_harness::catalog(), tree);
     app.start().await.expect("must mount");
     app
 }
@@ -691,7 +691,10 @@ async fn a_message_wakes_the_agent_behind_a_handle_too() {
         ))
         .unwrap(),
     ];
-    let mut app = App::new(plugins::catalog(), ConfigTree::from_layers(layers).unwrap());
+    let mut app = App::new(
+        atomcode_coding::on_harness::catalog(),
+        ConfigTree::from_layers(layers).unwrap(),
+    );
     app.start().await.unwrap();
     let mut handle = app
         .context()

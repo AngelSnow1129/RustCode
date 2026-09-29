@@ -69,7 +69,13 @@ async fn the_product_offers_the_commands_its_skill_and_review_rows_own() {
     let project = tempfile::tempdir().unwrap();
     let skills = tempfile::tempdir().unwrap();
     write_skill(skills.path(), "tidy-imports", "sorts and prunes imports");
-    let cfg = CodingAgentConfig::new("k", "http://localhost", "canned", project.path());
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost",
+        "canned",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
 
     let opts = PrepareOptions {
         session: SessionMode::Fresh,

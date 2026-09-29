@@ -75,8 +75,10 @@ struct RelayBinaryEntry {
 
 /// 获取 relay-client 远端版本清单。
 async fn fetch_relay_manifest() -> Result<RelayManifest, String> {
-    let token = atomcode_auth::oauth::get_valid_token()
-        .map_err(|_| tr(SMsg::RelayNeedsLogin).into_owned())?;
+    let token = atomcode_auth::oauth::get_valid_token(
+        atomcode_coding::config::product_dirs_from_env().user(),
+    )
+    .map_err(|_| tr(SMsg::RelayNeedsLogin).into_owned())?;
 
     let client = reqwest::Client::builder()
         .user_agent(concat!("atomcode/", env!("CARGO_PKG_VERSION")))
@@ -370,8 +372,10 @@ async fn download_relay_client(
     }
 
     // 获取 GitCode OAuth token（用户需先 /login）
-    let token = atomcode_auth::oauth::get_valid_token()
-        .map_err(|_| tr(SMsg::RelayNeedsLogin).into_owned())?;
+    let token = atomcode_auth::oauth::get_valid_token(
+        atomcode_coding::config::product_dirs_from_env().user(),
+    )
+    .map_err(|_| tr(SMsg::RelayNeedsLogin).into_owned())?;
 
     // 构建 HTTP 客户端 + 添加鉴权头
     let client = reqwest::Client::builder()

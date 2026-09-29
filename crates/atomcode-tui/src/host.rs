@@ -1249,6 +1249,11 @@ pub enum ContextClick {
 /// Everything the screen is composed from.
 pub struct Host {
     pub stream: RwLock<Stream>,
+    /// Where the product keeps its data, as the launcher said
+    /// (`Ports::dirs`). Set once when the screen starts; unset means a launcher
+    /// that did not say — no image cache, no askpass, and `@` completion does
+    /// not force-index our own project dir.
+    pub dirs: std::sync::OnceLock<atomcode_capabilities::ProductDirs>,
     /// Slash commands, contributed by rows.
     pub commands: Arc<crate::command::Commands>,
     /// The slash menu — what to show while a command is being typed.
@@ -1543,10 +1548,24 @@ impl RowIndex {
 }
 
 impl Host {
+    /// Where sent images are cached: `<user tree>/image-cache`.
+    pub fn image_cache(&self) -> Option<std::path::PathBuf> {
+        self.dirs.get().map(|dirs| dirs.user().join("image-cache"))
+    }
+
+    /// Our own per-project dir's name, for the file index; empty when unset.
+    pub fn project_dir_name(&self) -> &str {
+        self.dirs
+            .get()
+            .map(|dirs| dirs.project_dir_name())
+            .unwrap_or("")
+    }
+
     pub fn new(modules: Arc<Modules>, layout: Region) -> Self {
         let layout_svc = Arc::new(crate::layout::Layout::new(layout));
         Self {
             stream: RwLock::new(Stream::new()),
+            dirs: std::sync::OnceLock::new(),
             // Empty, like the module registry beside it. Command sets arrive as
             // rows (`crate::rows`); a Host that pre-filled this would make
             // `[[remove]] id = "tui-commands-session"` a lie.

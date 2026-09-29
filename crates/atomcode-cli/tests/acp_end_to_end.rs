@@ -55,6 +55,7 @@ fn dummy_engine() -> EngineConfig {
         "http://127.0.0.1:1",
         "stub-model",
         ".",
+        atomcode_coding::config::product_dirs_from_env(),
     );
     config.context_window = 200_000;
     config.chat_options.max_tokens = Some(8192);

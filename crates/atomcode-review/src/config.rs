@@ -16,6 +16,9 @@ pub struct ReviewAgentConfig {
     /// Repo root the review tools (read/grep/glob/codeintel) are scoped to — PINNED via
     /// the kernel `working_dir` seam, not the process cwd.
     pub working_dir: PathBuf,
+    /// Where the product keeps its data — the tools the reviewer is built with
+    /// (walk skips, the credential guard) take it from here.
+    pub dirs: atomcode_capabilities::ProductDirs,
     /// Model context window in tokens (forwarded to the provider). Default 128k.
     pub context_window: u32,
     /// Liveness: max byte-idle wait for the next stream event AFTER the first content
@@ -103,12 +106,14 @@ impl ReviewAgentConfig {
         base_url: impl Into<String>,
         model: impl Into<String>,
         working_dir: impl Into<PathBuf>,
+        dirs: atomcode_capabilities::ProductDirs,
     ) -> Self {
         Self {
             api_key: api_key.into(),
             base_url: base_url.into(),
             model: model.into(),
             working_dir: working_dir.into(),
+            dirs,
             context_window: 128_000,
             stream_timeout: Duration::from_secs(120),
             first_token_timeout: Duration::from_secs(120),

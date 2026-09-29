@@ -1,7 +1,7 @@
 //! `list_directory` — recursive, indented directory tree (build/VCS/cache dirs
 //! skipped). Non-destructive ⇒ always `Safe`.
 
-use super::{err, is_skip_dir, not_found_hint, ok, resolve_path};
+use super::{err, not_found_hint, ok, resolve_path};
 use crate::world::{FileSystem, LocalFs};
 use async_trait::async_trait;
 use atomcode_kernel::tool::{Tool, ToolContext, ToolResult};
@@ -16,19 +16,26 @@ const MAX_DEPTH_CAP: usize = 5;
 
 pub struct ListDirTool {
     world: Arc<dyn FileSystem>,
+    /// Where the product keeps its data: our own per-project dir is skipped
+    /// in walks (plugin clones, artifacts, team worktrees).
+    dirs: crate::ProductDirs,
 }
 
+#[cfg(test)]
 impl Default for ListDirTool {
     fn default() -> Self {
-        Self {
-            world: Arc::new(LocalFs::unfenced()),
-        }
+        Self::new(crate::product_dirs::test_dirs())
     }
 }
 
 impl ListDirTool {
-    pub fn with_world(world: Arc<dyn FileSystem>) -> Self {
-        Self { world }
+    /// Work on this machine's disk.
+    pub fn new(dirs: crate::ProductDirs) -> Self {
+        Self::with_world(Arc::new(LocalFs::unfenced()), dirs)
+    }
+
+    pub fn with_world(world: Arc<dyn FileSystem>, dirs: crate::ProductDirs) -> Self {
+        Self { world, dirs }
     }
 }
 
@@ -99,7 +106,8 @@ impl Tool for ListDirTool {
         }
 
         let mut lines = Vec::new();
-        walk(self.world.as_ref(), &root, 0, depth, &mut lines).await;
+        let skip = crate::pathutil::skip_dir_for(&self.dirs);
+        walk(self.world.as_ref(), &skip, &root, 0, depth, &mut lines).await;
 
         let truncated = lines.len() > MAX_ENTRIES;
         let mut shown = lines;
@@ -123,6 +131,7 @@ impl Tool for ListDirTool {
 /// the entry.
 fn walk<'a>(
     world: &'a dyn FileSystem,
+    skip: &'a crate::world::SkipDir,
     dir: &'a Path,
     depth: usize,
     max: usize,
@@ -148,13 +157,13 @@ fn walk<'a>(
                 .unwrap_or_default();
             let is_dir = e.is_dir;
             if is_dir {
-                if is_skip_dir(&name) {
+                if skip(&name) {
                     out.push(format!("{indent}{name}/ (skipped)"));
                     continue;
                 }
                 out.push(format!("{indent}{name}/"));
                 let child = e.path.clone();
-                walk(world, &child, depth + 1, max, out).await;
+                walk(world, skip, &child, depth + 1, max, out).await;
             } else {
                 out.push(format!("{indent}{name}"));
             }

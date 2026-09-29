@@ -44,7 +44,7 @@ use super::approval::{
     ApprovalRequest, InMemoryPermissionStore, PermissionDecision, PermissionStore, APPROVAL_KIND,
 };
 use super::resolve_path;
-use super::sensitive_path::{path_is_sensitive, references_sensitive_path};
+use super::sensitive_path::SensitivePaths;
 
 /// The file-mutation tools this gate owns. Anything else falls through to the normal flow.
 const WRITE_TOOLS: &[&str] = &[
@@ -263,31 +263,32 @@ pub struct WriteApprovalGate {
     /// to a private always-false Arc for construction sites that have no mode concept.
     accept_edits: Arc<std::sync::atomic::AtomicBool>,
     kind: String,
+    sensitive: SensitivePaths,
 }
 
 impl WriteApprovalGate {
     /// Gate over the LIVE (mutable) working dir handle.
-    pub fn new(cwd: Arc<RwLock<PathBuf>>) -> Self {
-        Self {
-            store: Arc::new(InMemoryPermissionStore::new()),
-            cwd,
-            accept_edits: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            kind: APPROVAL_KIND.to_string(),
-        }
+    pub fn new(cwd: Arc<RwLock<PathBuf>>, sensitive: SensitivePaths) -> Self {
+        Self::with_store(cwd, Arc::new(InMemoryPermissionStore::new()), sensitive)
     }
 
     /// Gate over a FIXED workspace root (assemblies that pin an immutable working dir).
-    pub fn pinned(root: PathBuf) -> Self {
-        Self::new(Arc::new(RwLock::new(root)))
+    pub fn pinned(root: PathBuf, sensitive: SensitivePaths) -> Self {
+        Self::new(Arc::new(RwLock::new(root)), sensitive)
     }
 
     /// Use a caller-supplied (e.g. shared / persisted) grant store.
-    pub fn with_store(cwd: Arc<RwLock<PathBuf>>, store: Arc<dyn PermissionStore>) -> Self {
+    pub fn with_store(
+        cwd: Arc<RwLock<PathBuf>>,
+        store: Arc<dyn PermissionStore>,
+        sensitive: SensitivePaths,
+    ) -> Self {
         Self {
             store,
             cwd,
             accept_edits: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             kind: APPROVAL_KIND.to_string(),
+            sensitive,
         }
     }
 
@@ -374,6 +375,7 @@ pub enum WriteVerdict {
 /// targets cannot be resolved, so anything that already looks sensitive in the
 /// raw arguments is asked about un-grantably, and everything else defers.
 pub async fn write_verdict(
+    sensitive: &SensitivePaths,
     tool_name: &str,
     arguments: &str,
     cwd: Option<&Path>,
@@ -384,7 +386,7 @@ pub async fn write_verdict(
     }
     // Cheap raw-args sensitivity check (no cwd needed) — catches absolute / `~`-prefixed
     // sensitive paths via substring. Done first so even a poisoned cwd lock still prompts them.
-    let raw_sensitive = references_sensitive_path(arguments);
+    let raw_sensitive = sensitive.references(arguments);
     let ungrantable = WriteVerdict::Ask {
         grantable: false,
         scope: String::new(),
@@ -405,7 +407,7 @@ pub async fn write_verdict(
     if raw_sensitive
         || targets
             .iter()
-            .any(|t| path_is_sensitive(&resolve_path(t, cwd)))
+            .any(|t| sensitive.path_is_sensitive(&resolve_path(t, cwd)))
     {
         return ungrantable;
     }
@@ -463,7 +465,15 @@ impl ToolMiddleware for WriteApprovalGate {
         // panic=abort).
         let cwd = self.cwd.read().ok().map(|g| g.clone());
         let accept_edits = self.accept_edits.load(std::sync::atomic::Ordering::Relaxed);
-        match write_verdict(name, &call.arguments, cwd.as_deref(), accept_edits).await {
+        match write_verdict(
+            &self.sensitive,
+            name,
+            &call.arguments,
+            cwd.as_deref(),
+            accept_edits,
+        )
+        .await
+        {
             WriteVerdict::NotOurs => BeforeOutcome::Proceed,
             WriteVerdict::Allow(reason) => BeforeOutcome::Allow {
                 reason: Some(reason.into()),
@@ -541,7 +551,10 @@ mod tests {
 
     #[tokio::test]
     async fn non_write_tool_is_not_ours() {
-        let gate = WriteApprovalGate::pinned(std::env::temp_dir());
+        let gate = WriteApprovalGate::pinned(
+            std::env::temp_dir(),
+            crate::tools::sensitive_path::test_guard(),
+        );
         let tool: Arc<dyn Tool> = Arc::new(crate::tools::read::ReadFileTool::default());
         let mut call = ToolCall {
             id: "1".into(),
@@ -558,7 +571,10 @@ mod tests {
     async fn in_workspace_edit_auto_approves_without_prompt() {
         let ws = tempfile::tempdir().unwrap();
         std::fs::write(ws.path().join("a.rs"), "x").unwrap();
-        let gate = WriteApprovalGate::pinned(ws.path().to_path_buf());
+        let gate = WriteApprovalGate::pinned(
+            ws.path().to_path_buf(),
+            crate::tools::sensitive_path::test_guard(),
+        );
         let tool = edit_tool();
         // Relative path inside the workspace → Allow, and the silent driver is never consulted.
         let mut call = edit_call("a.rs");
@@ -574,7 +590,10 @@ mod tests {
         // write_file creating a brand-new file under the workspace: target does not exist yet, so
         // classification must fall back to the deepest existing ancestor (the workspace dir).
         let ws = tempfile::tempdir().unwrap();
-        let gate = WriteApprovalGate::pinned(ws.path().to_path_buf());
+        let gate = WriteApprovalGate::pinned(
+            ws.path().to_path_buf(),
+            crate::tools::sensitive_path::test_guard(),
+        );
         let tool = write_tool();
         let mut call = write_call("brand/new/file.txt");
         let out = gate.before(&mut call, &tool, &silent_rt()).await;
@@ -590,7 +609,10 @@ mod tests {
         // Use a fabricated non-temp, non-workspace absolute path (need not exist — the gate
         // canonicalizes ancestors, eventually reaching `/` which is not temp).
         let target = std::path::PathBuf::from("/atomcode-test-outside-write/x.rs");
-        let gate = WriteApprovalGate::pinned(ws.path().to_path_buf());
+        let gate = WriteApprovalGate::pinned(
+            ws.path().to_path_buf(),
+            crate::tools::sensitive_path::test_guard(),
+        );
         let tool = edit_tool();
         let mut call = edit_call(target.to_str().unwrap());
         // Reaches the prompt → silent driver → fails closed.
@@ -606,7 +628,10 @@ mod tests {
         // A `.env` INSIDE the workspace is sensitive → must still prompt (never auto-approved).
         let ws = tempfile::tempdir().unwrap();
         std::fs::write(ws.path().join(".env"), "S=1").unwrap();
-        let gate = WriteApprovalGate::pinned(ws.path().to_path_buf());
+        let gate = WriteApprovalGate::pinned(
+            ws.path().to_path_buf(),
+            crate::tools::sensitive_path::test_guard(),
+        );
         let tool = write_tool();
         let mut call = write_call(ws.path().join(".env").to_str().unwrap());
         let out = gate.before(&mut call, &tool, &silent_rt()).await;
@@ -637,8 +662,11 @@ mod tests {
             "writedir::{}",
             canonical_dir_key(granted.to_str().unwrap(), ws.path())
         ));
-        let gate =
-            WriteApprovalGate::with_store(Arc::new(RwLock::new(ws.path().to_path_buf())), store);
+        let gate = WriteApprovalGate::with_store(
+            Arc::new(RwLock::new(ws.path().to_path_buf())),
+            store,
+            crate::tools::sensitive_path::test_guard(),
+        );
 
         // A sibling in the SAME folder auto-approves — via edit_file...
         let edit = edit_tool();
@@ -720,8 +748,11 @@ mod tests {
         // Uses fabricated non-temp absolute paths so temp-whitelist doesn't fire.
         let ws = tempfile::tempdir().unwrap();
         let flag = Arc::new(std::sync::atomic::AtomicBool::new(true)); // accept-edits ON
-        let gate = WriteApprovalGate::new(Arc::new(RwLock::new(ws.path().to_path_buf())))
-            .with_accept_edits(flag.clone());
+        let gate = WriteApprovalGate::new(
+            Arc::new(RwLock::new(ws.path().to_path_buf())),
+            crate::tools::sensitive_path::test_guard(),
+        )
+        .with_accept_edits(flag.clone());
         let tool = write_tool();
 
         // Non-sensitive out-of-workspace file (not in temp): normally prompts; with accept-edits → Allow.
@@ -770,7 +801,8 @@ mod tests {
             return;
         };
         // Workspace == home dir; relative ".ssh/authorized_keys" resolves to ~/.ssh/authorized_keys.
-        let gate = WriteApprovalGate::pinned(home.clone());
+        let gate =
+            WriteApprovalGate::pinned(home.clone(), crate::tools::sensitive_path::test_guard());
         let tool = write_tool();
         let mut call = write_call(".ssh/authorized_keys");
         let out = gate.before(&mut call, &tool, &silent_rt()).await;
@@ -785,7 +817,10 @@ mod tests {
     async fn system_prefix_write_prompts_and_is_not_remembered() {
         // /etc is system-protected → sensitive → prompt every time (Issue 2 / v1 parity).
         let ws = tempfile::tempdir().unwrap();
-        let gate = WriteApprovalGate::pinned(ws.path().to_path_buf());
+        let gate = WriteApprovalGate::pinned(
+            ws.path().to_path_buf(),
+            crate::tools::sensitive_path::test_guard(),
+        );
         let tool = write_tool();
         #[cfg(not(target_os = "windows"))]
         let target = "/etc/cron.d/x";
@@ -803,7 +838,10 @@ mod tests {
     async fn blank_file_path_does_not_auto_approve() {
         // Issue 3: an empty file_path must not vacuously auto-approve via the in-workspace shortcut.
         let ws = tempfile::tempdir().unwrap();
-        let gate = WriteApprovalGate::pinned(ws.path().to_path_buf());
+        let gate = WriteApprovalGate::pinned(
+            ws.path().to_path_buf(),
+            crate::tools::sensitive_path::test_guard(),
+        );
         let tool = write_tool();
         let mut call = write_call("");
         let out = gate.before(&mut call, &tool, &silent_rt()).await;
@@ -815,7 +853,8 @@ mod tests {
 
     #[test]
     fn path_is_sensitive_matches_v1_set() {
-        use super::path_is_sensitive;
+        let guard = crate::tools::sensitive_path::test_guard();
+        let path_is_sensitive = |p: &Path| guard.path_is_sensitive(p);
         use std::path::Path;
         // secret filename / extension (unconditional)
         assert!(path_is_sensitive(Path::new("/anywhere/id_rsa")));
@@ -854,8 +893,11 @@ mod tests {
             "writedir::{}",
             canonical_dir_key(secret.to_str().unwrap(), ws.path())
         ));
-        let gate =
-            WriteApprovalGate::with_store(Arc::new(RwLock::new(ws.path().to_path_buf())), store);
+        let gate = WriteApprovalGate::with_store(
+            Arc::new(RwLock::new(ws.path().to_path_buf())),
+            store,
+            crate::tools::sensitive_path::test_guard(),
+        );
         let tool = edit_tool();
         let mut call = edit_call(secret.to_str().unwrap());
         let out = gate.before(&mut call, &tool, &silent_rt()).await;

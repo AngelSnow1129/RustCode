@@ -31,4 +31,4 @@ pub mod screen;
 pub mod runtime;
 
 pub use locale::Locale;
-pub use runtime::{current_locale, set_brand, set_locale, test_lock, LocaleTestGuard};
+pub use runtime::{current_locale, set_brand, set_dirs, set_locale, test_lock, LocaleTestGuard};

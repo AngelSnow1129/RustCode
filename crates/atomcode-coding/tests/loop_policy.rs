@@ -75,7 +75,7 @@ fn always_calls(tool: &str, args: &str) -> String {
 }
 
 async fn start(tree: ConfigTree) -> App {
-    let mut app = App::new(plugins::catalog(), tree);
+    let mut app = App::new(atomcode_coding::on_harness::catalog(), tree);
     app.start().await.expect("must mount");
     app
 }
@@ -587,7 +587,7 @@ async fn a_slow_compaction_is_tried_once_a_turn_and_its_start_is_always_closed()
                 [[insert]]\nid = \"compaction-reluctant\"\nname = \"compaction-reluctant\"\n\n\
                 [[remove]]\nid = \"repeat-fuse\"\n\n[[remove]]\nid = \"tool-loop-guard\"";
     let asked = Arc::new(AtomicU32::new(0));
-    let mut registry = plugins::catalog();
+    let mut registry = atomcode_coding::on_harness::catalog();
     registry.register(Arc::new(ReluctantRow(asked.clone())));
     let mut app = App::new(registry, tree(&dir, &script, &[swap]));
     app.start().await.expect("must mount");

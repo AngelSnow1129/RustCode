@@ -1261,7 +1261,7 @@ mod tests {
             ["lead"],
             "no catalog offers it"
         );
-        let found = crate::session::RecallTool::new()
+        let found = crate::session::RecallTool::new(manager.root())
             .search_dir(manager.root(), "kiwi", None, None, 8)
             .unwrap();
         assert!(
@@ -1567,7 +1567,7 @@ mod tests {
         assert_eq!(records[0].tools[0].result, "kiwi.txt");
         assert_eq!(records[2].assistant, "I was saying");
 
-        let recalled = crate::session::RecallTool::new()
+        let recalled = crate::session::RecallTool::new(manager.root())
             .search_dir(manager.root(), "kiwi", None, None, 8)
             .unwrap();
         assert!(recalled.contains("remember kiwi"), "{recalled}");
@@ -1644,7 +1644,7 @@ mod tests {
             (scan.entries, scan.diagnostics)
         };
         let recalled = || {
-            crate::session::RecallTool::new()
+            crate::session::RecallTool::new(manager.root())
                 .search_dir(manager.root(), "hello", None, None, 8)
                 .unwrap()
         };

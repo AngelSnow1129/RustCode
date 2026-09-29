@@ -19,6 +19,13 @@ use atomcode_plexus::{ConfigTree, Layer, Result};
 /// Split out of `BASE` so a product can take the machine whole and still say
 /// for itself what its agent can DO. See [`DEFAULTS`].
 pub const INFRA: &str = r#"
+# --- where the product keeps its data -----------------------------------------
+# First of all: skills, memory, MCP, sessions and the credential gates all read
+# it, and a row that needs it and does not find it refuses to mount rather than
+# guessing. A host embedding this tree says its own tree here.
+[[insert]]
+name = "product-dirs"
+
 # --- agents: the registry everything else finds live work through -----------
 [[insert]]
 name = "agents"
@@ -255,13 +262,6 @@ disabled = true
 # offline mode the row mounts nothing even when enabled.
 [[insert]]
 name = "tool-web"
-disabled = true
-
-# A reviewer is another agent's worth of model calls inside one tool call, so a
-# generic tree opts into it. `config = { model = "…" }` names what the child is
-# told it runs; unset, it is whatever `llm` answers at mount.
-[[insert]]
-name = "tool-code-review"
 disabled = true
 
 [[insert]]

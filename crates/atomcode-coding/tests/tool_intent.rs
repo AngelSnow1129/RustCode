@@ -117,7 +117,13 @@ async fn one_annotated_write(
         turn: std::sync::atomic::AtomicUsize::new(0),
     });
 
-    let cfg = CodingAgentConfig::new("k", "http://localhost:0", "scripted", dir);
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost:0",
+        "scripted",
+        dir,
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     let opts = quiet_options();
     let parts = prepare(&cfg, opts.clone()).await.unwrap();
     let mut mounted = mount_parts(&parts, &cfg, &opts, model).await;
@@ -241,7 +247,13 @@ async fn a_call_without_a_reason_is_passed_through_byte_for_byte() {
         seen,
         turn: std::sync::atomic::AtomicUsize::new(0),
     });
-    let cfg = CodingAgentConfig::new("k", "http://localhost:0", "scripted", project.path());
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost:0",
+        "scripted",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     let opts = quiet_options();
     let parts = prepare(&cfg, opts.clone()).await.unwrap();
     let mut mounted = mount_parts(&parts, &cfg, &opts, model).await;
@@ -306,7 +318,13 @@ async fn a_parallel_round_strips_every_call_in_it() {
         seen,
         turn: std::sync::atomic::AtomicUsize::new(0),
     });
-    let cfg = CodingAgentConfig::new("k", "http://localhost:0", "scripted", project.path());
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost:0",
+        "scripted",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     let opts = quiet_options();
     let parts = prepare(&cfg, opts.clone()).await.unwrap();
     let mut mounted = mount_parts(&parts, &cfg, &opts, model).await;

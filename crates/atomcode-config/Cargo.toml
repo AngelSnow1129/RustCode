@@ -3,7 +3,7 @@ name = "atomcode-config"
 version.workspace = true
 edition = "2021"
 license.workspace = true
-description = "atomcode disk/TOML config system (Config + sub-configs + loader). Leaf crate: depends only on atomcode-telemetry + serde/toml/anyhow, so every stack layer can read config without an atomcode-core dependency."
+description = "atomcode disk/TOML config system (Config + sub-configs + loader). Depends only on atomcode-i18n (itself a leaf) + serde/toml/anyhow, so every stack layer can read config without an atomcode-core dependency."
 publish = false
 
 [dependencies]
@@ -12,7 +12,6 @@ toml = "1"
 toml_edit = "0.25"
 anyhow = "1"
 url = "2"
-atomcode-telemetry = { path = "../atomcode-telemetry" }
 # The message tables and the one locale. A leaf with no atomcode dependency of
 # its own, so re-exporting it here does not pull a layer in behind it.
 atomcode-i18n = { path = "../atomcode-i18n" }

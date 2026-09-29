@@ -99,15 +99,19 @@ struct PermissionsRow {
 struct PermissionGate {
     rules: PermissionRules,
     root: PathBuf,
+    /// An allow rule never covers a sensitive target — these are what count.
+    sensitive: atomcode_capabilities::tools::SensitivePaths,
 }
 
 #[async_trait]
 impl Waterfall<ToolsExecute> for PermissionGate {
     async fn handle(&self, exec: &mut ToolExec, next: Next<'_, ToolsExecute>) -> ToolResult {
-        match self
-            .rules
-            .decide(&exec.call.name, &exec.call.arguments, &self.root)
-        {
+        match self.rules.decide(
+            &self.sensitive,
+            &exec.call.name,
+            &exec.call.arguments,
+            &self.root,
+        ) {
             RuleDecision::Deny => ToolResult {
                 call_id: exec.call.id.clone(),
                 content: format!(
@@ -140,7 +144,7 @@ impl Plugin for PermissionsPlugin {
         "permissions"
     }
     fn inject(&self) -> &'static [&'static str] {
-        &["tools"]
+        &["product-dirs", "tools"]
     }
     fn description(&self) -> &'static str {
         "declarative allow/deny rules over tool calls"
@@ -161,7 +165,16 @@ impl Plugin for PermissionsPlugin {
             .map(PathBuf::from)
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
-        let _ = ctx.on_waterfall::<ToolsExecute>(Arc::new(PermissionGate { rules, root }), true);
+        let sensitive =
+            atomcode_capabilities::tools::SensitivePaths::of(&*crate::product_dirs(ctx)?);
+        let _ = ctx.on_waterfall::<ToolsExecute>(
+            Arc::new(PermissionGate {
+                rules,
+                root,
+                sensitive,
+            }),
+            true,
+        );
         Ok(())
     }
 }

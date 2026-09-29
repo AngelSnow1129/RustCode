@@ -37,21 +37,14 @@ const GIT_SECTION_END: &str = "run `git status` for live state.)";
 /// Injects environment + project-instructions + git-status context at session start.
 pub struct SessionContextHook {
     working_dir: PathBuf,
-    /// Config root (`~/.atomcode`) for the GLOBAL instructions tier. Defaults to
-    /// [`crate::paths::config_dir`]; the env honors `$ATOMCODE_HOME` there.
+    /// The user tree (`~/.atomcode`) — the GLOBAL instructions tier's base.
     home: PathBuf,
 }
 
 impl SessionContextHook {
-    pub fn new(working_dir: impl Into<PathBuf>) -> Self {
-        Self {
-            working_dir: working_dir.into(),
-            home: crate::paths::config_dir(),
-        }
-    }
-
-    /// Test/embedder seam: supply an explicit config-root (global-instructions base).
-    pub fn with_home(working_dir: impl Into<PathBuf>, home: impl Into<PathBuf>) -> Self {
+    /// `home` is the user tree ([`crate::ProductDirs::user`]), where the global
+    /// instructions tier lives.
+    pub fn new(working_dir: impl Into<PathBuf>, home: impl Into<PathBuf>) -> Self {
         Self {
             working_dir: working_dir.into(),
             home: home.into(),
@@ -270,7 +263,7 @@ mod tests {
     fn a_block_inside_a_saved_prompt_keeps_its_git_section_and_nothing_after_it() {
         let d = tempfile::tempdir().unwrap();
         git_init(d.path());
-        let hook = SessionContextHook::with_home(d.path(), d.path().join("nohome"));
+        let hook = SessionContextHook::new(d.path(), d.path().join("nohome"));
         let saved_git = "=== GIT STATUS (snapshot at session start, not live) ===\n\
                          Branch: frozen-branch\nHEAD: abc123 old\n(working tree clean)\n\
                          (This is a session-start snapshot — run `git status` for live state.)";
@@ -304,7 +297,7 @@ mod tests {
     #[tokio::test]
     async fn fresh_injects_env_after_persona() {
         let d = tempfile::tempdir().unwrap();
-        let hook = SessionContextHook::with_home(d.path(), d.path().join("nohome"));
+        let hook = SessionContextHook::new(d.path(), d.path().join("nohome"));
         let mut convo = Conversation::new();
         convo.push(Message::system("persona"));
         hook.session_start(&mut convo, false).await;
@@ -327,7 +320,7 @@ mod tests {
     async fn git_section_only_inside_a_repo() {
         // Not a repo → no git section.
         let bare = tempfile::tempdir().unwrap();
-        let h1 = SessionContextHook::with_home(bare.path(), bare.path().join("nohome"));
+        let h1 = SessionContextHook::new(bare.path(), bare.path().join("nohome"));
         assert!(
             !h1.render().contains("GIT STATUS"),
             "no git section outside a repo"
@@ -336,7 +329,7 @@ mod tests {
         // A repo → git section present.
         let repo = tempfile::tempdir().unwrap();
         git_init(repo.path());
-        let h2 = SessionContextHook::with_home(repo.path(), repo.path().join("nohome"));
+        let h2 = SessionContextHook::new(repo.path(), repo.path().join("nohome"));
         assert!(
             h2.render().contains("=== GIT STATUS"),
             "git section inside a repo"
@@ -347,7 +340,7 @@ mod tests {
     async fn project_instructions_are_included() {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("AGENTS.md"), "project rule X").unwrap();
-        let hook = SessionContextHook::with_home(d.path(), d.path().join("nohome"));
+        let hook = SessionContextHook::new(d.path(), d.path().join("nohome"));
         assert!(hook.render().contains("PROJECT INSTRUCTIONS"));
         assert!(hook.render().contains("project rule X"));
     }
@@ -369,7 +362,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         // The user edited project instructions AFTER the session was saved.
         std::fs::write(d.path().join("AGENTS.md"), "new project rule Z").unwrap();
-        let hook = SessionContextHook::with_home(d.path(), d.path().join("nohome"));
+        let hook = SessionContextHook::new(d.path(), d.path().join("nohome"));
         // Saved block: a stale env/base + a frozen git section from an earlier HEAD.
         let saved = format!(
             "{CONTEXT_HEADER}\n\nWorking directory: /old\n\n=== GIT STATUS (snapshot at session start, not live) ===\nHEAD: oldsha frozen commit"
@@ -405,7 +398,7 @@ mod tests {
         git_init(repo.path());
         std::fs::write(repo.path().join("a.txt"), "1").unwrap();
         git_commit(repo.path(), "first");
-        let hook = SessionContextHook::with_home(repo.path(), repo.path().join("nohome"));
+        let hook = SessionContextHook::new(repo.path(), repo.path().join("nohome"));
         let saved = hook.render(); // captures HEAD #1
                                    // HEAD moves after the save.
         std::fs::write(repo.path().join("b.txt"), "2").unwrap();
@@ -425,7 +418,7 @@ mod tests {
     async fn resume_inserts_when_absent() {
         // Snapshot predates the context hook → insert after the leading system run.
         let d = tempfile::tempdir().unwrap();
-        let hook = SessionContextHook::with_home(d.path(), d.path().join("nohome"));
+        let hook = SessionContextHook::new(d.path(), d.path().join("nohome"));
         let mut convo = Conversation::new();
         convo.push(Message::system("persona"));
         convo.push(Message::user("earlier turn"));

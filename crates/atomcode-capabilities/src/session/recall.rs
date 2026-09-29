@@ -115,47 +115,32 @@ const DEFAULT_LIMIT: usize = 8;
 /// The `recall` tool.
 pub struct RecallTool {
     index: Arc<dyn RecallIndex>,
-    /// PINNED sessions dir. `None` (standalone default) derives the project bucket
-    /// from the live `ToolContext.working_dir` at each call — but that value MOVES
-    /// when the model runs `cd`, silently pointing recall at a different project's
-    /// bucket than the one the session hooks write. An assembly that owns a
-    /// `SessionManager` pins the root here so recall and persistence always agree.
-    sessions_dir: Option<std::path::PathBuf>,
-}
-
-impl Default for RecallTool {
-    fn default() -> Self {
-        Self {
-            index: Arc::new(KeywordIndex),
-            sessions_dir: None,
-        }
-    }
+    /// The sessions dir this tool searches — the assembly's
+    /// `SessionManager::root()`. Required: deriving it from the live
+    /// `ToolContext.working_dir` at each call MOVES when the model runs `cd`,
+    /// silently pointing recall at a different project's bucket than the one
+    /// the session hooks write.
+    sessions_dir: std::path::PathBuf,
 }
 
 impl RecallTool {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Use a custom ranking backend (e.g. a future embedding index).
-    pub fn with_index(index: Arc<dyn RecallIndex>) -> Self {
+    /// Search the sessions under `sessions_dir`.
+    pub fn new(sessions_dir: impl Into<std::path::PathBuf>) -> Self {
         Self {
-            index,
-            sessions_dir: None,
+            index: Arc::new(KeywordIndex),
+            sessions_dir: sessions_dir.into(),
         }
     }
 
-    /// Pin the sessions dir this tool searches (an assembly passes its
-    /// `SessionManager::root()`), instead of re-deriving it from the live —
-    /// `cd`-movable — working dir at each call.
-    pub fn with_sessions_dir(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
-        self.sessions_dir = Some(dir.into());
+    /// Use a custom ranking backend (e.g. a future embedding index).
+    pub fn with_index(mut self, index: Arc<dyn RecallIndex>) -> Self {
+        self.index = index;
         self
     }
 
     /// The testable core: load every session log (and old transcript) under `sessions_dir`, time-filter, rank,
     /// and format the result the model reads. Separated from `execute` so it is unit-
-    /// testable against a temp dir without `$ATOMCODE_HOME`.
+    /// testable against a temp dir.
     pub fn search_dir(
         &self,
         sessions_dir: &Path,
@@ -285,7 +270,7 @@ impl Tool for RecallTool {
         RiskLevel::Safe
     }
 
-    async fn execute(&self, args: &str, ctx: &ToolContext) -> ToolResult {
+    async fn execute(&self, args: &str, _ctx: &ToolContext) -> ToolResult {
         let a: RecallArgs = match serde_json::from_str(args) {
             Ok(a) => a,
             Err(e) => {
@@ -297,14 +282,8 @@ impl Tool for RecallTool {
                 }
             }
         };
-        let sessions_dir = match &self.sessions_dir {
-            Some(d) => d.clone(),
-            None => SessionManager::for_project(&ctx.working_dir)
-                .root()
-                .to_path_buf(),
-        };
         let content = match self.search(
-            &sessions_dir,
+            &self.sessions_dir,
             &RecallRequest {
                 query: &a.query,
                 after: a.after.as_deref(),
@@ -601,7 +580,7 @@ mod tests {
             )],
         );
 
-        let tool = RecallTool::new();
+        let tool = RecallTool::new(dir.path());
         let out = tool.search_dir(dir.path(), "oauth", None, None, 8).unwrap();
         // Both oauth turns matched; the one with more "oauth" occurrences ranks first.
         assert!(out.contains("Recalled 2 matching"), "got: {out}");
@@ -627,7 +606,7 @@ mod tests {
                 rec("s", 5 * day, "alpha late", "x"),
             ],
         );
-        let tool = RecallTool::new();
+        let tool = RecallTool::new(dir.path());
         // after = 2*day (inclusive lower), before = 5*day (exclusive upper) → only the 3*day turn.
         let after = chrono::DateTime::from_timestamp_millis(2 * day)
             .unwrap()
@@ -646,7 +625,7 @@ mod tests {
     fn no_match_is_a_clear_message_not_an_error() {
         let dir = tempfile::tempdir().unwrap();
         write_jsonl(dir.path(), "a.jsonl", &[rec("s", 1, "hello", "world")]);
-        let out = RecallTool::new()
+        let out = RecallTool::new(dir.path())
             .search_dir(dir.path(), "nonexistent", None, None, 8)
             .unwrap();
         assert!(out.contains("No matching turns"));
@@ -659,7 +638,7 @@ mod tests {
         let want_dir = dir.path().display().to_string();
 
         // On a hit: footer shows the REAL dir + restates the freshness boundary.
-        let hit = RecallTool::new()
+        let hit = RecallTool::new(dir.path())
             .search_dir(dir.path(), "hello", None, None, 8)
             .unwrap();
         assert!(hit.contains(&want_dir), "footer shows the real dir: {hit}");
@@ -669,7 +648,7 @@ mod tests {
         );
 
         // On a no-match (where the "why is nothing here?" confusion lands): footer too.
-        let miss = RecallTool::new()
+        let miss = RecallTool::new(dir.path())
             .search_dir(dir.path(), "nonexistent", None, None, 8)
             .unwrap();
         assert!(miss.contains("No matching turns"));
@@ -684,7 +663,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let records: Vec<TurnRecord> = (0..10).map(|i| rec("s", i, "match me", "yes")).collect();
         write_jsonl(dir.path(), "a.jsonl", &records);
-        let out = RecallTool::new()
+        let out = RecallTool::new(dir.path())
             .search_dir(dir.path(), "match", None, None, 3)
             .unwrap();
         assert!(out.contains("Recalled 3 matching"), "got: {out}");
@@ -700,7 +679,7 @@ mod tests {
             "a.jsonl",
             &[rec("日本語のセッションid", 1, "match me", "yes")],
         );
-        let out = RecallTool::new()
+        let out = RecallTool::new(dir.path())
             .search_dir(dir.path(), "match", None, None, 8)
             .unwrap();
         assert!(
@@ -725,7 +704,7 @@ mod tests {
         });
         write_jsonl(dir.path(), "a.jsonl", &[r]);
         // A term only present in the tool args/result still matches.
-        let out = RecallTool::new()
+        let out = RecallTool::new(dir.path())
             .search_dir(dir.path(), "refresh_token", None, None, 8)
             .unwrap();
         assert!(
@@ -740,7 +719,7 @@ mod tests {
         std::fs::write(dir.path().join("broken.jsonl"), b"not-json\n").unwrap();
 
         assert!(matches!(
-            RecallTool::new().search_dir(dir.path(), "anything", None, None, 8),
+            RecallTool::new(dir.path()).search_dir(dir.path(), "anything", None, None, 8),
             Err(SessionStoreError::Corrupt {
                 kind: "transcript record",
                 ..
@@ -756,7 +735,7 @@ mod tests {
         write_jsonl(dir.path(), "future.jsonl", &[future]);
 
         assert!(matches!(
-            RecallTool::new().search_dir(dir.path(), "hello", None, None, 8),
+            RecallTool::new(dir.path()).search_dir(dir.path(), "hello", None, None, 8),
             Err(SessionStoreError::FutureSchema {
                 kind: "transcript record",
                 ..
@@ -775,7 +754,7 @@ mod tests {
         symlink(&target, dir.path().join("linked.jsonl")).unwrap();
 
         assert!(matches!(
-            RecallTool::new().search_dir(dir.path(), "hello", None, None, 8),
+            RecallTool::new(dir.path()).search_dir(dir.path(), "hello", None, None, 8),
             Err(SessionStoreError::UnsafeFile { .. })
         ));
     }
@@ -798,7 +777,7 @@ mod tests {
             "zh2.jsonl",
             &[rec("zh2", 2000, "关于咖啡豆的烘焙记录", "嗯")],
         );
-        let out = RecallTool::new()
+        let out = RecallTool::new(dir.path())
             .search_dir(dir.path(), "工作任务", None, None, 8)
             .unwrap();
         assert!(out.contains("Recalled 1 matching"), "got: {out}");
@@ -817,7 +796,7 @@ mod tests {
             "zh3.jsonl",
             &[rec("zh3", 1000, "工作任务", "收到")],
         );
-        let tool = RecallTool::new();
+        let tool = RecallTool::new(dir.path());
         let ascii = tool
             .search_dir(dir.path(), "工作,任务", None, None, 8)
             .unwrap();
@@ -849,7 +828,7 @@ mod tests {
             "zc.jsonl",
             &[rec("zc", 1500, "任务", &"任务".repeat(30))],
         );
-        let out = RecallTool::new()
+        let out = RecallTool::new(dir.path())
             .search_dir(dir.path(), "工作 任务", None, None, 8)
             .unwrap();
         assert!(out.contains("Recalled 3 matching"), "got: {out}");
@@ -879,7 +858,7 @@ mod tests {
                 rec("s", 2_000, "第二件事", "行"),
             ],
         );
-        let tool = RecallTool::new();
+        let tool = RecallTool::new(dir.path());
         for q in ["", "   ", "的 了 和"] {
             let out = tool.search_dir(dir.path(), q, None, None, 8).unwrap();
             assert!(
@@ -946,7 +925,7 @@ mod tests {
                 "答",
             )],
         );
-        let tool = RecallTool::new();
+        let tool = RecallTool::new(dir.path());
         for session in ["0e300ebf-b604-4cd7-8c22-0a491456f89e", "0e300ebf"] {
             let out = tool
                 .search(
@@ -991,7 +970,7 @@ mod tests {
             "{\"event\":{\"kind\":\"turn_start\",\"turn\":1},\"seq\":1}\n",
         )
         .unwrap();
-        let out = RecallTool::new()
+        let out = RecallTool::new(dir.path())
             .search_dir(dir.path(), "真正", None, None, 8)
             .unwrap();
         assert!(out.contains("真正的回合"), "{out}");

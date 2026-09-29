@@ -82,6 +82,7 @@ fn review_tool_names(no_web: bool, mount_graph: bool) -> Vec<&'static str> {
 /// `Err` only if the provider fails to construct.
 pub fn build_review_agent(cfg: ReviewAgentConfig) -> Result<(Agent, ReportFindingTool), String> {
     let mut provider_cfg = OpenAiCompatConfig::new(&cfg.api_key, &cfg.base_url, &cfg.model);
+    provider_cfg.wire_dump_dir = Some(cfg.dirs.user().join("wire-dump"));
     provider_cfg.context_window = cfg.context_window;
     // Byte-idle liveness follows the review config's stream_timeout (the same value
     // handed to the kernel below), not the adapter's hardcoded 120s default — so the
@@ -136,7 +137,7 @@ pub fn build_review_agent_with_cancel(
         }
         mount
     };
-    let tools = mount_review_tools(&report, cfg.no_web, mount_graph, &cfg.skill_dirs);
+    let tools = mount_review_tools(&cfg.dirs, &report, cfg.no_web, mount_graph, &cfg.skill_dirs);
     let persona = compose_persona(cfg);
     let mut builder = Agent::builder()
         .provider(provider)
@@ -218,14 +219,15 @@ pub fn shared_review_deadline(
 /// mount only the read-only subset — write/edit/bash are registered by
 /// `register_coding_tools` but NEVER mounted, so the model cannot mutate.
 fn mount_review_tools(
+    dirs: &atomcode_capabilities::ProductDirs,
     report: &ReportFindingTool,
     no_web: bool,
     mount_graph: bool,
     skill_dirs: &[PathBuf],
 ) -> MountedTools {
     let mut reg = ToolRegistry::new();
-    register_coding_tools(&mut reg); // read_file/grep/glob/list_directory (+ write/edit/bash, unmounted)
-    register_codeintel_tools(&mut reg); // registered always; mounted only when `mount_graph`
+    register_coding_tools(&mut reg, &dirs); // read_file/grep/glob/list_directory (+ write/edit/bash, unmounted)
+    register_codeintel_tools(&mut reg, &dirs); // registered always; mounted only when `mount_graph`
     reg.register(Arc::new(AstGrepTool));
     reg.register(Arc::new(WebSearchTool::new())); // registered always; mounted only when !no_web
     reg.register(Arc::new(report.clone())); // shares state with the returned handle
@@ -274,8 +276,17 @@ mod tests {
     use futures::stream::{self, BoxStream};
     use futures::StreamExt;
 
+    /// An empty repo of its own: the looping provider greps it every round,
+    /// and the shared temp dir can hold anything.
     fn cfg() -> ReviewAgentConfig {
-        ReviewAgentConfig::new("k", "https://x.test", "mock-model", std::env::temp_dir())
+        let repo = tempfile::tempdir().unwrap().keep();
+        ReviewAgentConfig::new(
+            "k",
+            "https://x.test",
+            "mock-model",
+            &repo,
+            atomcode_capabilities::ProductDirs::new(repo.join(".ours-home"), ".ours"),
+        )
     }
 
     /// Scripted provider: round 1 emits a `report_finding` tool call, round 2 a final text.
@@ -668,8 +679,16 @@ mod shared_deadline_tests {
     /// External token wins over the config duration: no second per-agent timer may race it.
     #[tokio::test(start_paused = true)]
     async fn external_token_suppresses_per_agent_timer() {
-        let mut cfg =
-            ReviewAgentConfig::new("k", "https://x.test", "mock-model", std::env::temp_dir());
+        let mut cfg = ReviewAgentConfig::new(
+            "k",
+            "https://x.test",
+            "mock-model",
+            std::env::temp_dir(),
+            atomcode_capabilities::ProductDirs::new(
+                std::env::temp_dir().join("review-test-tree"),
+                ".ours",
+            ),
+        );
         cfg.max_turn_duration = Some(Duration::from_secs(1));
         let external = tokio_util::sync::CancellationToken::new();
         let provider: Arc<dyn LlmProvider> = Arc::new(super::tests::ScriptedReviewProvider);
@@ -692,7 +711,16 @@ mod persona_compose_tests {
     use super::*;
 
     fn cfg() -> ReviewAgentConfig {
-        ReviewAgentConfig::new("k", "https://x.test", "m1", std::env::temp_dir())
+        ReviewAgentConfig::new(
+            "k",
+            "https://x.test",
+            "m1",
+            std::env::temp_dir(),
+            atomcode_capabilities::ProductDirs::new(
+                std::env::temp_dir().join("review-test-tree"),
+                ".ours",
+            ),
+        )
     }
 
     #[test]

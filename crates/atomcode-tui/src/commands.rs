@@ -489,8 +489,12 @@ impl CommandSet for TakeAwayCommands {
                         Err(why) => return Outcome::Refused(why),
                     };
                     let root = std::path::PathBuf::from(&here);
+                    let own = ctx
+                        .service::<crate::plugin::ProductDirsSvc>()
+                        .map(|dirs| dirs.project_dir_name().to_string())
+                        .unwrap_or_default();
                     let files = tokio::task::spawn_blocking(move || {
-                        atomcode_capabilities::file_index::FileIndex::files_blocking(&root)
+                        atomcode_capabilities::file_index::FileIndex::files_blocking(&root, &own)
                     })
                     .await
                     .unwrap_or_default();

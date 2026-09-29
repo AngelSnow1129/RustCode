@@ -73,7 +73,7 @@ config = {{ script = [
 }
 
 async fn start(tree: ConfigTree) -> App {
-    let mut app = App::new(plugins::catalog(), tree);
+    let mut app = App::new(atomcode_coding::on_harness::catalog(), tree);
     app.start().await.expect("must mount");
     app
 }
@@ -157,7 +157,7 @@ async fn an_unparseable_rule_fails_the_row_instead_of_leaving_a_gap() {
     let bad =
         "[[patch]]\nid = \"permissions\"\nconfig = { allow = [\"Bash(unclosed\"], deny = [] }";
     let mut app = App::new(
-        plugins::catalog(),
+        atomcode_coding::on_harness::catalog(),
         tree(&dir, &script_one("read_file", "{}"), &[bad]),
     );
     let err = app.start().await.unwrap_err().to_string();
@@ -290,7 +290,7 @@ async fn with_nobody_to_ask_an_interactive_approval_refuses() {
 async fn a_human_provider_turns_the_same_approval_row_interactive() {
     let dir = scratch("interactive");
     let target = dir.join("out.txt");
-    let mut registry = plugins::catalog();
+    let mut registry = atomcode_coding::on_harness::catalog();
     registry.register(Arc::new(AlwaysYesPlugin));
 
     let swap =
@@ -467,7 +467,7 @@ async fn interactive_approval_is_asked_about_the_sensitive_read_and_only_that() 
     let dir = scratch("sensitive-ask");
     let key = secret_at(&dir, ".ssh/id_ed25519");
     let asked = Arc::new(Mutex::new(Vec::new()));
-    let mut registry = plugins::catalog();
+    let mut registry = atomcode_coding::on_harness::catalog();
     registry.register(Arc::new(CountingYesPlugin(asked.clone())));
     let swap = "[[patch]]\nid = \"user-questions-unattended\"\nname = \"user-questions-counting\"";
     let mut app = App::new(
@@ -537,7 +537,7 @@ impl Plugin for AlwaysThenNoPlugin {
 async fn always_allow_is_asked_once_and_remembered_for_the_scope() {
     let dir = scratch("always");
     let asked = Arc::new(Mutex::new(Vec::new()));
-    let mut registry = plugins::catalog();
+    let mut registry = atomcode_coding::on_harness::catalog();
     registry.register(Arc::new(AlwaysThenNoPlugin(asked.clone())));
     let swap =
         "[[patch]]\nid = \"user-questions-unattended\"\nname = \"user-questions-always-then-no\"";
@@ -605,7 +605,7 @@ async fn an_answer_nobody_offered_is_a_refusal() {
     }
 
     let dir = scratch("stale-yes");
-    let mut registry = plugins::catalog();
+    let mut registry = atomcode_coding::on_harness::catalog();
     registry.register(Arc::new(YesPlugin));
     let swap = "[[patch]]\nid = \"user-questions-unattended\"\nname = \"user-questions-stale-yes\"";
     let script = script_one("write_file", r#"{ file_path = "a.txt", content = "a" }"#);
@@ -671,7 +671,7 @@ async fn asked_about_opening(
     target: &std::path::Path,
 ) -> Vec<String> {
     let asked = Arc::new(Mutex::new(Vec::new()));
-    let mut registry = plugins::catalog();
+    let mut registry = atomcode_coding::on_harness::catalog();
     registry.register(Arc::new(CountingYesPlugin(asked.clone())));
     registry.register(Arc::new(RecordingPlugin(Arc::new(Recording::default()))));
     // `tool-open-file` and an `opener` live in `REPL_APP`, which would also mount a
@@ -743,13 +743,13 @@ fn bash_script(command: &str) -> String {
 /// Returns (the transcript, the artifact dir).
 async fn spilled(dir: &std::path::Path, command: &str) -> (String, PathBuf) {
     let artifacts = dir.join("artifacts");
-    let registry = plugins::catalog();
+    let registry = atomcode_coding::on_harness::catalog();
     let insert = format!(
         "[[insert]]\nname = \"tool-output-artifact\"\nconfig = {{ dir = {a:?} }}",
         a = artifacts.to_string_lossy()
     );
     let yolo = "[[patch]]\nid = \"approval\"\nconfig = { mode = \"yolo\" }";
-    // `start()` builds its own App from `plugins::catalog()`, which would drop the
+    // `start()` builds its own App from `atomcode_coding::on_harness::catalog()`, which would drop the
     // registration above — the row is not in the catalog yet.
     let mut app = App::new(registry, tree(dir, &bash_script(command), &[yolo, &insert]));
     app.start().await.unwrap();
@@ -880,7 +880,7 @@ async fn an_approval_is_a_fact_the_log_can_redraw() {
     let dir = scratch("approval-logged");
     let target = dir.join("out.txt");
     let asked = Arc::new(Mutex::new(Vec::new()));
-    let mut registry = plugins::catalog();
+    let mut registry = atomcode_coding::on_harness::catalog();
     registry.register(Arc::new(RecorderPlugin(asked.clone())));
     let swap = "[[patch]]\nid = \"user-questions-unattended\"\nname = \"user-questions-recorder\"";
     let tool = script_one(
@@ -943,7 +943,7 @@ async fn a_declined_question_is_logged_as_declined_and_not_as_absent() {
     // would redraw a call nobody allowed as one that was never offered.
     let dir = scratch("decline-logged");
     let target = dir.join("out.txt");
-    let mut registry = plugins::catalog();
+    let mut registry = atomcode_coding::on_harness::catalog();
     registry.register(Arc::new(DeclinesPlugin));
     let swap = "[[patch]]\nid = \"user-questions-unattended\"\nname = \"user-questions-declines\"";
     let tool = script_one(

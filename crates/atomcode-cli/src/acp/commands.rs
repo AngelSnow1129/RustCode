@@ -606,8 +606,14 @@ fn help_text() -> String {
 /// `/config` output — where the config file lives (no config handle on the
 /// ACP session, so this mirrors the TUI's path report).
 fn config_text() -> String {
-    let home = std::env::var("ATOMCODE_HOME").unwrap_or_else(|_| "~/.atomcode".to_string());
-    format!("config path: {home}/config.toml (set ATOMCODE_HOME to override)")
+    let path = atomcode_coding::config::product_dirs_from_env()
+        .user()
+        .join("config.toml");
+    format!(
+        "config path: {} (set {} to override)",
+        path.display(),
+        atomcode_config::distribution::HOME_ENV
+    )
 }
 
 #[cfg(test)]

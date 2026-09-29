@@ -13,6 +13,7 @@ pub mod opener;
 pub mod persona;
 pub mod policy;
 pub mod policy_rows;
+pub mod product_dirs;
 pub mod reasoning_effort;
 pub mod recall;
 pub mod recovery;
@@ -44,6 +45,7 @@ use atomcode_plexus::PluginRegistry;
 pub fn catalog() -> PluginRegistry {
     let mut registry = PluginRegistry::new();
     registry
+        .register(Arc::new(product_dirs::ProductDirsPlugin))
         .register(Arc::new(registries::ToolsPlugin))
         .register(Arc::new(registries::SystemPromptPlugin))
         .register(Arc::new(registries::OperationsPlugin))
@@ -72,7 +74,6 @@ pub fn catalog() -> PluginRegistry {
         .register(Arc::new(capabilities::CodeIntelPlugin))
         .register(Arc::new(capabilities::CodeGraphPlugin))
         .register(Arc::new(capabilities::WebPlugin::new()))
-        .register(Arc::new(capabilities::ReviewToolPlugin))
         .register(Arc::new(subagent::ModelCatalogPlugin))
         .register(Arc::new(llm::LlmUtilitySelectedPlugin))
         .register(Arc::new(capabilities::MemoryPlugin))
@@ -86,7 +87,6 @@ pub fn catalog() -> PluginRegistry {
         .register(Arc::new(self_knowledge::SelfKnowledgePlugin))
         .register(Arc::new(self_knowledge::ProjectInstructionsPlugin))
         .register(Arc::new(persona::CodingPersonaPlugin))
-        .register(Arc::new(persona::ReviewPersonaPlugin))
         .register(Arc::new(persona::SecurityPersonaPlugin))
         .register(Arc::new(agent_loop::AgentLoopPlugin))
         .register(Arc::new(policy::RepairArgsPlugin))

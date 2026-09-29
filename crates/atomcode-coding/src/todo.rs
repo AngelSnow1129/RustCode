@@ -46,6 +46,8 @@ pub struct TodoHook {
     /// tests / headless drivers: sidecar persistence is skipped and the hook
     /// stays transcript-derived only (matches the pre-sidecar behavior).
     working_dir: Option<std::path::PathBuf>,
+    /// Where the sidecar's session store is (`<user tree>/sessions/<bucket>`).
+    dirs: Option<atomcode_capabilities::ProductDirs>,
     /// The list this round's request showed the model — `None` until a request
     /// has been made. The stop check reads it rather than folding the
     /// conversation again: after a compaction the conversation alone is the
@@ -55,11 +57,23 @@ pub struct TodoHook {
 }
 
 impl TodoHook {
-    pub fn new(working_dir: impl Into<std::path::PathBuf>) -> Self {
+    pub fn new(
+        working_dir: impl Into<std::path::PathBuf>,
+        dirs: atomcode_capabilities::ProductDirs,
+    ) -> Self {
         Self {
             working_dir: Some(working_dir.into()),
+            dirs: Some(dirs),
             shown: Default::default(),
         }
+    }
+
+    /// The session store the sidecar lives in, when there is a project to key it on.
+    fn sessions(&self) -> Option<SessionManager> {
+        Some(SessionManager::for_project(
+            self.working_dir.as_deref()?,
+            self.dirs.as_ref()?,
+        ))
     }
 }
 
@@ -67,6 +81,7 @@ impl Default for TodoHook {
     fn default() -> Self {
         Self {
             working_dir: None,
+            dirs: None,
             shown: Default::default(),
         }
     }
@@ -86,6 +101,8 @@ pub struct TodoEagerHook {
     /// compaction took out of the conversation is still a plan, and is only in
     /// the sidecar; without it the policy would ask for a new one over it.
     working_dir: Option<std::path::PathBuf>,
+    /// Where the sidecar's session store is — see [`TodoHook`].
+    dirs: Option<atomcode_capabilities::ProductDirs>,
 }
 
 impl TodoEagerHook {
@@ -116,20 +133,33 @@ impl TodoEagerHook {
             eagerness,
             force_complex_for_weak_model,
             working_dir: None,
+            dirs: None,
         }
     }
 
     /// Read the list the way [`TodoHook`] does, sidecar included.
-    pub fn with_working_dir(mut self, working_dir: impl Into<std::path::PathBuf>) -> Self {
+    pub fn with_working_dir(
+        mut self,
+        working_dir: impl Into<std::path::PathBuf>,
+        dirs: atomcode_capabilities::ProductDirs,
+    ) -> Self {
         self.working_dir = Some(working_dir.into());
+        self.dirs = Some(dirs);
         self
+    }
+
+    fn sessions(&self) -> Option<SessionManager> {
+        Some(SessionManager::for_project(
+            self.working_dir.as_deref()?,
+            self.dirs.as_ref()?,
+        ))
     }
 
     fn should_activate(&self, messages: &[Message], ctx: &TurnCtx) -> bool {
         if ctx.round != 1 || self.eagerness == TodoEagerness::Auto {
             return false;
         }
-        current_todos(messages, || read_sidecar(self.working_dir.as_deref(), ctx)).map_or(
+        current_todos(messages, || read_sidecar(self.sessions().as_ref(), ctx)).map_or(
             true,
             |current| {
                 current
@@ -591,14 +621,17 @@ impl LifecycleHooks for TodoHook {
         let Some(current) = current_todos(&convo.messages, || self.sidecar(ctx)) else {
             return;
         };
-        write_sidecar(working_dir, session_id, &current, convo.messages.len());
+        let _ = working_dir;
+        if let Some(sessions) = self.sessions() {
+            write_sidecar(&sessions, session_id, &current, convo.messages.len());
+        }
     }
 }
 
 impl TodoHook {
     /// The session's persisted todo sidecar, when there is a session to key it on.
     fn sidecar(&self, ctx: &TurnCtx) -> Option<TodoSidecar> {
-        read_sidecar(self.working_dir.as_deref(), ctx)
+        read_sidecar(self.sessions().as_ref(), ctx)
     }
 
     /// Write `current` to the sidecar when it reflects a todo call the sidecar does
@@ -615,8 +648,11 @@ impl TodoHook {
             return;
         };
         let persisted = self.sidecar(ctx).and_then(|sidecar| sidecar.through);
+        let _ = working_dir;
         if sidecar_is_behind(current, persisted) {
-            write_sidecar(working_dir, session_id, current, message_count);
+            if let Some(sessions) = self.sessions() {
+                write_sidecar(&sessions, session_id, current, message_count);
+            }
         }
     }
 }
@@ -633,7 +669,7 @@ fn sidecar_is_behind(current: &CurrentTodos, persisted: Option<TodoCallPosition>
 }
 
 fn write_sidecar(
-    working_dir: &std::path::Path,
+    manager: &SessionManager,
     session_id: &str,
     current: &CurrentTodos,
     message_count: usize,
@@ -646,16 +682,13 @@ fn write_sidecar(
             status: todo_status_str(&t.status).to_string(),
         })
         .collect();
-    let manager = SessionManager::for_project(working_dir);
     let _ = manager.write_todo_sidecar(session_id, &items, message_count, current.through);
 }
 
 /// The session's persisted todo sidecar, when there is a session to key it on.
-fn read_sidecar(working_dir: Option<&std::path::Path>, ctx: &TurnCtx) -> Option<TodoSidecar> {
+fn read_sidecar(manager: Option<&SessionManager>, ctx: &TurnCtx) -> Option<TodoSidecar> {
     let session_id = ctx.session_id.as_deref()?;
-    SessionManager::for_project(working_dir?)
-        .read_todo_sidecar(session_id)
-        .ok()?
+    manager?.read_todo_sidecar(session_id).ok()?
 }
 
 /// The task list as it stands, and where the last todo call it reflects was made.

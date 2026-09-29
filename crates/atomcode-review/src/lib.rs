@@ -19,8 +19,10 @@
 //! use atomcode_review::{build_review_agent, ReviewAgentConfig};
 //! use atomcode_kernel::agent::AutoRespond;
 //!
+//! // Where the host keeps its data: its user tree and per-project dir name.
+//! let dirs = atomcode_capabilities::ProductDirs::new("/home/me/.myapp", ".myapp");
 //! let (agent, report) = build_review_agent(ReviewAgentConfig::new(
-//!     "sk-...", "https://api.deepseek.com/v1", "deepseek-v4", ".",
+//!     "sk-...", "https://api.deepseek.com/v1", "deepseek-v4", ".", dirs,
 //! ))?;
 //! let _ = agent.run_to_completion("Review this diff:\n<diff>", AutoRespond::AllowAll).await;
 //! for f in report.findings() {

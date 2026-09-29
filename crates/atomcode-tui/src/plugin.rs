@@ -41,6 +41,7 @@ use crate::moment::Timestamp;
 use crate::surface::{Headless, Input, Surface, Terminal};
 
 plexus_service!(SurfaceSvc => dyn Surface, "surface", Seam, "Where a frame is painted");
+plexus_service!(ProductDirsSvc => atomcode_capabilities::ProductDirs, "tui-product-dirs", Seam, "Where the product keeps its data: the image cache and the askpass socket live under it");
 plexus_service!(ModulesSvc => Modules, "tui-modules", Core, "Mounted stream producers and view modules");
 // The region tree, as a service, because every panel that puts itself on screen
 // when it mounts needs it. Before it was a field on `Host` reachable only from
@@ -591,6 +592,7 @@ fn paths_under(
     index: &std::sync::Mutex<Option<(std::path::PathBuf, FileIndex)>>,
     cwd: &str,
     prefix: &str,
+    project_dir_name: &str,
 ) -> Vec<crate::menu::Item> {
     let mut held = index.lock().expect("file index poisoned");
     let root = std::path::PathBuf::from(cwd);
@@ -601,7 +603,7 @@ fn paths_under(
         Some((at, built)) if *at != root => built.reset(root.clone()),
         Some(_) => {}
         None => {
-            *held = Some((root.clone(), FileIndex::new(root.clone())));
+            *held = Some((root.clone(), FileIndex::new(root.clone(), project_dir_name)));
         }
     }
     let Some((at, built)) = held.as_mut() else {
@@ -707,6 +709,7 @@ fn policy_options(
 fn serve_askpass(
     host: Arc<crate::host::Host>,
     wake: mpsc::UnboundedSender<Wake>,
+    home_dir_name: &str,
 ) -> Option<atomcode_capabilities::askpass::server::AskpassServerGuard> {
     use atomcode_capabilities::askpass;
 
@@ -716,7 +719,7 @@ fn serve_askpass(
     let cache = Arc::new(askpass::cache::PasswordCache::new(
         std::time::Duration::from_secs(300),
     ));
-    let (mut env, prompts, guard) = askpass::server::start(cache).ok()?;
+    let (mut env, prompts, guard) = askpass::server::start(cache, home_dir_name).ok()?;
     // Without the wrapper script there is nothing for sudo to exec, so the env
     // is left unset and the whole thing degrades to what it is today: no
     // askpass. Degrading beats a half-set environment that sends sudo to a
@@ -1153,8 +1156,14 @@ impl UserInterface for Tui {
         // tty this screen owns (`docs/plans/2026-09-18-tui-panels-and-commands-inventory.md`
         // P0-1). Held to the end of this function: dropping the guard removes
         // the socket, so a screen that is gone stops answering.
+        let dirs = ctx.service::<ProductDirsSvc>();
+        if let Some(dirs) = dirs.as_ref() {
+            let _ = self.host.dirs.set((**dirs).clone());
+        }
         #[cfg(unix)]
-        let _askpass = serve_askpass(self.host.clone(), wake_tx.clone());
+        let _askpass = dirs.as_ref().and_then(|dirs| {
+            serve_askpass(self.host.clone(), wake_tx.clone(), dirs.home_dir_name())
+        });
 
         // The session on screen, from its first fact: a resumed session and a
         // live one produce the same picture, because the history is facts too.
@@ -5687,8 +5696,10 @@ impl Tui {
                 // later arrow-up (or a resumed session) can re-attach their bytes
                 // instead of a bare marker. Best-effort, off the moment lock; the
                 // bytes are already normalised, so nothing here re-inflates.
-                for image in &images {
-                    crate::image_cache::write(image);
+                if let Some(dir) = self.host.image_cache() {
+                    for image in &images {
+                        crate::image_cache::write(&dir, image);
+                    }
                 }
                 // 人在本地跑过的那几条,跟这一句一起过去 —— 取走,不重发。
                 let context = std::mem::take(
@@ -6831,7 +6842,9 @@ impl Tui {
                 // the middle of a sentence is a mention too. The classic
                 // screen's rule, from the same place.
                 match atomcode_capabilities::file_index::detect_at_mention(&typed, caret) {
-                    Some(token) => paths_under(&self.files, &cwd, &token),
+                    Some(token) => {
+                        paths_under(&self.files, &cwd, &token, self.host.project_dir_name())
+                    }
                     None => Vec::new(),
                 }
             }
@@ -8803,7 +8816,7 @@ mod askpass_tests {
     async fn a_child_process_can_find_the_prompt_we_would_answer() {
         let host = screen();
         let (wake, _woken) = mpsc::unbounded_channel();
-        let guard = serve_askpass(host, wake).expect("the server starts");
+        let guard = serve_askpass(host, wake, ".ours").expect("the server starts");
         let env = atomcode_capabilities::askpass::current_env()
             .expect("the environment a child is given");
         assert!(env.sock_path.exists(), "the socket is there to connect to");
@@ -8841,7 +8854,7 @@ mod at_menu_tests {
     ) -> Vec<crate::menu::Item> {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
-            let got = paths_under(index, cwd, prefix);
+            let got = paths_under(index, cwd, prefix, ".ours");
             if want(&got) {
                 return got;
             }
@@ -8933,14 +8946,14 @@ mod at_menu_tests {
         );
 
         // And the ignored tree is not offered — not the file, not the folder.
-        let all = paths_under(&index, &cwd, "");
+        let all = paths_under(&index, &cwd, "", ".ours");
         let shown = labels(&all).join(" ");
         assert!(
             !shown.contains("target"),
             "an ignored directory is not a completion: {shown}"
         );
         assert!(shown.contains("README.md"), "{shown}");
-        let junk = paths_under(&index, &cwd, "junk");
+        let junk = paths_under(&index, &cwd, "junk", ".ours");
         assert!(labels(&junk).is_empty(), "{junk:?}");
     }
 
@@ -8963,7 +8976,7 @@ mod at_menu_tests {
         let moved = eventually(&index, &there, "over", |items| !items.is_empty());
         assert_eq!(labels(&moved), vec!["@over-there.rs".to_string()]);
         assert!(
-            labels(&paths_under(&index, &there, "only")).is_empty(),
+            labels(&paths_under(&index, &there, "only", ".ours")).is_empty(),
             "the directory that was left behind is no longer offered"
         );
     }

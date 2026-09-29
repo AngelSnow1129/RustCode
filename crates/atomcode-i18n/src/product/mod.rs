@@ -17,7 +17,7 @@ pub use messages::Msg;
 // through whichever table they already use; there is only one of each.
 pub use crate::runtime::{
     current_locale, fmt_tokens, resolve_initial_locale, resolve_initial_locale_with_env, set_brand,
-    set_locale, substitute_placeholders, test_lock, LocaleTestGuard,
+    set_dirs, set_locale, substitute_placeholders, test_lock, LocaleTestGuard,
 };
 
 use std::borrow::Cow;
@@ -731,6 +731,35 @@ mod tests {
 
         // Restore upstream default so no other test sees "TestBrand".
         set_brand("AtomCode", "AtomGit OAuth");
+    }
+
+    /// Sentences that name a directory name the host's, not upstream's: a
+    /// renamed build's `--help` says where ITS data is.
+    #[test]
+    fn directory_placeholders_render_the_hosts_dirs() {
+        let _g = test_lock();
+        crate::runtime::set_dirs("~/.fork", ".fork");
+        for locale in [Locale::En, Locale::ZhCn] {
+            let user = t_with(locale, Msg::PluginScopeUserDesc);
+            let project = t_with(locale, Msg::PluginScopeProjectDesc);
+            assert!(user.starts_with("~/.fork/plugins"), "{locale:?}: {user}");
+            assert!(
+                project.starts_with(".fork/plugins"),
+                "{locale:?}: {project}"
+            );
+            for rendered in [&user, &project] {
+                assert!(
+                    !rendered.contains('{'),
+                    "{locale:?} leaked a placeholder: {rendered}"
+                );
+            }
+        }
+        crate::runtime::set_dirs("", "");
+        let unset = t_with(Locale::En, Msg::PluginScopeUserDesc);
+        assert!(
+            !unset.contains("{user_dir}"),
+            "unset leaked the raw token: {unset}"
+        );
     }
 
     /// When no `set_brand` has run, the fallback must be the upstream default

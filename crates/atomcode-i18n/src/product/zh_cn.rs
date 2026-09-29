@@ -912,7 +912,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::HelpCustomNone =>
             "    （无）\n\n".into(),
         Msg::HelpCustomCreateHint =>
-            "  创建方式：~/.atomcode/commands/<名称>.md 或 .atomcode/commands/<名称>.md\n".into(),
+            "  创建方式：{user_dir}/commands/<名称>.md 或 {project_dir}/commands/<名称>.md\n".into(),
         Msg::HelpSourceGlobal => "全局".into(),
         Msg::HelpSourceProject => "项目".into(),
 
@@ -1025,11 +1025,11 @@ Msg::PluginMgrInstallingLabel => "安装中…".into(),
         Msg::PluginMgrRemoveMarketplaceNo => "否，保留".into(),
         Msg::PluginMgrRemoveMarketplaceHint => "↑/↓ 选择 · Enter 确认 · Esc 取消".into(),
  Msg::PluginScopeUser => "为你安装（用户级）".into(),
-Msg::PluginScopeUserDesc => "~/.atomcode/plugins — 所有项目可见".into(),
+Msg::PluginScopeUserDesc => "{user_dir}/plugins — 所有项目可见".into(),
 Msg::PluginScopeProject => "为所有协作者安装（项目级）".into(),
-Msg::PluginScopeProjectDesc => ".atomcode/plugins — 通过 git 共享".into(),
+Msg::PluginScopeProjectDesc => "{project_dir}/plugins — 通过 git 共享".into(),
 Msg::PluginScopeLocal => "仅在本仓库为你安装（本地级）".into(),
-Msg::PluginScopeLocalDesc => ".atomcode/plugins/local — 不提交到 git".into(),
+Msg::PluginScopeLocalDesc => "{project_dir}/plugins/local — 不提交到 git".into(),
 Msg::PluginScopeHint => "↑↓ 选择范围 · Enter 确认 · Esc 返回".into(),
 Msg::PluginScopeUserShort => "用户级".into(),
 Msg::PluginScopeProjectShort => "项目级".into(),
@@ -1293,7 +1293,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
              \u{20}\u{20}/goal clear           停止当前目标（别名：stop、off、reset、none、cancel）\n  \
              \u{20}\u{20}/goal help            显示本帮助\n  \
              说明：\n  \
-             \u{20}\u{20}- 每轮由一个模型评估；在 ~/.atomcode/config.toml 里用 evaluator_provider\n  \
+             \u{20}\u{20}- 每轮由一个模型评估；在 {user_dir}/config.toml 里用 evaluator_provider\n  \
              \u{20}\u{20}\u{20}\u{20}指定（[models] 的 id 或 [providers] 的名字）。\n  \
              \u{20}\u{20}- 轮次上限：CodingPlan 调用额度的 30%（至少 50），没有套餐信息时为 300；\n  \
              \u{20}\u{20}\u{20}\u{20}ATOMCODE_GOAL_MAX_ROUNDS 可覆盖。默认没有时间上限，除非设置了\n  \
@@ -1411,7 +1411,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CliAboutTelemetry => "遥测控制".into(),
         Msg::CliAboutPlugin => "管理技能/命令插件".into(),
         Msg::CliAboutUninstall => "卸载 {brand}：移除二进制文件、PATH 编辑和数据".into(),
-        Msg::CliAboutSetup => "安装种子文件（技能/命令/钩子/MCP）到 ~/.atomcode/".into(),
+        Msg::CliAboutSetup => "安装种子文件（技能/命令/钩子/MCP）到 {user_dir}/".into(),
         Msg::CliAboutHooks => "管理钩子（列表、测试、启用/禁用）".into(),
         Msg::CliAboutHooksList => "列出所有已加载钩子及其状态".into(),
         Msg::CliAboutHooksTest => "按名称测试指定钩子".into(),
@@ -1452,10 +1452,10 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CliHelpPortWebui => "端口（默认：13457）".into(),
         Msg::CliHelpHost => "绑定地址（默认：127.0.0.1）".into(),
         Msg::CliHelpUninstallYes => "跳过提示；使用每组的默认决定".into(),
-        Msg::CliHelpUninstallPurge => "完全清除 ~/.atomcode/".into(),
-        Msg::CliHelpUninstallKeepData => "完全保留 ~/.atomcode/".into(),
+        Msg::CliHelpUninstallPurge => "完全清除 {user_dir}/".into(),
+        Msg::CliHelpUninstallKeepData => "完全保留 {user_dir}/".into(),
         Msg::CliHelpUninstallDryRun => "仅打印计划；不执行操作".into(),
-        Msg::CliHelpMcpGlobal => "写入 ~/.atomcode/mcp.json 而非 <dir>/.mcp.json".into(),
+        Msg::CliHelpMcpGlobal => "写入 {user_dir}/mcp.json 而非 <dir>/.mcp.json".into(),
         Msg::CliHelpMcpDir => "项目 .mcp.json 的目录".into(),
         Msg::CliHelpMcpName => "服务器键名".into(),
         Msg::CliHelpHooksTestName => "要测试的钩子名称".into(),

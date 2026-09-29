@@ -509,7 +509,6 @@ version = "5.1.0"
 dependencies = [
  "anyhow",
  "atomcode-i18n",
- "atomcode-telemetry",
  "dirs",
  "fs2",
  "libc",
@@ -567,7 +566,6 @@ dependencies = [
  "atomcode-config",
  "atomcode-kernel",
  "atomcode-plexus",
- "atomcode-review",
  "axum",
  "ctor",
  "futures",

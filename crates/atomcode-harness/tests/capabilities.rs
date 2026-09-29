@@ -456,70 +456,9 @@ async fn a_capability_row_offers_its_own_commands_and_they_do_the_work() {
         "the skill's prompt is waiting as the person's own message"
     );
 
-    // The reviewer is on offer too, from the row that mounts it. Inserted
-    // explicitly, because that row is part of the coding assembly rather than
-    // of this bundle — what is judged is that the row registers what it owns,
-    // wherever it is mounted. Not run: it would spend a model round, and the
-    // question here is the registration.
-    drop(app);
-    let reviewing = start(tree(
-        &dir,
-        STOP,
-        &["[[insert]]\nname = \"tool-code-review\"\n"],
-    ))
-    .await;
-    let review_agent = atomcode_harness::create_agent(&reviewing)
-        .await
-        .expect("an agent");
-    let offered_now: Vec<String> = reviewing
-        .context()
-        .service::<atomcode_harness::seams::CommandsSvc>()
-        .expect("the catalog")
-        .offered_for(&review_agent)
-        .into_iter()
-        .map(|c| c.name)
-        .collect();
-    assert!(
-        offered_now.contains(&"review".to_string()),
-        "the review row offers `/review`: {offered_now:?}"
-    );
-
-    // **And the argument it advertises actually parses.**
-    //
-    // `/review` takes `[staged | <base>]` in its own usage line, and both
-    // forms used to be rejected outright: the command wrote the word under
-    // `scope`, which is an internally tagged enum (`#[serde(tag = "kind")]`)
-    // and cannot take a bare string. Only the argument-less form worked, so a
-    // command whose help told you to type one of two words answered both with
-    // `invalid arguments`.
-    //
-    // Judged by what the tool says back, not by the JSON this builds: a
-    // criterion on the JSON would be pinning a shape against nothing. The
-    // scratch directory is not a repository, so the run stops at `git diff`
-    // and costs no model round — which is exactly the point past the parse.
-    // The catalog of the tree that mounts the row — not the one above, which
-    // has no review row at all.
-    let reviewing_catalog = reviewing
-        .context()
-        .service::<atomcode_harness::seams::CommandsSvc>()
-        .expect("the catalog");
-    let review = || {
-        reviewing_catalog
-            .find("review", &review_agent)
-            .expect("offered, so findable")
-    };
-    for scope in ["staged", "main"] {
-        let said = review()
-            .run(review_agent.clone(), scope)
-            .await
-            .err()
-            .unwrap_or_default();
-        assert!(
-            !said.contains("invalid arguments") && !said.contains("invalid scope"),
-            "`/review {scope}` got past the argument parser: {said}"
-        );
-    }
-    drop(reviewing);
+    // `/review` is on offer from the row that mounts a reviewer; that row
+    // belongs to the review specialization and is judged in `atomcode-coding`
+    // (`tests/review_rows.rs`), which is where it lives.
 }
 
 #[tokio::test]

@@ -64,7 +64,7 @@ fn tree(store: &Path, project: &Path, say: &str, extra: &[&str]) -> ConfigTree {
 }
 
 async fn start(tree: ConfigTree) -> App {
-    let mut app = App::new(plugins::catalog(), tree);
+    let mut app = App::new(atomcode_coding::on_harness::catalog(), tree);
     app.start().await.expect("must mount");
     // The tree's own agent, so the session exists before the first turn — what
     // the `session` row used to do at mount.

@@ -91,7 +91,10 @@ fn bootstrap(ctx: Context, config_path: PathBuf) {
             return;
         }
         let Ok(events) = tokio::task::spawn_blocking(move || {
-            atomcode_capabilities::plugin::bootstrap::run_startup_hooks(&config)
+            atomcode_capabilities::plugin::bootstrap::run_startup_hooks(
+                &config,
+                &atomcode_coding::config::product_dirs_from_env(),
+            )
         })
         .await
         else {
@@ -232,7 +235,9 @@ fn same_repo(a: &str, b: &str) -> bool {
 /// 说「几天前」而不是一个日期:人来这一页是想知道「这份清单新不新」,而那是个相对
 /// 的问题。也不用日期库:这个 crate 里没有,而为了一行字拉一个时区实现进来不值。
 fn updated(name: &str) -> String {
-    let Some(root) = atomcode_capabilities::plugin::marketplaces_root() else {
+    let Some(root) = atomcode_capabilities::plugin::marketplaces_root(
+        atomcode_coding::config::product_dirs_from_env().user(),
+    ) else {
         return String::new();
     };
     let dir = root.join(name);
@@ -264,7 +269,9 @@ fn updated(name: &str) -> String {
 /// 一个市场里每个插件的说明,从它自己的清单里读。
 fn descriptions(market: &str) -> std::collections::HashMap<String, String> {
     let mut out = std::collections::HashMap::new();
-    let Some(root) = atomcode_capabilities::plugin::marketplaces_root() else {
+    let Some(root) = atomcode_capabilities::plugin::marketplaces_root(
+        atomcode_coding::config::product_dirs_from_env().user(),
+    ) else {
         return out;
     };
     if let Ok(Some(manifest)) =
@@ -291,9 +298,15 @@ fn installed_description(
     working_dir: &std::path::Path,
 ) -> Option<String> {
     let root = match info.scope {
-        InstallScope::User => atomcode_capabilities::plugin::plugins_root(),
+        InstallScope::User => atomcode_capabilities::plugin::plugins_root(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        ),
         InstallScope::Project | InstallScope::Local => {
-            atomcode_capabilities::plugin::project_plugins_root(working_dir, &info.scope)
+            atomcode_capabilities::plugin::project_plugins_root(
+                &atomcode_coding::config::product_dirs_from_env(),
+                working_dir,
+                &info.scope,
+            )
         }
     }?;
     let manifest =
@@ -322,8 +335,12 @@ fn installed_of<'a>(
 #[async_trait]
 impl Plugins for DiskPlugins {
     fn rows(&self) -> PluginsView {
-        let markets = marketplace::list_marketplaces().unwrap_or_default();
-        let installed = installer::list_installed().unwrap_or_default();
+        let markets =
+            marketplace::list_marketplaces(&atomcode_coding::config::product_dirs_from_env())
+                .unwrap_or_default();
+        let installed =
+            installer::list_installed(&atomcode_coding::config::product_dirs_from_env())
+                .unwrap_or_default();
         let described: std::collections::HashMap<
             String,
             std::collections::HashMap<String, String>,
@@ -355,7 +372,15 @@ impl Plugins for DiskPlugins {
         let job = format!("{plugin}@{market}");
         let (plugin, market) = (plugin.to_string(), market.to_string());
         let scope = scope_in(scope);
-        let done = spawn(move || installer::install(&plugin, &market, scope)).await?;
+        let done = spawn(move || {
+            installer::install(
+                &atomcode_coding::config::product_dirs_from_env(),
+                &plugin,
+                &market,
+                scope,
+            )
+        })
+        .await?;
         self.settle(job, done, &tr(SMsg::PluginInstalledVerb))
     }
 
@@ -367,8 +392,18 @@ impl Plugins for DiskPlugins {
             // 先卸后装,两步当一件事:中途断了该说的是「更新没成」,而不是「卸好了」
             // 再加一句「装不上」。卸不掉不当失败——它可能本来就没装干净,而这一步
             // 的目的是让下面那一步能装。
-            let _ = installer::uninstall(&plugin, &market, scope.clone());
-            installer::install(&plugin, &market, scope)
+            let _ = installer::uninstall(
+                &atomcode_coding::config::product_dirs_from_env(),
+                &plugin,
+                &market,
+                scope.clone(),
+            );
+            installer::install(
+                &atomcode_coding::config::product_dirs_from_env(),
+                &plugin,
+                &market,
+                scope,
+            )
         })
         .await?;
         self.settle(job, done, &tr(SMsg::PluginUpdatedVerb))
@@ -378,31 +413,46 @@ impl Plugins for DiskPlugins {
         let id = format!("{plugin}@{market}");
         let (p, m) = (plugin.to_string(), market.to_string());
         let scope = scope_in(scope);
-        spawn(move || installer::uninstall(&p, &m, scope))
-            .await?
-            .map_err(|e| {
-                tr(SMsg::UninstallFailed {
-                    error: &format!("{e:#}"),
-                })
-                .into_owned()
-            })?;
+        spawn(move || {
+            installer::uninstall(
+                &atomcode_coding::config::product_dirs_from_env(),
+                &p,
+                &m,
+                scope,
+            )
+        })
+        .await?
+        .map_err(|e| {
+            tr(SMsg::UninstallFailed {
+                error: &format!("{e:#}"),
+            })
+            .into_owned()
+        })?;
         Ok(tr(SMsg::Uninstalled { id: &id }).into_owned())
     }
 
     async fn add_market(&self, url: &str) -> Result<String, String> {
         let job = format!("market:{url}");
         let url = url.to_string();
-        let added = spawn(move || marketplace::add_marketplace(&url))
-            .await?
-            .map_err(|e| {
-                tr(SMsg::MarketAddFailed {
-                    error: &format!("{e:#}"),
-                })
-                .into_owned()
-            })?;
+        let added = spawn(move || {
+            marketplace::add_marketplace(&atomcode_coding::config::product_dirs_from_env(), &url)
+        })
+        .await?
+        .map_err(|e| {
+            tr(SMsg::MarketAddFailed {
+                error: &format!("{e:#}"),
+            })
+            .into_owned()
+        })?;
         if !self.wanted(&job) {
             let name = added.name.clone();
-            let _ = spawn(move || marketplace::remove_marketplace(&name)).await;
+            let _ = spawn(move || {
+                marketplace::remove_marketplace(
+                    &atomcode_coding::config::product_dirs_from_env(),
+                    &name,
+                )
+            })
+            .await;
             return Ok(tr(SMsg::CancelledNothingLeft { what: &added.name }).into_owned());
         }
         // **加市场不等于装插件**,这是这句话存在的理由:老前端反复见到人加完市场就去
@@ -432,14 +482,19 @@ impl Plugins for DiskPlugins {
     async fn update_market(&self, name: &str) -> Result<String, String> {
         let job = format!("market:{name}");
         let name = name.to_string();
-        let info: MarketplaceInfo = spawn(move || marketplace::update_marketplace(&name))
-            .await?
-            .map_err(|e| {
-                tr(SMsg::MarketUpdateFailed {
-                    error: &format!("{e:#}"),
-                })
-                .into_owned()
-            })?;
+        let info: MarketplaceInfo = spawn(move || {
+            marketplace::update_marketplace(
+                &atomcode_coding::config::product_dirs_from_env(),
+                &name,
+            )
+        })
+        .await?
+        .map_err(|e| {
+            tr(SMsg::MarketUpdateFailed {
+                error: &format!("{e:#}"),
+            })
+            .into_owned()
+        })?;
         let _ = self.wanted(&job);
         Ok(tr(SMsg::MarketUpdated {
             name: &info.name,
@@ -458,22 +513,34 @@ impl Plugins for DiskPlugins {
             // 没有出处,卸载时连去哪儿找它们都说不清。一个卸不掉不挡着别的——这是
             // 清场,不是事务。
             let mut failed: Vec<String> = Vec::new();
-            for info in installer::list_installed().unwrap_or_default() {
+            for info in installer::list_installed(&atomcode_coding::config::product_dirs_from_env())
+                .unwrap_or_default()
+            {
                 if info.marketplace != name {
                     continue;
                 }
-                if installer::uninstall(&info.plugin, &info.marketplace, info.scope).is_err() {
+                if installer::uninstall(
+                    &atomcode_coding::config::product_dirs_from_env(),
+                    &info.plugin,
+                    &info.marketplace,
+                    info.scope,
+                )
+                .is_err()
+                {
                     failed.push(info.plugin);
                 }
             }
-            marketplace::remove_marketplace(&name)
-                .map(|()| (name, failed))
-                .map_err(|e| {
-                    tr(SMsg::MarketRemoveFailed {
-                        error: &format!("{e:#}"),
-                    })
-                    .into_owned()
+            marketplace::remove_marketplace(
+                &atomcode_coding::config::product_dirs_from_env(),
+                &name,
+            )
+            .map(|()| (name, failed))
+            .map_err(|e| {
+                tr(SMsg::MarketRemoveFailed {
+                    error: &format!("{e:#}"),
                 })
+                .into_owned()
+            })
         })
         .await?
         .map(|(name, failed)| match failed.is_empty() {
@@ -522,7 +589,8 @@ impl DiskPlugins {
         let id = format!("{}@{}", info.plugin, info.marketplace);
         if !self.wanted(&job) {
             let (p, m, s) = (info.plugin, info.marketplace, info.scope);
-            let _ = installer::uninstall(&p, &m, s);
+            let _ =
+                installer::uninstall(&atomcode_coding::config::product_dirs_from_env(), &p, &m, s);
             return Ok(tr(SMsg::CancelledNothingLeft { what: &id }).into_owned());
         }
         Ok(format!(
@@ -543,11 +611,12 @@ impl DiskPlugins {
 /// 就只带钩子。
 fn brought(plugin: &str, market: &str, working_dir: &std::path::Path) -> String {
     let key = marketplace::sanitize_name(plugin);
-    let Some(assets) =
-        atomcode_capabilities::plugin::loader::iter_installed_plugin_assets_for(working_dir)
-            .into_iter()
-            .find(|a| a.marketplace == market && (a.plugin == plugin || a.plugin == key))
-    else {
+    let Some(assets) = atomcode_capabilities::plugin::loader::iter_installed_plugin_assets_for(
+        &atomcode_coding::config::product_dirs_from_env(),
+        working_dir,
+    )
+    .into_iter()
+    .find(|a| a.marketplace == market && (a.plugin == plugin || a.plugin == key)) else {
         return String::new();
     };
     let skills: usize = assets

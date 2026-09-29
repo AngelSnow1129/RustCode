@@ -308,20 +308,29 @@ struct JobArgs {
 /// `bash_start` — spawn a command in the background and return its job id.
 pub struct BashStartTool {
     world: Arc<dyn Shell>,
+    /// What counts as a sensitive target — the same grant floor `bash` uses.
+    sensitive: crate::tools::sensitive_path::SensitivePaths,
 }
 
+#[cfg(test)]
 impl Default for BashStartTool {
     fn default() -> Self {
-        Self {
-            world: Arc::new(LocalShell),
-        }
+        Self::new(crate::tools::sensitive_path::test_guard())
     }
 }
 
 impl BashStartTool {
+    /// Start jobs on this machine.
+    pub fn new(sensitive: crate::tools::sensitive_path::SensitivePaths) -> Self {
+        Self::with_world(Arc::new(LocalShell), sensitive)
+    }
+
     /// Start jobs in `world` instead of on this machine.
-    pub fn with_world(world: Arc<dyn Shell>) -> Self {
-        Self { world }
+    pub fn with_world(
+        world: Arc<dyn Shell>,
+        sensitive: crate::tools::sensitive_path::SensitivePaths,
+    ) -> Self {
+        Self { world, sensitive }
     }
 }
 
@@ -361,7 +370,7 @@ impl Tool for BashStartTool {
     /// what let the two drift apart in the first place.
     fn always_grant_scope(&self, args: &str) -> String {
         match serde_json::from_str::<StartArgs>(args) {
-            Ok(a) => shell_always_grant_scope(args, &a.command),
+            Ok(a) => shell_always_grant_scope(&self.sensitive, args, &a.command),
             Err(_) => args.to_string(),
         }
     }

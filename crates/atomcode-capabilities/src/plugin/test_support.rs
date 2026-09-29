@@ -1,50 +1,32 @@
-//! Shared test plumbing for the plugin module. All plugin tests that
-//! mutate `ATOMCODE_HOME` use [`isolated_home`] to obtain an [`IsolatedHome`]
-//! guard whose `Drop` removes the env var, preventing cross-test leakage when
-//! tempdirs clean up out of order.
-//!
-//! Tests that share this guard MUST also be marked
-//! `#[serial_test::serial]` (default unnamed lock) so they serialize against
-//! each other across modules.
+//! Shared test plumbing for the plugin module: [`isolated_home`] gives each
+//! test its own user tree in a temp dir, handed to the code under test through
+//! [`IsolatedHome::dirs`] — nothing reads the environment, so these tests need
+//! no serialisation.
 
 use std::path::{Path, PathBuf};
+
+use crate::ProductDirs;
 
 pub struct IsolatedHome {
     _tmp: tempfile::TempDir,
     path: PathBuf,
-    prev: Option<std::ffi::OsString>,
 }
 
 impl IsolatedHome {
+    /// The user tree.
     pub fn path(&self) -> &Path {
         &self.path
     }
-}
 
-impl Drop for IsolatedHome {
-    fn drop(&mut self) {
-        // Restore the prior value instead of unsetting. Under the test-binary
-        // `#[ctor]` that installs an isolated temp `ATOMCODE_HOME` baseline,
-        // `prev` is always `Some`, so this restores that temp baseline and
-        // never leaves the var pointing at the real `~/.atomcode`.
-        match &self.prev {
-            Some(v) => std::env::set_var("ATOMCODE_HOME", v),
-            None => std::env::remove_var("ATOMCODE_HOME"),
-        }
+    /// This tree as the plugin API takes it, with a project dir named `.ours`.
+    pub fn dirs(&self) -> ProductDirs {
+        ProductDirs::new(&self.path, ".ours")
     }
 }
 
-/// Create a fresh tempdir, point `ATOMCODE_HOME` at it, and return a guard
-/// that restores the previous value and cleans up the dir on drop. Caller must
-/// keep the returned value alive for the duration of the test.
+/// A fresh temp user tree. Keep the returned value alive for the test.
 pub fn isolated_home() -> IsolatedHome {
-    let prev = std::env::var_os("ATOMCODE_HOME");
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().to_path_buf();
-    std::env::set_var("ATOMCODE_HOME", &path);
-    IsolatedHome {
-        _tmp: tmp,
-        path,
-        prev,
-    }
+    IsolatedHome { _tmp: tmp, path }
 }

@@ -453,17 +453,24 @@ fn human_age(secs: u64) -> String {
     }
 }
 
-/// The flags every launcher takes, for each one's `--help` to append.
-pub const HELP_SHARED: &str = "\
+/// The flags every launcher takes, for each one's `--help` to append. A function
+/// rather than a constant so the config file is named as this build names it.
+pub fn help_shared() -> String {
+    let config = format!(
+        "~/{}/config.toml",
+        atomcode_config::distribution::HOME_DIR_NAME
+    );
+    format!(
+        "\
 OVERLAYS (stacked last, after the profile and your home patch):
     --offline        swap the `llm` row for a scripted provider (no API key)
-    -m, --model <ID> pick a `[models.*]` selection from ~/.atomcode/config.toml
+    -m, --model <ID> pick a `[models.*]` selection from {config}
     --effort <LEVEL> how hard the model should think: low, medium, high, xhigh
                      or max. Kept on its own row, so switching models does not
                      reset it. Whether to reason at all is the route's business —
                      `thinking_type` on the `llm` row.
     --env-model      take the model from ATOMCODE_BASE_URL/_MODEL/_API_KEY
-                     instead of ~/.atomcode/config.toml
+                     instead of {config}
     --plan           read-only exploration: refuse every mutating tool
     --read-only      swap the `fs` world for a read-only one
     --native-tools   use the production local tools instead of seam-routed ones
@@ -485,7 +492,7 @@ INSPECTION:
     --list-profiles        what is available, and the layer order
 
 MODEL:
-    By default the `llm` row reads ~/.atomcode/config.toml — the provider you
+    By default the `llm` row reads {config} — the provider you
     already configured for AtomCode. Use --env-model to take it from
     ATOMCODE_BASE_URL / ATOMCODE_MODEL / ATOMCODE_API_KEY instead, or --offline
     for a scripted model that needs no credentials at all. The window that
@@ -493,7 +500,9 @@ MODEL:
     either case.
 
 ENV:
-    ATOMCODE_HOME    config.toml, profiles/ and harness.patch.toml are read from here";
+    ATOMCODE_HOME    config.toml, profiles/ and harness.patch.toml are read from here"
+    )
+}
 
 #[cfg(test)]
 mod tests {

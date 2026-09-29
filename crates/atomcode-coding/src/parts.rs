@@ -28,7 +28,9 @@ use atomcode_capabilities::session::{
     ListSessionsTool, RecallTool, SessionContextHook, SessionLease, SessionManager, SessionMeta,
     SnapshotHook, StorageOwner,
 };
-use atomcode_capabilities::skills::{register_skill_tools, runtime_skill_dirs, SkillRegistry};
+use atomcode_capabilities::skills::{
+    register_skill_tools, standard_skill_dirs, SkillRegistry, SkillRoots,
+};
 use atomcode_capabilities::tools::{
     register_coding_tools_with_vision, ApprovalMiddleware, WebFetchTool, WebSearchTool,
 };
@@ -359,6 +361,7 @@ impl Drop for McpWorkGuard {
 fn register_atomgit_capabilities(
     registry: &mut ToolRegistry,
     names: &mut Vec<String>,
+    dirs: &atomcode_capabilities::ProductDirs,
 ) -> Result<(), String> {
     use atomcode_capabilities::tools::{
         atomgit_tool_names, register_atomgit_tools, AtomgitClient, AtomgitConfig, LiveTokenProvider,
@@ -367,7 +370,7 @@ fn register_atomgit_capabilities(
     let client = AtomgitClient::new(AtomgitConfig {
         base_url: "https://api.atomgit.com/api/v5".to_string(),
         user_agent: format!("atomcode/{}", env!("CARGO_PKG_VERSION")),
-        token: Arc::new(LiveTokenProvider),
+        token: Arc::new(LiveTokenProvider::new(dirs.user())),
     })?;
     register_atomgit_tools(registry, Arc::new(client));
     names.extend(atomgit_tool_names().iter().map(|name| (*name).to_string()));
@@ -549,7 +552,7 @@ async fn prepare_with_plugin_hooks_reusing_lease(
     // PREPARE-time flag; `assemble` re-registers read_file on every model swap (see there)
     // so a `/model` change to/from a VL model can't leave it stale.
     if opts.tools {
-        register_coding_tools_with_vision(&mut registry, cfg.supports_vision);
+        register_coding_tools_with_vision(&mut registry, cfg.supports_vision, &cfg.dirs);
         names.extend(
             atomcode_capabilities::tools::coding_tool_names()
                 .iter()
@@ -576,7 +579,7 @@ async fn prepare_with_plugin_hooks_reusing_lease(
         host_only_tools.push("request_user_input".into());
     }
     if opts.tools {
-        register_codeintel_tools(&mut registry);
+        register_codeintel_tools(&mut registry, &cfg.dirs);
         names.extend(
             atomcode_capabilities::codeintel::codeintel_tool_names()
                 .iter()
@@ -618,7 +621,7 @@ async fn prepare_with_plugin_hooks_reusing_lease(
     #[cfg(feature = "atomgit")]
     if atomgit_enabled {
         let before = names.len();
-        register_atomgit_capabilities(&mut registry, &mut names)
+        register_atomgit_capabilities(&mut registry, &mut names, &cfg.dirs)
             .map_err(|error| io::Error::other(format!("AtomGit tool setup failed: {error}")))?;
         host_only_tools.extend(names[before..].iter().cloned());
     }
@@ -663,6 +666,7 @@ async fn prepare_with_plugin_hooks_reusing_lease(
                     max_diff_bytes_without_confirmation: 256 * 1024,
                     rules_dir: None,
                 },
+                cfg.dirs.clone(),
             )
             .with_tool_loop_policy(cfg.tool_loop_policy)
             .with_delegate(opts.review_delegate.clone()),
@@ -708,14 +712,18 @@ async fn prepare_with_plugin_hooks_reusing_lease(
 
     // Build the context hook once so skill-catalog ranking and later context
     // injection observe the exact same instruction-file precedence and bytes.
-    let session_context_hook = Arc::new(SessionContextHook::new(&cfg.working_dir));
+    let session_context_hook = Arc::new(SessionContextHook::new(&cfg.working_dir, cfg.dirs.user()));
     let instruction_text = session_context_hook.instruction_text();
 
     // Skills: standard home+project precedence unless the caller supplied dirs.
     let skill_dirs = if opts.tools {
         opts.skill_dirs.clone().unwrap_or_else(|| {
             let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-            runtime_skill_dirs(&home, &cfg.working_dir)
+            standard_skill_dirs(SkillRoots {
+                home: &home,
+                project: &cfg.working_dir,
+                dirs: &cfg.dirs,
+            })
         })
     } else {
         Vec::new()
@@ -725,6 +733,14 @@ async fn prepare_with_plugin_hooks_reusing_lease(
     // convention. Empty when the driver saw no installed plugins (the L1
     // capabilities crate cannot reach the core plugin loader by design).
     let skills = SkillRegistry::load(&skill_dirs);
+    // Our own trees rank first in the catalog, whatever they are named — the
+    // host handed them in, so this is the one place that knows. Set whether or
+    // not the driver named its own dirs: a skill under our tree is ours either
+    // way. A reload swaps the skills and keeps these.
+    skills.set_native_roots(vec![
+        cfg.dirs.user().to_path_buf(),
+        cfg.dirs.project(&cfg.working_dir),
+    ]);
     if opts.tools {
         for (dir, ns) in &opts.plugin_skill_dirs {
             skills.load_dir(dir, Some(ns));
@@ -744,7 +760,11 @@ async fn prepare_with_plugin_hooks_reusing_lease(
         // new one belongs in that.
         install: opts.skill_dirs.is_none().then(|| {
             let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-            atomcode_capabilities::skills::runtime_skill_install_dirs(&home, &cfg.working_dir)
+            atomcode_capabilities::skills::skill_install_dirs(SkillRoots {
+                home: &home,
+                project: &cfg.working_dir,
+                dirs: &cfg.dirs,
+            })
         }),
         plugins: opts
             .plugin_skill_dirs
@@ -797,6 +817,7 @@ async fn prepare_with_plugin_hooks_reusing_lease(
         (
             Some(Arc::new(McpRegistry::from_config_background_with_extra(
                 &cfg.working_dir,
+                cfg.dirs.user(),
                 Some(event_tx),
                 opts.extra_mcp_servers.clone(),
             ))),
@@ -818,8 +839,8 @@ async fn prepare_with_plugin_hooks_reusing_lease(
             // the folder; the path hash does not). Freezes the current bucket —
             // adoption for a project that already has one, a no-op change for a
             // brand-new one — see `SessionManager::ensure_project_marker`.
-            SessionManager::ensure_project_marker(&cfg.working_dir);
-            let manager = Arc::new(SessionManager::for_project(&cfg.working_dir));
+            SessionManager::ensure_project_marker(&cfg.working_dir, &cfg.dirs);
+            let manager = Arc::new(SessionManager::for_project(&cfg.working_dir, &cfg.dirs));
             let lease = session_lease(&manager, &id, reuse_lease.as_ref())?;
             let now = atomcode_capabilities::session::now_ms();
             let working_dir = cfg.working_dir.to_string_lossy().into_owned();
@@ -832,7 +853,8 @@ async fn prepare_with_plugin_hooks_reusing_lease(
             let mut header = SessionHeader::new(&id);
             header.created_at = u64::try_from(now).unwrap_or(0);
             header.cwd = Some(working_dir);
-            header.context = Some(SessionContextHook::new(&cfg.working_dir).block(None));
+            header.context =
+                Some(SessionContextHook::new(&cfg.working_dir, cfg.dirs.user()).block(None));
             if !stage_fresh {
                 manager
                     .create_event_session(&lease, &header, &meta)
@@ -848,7 +870,7 @@ async fn prepare_with_plugin_hooks_reusing_lease(
             })
         }
         SessionMode::Resume(id) => {
-            let manager = Arc::new(SessionManager::for_project(&cfg.working_dir));
+            let manager = Arc::new(SessionManager::for_project(&cfg.working_dir, &cfg.dirs));
             let lease = session_lease(&manager, id, reuse_lease.as_ref())?;
             // Resume is a native-only boundary. Legacy/unconfirmed data must first
             // converge through a driver importer; accepting a lone snapshot here
@@ -872,7 +894,7 @@ async fn prepare_with_plugin_hooks_reusing_lease(
         }
         SessionMode::ExternalSnapshot { id, snapshot } => {
             check_snapshot_version(snapshot)?;
-            let manager = Arc::new(SessionManager::for_project(&cfg.working_dir));
+            let manager = Arc::new(SessionManager::for_project(&cfg.working_dir, &cfg.dirs));
             let lease = session_lease(&manager, id, reuse_lease.as_ref())?;
             manager.open_as_events(&lease).map_err(io::Error::from)?;
             let loaded = manager.load_native_session(id).map_err(io::Error::from)?;
@@ -902,14 +924,10 @@ async fn prepare_with_plugin_hooks_reusing_lease(
     };
 
     if let Some(b) = &session {
-        registry.register(Arc::new(
-            RecallTool::new().with_sessions_dir(b.manager.root()),
-        ));
+        registry.register(Arc::new(RecallTool::new(b.manager.root())));
         names.push("recall".into());
         host_only_tools.push("recall".into());
-        registry.register(Arc::new(
-            ListSessionsTool::new().with_sessions_dir(b.manager.root()),
-        ));
+        registry.register(Arc::new(ListSessionsTool::new(b.manager.root())));
         names.push("list_sessions".into());
         host_only_tools.push("list_sessions".into());
     }
@@ -925,7 +943,7 @@ async fn prepare_with_plugin_hooks_reusing_lease(
     if let Some(b) = &session {
         let wd = cfg.working_dir.to_string_lossy().into_owned();
         let snapshot_hook = Arc::new(
-            SnapshotHook::new(b.manager.clone(), &b.id, &wd)
+            SnapshotHook::new(b.manager.clone(), &b.id, &wd, &cfg.dirs)
                 .with_lease(b.lease.clone())
                 .with_model_attribution(&cfg.provider_name, &cfg.model),
         );
@@ -936,7 +954,8 @@ async fn prepare_with_plugin_hooks_reusing_lease(
     // (`plugin_cc_hooks`, resolved by the host), mounted by the `cc-hooks-host` row on
     // both the lifecycle and the tool-middleware seam. Only when hooks actually exist.
     let cc_external = {
-        let mut cc = CCExternalHooks::load_with_extra(&cfg.working_dir, plugin_cc_hooks);
+        let mut cc =
+            CCExternalHooks::load_with_extra(&cfg.working_dir, cfg.dirs.user(), plugin_cc_hooks);
         // Stamp the persistent session id into every CC payload (CC `session_id`), so a
         // hook can correlate its events with the session. Empty for non-persistent runs.
         if let Some(b) = &session {
@@ -1458,6 +1477,7 @@ pub struct McpRowFacts {
 /// their file is empty when it is broken.
 pub async fn mcp_row_facts(
     working_dir: &std::path::Path,
+    user_dir: &std::path::Path,
     registry: &atomcode_capabilities::mcp::McpRegistry,
     tool_counts: &[(String, usize)],
 ) -> Result<Vec<McpRowFacts>, String> {
@@ -1467,11 +1487,12 @@ pub async fn mcp_row_facts(
     };
     use std::collections::HashMap;
 
-    let configs = load_mcp_config_including_disabled(working_dir).map_err(|e| format!("{e:#}"))?;
+    let configs =
+        load_mcp_config_including_disabled(working_dir, user_dir).map_err(|e| format!("{e:#}"))?;
     let live: HashMap<String, ServerStatus> =
         registry.server_statuses().await.into_iter().collect();
     let counts: HashMap<&str, usize> = tool_counts.iter().map(|(n, c)| (n.as_str(), *c)).collect();
-    let tokens = McpTokenStore::default();
+    let tokens = McpTokenStore::in_tree(user_dir);
 
     Ok(configs
         .into_iter()
@@ -1493,7 +1514,7 @@ pub async fn mcp_row_facts(
                 && matches!(tokens.load_token(&config.name), Ok(Some(t)) if !token_is_expired(&t));
             let disabled = config.disabled;
             McpRowFacts {
-                config_path: config_path_for_source(working_dir, config.source),
+                config_path: config_path_for_source(working_dir, user_dir, config.source),
                 status: if disabled {
                     // Not in the tree: the session has no status for it, and
                     // must not be asked for one.
@@ -1592,6 +1613,7 @@ pub(crate) fn release_after_enable(catalog: &atomcode_harness::seams::ToolBox, n
 /// guard) — the caller surfaces that text verbatim.
 pub async fn mcp_set_enabled(
     working_dir: &std::path::Path,
+    user_dir: &std::path::Path,
     server: &str,
     enabled: bool,
 ) -> Result<(), String> {
@@ -1603,12 +1625,13 @@ pub async fn mcp_set_enabled(
         set_mcp_server_disabled_in_json_file,
     };
 
-    let configs = load_mcp_config_including_disabled(working_dir).map_err(|e| e.to_string())?;
+    let configs =
+        load_mcp_config_including_disabled(working_dir, user_dir).map_err(|e| e.to_string())?;
     let config = configs
         .iter()
         .find(|c| c.name == server)
         .ok_or_else(|| format!("MCP server '{server}' is not configured"))?;
-    let path = config_path_for_source(working_dir, config.source)
+    let path = config_path_for_source(working_dir, user_dir, config.source)
         .ok_or_else(|| format!("MCP server '{server}' has no config file to edit"))?;
 
     set_mcp_server_disabled_in_json_file(&path, server, !enabled).map_err(|e| format!("{e:#}"))
@@ -2004,6 +2027,7 @@ mod tests {
         let cfg = CodingRuntimeConfig::from_config(
             &config,
             std::path::Path::new("/tmp/proj"),
+            crate::config::product_dirs_from_env(),
             None,
             None,
             false,
@@ -2151,7 +2175,13 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+        let cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
         let opts = PrepareOptions {
             session: SessionMode::Disabled,
             tools: true,
@@ -2191,7 +2221,13 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+        let cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
         let mut parts = prepare(&cfg, io_free_opts()).await.unwrap();
         parts.registry.register(Arc::new(TestMcpTool));
         parts
@@ -2212,9 +2248,17 @@ mod tests {
     #[tokio::test]
     async fn mcp_tools_for_server_uses_exact_alias_ownership() {
         let project = tempfile::tempdir().unwrap();
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+        let cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
         let mut parts = prepare(&cfg, io_free_opts()).await.unwrap();
-        let registry = Arc::new(McpRegistry::new());
+        let registry = Arc::new(McpRegistry::new(
+            crate::config::product_dirs_from_env().user(),
+        ));
         let info = atomcode_capabilities::mcp::McpToolInfo {
             server_name: "docs space".into(),
             tool_name: "read.file".into(),
@@ -2246,8 +2290,16 @@ mod tests {
         )
         .unwrap();
 
-        let registry = std::sync::Arc::new(McpRegistry::new());
-        let facts = futures::executor::block_on(mcp_row_facts(dir.path(), &registry, &[])).unwrap();
+        let registry = std::sync::Arc::new(McpRegistry::new(
+            crate::config::product_dirs_from_env().user(),
+        ));
+        let facts = futures::executor::block_on(mcp_row_facts(
+            dir.path(),
+            &dir.path().join("tree"),
+            &registry,
+            &[],
+        ))
+        .unwrap();
         let row = facts.iter().find(|f| f.name == "off").expect("listed");
         assert!(row.disabled, "the flag reaches the row");
         assert_eq!(
@@ -2271,8 +2323,15 @@ mod tests {
         )
         .unwrap();
 
-        let registry = std::sync::Arc::new(McpRegistry::new());
-        let facts = futures::executor::block_on(mcp_row_facts(dir.path(), &registry, &[]));
+        let registry = std::sync::Arc::new(McpRegistry::new(
+            crate::config::product_dirs_from_env().user(),
+        ));
+        let facts = futures::executor::block_on(mcp_row_facts(
+            dir.path(),
+            &dir.path().join("tree"),
+            &registry,
+            &[],
+        ));
         assert!(
             facts.is_err(),
             "a file that does not parse must not read as no servers: {facts:?}"
@@ -2387,14 +2446,26 @@ mod tests {
         )
         .unwrap();
 
-        futures::executor::block_on(mcp_set_enabled(dir.path(), "srv", false)).unwrap();
+        futures::executor::block_on(mcp_set_enabled(
+            dir.path(),
+            &dir.path().join("tree"),
+            "srv",
+            false,
+        ))
+        .unwrap();
         let text = std::fs::read_to_string(&target).unwrap();
         assert!(
             text.contains("\"disabled\": true"),
             "off writes the flag: {text}"
         );
 
-        futures::executor::block_on(mcp_set_enabled(dir.path(), "srv", true)).unwrap();
+        futures::executor::block_on(mcp_set_enabled(
+            dir.path(),
+            &dir.path().join("tree"),
+            "srv",
+            true,
+        ))
+        .unwrap();
         let text = std::fs::read_to_string(&target).unwrap();
         assert!(!text.contains("disabled"), "on removes the key: {text}");
     }
@@ -2430,7 +2501,13 @@ mod tests {
         // so they must not overlap — a leaked env var is a false negative here, not a flake
         // the harness will retry away.
         let project = tempfile::tempdir().unwrap();
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+        let cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
         let parts = prepare(&cfg, io_free_opts()).await.unwrap();
         // The field, not an accessor: `selected_tool_names` went with the chain
         // in `f3a7f048` and this test — behind the `atomgit` feature, so never
@@ -2450,7 +2527,13 @@ mod tests {
     #[tokio::test]
     async fn atomgit_tools_absent_when_switch_disabled() {
         let project = tempfile::tempdir().unwrap();
-        let mut cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+        let mut cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
         cfg.atomgit_enabled = false;
         let parts = prepare(&cfg, io_free_opts()).await.unwrap();
         let names = parts.tool_names.clone();
@@ -2469,7 +2552,13 @@ mod tests {
         // The switch is scoped: turning it off must not take the rest of the
         // catalog with it.
         let project = tempfile::tempdir().unwrap();
-        let mut cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+        let mut cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
         cfg.atomgit_enabled = false;
         let parts = prepare(&cfg, io_free_opts()).await.unwrap();
         let names = parts.tool_names.clone();
@@ -2508,7 +2597,13 @@ mod tests {
         // false negative.
         let project = tempfile::tempdir().unwrap();
 
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+        let cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
         assert!(cfg.atomgit_enabled, "default on");
         let parts = prepare(&cfg, io_free_opts()).await.unwrap();
         let carried_on = parts
@@ -2521,7 +2616,13 @@ mod tests {
             "enabled ⇒ a mounted host tool must carry the AtomGit guidance"
         );
 
-        let mut off_cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+        let mut off_cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
         off_cfg.atomgit_enabled = false;
         let off_parts = prepare(&off_cfg, io_free_opts()).await.unwrap();
         let carried_off = off_parts.host_only_tools().iter().any(|tool| {
@@ -2542,7 +2643,13 @@ mod tests {
         // keeps the process-global env from leaking into another test.
         std::env::set_var("ATOMCODE_ATOMGIT", "0");
         let project = tempfile::tempdir().unwrap();
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+        let cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
         assert!(
             cfg.atomgit_enabled,
             "default must be true before the env override"
@@ -2623,8 +2730,15 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
-        let manager = SessionManager::for_project(project.path());
+        let cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
+        let manager =
+            SessionManager::for_project(project.path(), &crate::config::product_dirs_from_env());
         let snapshot = SessionSnapshot::new(vec![Message::user("persisted")]);
         let presentation = PresentationFile::default();
 
@@ -2697,8 +2811,15 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
-        let manager = SessionManager::for_project(project.path());
+        let cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
+        let manager =
+            SessionManager::for_project(project.path(), &crate::config::product_dirs_from_env());
         let id = "incomplete-reassemble";
         let snapshot = SessionSnapshot::new(vec![Message::user("persisted")]);
         persist_native_session(&manager, id, project.path(), &snapshot);
@@ -2735,8 +2856,15 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
-        let manager = SessionManager::for_project(project.path());
+        let cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
+        let manager =
+            SessionManager::for_project(project.path(), &crate::config::product_dirs_from_env());
 
         let error = external_snapshot_prepare_error(
             &cfg,
@@ -2757,8 +2885,15 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
-        let manager = SessionManager::for_project(project.path());
+        let cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
+        let manager =
+            SessionManager::for_project(project.path(), &crate::config::product_dirs_from_env());
         let id = "divergent-external";
         let canonical = SessionSnapshot::new(vec![Message::user("canonical")]);
         persist_native_session(&manager, id, project.path(), &canonical);
@@ -2785,8 +2920,15 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
-        let manager = SessionManager::for_project(project.path());
+        let cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
+        let manager =
+            SessionManager::for_project(project.path(), &crate::config::product_dirs_from_env());
         let id = "matching-external";
         let canonical = SessionSnapshot::new(vec![Message::user("canonical")]);
         persist_native_session(&manager, id, project.path(), &canonical);
@@ -2810,7 +2952,13 @@ mod tests {
     #[tokio::test]
     async fn capability_reprepare_inherits_runtime_continuity_handles() {
         let project = tempfile::tempdir().unwrap();
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+        let cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
         let previous = prepare(&cfg, io_free_opts()).await.unwrap();
         previous
             .plan_mode
@@ -2859,7 +3007,13 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+        let cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
 
         let mut persistent = io_free_opts();
         persistent.session = SessionMode::Fresh;
@@ -2884,7 +3038,13 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+        let cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
         let mut opts = io_free_opts();
         opts.session = SessionMode::Fresh;
 
@@ -2908,9 +3068,16 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+        let cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
         let snapshot = SessionSnapshot::new(vec![Message::user("persisted")]);
-        let manager = SessionManager::for_project(project.path());
+        let manager =
+            SessionManager::for_project(project.path(), &crate::config::product_dirs_from_env());
         persist_native_session(&manager, "same-session", project.path(), &snapshot);
         let opts = || {
             let mut opts = io_free_opts();
@@ -2956,7 +3123,13 @@ mod tests {
 
         // No project hooks → nothing wired.
         let bare = tempfile::tempdir().unwrap();
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", bare.path());
+        let cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            bare.path(),
+            crate::config::product_dirs_from_env(),
+        );
         let parts = prepare(&cfg, io_free_opts()).await.unwrap();
         assert!(
             parts.cc_external_hooks.is_none(),
@@ -2970,7 +3143,13 @@ mod tests {
             r#"{"hooks":{"a":{"event":"PreToolUse","matcher":"bash","command":"echo hi"}}}"#,
         )
         .unwrap();
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", proj.path());
+        let cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            proj.path(),
+            crate::config::product_dirs_from_env(),
+        );
         let parts = prepare(&cfg, io_free_opts()).await.unwrap();
         assert!(
             parts.cc_external_hooks.is_some(),
@@ -3025,7 +3204,13 @@ mod tests {
 
         let (tel, captured) = atomcode_telemetry::Telemetry::in_memory("test".into());
         let proj = tempfile::tempdir().unwrap();
-        let mut cfg = CodingAgentConfig::new("k", "http://localhost", "m", proj.path());
+        let mut cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            proj.path(),
+            crate::config::product_dirs_from_env(),
+        );
         cfg.telemetry = Some(tel);
 
         let mut opts = io_free_opts();
@@ -3071,7 +3256,13 @@ mod tests {
     /// OFF so the call is I/O-free) and return the registered tool names.
     async fn tool_names_for_test(web_enabled: bool) -> Vec<String> {
         let project = tempfile::tempdir().unwrap();
-        let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+        let cfg = CodingAgentConfig::new(
+            "k",
+            "http://localhost",
+            "m",
+            project.path(),
+            crate::config::product_dirs_from_env(),
+        );
         let mut opts = io_free_opts();
         opts.web = web_enabled;
         let parts = prepare(&cfg, opts).await.unwrap();

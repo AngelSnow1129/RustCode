@@ -1527,7 +1527,7 @@ impl Plugin for McpHostPlugin {
         "mcp-host"
     }
     fn inject(&self) -> &'static [&'static str] {
-        &["tools"]
+        &["tools", "product-dirs"]
     }
     fn provides(&self) -> &'static [&'static str] {
         &["mcp"]
@@ -1574,7 +1574,10 @@ impl Plugin for McpHostPlugin {
                  the servers again and reconnects. Each server's tools join the catalog \
                  as `mcp__<server>__<tool>` and go through the same approval as \
                  everything else.",
-                user = atomcode_harness::home().join("mcp.json").display(),
+                user = atomcode_harness::product_dirs(ctx)?
+                    .user()
+                    .join("mcp.json")
+                    .display(),
             ),
         );
         let McpPublication {
@@ -2625,7 +2628,10 @@ fn init_prompt_from(
     let custom = config_file
         .and_then(|path| atomcode_config::config::Config::load(path).ok())
         .and_then(|config| config.init_prompt_file);
-    crate::build_init_prompt(locale, custom.as_deref())
+    let config_dir = config_file
+        .and_then(std::path::Path::parent)
+        .unwrap_or(std::path::Path::new("."));
+    crate::build_init_prompt(locale, custom.as_deref(), config_dir)
 }
 
 #[async_trait]
@@ -2671,6 +2677,9 @@ impl Plugin for WorklogPlugin {
     fn name(&self) -> &'static str {
         "worklog"
     }
+    fn inject(&self) -> &'static [&'static str] {
+        &["product-dirs"]
+    }
     fn uses(&self) -> &'static [&'static str] {
         &["commands"]
     }
@@ -2682,6 +2691,9 @@ impl Plugin for WorklogPlugin {
             ctx,
             Arc::new(WorklogCommand {
                 language: self.language,
+                sessions_root: SessionManager::sessions_root(
+                    atomcode_harness::product_dirs(ctx)?.user(),
+                ),
             }),
         )
     }
@@ -2689,6 +2701,8 @@ impl Plugin for WorklogPlugin {
 
 struct WorklogCommand {
     language: Option<atomcode_config::locale::Locale>,
+    /// Every project's buckets: `<user tree>/sessions`.
+    sessions_root: std::path::PathBuf,
 }
 
 /// What this command hands the model, and the day it covers — split out so the
@@ -2752,7 +2766,7 @@ impl atomcode_harness::commands::CatalogCommand for WorklogCommand {
         match worklog_prompt_at(
             args,
             chrono::Local::now().date_naive(),
-            &SessionManager::sessions_root(),
+            &self.sessions_root,
             english,
         ) {
             WorklogPrompt::Unusable(usage) => return Err(usage),

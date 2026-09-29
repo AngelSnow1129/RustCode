@@ -466,6 +466,19 @@ fn is_a_linked_worktree(dir: &std::path::Path) -> bool {
         .any(|component| component == "worktrees")
 }
 
+/// The `product-dirs` row, said from the runtime's own [`ProductDirs`]: the one
+/// place the harness rows learn where this product keeps its data. Carried
+/// whole — a field left to the row's default would be that row reading
+/// `$ATOMCODE_HOME` on its own, which is what an embedder cannot see or stop.
+///
+/// [`ProductDirs`]: atomcode_capabilities::ProductDirs
+#[derive(serde::Serialize)]
+struct ProductDirsPatch<'a> {
+    user: &'a std::path::Path,
+    project_dir_name: &'a str,
+    home_dir_name: &'a str,
+}
+
 #[derive(serde::Serialize)]
 struct DatalogPatch<'a> {
     working_dir: &'a std::path::Path,
@@ -822,11 +835,9 @@ struct WebProviderPatch<'a> {
 pub fn names_sessions_with_a_model(cfg: &crate::CodingAgentConfig) -> bool {
     match cfg.subagent_config.as_deref() {
         Some(config) => atomcode_config::config::ai_session_naming_enabled(config),
-        None => {
-            atomcode_config::config::Config::load(&atomcode_config::config::Config::default_path())
-                .map(|config| atomcode_config::config::ai_session_naming_enabled(&config))
-                .unwrap_or(false)
-        }
+        None => atomcode_config::config::Config::load(&cfg.dirs.user().join("config.toml"))
+            .map(|config| atomcode_config::config::ai_session_naming_enabled(&config))
+            .unwrap_or(false),
     }
 }
 
@@ -1410,7 +1421,24 @@ pub fn plugins() -> Vec<Arc<dyn Plugin>> {
         // call should say about itself is a presentation decision
         // (`docs/adr/0024`, and `tool_intent`'s own module doc).
         Arc::new(crate::tool_intent::ToolIntentPlugin),
+        // The review specialization's rows. Here, not in the harness: which
+        // reviewer and which reviewer prompt is this product's answer, and the
+        // mechanism must not depend on a specialization to offer `/review`.
+        Arc::new(crate::review_rows::ReviewToolPlugin),
+        Arc::new(crate::review_rows::ReviewPersonaPlugin),
     ]
+}
+
+/// The harness catalog with this crate's rows added — every row a coding tree
+/// can name. [`plugins`] alone is what this crate brings; a tree built from
+/// [`CODING_DEFAULTS`] also names rows the harness provides, and the review
+/// rows it inserts (`tool-code-review`) are this crate's, not the harness's.
+pub fn catalog() -> atomcode_plexus::PluginRegistry {
+    let mut registry = atomcode_harness::plugins::catalog();
+    for row in plugins() {
+        registry.register(row);
+    }
+    registry
 }
 
 /// Mount a coding assembly on the harness and take its driver handle.
@@ -1420,12 +1448,13 @@ pub fn plugins() -> Vec<Arc<dyn Plugin>> {
 /// conversation whose services are gone.
 pub async fn mount(
     working_dir: &Path,
+    dirs: &atomcode_capabilities::ProductDirs,
     presence: Presence,
     provider: Arc<dyn LlmProvider>,
     extra_layers: &[Layer],
 ) -> Result<(AgentHandle, App), String> {
     let (handle, app, _) =
-        mount_swappable(working_dir, presence, provider, None, extra_layers).await?;
+        mount_swappable(working_dir, dirs, presence, provider, None, extra_layers).await?;
     Ok((handle, app))
 }
 
@@ -1436,6 +1465,7 @@ pub async fn mount(
 /// models can use [`mount`] and ignore it.
 pub async fn mount_swappable(
     working_dir: &Path,
+    dirs: &atomcode_capabilities::ProductDirs,
     presence: Presence,
     provider: Arc<dyn LlmProvider>,
     models: Option<HostModels>,
@@ -1443,6 +1473,7 @@ pub async fn mount_swappable(
 ) -> Result<(AgentHandle, App, Arc<ProviderSlots>), String> {
     mount_hosted(
         working_dir,
+        dirs,
         presence,
         provider,
         models,
@@ -1576,14 +1607,22 @@ impl HostState {
 
 /// Where a session in `working_dir` keeps the tool outputs it spilled — the
 /// `tool-output-artifact` row's `dir`, named once for the template and for the
-/// runtime's patch of that row.
-pub(crate) fn artifacts_dir(working_dir: &Path) -> std::path::PathBuf {
-    working_dir.join(".atomcode").join("artifacts")
+/// runtime's patch of that row: `<project dir>/artifacts`.
+pub(crate) fn artifacts_dir(
+    working_dir: &Path,
+    dirs: &atomcode_capabilities::ProductDirs,
+) -> std::path::PathBuf {
+    dirs.project(working_dir).join("artifacts")
 }
 
 /// As [`mount_swappable`], carrying the runtime's own state into the tree.
+///
+/// `dirs` is where the product keeps its data. It is said to the tree once, as
+/// the `product-dirs` row, and every row that persists or guards anything reads
+/// it from there — this is the only place a coding tree learns it.
 pub async fn mount_hosted(
     working_dir: &Path,
+    dirs: &atomcode_capabilities::ProductDirs,
     presence: Presence,
     provider: Arc<dyn LlmProvider>,
     models: Option<HostModels>,
@@ -1595,7 +1634,7 @@ pub async fn mount_hosted(
         .clone()
         .unwrap_or_else(|| provider.model_name().to_string());
     let (providers, provider_id) = ProviderSlots::new(provider);
-    let artifacts = artifacts_dir(working_dir);
+    let artifacts = artifacts_dir(working_dir, dirs);
     // The two halves of one rule. Attended: no `root`, so the fs world is not
     // fenced and a target next door reaches `tool-write-approval`, which asks.
     // Headless: fenced, and the `approval` row stays the `deny-risky` one that
@@ -1673,6 +1712,15 @@ pub async fn mount_hosted(
     // `toml_string` exists to dodge that; serializing the row's own shape means
     // there is nothing to dodge.
     let scoped = Layer::new()
+        .patch(
+            "product-dirs",
+            ProductDirsPatch {
+                user: dirs.user(),
+                project_dir_name: dirs.project_dir_name(),
+                home_dir_name: dirs.home_dir_name(),
+            },
+        )
+        .map_err(|e| e.to_string())?
         .when(models.is_some(), |layer| {
             // With a catalog, the two rows that need one come on; without, they
             // stay down and `task`/`team` run on the conversation's model, which
@@ -1819,10 +1867,7 @@ pub async fn mount_hosted(
     // and every other assembly from ever mounting them.
     //
     // What IS registered here is what this crate owns: the coding discipline.
-    let mut registry = atomcode_harness::plugins::catalog();
-    for row in plugins() {
-        registry.register(row);
-    }
+    let mut registry = catalog();
     registry.register(Arc::new(InjectProvider(providers.clone())));
     if let Some(stored) = host.session.stored.clone() {
         registry.register(Arc::new(crate::session_store::SessionStorePlugin(stored)));
@@ -2449,6 +2494,9 @@ impl Plugin for DatalogPlugin {
     fn name(&self) -> &'static str {
         "datalog"
     }
+    fn inject(&self) -> &'static [&'static str] {
+        &["product-dirs"]
+    }
     fn description(&self) -> &'static str {
         "write every request, response and tool result to a per-turn transcript"
     }
@@ -2479,6 +2527,7 @@ impl Plugin for DatalogPlugin {
         let context_window = llm.as_ref().map(|l| l.context_window()).unwrap_or(0);
         let Some(sink) = atomcode_capabilities::datalog::DatalogHook::new(
             std::path::PathBuf::from(row.working_dir),
+            atomcode_harness::product_dirs(ctx)?.user(),
             &cfg,
             model,
             context_window,
@@ -2717,6 +2766,9 @@ impl Plugin for CcHooksPlugin {
     fn name(&self) -> &'static str {
         "cc-hooks"
     }
+    fn inject(&self) -> &'static [&'static str] {
+        &["product-dirs"]
+    }
     fn description(&self) -> &'static str {
         "run the user's hooks.json at the Claude-Code-compatible moments"
     }
@@ -2729,6 +2781,7 @@ impl Plugin for CcHooksPlugin {
         let working_dir = std::path::PathBuf::from(&row.working_dir);
         let mut engine = atomcode_capabilities::cc_hooks::CCExternalHooks::load_with_extra(
             &working_dir,
+            atomcode_harness::product_dirs(ctx)?.user(),
             Vec::new(),
         );
         if !row.session_id.is_empty() {
@@ -2830,6 +2883,10 @@ impl Plugin for CodingPersonaPlugin {
     fn name(&self) -> &'static str {
         "persona-atomcode"
     }
+    fn inject(&self) -> &'static [&'static str] {
+        // The persona names the product's own directories.
+        &["product-dirs"]
+    }
     fn uses(&self) -> &'static [&'static str] {
         // `system-prompt` is what it writes; `tools` and `llm` are what it reads
         // to decide what to write. It used to read the tool catalog to decide
@@ -2873,7 +2930,11 @@ impl Plugin for CodingPersonaPlugin {
         // rather than of the `ATOMCODE_MEMORY_TOOL` / `ATOMCODE_REQUEST_USER_INPUT` envs the
         // chain reads, which cannot see a tree that failed to mount the tool. See
         // `coding_persona_rows`.
-        let text = crate::persona::coding_persona_rows(&model, &has);
+        let text = crate::persona::coding_persona_rows(
+            &model,
+            &has,
+            &*atomcode_harness::product_dirs(ctx)?,
+        );
         // Rank 0, and an id of this row's own: the identity line goes first,
         // and the generic row it replaces is removed by `CODING_ROWS` rather
         // than overwritten here.

@@ -69,7 +69,7 @@ fn scoped(root: &std::path::Path) -> String {
 }
 
 async fn start(tree: ConfigTree) -> App {
-    let mut app = App::new(plugins::catalog(), tree);
+    let mut app = App::new(atomcode_coding::on_harness::catalog(), tree);
     app.start().await.expect("must mount");
     // The tree's own agent, so the session exists before the first turn — what
     // the `session` row used to do at mount.
@@ -380,7 +380,10 @@ async fn only_a_launcher_that_reads_patch_layers_teaches_them() {
         "oneshot",
         vec![bundle::OFFLINE.to_string(), scoped(&dir)],
     );
-    let mounted = match launch.mount(plugins::catalog(), &profiles).await {
+    let mounted = match launch
+        .mount(atomcode_coding::on_harness::catalog(), &profiles)
+        .await
+    {
         Ok(mounted) => mounted,
         Err(code) => panic!("the launcher must mount: {code:?}"),
     };

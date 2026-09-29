@@ -146,6 +146,7 @@ fn coding_agent_config_from(ctx: &LoopCtx, source: &Config) -> atomcode_coding::
     let mut config = atomcode_coding::CodingRuntimeConfig::from_config(
         source,
         &ctx.working_dir,
+        atomcode_coding::config::product_dirs_from_env(),
         None,
         Some(ctx.telemetry.clone()),
         ctx.dangerously_skip_permissions,
@@ -1414,8 +1415,13 @@ fn session_transition_matches(
     let requested = atomcode_capabilities::pathnorm::canonicalize(&pending.requested_working_dir)
         .unwrap_or_else(|_| pending.requested_working_dir.clone());
     pending.operation == operation
-        && atomcode_capabilities::session::SessionManager::project_hash(&requested)
-            == atomcode_capabilities::session::SessionManager::project_hash(&changed.working_dir)
+        && atomcode_capabilities::session::SessionManager::project_hash(
+            &requested,
+            &atomcode_coding::config::product_dirs_from_env(),
+        ) == atomcode_capabilities::session::SessionManager::project_hash(
+            &changed.working_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        )
 }
 
 #[cfg(test)]
@@ -3721,7 +3727,13 @@ mod local_restore_scope_tests {
 
         assert!(runtime
             .reload_provider(
-                CodingAgentConfig::new("", "", "model", "/project"),
+                CodingAgentConfig::new(
+                    "",
+                    "",
+                    "model",
+                    "/project",
+                    atomcode_coding::config::product_dirs_from_env()
+                ),
                 RuntimeId::new(1),
                 event_tx,
             )
@@ -3746,7 +3758,13 @@ mod local_restore_scope_tests {
         ));
         assert!(runtime
             .reload_provider(
-                CodingAgentConfig::new("", "", "model", "/project"),
+                CodingAgentConfig::new(
+                    "",
+                    "",
+                    "model",
+                    "/project",
+                    atomcode_coding::config::product_dirs_from_env()
+                ),
                 RuntimeId::new(1),
                 event_tx,
             )
@@ -3838,13 +3856,19 @@ pub(crate) struct AuthObservation {
 impl AuthObservation {
     fn read() -> Self {
         Self {
-            user_id: atomcode_auth::get_stored_auth().map(|auth| auth.user.id),
+            user_id: atomcode_auth::get_stored_auth(
+                atomcode_coding::config::product_dirs_from_env().user(),
+            )
+            .map(|auth| auth.user.id),
         }
     }
 
     fn read_checked() -> anyhow::Result<Self> {
         Ok(Self {
-            user_id: atomcode_auth::get_stored_auth_checked()?.map(|auth| auth.user.id),
+            user_id: atomcode_auth::get_stored_auth_checked(
+                atomcode_coding::config::product_dirs_from_env().user(),
+            )?
+            .map(|auth| auth.user.id),
         })
     }
 
@@ -9657,11 +9681,15 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
     {
         // Run migration first so pre-existing plugins are grandfathered before
         // we query trust status — prevents the banner from wrongly listing them.
-        atomcode_capabilities::plugin::hook_trust::ensure_migrated();
-        let untrusted: Vec<_> = atomcode_capabilities::plugin::installed_plugin_hook_trust_status()
-            .into_iter()
-            .filter(|s| !s.trusted)
-            .collect();
+        atomcode_capabilities::plugin::hook_trust::ensure_migrated(
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
+        let untrusted: Vec<_> = atomcode_capabilities::plugin::installed_plugin_hook_trust_status(
+            &atomcode_coding::config::product_dirs_from_env(),
+        )
+        .into_iter()
+        .filter(|s| !s.trusted)
+        .collect();
         if !untrusted.is_empty() {
             let names = untrusted
                 .iter()
@@ -12512,7 +12540,9 @@ fn poll_shared_state(ctx: &mut LoopCtx, renderer: &mut dyn Renderer) -> bool {
 /// If another atomcode process just ran `/codingplan`, clear stale plan hints.
 /// Provider/model reconciliation is handled generically by `poll_external_config`.
 fn refresh_after_cross_process_codingplan_sync(ctx: &mut LoopCtx) {
-    let current = atomcode_codingplan::read_last_sync();
+    let current = atomcode_codingplan::read_last_sync(
+        atomcode_coding::config::product_dirs_from_env().user(),
+    );
     let advanced = match (current, ctx.monitor_last_sync_seen) {
         (Some(new), Some(old)) => new > old,
         (Some(_), None) => true, // marker just appeared
@@ -16142,13 +16172,7 @@ fn confirm_idle_menu_selected(
                 return Ok(());
             }
             if name == "skills" {
-                renderer.render(UiLine::CommandOutput(
-                    "  ⓘ No user-invocable skills installed yet.\n    \
-                    • Drop SKILL.md into ~/.atomcode/skills/<name>/ \n      \
-                      (Windows: %USERPROFILE%\\.atomcode\\skills\\<name>\\)\n    \
-                    • Or install a plugin that ships skills via /plugin install <git-url>\n\n"
-                        .into(),
-                ));
+                renderer.render(UiLine::CommandOutput(no_skills_hint()));
             }
         }
         redraw_idle_plain(&app.buf, &app.state, ctx, renderer);
@@ -16500,13 +16524,7 @@ fn handle_idle_key(
                         // hint pointing at the install paths so they
                         // know what to do next; keep the buffer at
                         // `/skills ` so backspace still recovers.
-                        renderer.render(UiLine::CommandOutput(
-                            "  \u{24d8} No user-invocable skills installed yet.\n    \
-                            \u{2022} Drop SKILL.md into ~/.atomcode/skills/<name>/ \n      \
-                              (Windows: %USERPROFILE%\\.atomcode\\skills\\<name>\\)\n    \
-                            \u{2022} Or install a plugin that ships skills via /plugin install <git-url>\n\n"
-                                .into(),
-                        ));
+                        renderer.render(UiLine::CommandOutput(no_skills_hint()));
                     }
 
                     // `/effort` gateway: render the high/max/off sub-menu
@@ -17740,7 +17758,11 @@ pub(crate) fn should_auto_show_onboarding(ctx: &LoopCtx) -> bool {
     if ctx.is_plain_renderer {
         return false;
     }
-    provider_configuration_missing(&ctx.config, atomcode_auth::get_stored_auth().is_some())
+    provider_configuration_missing(
+        &ctx.config,
+        atomcode_auth::get_stored_auth(atomcode_coding::config::product_dirs_from_env().user())
+            .is_some(),
+    )
 }
 
 fn provider_configuration_missing(config: &Config, has_stored_auth: bool) -> bool {
@@ -18007,7 +18029,10 @@ pub(crate) fn request_capability_reload(ctx: &mut LoopCtx) -> Result<(), String>
     }
     ctx.runtime
         .reload_capabilities(
-            atomcode_capabilities::plugin::loader::installed_plugin_skill_dirs(&ctx.working_dir),
+            atomcode_capabilities::plugin::loader::installed_plugin_skill_dirs(
+                &atomcode_coding::config::product_dirs_from_env(),
+                &ctx.working_dir,
+            ),
             ctx.foreground_runtime_id,
             ctx.runtime_event_tx.clone(),
         )
@@ -18063,7 +18088,11 @@ pub(crate) fn reload_skill_registry(
     registry: &mut atomcode_capabilities::skills::SkillRegistry,
     working_dir: &std::path::Path,
 ) -> Vec<String> {
-    atomcode_capabilities::plugin::loader::reload_skill_registry(registry, working_dir)
+    atomcode_capabilities::plugin::loader::reload_skill_registry(
+        registry,
+        &atomcode_coding::config::product_dirs_from_env(),
+        working_dir,
+    )
 }
 
 pub(crate) fn reload_plugins(ctx: &mut LoopCtx) -> (usize, Vec<String>) {
@@ -19685,7 +19714,11 @@ fn shell_grant_scope(tool: &str, args: &str) -> Option<String> {
         .and_then(|v| v.get("command").and_then(|c| c.as_str()).map(String::from))
         .unwrap_or_default();
     Some(atomcode_capabilities::tools::shell_always_grant_scope(
-        args, &command,
+        &atomcode_capabilities::tools::SensitivePaths::of(
+            &atomcode_coding::config::product_dirs_from_env(),
+        ),
+        args,
+        &command,
     ))
 }
 
@@ -25377,7 +25410,10 @@ fn apply_native_session_changed(
     if ctx.current_session.id == session_id {
         return Ok(());
     }
-    let project_bucket = atomcode_capabilities::session::SessionManager::project_hash(&working_dir);
+    let project_bucket = atomcode_capabilities::session::SessionManager::project_hash(
+        &working_dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let session = match atomcode_daemon::legacy_convert::load_catalog_session_view_in_project(
         &project_bucket,
         &session_id,
@@ -25465,8 +25501,12 @@ fn commit_native_session_changed(
 
     commit_working_dir_projection(ctx, working_dir);
     ctx.current_session_id = Some(session_id.clone());
-    ctx.current_session_project_bucket =
-        Some(atomcode_capabilities::session::SessionManager::project_hash(&ctx.working_dir));
+    ctx.current_session_project_bucket = Some(
+        atomcode_capabilities::session::SessionManager::project_hash(
+            &ctx.working_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        ),
+    );
     ctx.loop_ctrl = None;
     state.loop_label = None;
     state.loop_round = 0;
@@ -27415,6 +27455,9 @@ fn handle_agent_event(
             // guard: allowing it may forward secrets/sensitive content to the provider.
             let note = (call.name == "bash"
                 && atomcode_capabilities::tools::bash_command_may_expose_credentials(
+                    &atomcode_capabilities::tools::SensitivePaths::of(
+                        &atomcode_coding::config::product_dirs_from_env(),
+                    ),
                     &call.arguments,
                 ))
             .then(|| crate::i18n::t(crate::i18n::Msg::CredentialApprovalNote).into_owned());
@@ -29340,7 +29383,8 @@ pub(crate) fn build_status(state: &UiState, ctx: &LoopCtx) -> crate::render::Sta
     let no_provider = status_provider_unconfigured(
         unavailable_reason,
         &ctx.config,
-        atomcode_auth::get_stored_auth().is_some(),
+        atomcode_auth::get_stored_auth(atomcode_coding::config::product_dirs_from_env().user())
+            .is_some(),
     );
     let provider_waiting = matches!(
         runtime_availability,
@@ -32417,4 +32461,18 @@ mod round_cap_key_tests {
         p.move_down(); // clamped: cursor stays 1
         assert!(!p.chosen_continue(), "move_down at 1 is idempotent");
     }
+}
+
+/// What `/skills` says when there is nothing to list: where to drop a skill,
+/// named after this host's own user tree rather than a fixed name.
+fn no_skills_hint() -> String {
+    let skills = atomcode_coding::config::product_dirs_from_env()
+        .user()
+        .join("skills");
+    format!(
+        "  \u{24d8} No user-invocable skills installed yet.\n    \
+         \u{2022} Drop SKILL.md into {}/<name>/\n    \
+         \u{2022} Or install a plugin that ships skills via /plugin install <git-url>\n\n",
+        skills.display()
+    )
 }

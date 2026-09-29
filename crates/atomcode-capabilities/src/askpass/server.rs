@@ -38,7 +38,9 @@ impl Drop for AskpassServerGuard {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-fn socket_path() -> io::Result<PathBuf> {
+/// `home_dir_name` is the user tree's default name under a home
+/// (`ProductDirs::home_dir_name`): the socket goes in `$HOME/<name>/run`.
+fn socket_path(home_dir_name: &str) -> io::Result<PathBuf> {
     let pid = std::process::id();
     let filename = format!("atomcode-askpass-{}.sock", pid);
 
@@ -48,16 +50,16 @@ fn socket_path() -> io::Result<PathBuf> {
         return Ok(dir.join(filename));
     }
 
-    // Deliberately `$HOME`-anchored and NOT `$ATOMCODE_HOME`, unlike every other
-    // path this process writes: `bind()` caps a unix socket path at `SUN_LEN`
-    // (104 bytes on macOS, 108 on Linux) and `$ATOMCODE_HOME` is arbitrary-depth
-    // user input, so honouring it here would break askpass outright — every git
+    // Deliberately `$HOME`-anchored and NOT the (possibly relocated) user tree,
+    // unlike every other path this process writes: `bind()` caps a unix socket
+    // path at `SUN_LEN` (104 bytes on macOS, 108 on Linux) and a relocated tree is
+    // arbitrary-depth user input, so honouring it here would break askpass outright — every git
     // /ssh credential prompt — on a deep config dir. There is nothing to fix:
     // the filename is pid-namespaced, so parallel installs never collide, and
     // `run/` is not in `uninstall_manifest()` under either spelling.
     let home = std::env::var("HOME")
         .map_err(|_| io::Error::new(io::ErrorKind::NotFound, "HOME env var not set"))?;
-    let dir = PathBuf::from(home).join(".atomcode").join("run");
+    let dir = PathBuf::from(home).join(home_dir_name).join("run");
     ensure_private_dir(&dir)?;
     Ok(dir.join(filename))
 }
@@ -192,12 +194,13 @@ async fn handle_connection(
 /// Must be called from within a Tokio runtime context.
 pub fn start(
     cache: Arc<PasswordCache>,
+    home_dir_name: &str,
 ) -> io::Result<(
     AskpassEnv,
     tokio::sync::mpsc::Receiver<AskpassPrompt>,
     AskpassServerGuard,
 )> {
-    let sock_path = socket_path()?;
+    let sock_path = socket_path(home_dir_name)?;
 
     // Remove any stale socket from a previous run.
     let _ = std::fs::remove_file(&sock_path);
@@ -248,7 +251,7 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
-    /// The socket path is pid-namespaced, so every `start()` in this process
+    /// The socket path is pid-namespaced, so every `start(".ours")` in this process
     /// binds the *same* node: two servers alive at once steal each other's
     /// clients (the later bind replaces the path, the earlier server's token no
     /// longer matches, its client gets EOF). Serialize the tests that start one.
@@ -275,7 +278,7 @@ mod tests {
         let cache = std::sync::Arc::new(crate::askpass::cache::PasswordCache::new(
             Duration::from_secs(300),
         ));
-        let (env, mut rx, _guard) = start(cache).unwrap();
+        let (env, mut rx, _guard) = start(cache, ".ours").unwrap();
 
         // Consumer (stands in for the event loop): answer the first prompt, then expect cache hit (no 2nd prompt).
         tokio::spawn(async move {
@@ -324,7 +327,7 @@ mod tests {
         let cache = Arc::new(crate::askpass::cache::PasswordCache::new(
             Duration::from_secs(300),
         ));
-        let (env, _rx, _guard) = start(cache).unwrap();
+        let (env, _rx, _guard) = start(cache, ".ours").unwrap();
 
         use std::os::unix::fs::PermissionsExt;
         // The directory decides who can reach the socket: `bind()` creates the
@@ -394,7 +397,7 @@ mod tests {
         let cache = Arc::new(crate::askpass::cache::PasswordCache::new(
             Duration::from_secs(300),
         ));
-        let (_env, _rx, _guard) = start(cache).unwrap();
+        let (_env, _rx, _guard) = start(cache, ".ours").unwrap();
         worker.join().unwrap();
     }
 }

@@ -220,6 +220,7 @@ pub mod tui_front {
         // here that is about *where this session is* rather than about the
         // configuration file.
         let working_dir = config.working_dir.clone();
+        let dirs = config.dirs.clone();
         let (connection, background) = match spawn {
             Some(spawn) => {
                 let (connection, background) =
@@ -319,7 +320,8 @@ pub mod tui_front {
                 )),
                 providers: Some(crate::tui_providers::ConfigProviders::new(config_path)),
                 plugins: Some(crate::tui_plugins::DiskPlugins::new(working_dir.clone())),
-                setup: Some(crate::tui_setup::DiskSetup::new(working_dir)),
+                setup: Some(crate::tui_setup::DiskSetup::new(working_dir, dirs.clone())),
+                dirs: Some(dirs),
             },
             connection,
         )
@@ -384,6 +386,7 @@ pub mod tui_front {
             let runtime = atomcode_coding::CodingRuntimeConfig::from_config(
                 &config,
                 &self.working_dir,
+                atomcode_coding::config::product_dirs_from_env(),
                 model,
                 self.telemetry.clone(),
                 self.skip_permissions,
@@ -599,13 +602,21 @@ pub mod tui_front {
         }
 
         fn identity(&self) -> Option<crate::host::Identity> {
-            let auth = atomcode_auth::get_stored_auth()?;
+            let auth = atomcode_auth::get_stored_auth(
+                atomcode_coding::config::product_dirs_from_env().user(),
+            )?;
             Some(crate::host::Identity {
                 who: auth.user.name.unwrap_or(auth.user.username),
                 detail: auth.user.email,
                 // Which file to delete when the answer above is the wrong
                 // account, and which one was copied to the other machine.
-                stored_at: Some(atomcode_auth::auth_file_path().display().to_string()),
+                stored_at: Some(
+                    atomcode_auth::auth_file_path(
+                        atomcode_coding::config::product_dirs_from_env().user(),
+                    )
+                    .display()
+                    .to_string(),
+                ),
             })
         }
 

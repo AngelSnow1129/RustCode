@@ -527,7 +527,10 @@ pub async fn handle_delete_session(
     else {
         return Ok(DeleteSessionResponse::new());
     };
-    let manager = SessionManager::for_project(&entry.working_dir);
+    let manager = SessionManager::for_project(
+        &entry.working_dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let lease = match manager.acquire_lease(native_id) {
         Ok(lease) => lease,
         Err(SessionStoreError::SessionInUse { .. }) => {

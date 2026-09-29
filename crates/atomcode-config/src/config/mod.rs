@@ -1,5 +1,4 @@
 pub mod instructions;
-pub mod memory;
 pub mod offline;
 pub mod prompt_sections;
 pub mod provider;
@@ -13,8 +12,19 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::proxy::ProxyConfig;
-use atomcode_telemetry::TelemetryConfig;
 use provider::{ModelProfileConfig, ProviderAccountConfig, ProviderConfig, ResolvedModelConfig};
+
+/// The `[telemetry]` section of `config.toml`: what the person said about
+/// telemetry, `None` where they said nothing.
+///
+/// The schema is this crate's — it is a section of the file this crate reads.
+/// `atomcode-telemetry` takes the two answers (`atomcode_telemetry::config::resolve`)
+/// and knows nothing of the file, so neither crate depends on the other.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TelemetryConfig {
+    pub enabled: Option<bool>,
+    pub endpoint: Option<String>,
+}
 
 // DEFAULT_SYSTEM_PROMPT removed — single source of truth is now
 // config/prompt_sections.rs::UNIFIED_PROMPT (~500 tok).
@@ -1933,15 +1943,25 @@ pub fn request_user_input_enabled_from_env(env: Option<&str>) -> bool {
     }
 }
 
+/// The `[datalog] dir` written into a fresh config.toml: `~/<HOME_DIR_NAME>/datalog`.
+///
+/// A readable spelling of "the user tree's `datalog/`", not a path to expand:
+/// the resolver (`atomcode_capabilities::datalog`) recognises this exact value
+/// as the default and puts logs under the tree it was handed — so a person who
+/// relocated the tree with `ATOMCODE_HOME` still gets them there.
+pub fn default_datalog_dir() -> String {
+    format!("~/{}/datalog", crate::distribution::HOME_DIR_NAME)
+}
+
 impl Default for DatalogConfig {
     fn default() -> Self {
         Self {
             enabled: false,
             // Pre-fill the default root so it round-trips into config.toml on
             // first save — users see exactly where logs go without having to
-            // discover that "unset == ~/.atomcode/datalog". Resolver still
+            // discover that "unset == the user tree's datalog". Resolver still
             // treats this string the same as `None` (project slug appended).
-            dir: Some("~/.atomcode/datalog".to_string()),
+            dir: Some(default_datalog_dir()),
         }
     }
 }
@@ -1962,7 +1982,7 @@ impl Default for NotificationConfig {
 /// Serialize the `[datalog]` section with help comments so users editing
 /// config.toml by hand can discover the options without reading the source.
 /// `enabled` and `dir` are always emitted as real values — the default `dir`
-/// (`~/.atomcode/datalog`) is shown explicitly so users see exactly where
+/// ([`default_datalog_dir`]) is shown explicitly so users see exactly where
 /// logs go without having to discover that "unset == default".
 fn render_datalog_section(cfg: &DatalogConfig) -> String {
     let mut out = String::new();
@@ -1977,14 +1997,17 @@ fn render_datalog_section(cfg: &DatalogConfig) -> String {
     out.push_str("# A per-project subdirectory is always appended under `dir` so multiple\n");
     out.push_str("# projects never share a bucket.\n");
     out.push_str("# - enabled = false        -> disable logging entirely\n");
-    out.push_str(
-        "# - dir = \"~/.atomcode/datalog\" -> default (follows $ATOMCODE_HOME, ignores /cd)\n",
-    );
+    out.push_str(&format!(
+        "# - dir = \"{}\" -> default (follows ${}, ignores /cd)\n",
+        default_datalog_dir(),
+        crate::distribution::HOME_ENV,
+    ));
     out.push_str("# - dir = \"/abs/path\"      -> absolute, fixed (unaffected by /cd)\n");
     out.push_str("# - dir = \"rel/path\"       -> joined with current working_dir, follows /cd\n");
     out.push_str("[datalog]\n");
     out.push_str(&format!("enabled = {}\n", cfg.enabled));
-    let dir_value = cfg.dir.as_deref().unwrap_or("~/.atomcode/datalog");
+    let default_dir = default_datalog_dir();
+    let dir_value = cfg.dir.as_deref().unwrap_or(&default_dir);
     let escaped = dir_value.replace('\\', "\\\\").replace('"', "\\\"");
     out.push_str(&format!("dir = \"{}\"\n", escaped));
     out
@@ -2109,7 +2132,10 @@ fn render_instructions_section() -> String {
     out.push_str("\n# Project instructions — customize AI behavior via Markdown files.\n");
     out.push_str("# AtomCode loads instructions from three levels (low → high priority):\n");
     out.push_str("#\n");
-    out.push_str("#   1. ~/.atomcode/ATOMCODE.md           (global — your personal defaults)\n");
+    let home = crate::distribution::HOME_DIR_NAME;
+    out.push_str(&format!(
+        "#   1. ~/{home}/ATOMCODE.md           (global — your personal defaults)\n"
+    ));
     out.push_str(
         "#   2. <project>/.atomcode.md            (project — team-shared, commit to git)\n",
     );
@@ -2125,7 +2151,7 @@ fn render_instructions_section() -> String {
         "# Use /status to see which files are loaded. Use /init to generate a template.\n",
     );
     out.push_str("#\n");
-    out.push_str("# Example ~/.atomcode/ATOMCODE.md:\n");
+    out.push_str(&format!("# Example ~/{home}/ATOMCODE.md:\n"));
     out.push_str("#   ## Global Preferences\n");
     out.push_str("#   - Reply in Chinese\n");
     out.push_str("#   - Don't add AI co-author tags to commits\n");
@@ -2141,7 +2167,8 @@ fn render_instructions_section() -> String {
 fn render_hooks_json_section() -> String {
     let mut out = String::new();
     out.push_str("\n# Lifecycle hooks — configure in separate JSON files:\n");
-    out.push_str("#   ~/.atomcode/hooks.json       (global hooks)\n");
+    let home = crate::distribution::HOME_DIR_NAME;
+    out.push_str(&format!("#   ~/{home}/hooks.json       (global hooks)\n"));
     out.push_str("#   <project>/.hooks.json         (project hooks — loaded as well; both files' hooks run)\n");
     out.push_str("#\n");
     out.push_str("# Example hooks.json:\n");
@@ -2149,9 +2176,9 @@ fn render_hooks_json_section() -> String {
     out.push_str("#     \"hooks\": {\n");
     out.push_str("#       \"audit-all\": {\n");
     out.push_str("#         \"event\": \"pre_tool_use\",\n");
-    out.push_str(
-        "#         \"command\": \"jq -c '{tool_name, tool_input}' >> ~/.atomcode/audit.log\"\n",
-    );
+    out.push_str(&format!(
+        "#         \"command\": \"jq -c '{{tool_name, tool_input}}' >> ~/{home}/audit.log\"\n",
+    ));
     out.push_str("#       },\n");
     out.push_str("#       \"block-rm\": {\n");
     out.push_str("#         \"event\": \"pre_tool_use\",\n");
@@ -3439,7 +3466,7 @@ model = "missing-type"
         assert!(rendered.contains("[datalog]"));
         assert!(rendered.contains("enabled = false"));
         assert!(
-            rendered.contains("\ndir = \"~/.atomcode/datalog\"\n"),
+            rendered.contains(&format!("\ndir = \"{}\"\n", default_datalog_dir())),
             "default must emit the resolved dir as a real, uncommented value: {}",
             rendered
         );
@@ -3461,7 +3488,7 @@ model = "missing-type"
             dir: None,
         };
         let rendered = render_datalog_section(&cfg);
-        assert!(rendered.contains("\ndir = \"~/.atomcode/datalog\"\n"));
+        assert!(rendered.contains(&format!("\ndir = \"{}\"\n", default_datalog_dir())));
     }
 
     #[test]

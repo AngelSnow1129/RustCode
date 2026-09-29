@@ -696,6 +696,8 @@ struct TeamTool {
     /// is what the lead merges. Needs the `shell` seam and a repository.
     worktrees: bool,
     worktrees_dir: Option<PathBuf>,
+    /// Where worktrees go by default: `<project dir>/worktrees` of the lead's repo.
+    product: atomcode_capabilities::ProductDirs,
 }
 
 #[derive(Deserialize)]
@@ -1224,7 +1226,7 @@ impl TeamTool {
         let dir = self
             .worktrees_dir
             .clone()
-            .unwrap_or_else(|| repo.join(".atomcode").join("worktrees"))
+            .unwrap_or_else(|| self.product.project(&repo).join("worktrees"))
             .join(name);
         if dir.exists() {
             return Err(format!(
@@ -1563,7 +1565,7 @@ struct TeamRow {
     #[serde(default)]
     project_root: Option<String>,
     /// The home whose `agents/` directory holds the person's own roles.
-    /// Defaults to the harness home.
+    /// Defaults to the user tree (`product-dirs`).
     #[serde(default)]
     home: Option<String>,
     /// Extra role directories, read after the two above.
@@ -1573,7 +1575,7 @@ struct TeamRow {
     /// repository and the `shell` seam, and a read-only team never needs it.
     #[serde(default)]
     worktrees: bool,
-    /// Where worktrees go. Defaults to `<repo>/.atomcode/worktrees`.
+    /// Where worktrees go. Defaults to `<repo>/<project dir>/worktrees`.
     #[serde(default)]
     worktrees_dir: Option<String>,
 }
@@ -1608,7 +1610,7 @@ impl Plugin for TeamPlugin {
         "team-in-process"
     }
     fn inject(&self) -> &'static [&'static str] {
-        &["tools", "agents", "agent-loop", "commands"]
+        &["product-dirs", "tools", "agents", "agent-loop", "commands"]
     }
     fn uses(&self) -> &'static [&'static str] {
         &["llm-utility", "system-prompt", "shell", "fs"]
@@ -1629,13 +1631,14 @@ impl Plugin for TeamPlugin {
             .map(PathBuf::from)
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
+        let product = (*crate::product_dirs(ctx)?).clone();
         let home = row
             .home
             .clone()
             .map(PathBuf::from)
-            .unwrap_or_else(crate::home);
+            .unwrap_or_else(|| product.user().to_path_buf());
         let mut dirs = vec![
-            project.join(".atomcode").join("agents"),
+            product.project(&project).join("agents"),
             home.join("agents"),
         ];
         dirs.extend(row.roles_dirs.iter().map(PathBuf::from));
@@ -1653,6 +1656,7 @@ impl Plugin for TeamPlugin {
             max_rounds: row.max_rounds,
             worktrees: row.worktrees,
             worktrees_dir: row.worktrees_dir.map(PathBuf::from),
+            product,
         });
         mount(ctx, vec![team.clone() as Arc<dyn Tool>])?;
         crate::commands::register(ctx, Arc::new(StopMember { team: team.clone() }))?;

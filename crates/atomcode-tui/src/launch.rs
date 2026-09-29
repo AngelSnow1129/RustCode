@@ -138,6 +138,10 @@ pub struct Ports {
     /// it has to put the seed skills on disk before the agent can be asked for
     /// one, and unpacking them is not this crate's to know how to do.
     pub setup: Option<Arc<dyn crate::setup::Setup>>,
+    /// Where the product keeps its data. The screen puts its image cache and
+    /// its askpass socket under it; a launcher that does not say gets neither
+    /// (the session's images still show, and `sudo` asks the terminal).
+    pub dirs: Option<atomcode_capabilities::ProductDirs>,
 }
 
 /// The screen, mounted and connected, not yet running.
@@ -204,6 +208,11 @@ pub async fn mount_with(
     if let Some(setup) = ports.setup {
         let _ = ctx
             .provide::<crate::plugin::SetupSvc>(setup)
+            .map_err(|e| e.to_string())?;
+    }
+    if let Some(dirs) = ports.dirs {
+        let _ = ctx
+            .provide::<crate::plugin::ProductDirsSvc>(Arc::new(dirs))
             .map_err(|e| e.to_string())?;
     }
     let ui = ctx

@@ -69,6 +69,17 @@ pub fn home() -> PathBuf {
     model_source::atomcode_home()
 }
 
+/// The tree's [`ProductDirs`](atomcode_capabilities::ProductDirs), as the
+/// `product-dirs` row provided them. A row that persists or guards anything
+/// takes its directories from here — and fails to mount when the row is
+/// missing, rather than guessing a tree of its own.
+pub fn product_dirs(
+    ctx: &atomcode_plexus::Context,
+) -> Result<Arc<atomcode_capabilities::ProductDirs>, String> {
+    ctx.service::<seams::ProductDirsSvc>()
+        .ok_or_else(|| "the `product-dirs` seam must be filled first".to_string())
+}
+
 use std::sync::Arc;
 
 use atomcode_plexus::{App, PlexusError};

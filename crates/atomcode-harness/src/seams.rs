@@ -22,6 +22,7 @@ use crate::session::{LoggedEvent, SessionLog, SessionProjections};
 pub use atomcode_capabilities::tools::Opener;
 pub use atomcode_capabilities::world::{FileSystem, Shell};
 
+plexus_service!(ProductDirsSvc => atomcode_capabilities::ProductDirs, "product-dirs", Core, "Where the product keeps its data: the user tree and the per-project dir");
 plexus_service!(LlmSvc => dyn LlmProvider, "llm", Seam, "Model adapter");
 plexus_service!(LlmUtilitySvc => dyn LlmProvider, "llm-utility", Seam, "The model for side calls whose result a program consumes — titles, summaries, suggestions — not the conversation");
 plexus_service!(ModelsSvc => dyn Models, "models", Seam, "Every model this host can build a provider for, so a row can run a child on a different one");

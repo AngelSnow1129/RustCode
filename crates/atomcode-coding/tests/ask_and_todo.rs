@@ -134,7 +134,7 @@ const ASKS: &str = r#"{ text = "I need to know.", calls = [ { name = "ask_user",
 async fn the_agent_can_put_a_choice_to_the_person_and_hears_the_answer() {
     let dir = scratch("asks");
     let asked = Arc::new(Mutex::new(Vec::new()));
-    let mut registry = plugins::catalog();
+    let mut registry = atomcode_coding::on_harness::catalog();
     registry.register(Arc::new(PicksPlugin("leave it off", asked.clone())));
     // Replacing the dormant fail-closed row rather than standing beside it:
     // one provider per seam, and in a tree with no front end that row is the
@@ -203,7 +203,10 @@ async fn with_nobody_to_ask_the_turn_carries_on_instead_of_stopping() {
     // dead there would be worse than one that never asked, because it would
     // have spent a round to get stuck.
     let dir = scratch("nobody");
-    let mut app = App::new(plugins::catalog(), tree(&dir, &replay(ASKS), &[]));
+    let mut app = App::new(
+        atomcode_coding::on_harness::catalog(),
+        tree(&dir, &replay(ASKS), &[]),
+    );
     app.start().await.unwrap();
     let out = run_turn(&app, "set telemetry up").await.unwrap();
 

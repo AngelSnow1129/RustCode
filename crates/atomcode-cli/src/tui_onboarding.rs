@@ -464,12 +464,19 @@ fn finish_login(
     telemetry: Option<&Arc<atomcode_telemetry::Telemetry>>,
     path: &PathBuf,
 ) -> anyhow::Result<String> {
-    let auth = session.finish(telemetry)?;
-    atomcode_auth::save_auth(&auth)?;
+    let auth = session.finish(
+        atomcode_coding::config::product_dirs_from_env().user(),
+        telemetry,
+    )?;
+    atomcode_auth::save_auth(
+        atomcode_coding::config::product_dirs_from_env().user(),
+        &auth,
+    )?;
 
     let mut config = atomcode_config::config::Config::load(path).unwrap_or_default();
     let report = atomcode_codingplan::run(
         &mut config,
+        atomcode_coding::config::product_dirs_from_env().user(),
         telemetry,
         atomcode_codingplan::DefaultModelPolicy::AdoptServerDefault,
     )?;
@@ -484,7 +491,9 @@ fn finish_login(
         })?;
         // Non-fatal: the configuration already landed, and only the staleness
         // hint would be miscounted — which the next run corrects.
-        let _ = atomcode_codingplan::write_last_sync_now();
+        let _ = atomcode_codingplan::write_last_sync_now(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        );
     }
     Ok(report.render())
 }

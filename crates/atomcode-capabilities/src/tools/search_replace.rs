@@ -4,7 +4,7 @@
 //! the L1 `ToolContext` has none of that. The (blocking) `ignore` walk + per-file reads
 //! run on `spawn_blocking` so a hung filesystem can't stall the async worker.
 
-use super::{coerce_eol, err, is_skip_dir, ok, resolve_path};
+use super::{coerce_eol, err, ok, resolve_path};
 use crate::world::{FileSystem, LocalFs};
 use async_trait::async_trait;
 use atomcode_kernel::tool::{RiskLevel, Tool, ToolContext, ToolResult};
@@ -21,20 +21,27 @@ pub struct SearchReplaceTool {
     /// only its writes would have found matches outside the fence and then
     /// failed to apply some of them, a worse outcome than not routing at all.
     world: Arc<dyn FileSystem>,
+    /// Where the product keeps its data: our own per-project dir is skipped
+    /// in walks (plugin clones, artifacts, team worktrees).
+    dirs: crate::ProductDirs,
 }
 
+#[cfg(test)]
 impl Default for SearchReplaceTool {
     fn default() -> Self {
-        Self {
-            world: Arc::new(LocalFs::unfenced()),
-        }
+        Self::new(crate::product_dirs::test_dirs())
     }
 }
 
 impl SearchReplaceTool {
+    /// Work on this machine's disk.
+    pub fn new(dirs: crate::ProductDirs) -> Self {
+        Self::with_world(Arc::new(LocalFs::unfenced()), dirs)
+    }
+
     /// Rewrite files in `world` instead of on this machine's disk.
-    pub fn with_world(world: Arc<dyn FileSystem>) -> Self {
-        Self { world }
+    pub fn with_world(world: Arc<dyn FileSystem>, dirs: crate::ProductDirs) -> Self {
+        Self { world, dirs }
     }
 }
 
@@ -133,6 +140,7 @@ impl Tool for SearchReplaceTool {
         // Phase 1: walk + read + compute replacements, all through the world.
         let (modified, scanned) = match sr_scan(
             self.world.as_ref(),
+            crate::pathutil::skip_dir_for(&self.dirs),
             &root,
             re.as_ref(),
             &a.search,
@@ -185,13 +193,13 @@ impl Tool for SearchReplaceTool {
 /// (verbatim `search`/`replace`, with per-file CRLF/LF tolerance).
 async fn sr_scan(
     world: &dyn FileSystem,
+    skip: crate::world::SkipDir,
     root: &Path,
     re: Option<&regex::Regex>,
     search: &str,
     replace: &str,
     glob_filter: Option<&FileGlob>,
 ) -> Result<(Vec<(PathBuf, String, usize)>, usize), crate::world::FsError> {
-    let skip: crate::world::SkipDir = Arc::new(is_skip_dir);
     let mut modified = Vec::new();
     let mut scanned = 0usize;
     // Not the turn's stop: this walk decides which files get rewritten, and one
@@ -305,7 +313,10 @@ mod tests {
         // apply them. Now the walk, the read and the refusal are all the world's.
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("a.txt"), "foo bar").unwrap();
-        let tool = SearchReplaceTool::with_world(Arc::new(LocalFs::read_only(d.path())));
+        let tool = SearchReplaceTool::with_world(
+            Arc::new(LocalFs::read_only(d.path())),
+            crate::product_dirs::test_dirs(),
+        );
         let r = tool
             .execute(r#"{"search":"foo","replace":"baz"}"#, &ctx(d.path()))
             .await;
@@ -323,7 +334,10 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(d.path().join("inside")).unwrap();
         std::fs::write(d.path().join("outside.txt"), "foo").unwrap();
-        let tool = SearchReplaceTool::with_world(Arc::new(LocalFs::new(d.path().join("inside"))));
+        let tool = SearchReplaceTool::with_world(
+            Arc::new(LocalFs::new(d.path().join("inside"))),
+            crate::product_dirs::test_dirs(),
+        );
         let r = tool
             .execute(
                 r#"{"search":"foo","replace":"baz","path":".."}"#,

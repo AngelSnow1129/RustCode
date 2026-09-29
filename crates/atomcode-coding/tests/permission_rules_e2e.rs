@@ -70,7 +70,13 @@ struct Outcome {
 /// Run one turn against a fresh assembly built from `rules`, auto-DENYING any approval
 /// request (so an unexpected prompt cannot silently run the command).
 async fn run_turn(project: &std::path::Path, command: &str, rules: PermissionRules) -> Outcome {
-    let mut cfg = CodingAgentConfig::new("k", "http://unused", "test-model", project);
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://unused",
+        "test-model",
+        project,
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     cfg.stream_timeout = Duration::from_secs(5);
     cfg.request_timeout = Some(Duration::from_secs(5));
     cfg.permission_rules = Arc::new(rules);

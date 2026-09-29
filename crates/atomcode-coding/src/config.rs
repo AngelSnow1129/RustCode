@@ -15,6 +15,12 @@ use atomcode_kernel::agent::ToolLoopPolicy;
 /// stalled provider or silent driver can never park a turn forever.
 #[derive(Clone)]
 pub struct CodingAgentConfig {
+    /// Where the product keeps its data — the one place this runtime learns it.
+    /// Every capability that persists or guards something (skills, memory, MCP,
+    /// sessions, plugins, the credential gates) is built from this, and nothing
+    /// in the runtime reads `$ATOMCODE_HOME` behind its back. A program that
+    /// embeds the runtime under its own name sets its own here.
+    pub dirs: atomcode_capabilities::ProductDirs,
     pub api_key: String,
     pub base_url: String,
     pub model: String,
@@ -205,10 +211,42 @@ pub struct CodingAgentConfig {
     pub subagent_model_providers: Option<Arc<SubagentModelProviders>>,
 }
 
+/// This product's dirs as its own hosts resolve them: the user tree from
+/// `$ATOMCODE_HOME` (else `~/<distribution::HOME_DIR_NAME>`), the per-project
+/// dir named `distribution::PROJECT_DIR_NAME`.
+///
+/// For the CLI, daemon and TUI — the hosts that ARE this product. It is the only
+/// place in the runtime that reads the environment for a directory, and it is
+/// called by the host, explicitly, where it builds the config. A program
+/// embedding the runtime under another name builds its own `ProductDirs`.
+pub fn product_dirs_from_env() -> atomcode_capabilities::ProductDirs {
+    atomcode_capabilities::ProductDirs::new(
+        atomcode_config::config::Config::config_dir(),
+        atomcode_config::distribution::PROJECT_DIR_NAME,
+    )
+    .with_home_dir_name(atomcode_config::distribution::HOME_DIR_NAME)
+}
+
+/// Tell the message tables where `dirs` are, so `{user_dir}` / `{project_dir}`
+/// render as this host's trees. The user tree is shown `~/…` when it is under
+/// the home, which is how a person would type it.
+pub fn settle_dir_names(dirs: &atomcode_capabilities::ProductDirs) {
+    let user = dirs.user();
+    let shown = match dirs::home_dir()
+        .and_then(|home| user.strip_prefix(home).ok().map(|r| r.to_path_buf()))
+    {
+        Some(rest) => format!("~/{}", rest.display()),
+        None => user.display().to_string(),
+    };
+    atomcode_config::i18n::set_dirs(&shown, dirs.project_dir_name());
+}
+
 /// Host-resolved inputs shared by CLI and daemon runtime construction.
 /// This is a driver configuration object, not a legacy command protocol.
 #[derive(Clone)]
 pub struct CodingRuntimeConfig {
+    /// See [`CodingAgentConfig::dirs`].
+    pub dirs: atomcode_capabilities::ProductDirs,
     pub api_key: String,
     pub base_url: String,
     pub model: String,
@@ -408,6 +446,7 @@ impl CodingRuntimeConfig {
     pub fn from_config(
         config: &atomcode_config::config::Config,
         working_dir: &std::path::Path,
+        dirs: atomcode_capabilities::ProductDirs,
         provider_override: Option<&str>,
         telemetry: Option<Arc<atomcode_telemetry::Telemetry>>,
         dangerously_skip_permissions: bool,
@@ -433,6 +472,7 @@ impl CodingRuntimeConfig {
         });
         let r = resolved.as_ref();
         Self {
+            dirs,
             api_key: r.and_then(|r| r.api_key.clone()).unwrap_or_default(),
             base_url: r.and_then(|r| r.base_url.clone()).unwrap_or_default(),
             model: r.map(|r| r.model.clone()).unwrap_or_default(),
@@ -501,6 +541,7 @@ impl CodingRuntimeConfig {
             &self.base_url,
             &self.model,
             &self.working_dir,
+            self.dirs.clone(),
         );
         config.context_window = self.context_window;
         config.supports_vision = self.supports_vision;
@@ -976,14 +1017,20 @@ impl CodingAgentConfig {
     }
 
     /// Construct with the required fields and sane defaults for the rest.
+    ///
+    /// `dirs` is required on purpose: a runtime that guessed its tree would read a
+    /// login, a memory or a session from wherever the environment happened to
+    /// point — and a program embedding it would find out from a user.
     pub fn new(
         api_key: impl Into<String>,
         base_url: impl Into<String>,
         model: impl Into<String>,
         working_dir: impl Into<PathBuf>,
+        dirs: atomcode_capabilities::ProductDirs,
     ) -> Self {
         let model = model.into();
         Self {
+            dirs,
             api_key: api_key.into(),
             base_url: base_url.into(),
             provider_name: model.clone(),
@@ -1052,6 +1099,7 @@ mod tests {
         let runtime = CodingRuntimeConfig::from_config(
             &config,
             std::path::Path::new("/work"),
+            crate::config::product_dirs_from_env(),
             None,
             None,
             false,
@@ -1062,11 +1110,25 @@ mod tests {
         let git = serde_json::json!({ "command": "git status" }).to_string();
         let rm = serde_json::json!({ "command": "rm -rf /" }).to_string();
         assert_eq!(
-            agent.permission_rules.decide("bash", &git, cwd),
+            agent.permission_rules.decide(
+                &atomcode_capabilities::tools::SensitivePaths::of(
+                    &crate::config::product_dirs_from_env()
+                ),
+                "bash",
+                &git,
+                cwd
+            ),
             atomcode_capabilities::tools::RuleDecision::Allow
         );
         assert_eq!(
-            agent.permission_rules.decide("bash", &rm, cwd),
+            agent.permission_rules.decide(
+                &atomcode_capabilities::tools::SensitivePaths::of(
+                    &crate::config::product_dirs_from_env()
+                ),
+                "bash",
+                &rm,
+                cwd
+            ),
             atomcode_capabilities::tools::RuleDecision::Deny
         );
     }
@@ -1089,7 +1151,13 @@ mod tests {
 
     #[test]
     fn ordinary_turns_are_unbounded_by_default() {
-        let c = CodingAgentConfig::new("k", "https://x/v1", "m", "/tmp");
+        let c = CodingAgentConfig::new(
+            "k",
+            "https://x/v1",
+            "m",
+            "/tmp",
+            crate::config::product_dirs_from_env(),
+        );
         assert_eq!(c.max_rounds, 0);
         // No CodingPlan info at construction → the non-CodingPlan fallback.
         assert_eq!(c.goal_max_rounds, 300);
@@ -1116,6 +1184,7 @@ mod tests {
         let runtime = CodingRuntimeConfig::from_config(
             &config,
             std::path::Path::new("/workspace"),
+            crate::config::product_dirs_from_env(),
             None,
             None,
             false,
@@ -1129,7 +1198,13 @@ mod tests {
         assert_eq!(rust.command, "custom-ra");
         assert_eq!(rust.args, vec!["--stdio"]);
 
-        let defaults = CodingAgentConfig::new("", "", "", "/workspace");
+        let defaults = CodingAgentConfig::new(
+            "",
+            "",
+            "",
+            "/workspace",
+            crate::config::product_dirs_from_env(),
+        );
         assert!(!defaults.lsp.enabled);
     }
 
@@ -1183,6 +1258,7 @@ mod tests {
         let runtime = CodingRuntimeConfig::from_config(
             &source,
             std::path::Path::new("/tmp"),
+            crate::config::product_dirs_from_env(),
             None,
             None,
             false,
@@ -1206,6 +1282,7 @@ mod tests {
         let runtime = CodingRuntimeConfig::from_config(
             &source,
             std::path::Path::new("/tmp"),
+            crate::config::product_dirs_from_env(),
             None,
             None,
             false,
@@ -1227,6 +1304,7 @@ mod tests {
         let runtime = CodingRuntimeConfig::from_config(
             &source,
             std::path::Path::new("/tmp"),
+            crate::config::product_dirs_from_env(),
             None,
             None,
             false,
@@ -1260,6 +1338,7 @@ mod tests {
         let rt = CodingRuntimeConfig::from_config(
             &source,
             std::path::Path::new("/tmp"),
+            crate::config::product_dirs_from_env(),
             None,
             None,
             false,
@@ -1291,6 +1370,7 @@ mod tests {
         let rt = CodingRuntimeConfig::from_config(
             &source,
             std::path::Path::new("/tmp"),
+            crate::config::product_dirs_from_env(),
             None,
             None,
             false,
@@ -1306,6 +1386,7 @@ mod tests {
         let rt2 = CodingRuntimeConfig::from_config(
             &source,
             std::path::Path::new("/tmp"),
+            crate::config::product_dirs_from_env(),
             Some("acc/chat"),
             None,
             false,
@@ -1340,6 +1421,7 @@ mod tests {
         let runtime = CodingRuntimeConfig::from_config(
             &source,
             std::path::Path::new("/tmp"),
+            crate::config::product_dirs_from_env(),
             None,
             None,
             false,
@@ -1386,7 +1468,13 @@ mod tests {
 
     #[test]
     fn coding_cfg_new_defaults_subagent_providers_none() {
-        let c = CodingAgentConfig::new("k", "https://api.example.com/v1", "m", "/tmp");
+        let c = CodingAgentConfig::new(
+            "k",
+            "https://api.example.com/v1",
+            "m",
+            "/tmp",
+            crate::config::product_dirs_from_env(),
+        );
         assert!(c.subagent_fast_provider.is_none());
         assert!(c.subagent_capable_provider.is_none());
         assert!(c.subagent_model_providers.is_none());
@@ -1623,6 +1711,7 @@ impl std::fmt::Debug for CodingAgentConfig {
             .field("model", &self.model)
             .field("provider_name", &self.provider_name)
             .field("working_dir", &self.working_dir)
+            .field("dirs", &self.dirs)
             .field("context_window", &self.context_window)
             .field("stream_timeout", &self.stream_timeout)
             .field("first_token_timeout", &self.first_token_timeout)

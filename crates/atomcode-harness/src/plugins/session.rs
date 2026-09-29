@@ -408,6 +408,9 @@ impl Plugin for SessionPersistenceJsonlPlugin {
     fn name(&self) -> &'static str {
         "session-persistence-jsonl"
     }
+    fn inject(&self) -> &'static [&'static str] {
+        &["product-dirs"]
+    }
     fn uses(&self) -> &'static [&'static str] {
         &["session-persistence", "operations", "agents"]
     }
@@ -419,10 +422,10 @@ impl Plugin for SessionPersistenceJsonlPlugin {
     }
     async fn apply(&self, ctx: &Context, config: &Value) -> Result<(), String> {
         let row: PersistenceRow = parse(config)?;
-        let root = row
-            .root
-            .map(PathBuf::from)
-            .unwrap_or_else(|| crate::home().join("sessions"));
+        let root =
+            row.root.map(PathBuf::from).map(Ok).unwrap_or_else(|| {
+                crate::product_dirs(ctx).map(|dirs| dirs.user().join("sessions"))
+            })?;
         let project = row
             .project_root
             .map(PathBuf::from)

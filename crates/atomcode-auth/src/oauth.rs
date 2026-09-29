@@ -1,4 +1,5 @@
 use std::io;
+use std::path::Path;
 use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
@@ -7,8 +8,6 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use atomcode_telemetry::{Event, Telemetry};
-
-use atomcode_config::config::Config;
 
 /// Sanitize a user-supplied base URL: add `http://` if no scheme is present,
 /// and strip trailing `/` so path concatenation never produces `//`.
@@ -137,8 +136,8 @@ pub(crate) fn blocking_client_with_tls12(force_tls12: bool) -> Result<reqwest::b
         .context("failed to build OAuth HTTP client")
 }
 
-fn pending_invite_for_login() -> (Option<String>, Option<uuid::Uuid>) {
-    match atomcode_telemetry::pending_invite::load(&Config::config_dir()) {
+fn pending_invite_for_login(user_dir: &Path) -> (Option<String>, Option<uuid::Uuid>) {
+    match atomcode_telemetry::pending_invite::load(user_dir) {
         Some(invite) => (Some(invite.invite_code), Some(invite.install_uuid)),
         None => (None, None),
     }
@@ -514,11 +513,12 @@ impl LoginSession {
 
     /// Final step: `/auth/token` exchange + `LoginSuccess` telemetry.
     /// Consumes the session — only call after `poll_once` returned
-    /// `Authorized`.
-    pub fn finish(mut self, tel: Option<&Arc<Telemetry>>) -> Result<AuthInfo> {
+    /// `Authorized`. `user_dir` is the tree a pending invite is read from.
+    pub fn finish(mut self, user_dir: &Path, tel: Option<&Arc<Telemetry>>) -> Result<AuthInfo> {
         let client = self.client.take();
         let state = self.state.clone();
         let tel = tel.cloned();
+        let user_dir = user_dir.to_path_buf();
         std::thread::spawn(move || {
             let client = match client {
                 Some(c) => c,
@@ -568,7 +568,7 @@ impl LoginSession {
                 // any task-local scope, so events emitted outside the main scope
                 // (e.g. before scope is entered, or from spawned tasks) inherit it.
                 t.set_account_id(Some(auth_info.user.id.to_string()));
-                let (invite_code, install_uuid) = pending_invite_for_login();
+                let (invite_code, install_uuid) = pending_invite_for_login(&user_dir);
                 let event = Event::LoginSuccess {
                     invite_code,
                     install_uuid,
@@ -683,7 +683,7 @@ fn strip_force_login(url: &str) -> String {
 ///
 /// `tel` is optional so non-CLI callers (tests, coding_plan setup) can
 /// pass `None` when they don't hold a telemetry handle.
-pub fn login(tel: Option<&Arc<Telemetry>>) -> Result<AuthInfo> {
+pub fn login(user_dir: &Path, tel: Option<&Arc<Telemetry>>) -> Result<AuthInfo> {
     let session = start_login()?;
 
     // Always print the URL — `xdg-open` on Linux/WSL silently fails
@@ -727,7 +727,7 @@ pub fn login(tel: Option<&Arc<Telemetry>>) -> Result<AuthInfo> {
     // the next `tx.send` fail so the background thread exits.
     drop(poll_rx);
 
-    session.finish(tel)
+    session.finish(user_dir, tel)
 }
 
 /// Open browser with the authorization URL.
@@ -827,8 +827,8 @@ pub fn open_browser(_url: &str) -> Result<()> {
 /// that was never persisted is therefore NOT refreshed in isolation. Account
 /// identity is not enforced here — see [`recover_auth_after_unauthorized`] for
 /// the account-checked recovery entry point.
-pub fn refresh_access_token(auth: &AuthInfo) -> Result<AuthInfo> {
-    refresh_auth_if_current(&auth.access_token, None)
+pub fn refresh_access_token(user_dir: &Path, auth: &AuthInfo) -> Result<AuthInfo> {
+    refresh_auth_if_current(user_dir, &auth.access_token, None)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -898,8 +898,9 @@ pub fn classify_auth_recovery_error(error: &anyhow::Error) -> AuthRecoveryFailur
 }
 
 /// Caller must hold `auth-refresh.lock`.
-fn refresh_access_token_unlocked(auth: &AuthInfo) -> Result<AuthInfo> {
+fn refresh_access_token_unlocked(user_dir: &Path, auth: &AuthInfo) -> Result<AuthInfo> {
     let auth = auth.clone();
+    let user_dir = user_dir.to_path_buf();
     std::thread::spawn(move || {
         let refresh_token = auth
             .refresh_token
@@ -973,7 +974,7 @@ fn refresh_access_token_unlocked(auth: &AuthInfo) -> Result<AuthInfo> {
                 .unwrap_or_else(|| auth.user.clone()),
         };
 
-        save_auth_unlocked(&new_auth)?;
+        save_auth_unlocked(&user_dir, &new_auth)?;
         Ok(new_auth)
     })
     .join()
@@ -988,10 +989,11 @@ fn refresh_access_token_unlocked(auth: &AuthInfo) -> Result<AuthInfo> {
 /// it, reload `auth.toml`; another process may already have refreshed, in which
 /// case the newer credential is returned without another authority call.
 pub fn recover_auth_after_unauthorized(
+    user_dir: &Path,
     rejected_access_token: &str,
     expected_user_id: &str,
 ) -> Result<ValidAuthSession> {
-    let auth = refresh_auth_if_current(rejected_access_token, Some(expected_user_id))?;
+    let auth = refresh_auth_if_current(user_dir, rejected_access_token, Some(expected_user_id))?;
     if auth.access_token.trim().is_empty() || auth.user.id.trim().is_empty() {
         anyhow::bail!("Invalid auth.toml — please use /login first");
     }
@@ -1005,11 +1007,12 @@ pub fn recover_auth_after_unauthorized(
 /// rejected/current token is compared again after taking the lock so a waiter
 /// observes credentials refreshed by the winner instead of refreshing twice.
 fn refresh_auth_if_current(
+    user_dir: &Path,
     rejected_access_token: &str,
     expected_user_id: Option<&str>,
 ) -> Result<AuthInfo> {
-    with_auth_lock(|| {
-        let auth = get_stored_auth().context("Not logged in — please use /login first")?;
+    with_auth_lock(user_dir, || {
+        let auth = get_stored_auth(user_dir).context("Not logged in — please use /login first")?;
         // Only the account-checked recovery entry point enforces identity. The
         // proactive-refresh path passes `None`: it just needs any currently-valid
         // stored token, so a concurrent login as a different account should be
@@ -1022,12 +1025,12 @@ fn refresh_auth_if_current(
         if auth.access_token != rejected_access_token {
             return Ok(auth);
         }
-        refresh_access_token_unlocked(&auth)
+        refresh_access_token_unlocked(user_dir, &auth)
     })
 }
 
-fn get_valid_auth_info() -> Result<AuthInfo> {
-    let auth = get_stored_auth().context("Not logged in — please use /login first")?;
+fn get_valid_auth_info(user_dir: &Path) -> Result<AuthInfo> {
+    let auth = get_stored_auth(user_dir).context("Not logged in — please use /login first")?;
 
     // Check if token is expired (with 5-minute safety margin)
     if let Some(expires_in) = auth.expires_in {
@@ -1044,7 +1047,7 @@ fn get_valid_auth_info() -> Result<AuthInfo> {
         if now >= expires_at - 300 {
             // Token expired or about to expire — serialize refresh-token
             // consumption and re-check auth.toml after taking the lock.
-            match refresh_auth_if_current(&auth.access_token, None) {
+            match refresh_auth_if_current(user_dir, &auth.access_token, None) {
                 Ok(new_auth) => return Ok(new_auth),
                 Err(e) => anyhow::bail!("Token expired and refresh failed: {}", e),
             }
@@ -1053,7 +1056,7 @@ fn get_valid_auth_info() -> Result<AuthInfo> {
         // Legacy auth.toml without created_at — no way to know if expired,
         // try refresh if refresh_token is available, otherwise use as-is.
         if auth.refresh_token.is_some() {
-            if let Ok(new_auth) = refresh_auth_if_current(&auth.access_token, None) {
+            if let Ok(new_auth) = refresh_auth_if_current(user_dir, &auth.access_token, None) {
                 return Ok(new_auth);
             }
         }
@@ -1065,8 +1068,8 @@ fn get_valid_auth_info() -> Result<AuthInfo> {
 /// Get a valid token and its matching user identity from one auth snapshot.
 /// Refresh, when needed, happens before either value is projected so callers cannot
 /// accidentally combine a new token with a stale user id.
-pub fn get_valid_auth_session() -> Result<ValidAuthSession> {
-    let auth = get_valid_auth_info()?;
+pub fn get_valid_auth_session(user_dir: &Path) -> Result<ValidAuthSession> {
+    let auth = get_valid_auth_info(user_dir)?;
     if auth.access_token.trim().is_empty() || auth.user.id.trim().is_empty() {
         anyhow::bail!("Invalid auth.toml — please use /login first");
     }
@@ -1078,8 +1081,8 @@ pub fn get_valid_auth_session() -> Result<ValidAuthSession> {
 
 /// Get a valid access token, refreshing automatically if expired.
 /// Returns the access token string ready to use.
-pub fn get_valid_token() -> Result<String> {
-    let auth = get_valid_auth_info()?;
+pub fn get_valid_token(user_dir: &Path) -> Result<String> {
+    let auth = get_valid_auth_info(user_dir)?;
     if auth.access_token.trim().is_empty() {
         anyhow::bail!("Invalid auth.toml — please use /login first");
     }
@@ -1095,15 +1098,15 @@ pub fn get_valid_token() -> Result<String> {
 /// a duplicate line in CLI mode where `handle_command` prints its own
 /// confirmation. No `Err` distinguishes "file absent" from "file removed" —
 /// both are success from the user's perspective ("you're logged out").
-pub fn logout() -> Result<()> {
-    let auth_path = auth_file_path();
+pub fn logout(user_dir: &Path) -> Result<()> {
+    let auth_path = auth_file_path(user_dir);
     // Absent file ⇒ already logged out. Return before touching the lock so a
     // never-logged-in user's /logout stays a pure no-op — no directory or lock
     // file created, and no failure on a read-only HOME.
     if !auth_path.exists() {
         return Ok(());
     }
-    with_auth_lock(|| {
+    with_auth_lock(user_dir, || {
         if auth_path.exists() {
             std::fs::remove_file(&auth_path).context("Failed to remove auth file")?;
         }
@@ -1112,16 +1115,16 @@ pub fn logout() -> Result<()> {
 }
 
 /// Get stored auth info
-pub fn get_stored_auth() -> Option<AuthInfo> {
-    let auth_path = auth_file_path();
+pub fn get_stored_auth(user_dir: &Path) -> Option<AuthInfo> {
+    let auth_path = auth_file_path(user_dir);
     read_stored_auth_at(&auth_path).ok().flatten()
 }
 
 /// Read credentials without collapsing transient I/O or parse failures into a
 /// confirmed logout. Credential writers replace the file atomically, so this
 /// remains non-blocking even while a refresh request holds the writer lock.
-pub fn get_stored_auth_checked() -> Result<Option<AuthInfo>> {
-    read_stored_auth_at(&auth_file_path())
+pub fn get_stored_auth_checked(user_dir: &Path) -> Result<Option<AuthInfo>> {
+    read_stored_auth_at(&auth_file_path(user_dir))
 }
 
 fn read_stored_auth_at(auth_path: &std::path::Path) -> Result<Option<AuthInfo>> {
@@ -1139,15 +1142,15 @@ fn read_stored_auth_at(auth_path: &std::path::Path) -> Result<Option<AuthInfo>> 
 }
 
 /// Save auth info to file
-pub fn save_auth(auth: &AuthInfo) -> Result<()> {
-    with_auth_lock(|| save_auth_unlocked(auth))
+pub fn save_auth(user_dir: &Path, auth: &AuthInfo) -> Result<()> {
+    with_auth_lock(user_dir, || save_auth_unlocked(user_dir, auth))
 }
 
 /// Execute one authentication-store transaction. Every writer uses this seam so
 /// a refresh response cannot overwrite a concurrent login/logout from another
 /// thread or process.
-fn with_auth_lock<T>(operation: impl FnOnce() -> Result<T>) -> Result<T> {
-    let auth_path = auth_file_path();
+fn with_auth_lock<T>(user_dir: &Path, operation: impl FnOnce() -> Result<T>) -> Result<T> {
+    let auth_path = auth_file_path(user_dir);
     let parent = auth_path
         .parent()
         .context("Invalid auth file path — please use /login again")?;
@@ -1185,8 +1188,8 @@ fn with_auth_lock_file<T>(
 }
 
 /// Caller must hold `auth-refresh.lock`.
-fn save_auth_unlocked(auth: &AuthInfo) -> Result<()> {
-    let auth_path = auth_file_path();
+fn save_auth_unlocked(user_dir: &Path, auth: &AuthInfo) -> Result<()> {
+    let auth_path = auth_file_path(user_dir);
     let content = toml::to_string_pretty(auth).context("Failed to serialize auth info")?;
     super::write_auth_file_secure(&auth_path, &content).context("Failed to write auth file")?;
 
@@ -1207,19 +1210,24 @@ fn save_auth_unlocked(auth: &AuthInfo) -> Result<()> {
     Ok(())
 }
 
-/// Get path to auth file
-pub fn auth_file_path() -> std::path::PathBuf {
-    atomcode_config::config::Config::config_dir().join("auth.toml")
+/// The auth file in the user tree `user_dir`: `<user tree>/auth.toml`.
+///
+/// Every function here takes the tree it works in — the host's, handed down —
+/// rather than looking it up. A program embedding this crate keeps its own
+/// login by passing its own tree; there is no environment variable to set
+/// before each entry point, and none to forget.
+pub fn auth_file_path(user_dir: &Path) -> std::path::PathBuf {
+    user_dir.join("auth.toml")
 }
 
 /// Check if user is logged in
-pub fn is_logged_in() -> bool {
-    get_stored_auth().is_some()
+pub fn is_logged_in(user_dir: &Path) -> bool {
+    get_stored_auth(user_dir).is_some()
 }
 
 /// Get current user info (if logged in)
-pub fn current_user() -> Option<UserInfo> {
-    get_stored_auth().map(|auth| auth.user)
+pub fn current_user(user_dir: &Path) -> Option<UserInfo> {
+    get_stored_auth(user_dir).map(|auth| auth.user)
 }
 
 #[cfg(test)]

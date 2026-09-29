@@ -73,7 +73,13 @@ fn scripted(commands: &[&str]) -> Arc<RecordingProvider> {
 /// Run one turn that issues `commands` in order, answering EVERY approval with "always".
 /// Returns the command text of each call that actually prompted.
 async fn prompts_when_always_allowing(project: &std::path::Path, commands: &[&str]) -> Vec<String> {
-    let mut cfg = CodingAgentConfig::new("k", "http://unused", "test-model", project);
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://unused",
+        "test-model",
+        project,
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     cfg.stream_timeout = Duration::from_secs(5);
     cfg.request_timeout = Some(Duration::from_secs(5));
 
@@ -142,7 +148,13 @@ async fn always_allow_survives_reassembly_without_a_driver_cache() {
         std::fs::create_dir(project.path().join(name)).unwrap();
     }
 
-    let mut cfg = CodingAgentConfig::new("k", "http://unused", "test-model", project.path());
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://unused",
+        "test-model",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     cfg.stream_timeout = Duration::from_secs(5);
     cfg.request_timeout = Some(Duration::from_secs(5));
     let parts = prepare(&cfg, prepare_options()).await.unwrap();

@@ -125,6 +125,7 @@ fn sign_in_by_browser(
     login_mcp_oauth_until(
         config,
         McpOAuthLoginOptions::for_server(config),
+        atomcode_coding::config::product_dirs_from_env().user(),
         stop,
         announce,
     )
@@ -269,11 +270,14 @@ async fn sign_in(
         Ok(other) => return Err(unexpected(&other)),
         Err(error) => return Err(crate::tui_tools::said(error)),
     };
-    let config = load_mcp_config_including_disabled(&working_dir)
-        .map_err(|error| format!("{error:#}"))?
-        .into_iter()
-        .find(|config| config.name == server)
-        .ok_or_else(|| tr(SMsg::McpServerNotConfigured { server }).into_owned())?;
+    let config = load_mcp_config_including_disabled(
+        &working_dir,
+        atomcode_coding::config::product_dirs_from_env().user(),
+    )
+    .map_err(|error| format!("{error:#}"))?
+    .into_iter()
+    .find(|config| config.name == server)
+    .ok_or_else(|| tr(SMsg::McpServerNotConfigured { server }).into_owned())?;
 
     let (done, answer) = tokio::sync::oneshot::channel();
     let name = server.to_string();

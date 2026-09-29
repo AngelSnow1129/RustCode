@@ -361,6 +361,8 @@ impl Tool for AsRisky {
 /// to that gate, so nothing is asked twice.
 pub struct SensitivePathGate {
     pub ctx: Context,
+    /// What counts as sensitive — the tree's credential stores included.
+    pub sensitive: atomcode_capabilities::tools::SensitivePaths,
 }
 
 #[async_trait]
@@ -383,9 +385,7 @@ impl Waterfall<ToolsExecute> for SensitivePathGate {
         if tool.risk(&exec.call.arguments) != RiskLevel::Safe {
             return next.run(exec).await;
         }
-        if !atomcode_capabilities::tools::sensitive_path::references_sensitive_path(
-            &exec.call.arguments,
-        ) {
+        if !self.sensitive.references(&exec.call.arguments) {
             return next.run(exec).await;
         }
         let as_risky: Arc<dyn Tool> = Arc::new(AsRisky {
@@ -421,6 +421,8 @@ impl Waterfall<ToolsExecute> for SensitivePathGate {
 /// See the block comment above.
 pub struct DelegationBounds {
     pub ctx: Context,
+    /// What counts as sensitive — the tree's credential stores included.
+    pub sensitive: atomcode_capabilities::tools::SensitivePaths,
 }
 
 /// Tools a delegated agent never runs: a shell, and delegating further.
@@ -454,7 +456,7 @@ impl Waterfall<ToolsExecute> for DelegationBounds {
         if NEVER_DELEGATED.contains(&name) {
             return refuse(format!("a delegated agent never runs `{name}`"));
         }
-        if atomcode_capabilities::tools::references_sensitive_path(&exec.call.arguments) {
+        if self.sensitive.references(&exec.call.arguments) {
             return refuse(format!(
                 "a delegated agent may not touch sensitive paths (credentials, keys, `.env`): `{name}`"
             ));
@@ -482,7 +484,7 @@ impl Plugin for DelegationBoundsPlugin {
         "delegation-bounds"
     }
     fn inject(&self) -> &'static [&'static str] {
-        &["tools"]
+        &["product-dirs", "tools"]
     }
     fn uses(&self) -> &'static [&'static str] {
         &["agents"]
@@ -491,8 +493,15 @@ impl Plugin for DelegationBoundsPlugin {
         "refuse outright what a delegated agent may never do: a shell, delegating, sensitive paths, writes outside its lane"
     }
     async fn apply(&self, ctx: &Context, _config: &Value) -> Result<(), String> {
-        let _ = ctx
-            .on_waterfall::<ToolsExecute>(Arc::new(DelegationBounds { ctx: ctx.clone() }), false);
+        let _ = ctx.on_waterfall::<ToolsExecute>(
+            Arc::new(DelegationBounds {
+                ctx: ctx.clone(),
+                sensitive: atomcode_capabilities::tools::SensitivePaths::of(&*crate::product_dirs(
+                    ctx,
+                )?),
+            }),
+            false,
+        );
         Ok(())
     }
 }
@@ -505,7 +514,7 @@ impl Plugin for SensitivePathsPlugin {
         "sensitive-paths"
     }
     fn inject(&self) -> &'static [&'static str] {
-        &["tools"]
+        &["product-dirs", "tools"]
     }
     fn uses(&self) -> &'static [&'static str] {
         &["approval"]
@@ -514,8 +523,15 @@ impl Plugin for SensitivePathsPlugin {
         "ask before a read-only tool touches credentials, keys or `.env` — through the approval seam"
     }
     async fn apply(&self, ctx: &Context, _config: &Value) -> Result<(), String> {
-        let _ = ctx
-            .on_waterfall::<ToolsExecute>(Arc::new(SensitivePathGate { ctx: ctx.clone() }), false);
+        let _ = ctx.on_waterfall::<ToolsExecute>(
+            Arc::new(SensitivePathGate {
+                ctx: ctx.clone(),
+                sensitive: atomcode_capabilities::tools::SensitivePaths::of(&*crate::product_dirs(
+                    ctx,
+                )?),
+            }),
+            false,
+        );
         Ok(())
     }
 }

@@ -77,7 +77,13 @@ async fn a_turn_that_overflows_on_its_own_tool_output_recovers() {
         seen: seen.clone(),
         overflowed: Mutex::new(false),
     });
-    let cfg = CodingAgentConfig::new("k", "http://localhost", "test-model", project.path());
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost",
+        "test-model",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     let mut mounted = support::mount(&cfg, support::quiet_options(), provider).await;
     let outcome = support::turn(&mut mounted.handle, "read big.txt", support::allow()).await;
 

@@ -190,11 +190,8 @@ struct ParsedHttpAuth {
 /// Project overrides user for a server of the same name. This is the whole read; whether
 /// disabled servers are withheld is the caller's decision — see [`load_mcp_config`] and
 /// [`load_mcp_config_including_disabled`].
-fn merge_configs(project_dir: &Path) -> Result<Vec<McpServerConfig>> {
-    let user_config = load_config_file(
-        &crate::mcp::util::config_dir().join("mcp.json"),
-        McpConfigSource::User,
-    )?;
+fn merge_configs(project_dir: &Path, user_dir: &Path) -> Result<Vec<McpServerConfig>> {
+    let user_config = load_config_file(&user_dir.join("mcp.json"), McpConfigSource::User)?;
 
     let project_config =
         load_config_file(&project_dir.join(".mcp.json"), McpConfigSource::Project)?;
@@ -216,12 +213,12 @@ fn merge_configs(project_dir: &Path) -> Result<Vec<McpServerConfig>> {
 /// Load and merge MCP configurations from project and user levels.
 ///
 /// Project config (`.mcp.json` in project root) overrides user config
-/// (`ATOMCODE_HOME/mcp.json`) for servers with the same name.
+/// (`<user tree>/mcp.json`) for servers with the same name.
 ///
 /// Servers configured with `disabled: true` are withheld: they are not a tool source for a
 /// running session. A surface that manages them wants the other entry point, below.
-pub fn load_mcp_config(project_dir: &Path) -> Result<Vec<McpServerConfig>> {
-    Ok(merge_configs(project_dir)?
+pub fn load_mcp_config(project_dir: &Path, user_dir: &Path) -> Result<Vec<McpServerConfig>> {
+    Ok(merge_configs(project_dir, user_dir)?
         .into_iter()
         .filter(|c| !c.disabled)
         .collect())
@@ -231,8 +228,11 @@ pub fn load_mcp_config(project_dir: &Path) -> Result<Vec<McpServerConfig>> {
 ///
 /// A management surface has to show a server it is offering to re-enable; hiding it would
 /// make the switch one-way. Nothing that builds a tool catalog may use this.
-pub fn load_mcp_config_including_disabled(project_dir: &Path) -> Result<Vec<McpServerConfig>> {
-    merge_configs(project_dir)
+pub fn load_mcp_config_including_disabled(
+    project_dir: &Path,
+    user_dir: &Path,
+) -> Result<Vec<McpServerConfig>> {
+    merge_configs(project_dir, user_dir)
 }
 
 /// The file a server of this source is read from and written back to.
@@ -242,10 +242,11 @@ pub fn load_mcp_config_including_disabled(project_dir: &Path) -> Result<Vec<McpS
 /// to report "disabled" must treat `None` as "not applicable", not as "not found".
 pub fn config_path_for_source(
     project_dir: &Path,
+    user_dir: &Path,
     source: McpConfigSource,
 ) -> Option<std::path::PathBuf> {
     match source {
-        McpConfigSource::User => Some(crate::mcp::util::config_dir().join("mcp.json")),
+        McpConfigSource::User => Some(user_dir.join("mcp.json")),
         McpConfigSource::Project => Some(project_dir.join(".mcp.json")),
         McpConfigSource::Driver => None,
     }
@@ -637,9 +638,14 @@ fn expand_tilde(s: &str) -> String {
 /// array of `server` in whichever config file defines it (project `.mcp.json`
 /// first, else user `mcp.json`). Creates the user file if neither defines it.
 /// Idempotent; preserves existing JSON content.
-pub fn add_auto_approved_tool(project_dir: &Path, server: &str, tool: &str) -> Result<()> {
+pub fn add_auto_approved_tool(
+    project_dir: &Path,
+    user_dir: &Path,
+    server: &str,
+    tool: &str,
+) -> Result<()> {
     let project_path = project_dir.join(".mcp.json");
-    let user_path = crate::mcp::util::config_dir().join("mcp.json");
+    let user_path = user_dir.join("mcp.json");
 
     let defines = |p: &Path| -> bool {
         std::fs::read_to_string(p)
@@ -766,7 +772,8 @@ mod tests {
         )
         .unwrap();
 
-        add_auto_approved_tool(dir.path(), "srv", "query").expect("write ok");
+        add_auto_approved_tool(dir.path(), &dir.path().join("tree"), "srv", "query")
+            .expect("write ok");
 
         let written: Value =
             serde_json::from_str(&std::fs::read_to_string(dir.path().join(".mcp.json")).unwrap())
@@ -777,7 +784,7 @@ mod tests {
         assert!(arr.iter().any(|v| v == "query"));
 
         // Idempotent: second call must not duplicate.
-        add_auto_approved_tool(dir.path(), "srv", "query").unwrap();
+        add_auto_approved_tool(dir.path(), &dir.path().join("tree"), "srv", "query").unwrap();
         let again: Value =
             serde_json::from_str(&std::fs::read_to_string(dir.path().join(".mcp.json")).unwrap())
                 .unwrap();
@@ -897,7 +904,7 @@ mod tests {
         let project = tempfile::tempdir().unwrap();
         std::fs::write(project.path().join(".mcp.json"), "{not-json").unwrap();
 
-        let error = load_mcp_config(project.path()).unwrap_err();
+        let error = load_mcp_config(project.path(), &project.path().join("tree")).unwrap_err();
 
         assert!(error.to_string().contains("Failed to parse MCP config"));
     }
@@ -1053,7 +1060,8 @@ mod tests {
         )
         .unwrap();
 
-        let listed = load_mcp_config_including_disabled(dir.path()).unwrap();
+        let listed =
+            load_mcp_config_including_disabled(dir.path(), &dir.path().join("tree")).unwrap();
         let names: Vec<&str> = listed.iter().map(|c| c.name.as_str()).collect();
         assert!(
             names.contains(&"panel-test-off"),
@@ -1067,7 +1075,7 @@ mod tests {
                 .disabled
         );
 
-        let loaded = load_mcp_config(dir.path()).unwrap();
+        let loaded = load_mcp_config(dir.path(), &dir.path().join("tree")).unwrap();
         let names: Vec<&str> = loaded.iter().map(|c| c.name.as_str()).collect();
         assert!(
             !names.contains(&"panel-test-off"),
@@ -1081,16 +1089,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
 
         assert_eq!(
-            config_path_for_source(dir.path(), McpConfigSource::Project),
+            config_path_for_source(
+                dir.path(),
+                &dir.path().join("tree"),
+                McpConfigSource::Project
+            ),
             Some(dir.path().join(".mcp.json")),
             "a project server lives in the project root"
         );
-        assert!(
-            config_path_for_source(dir.path(), McpConfigSource::User).is_some(),
-            "a user server lives under ATOMCODE_HOME"
+        assert_eq!(
+            config_path_for_source(dir.path(), &dir.path().join("tree"), McpConfigSource::User),
+            Some(dir.path().join("tree").join("mcp.json")),
+            "a user server lives in the user tree handed in"
         );
         assert_eq!(
-            config_path_for_source(dir.path(), McpConfigSource::Driver),
+            config_path_for_source(
+                dir.path(),
+                &dir.path().join("tree"),
+                McpConfigSource::Driver
+            ),
             None,
             "a driver-supplied server was never read from a file, so there is none to edit"
         );

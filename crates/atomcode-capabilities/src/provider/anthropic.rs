@@ -90,6 +90,9 @@ pub struct AnthropicConfig {
     /// Coding assembly fills it from config, reported via
     /// [`LlmProvider::effort_levels`].
     pub effort_levels: Vec<String>,
+    /// Where `ATOMCODE_WIRE_DUMP=1` writes the exact request bodies (the host
+    /// passes `<user tree>/wire-dump`). `None` ⇒ no dump even with the switch on.
+    pub wire_dump_dir: Option<std::path::PathBuf>,
 }
 
 impl AnthropicConfig {
@@ -117,6 +120,7 @@ impl AnthropicConfig {
             user_agent: None,
             skip_tls_verify: false,
             effort_levels: Vec::new(),
+            wire_dump_dir: None,
         }
     }
 }
@@ -191,7 +195,7 @@ impl LlmProvider for AnthropicProvider {
         options: &ChatOptions,
     ) -> Result<BoxStream<'static, StreamEvent>, ProviderError> {
         let body = build_request_body(&self.cfg.model, messages, tools, options, &self.cfg);
-        super::wire_dump_request(&self.cfg.model, &body); // byte-level dump (ATOMCODE_WIRE_DUMP=1)
+        super::wire_dump_request(self.cfg.wire_dump_dir.as_deref(), &self.cfg.model, &body); // byte-level dump (ATOMCODE_WIRE_DUMP=1)
 
         // Open the stream. A hard failure here returns `Err` so the kernel's
         // agent-layer open retry still applies.
