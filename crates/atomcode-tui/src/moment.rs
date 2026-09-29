@@ -864,6 +864,8 @@ pub struct Moment {
     /// `None` 是能发。画在状态行里、常挂着,而不是写进对话流顶上:和 tuix 一样,
     /// 页面照常打开(欢迎块照画),原因在底下。agent 起来(`Described`)时清掉。
     pub unready: Option<String>,
+    /// 有更新的版本时状态行那一句(启动器给的原话,`None` 是没有或没问到)。
+    pub update: Option<String>,
     /// 底部那张单子(`/agents`、`/cd`、`/diff`、`/view`),`None` 是没升着。
     pub sheet: Option<crate::sheet::Sheet>,
     /// 一个多步的流程(引导、配对的向导),这一帧画出来的样子。宿主合成每一帧时

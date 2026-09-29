@@ -12,11 +12,14 @@
 //! 命令。敲得到、但不推荐。
 //!
 //! 两类，说的话不一样：[`CLASSIC_ONLY`] 是这块屏幕还没做、暂时只在 tuix 里的；
-//! [`IN_THE_CLI`] 是本来就归命令行的（`/upgrade` 自下载替换二进制，界面里再做一遍
-//! 只是重复它）。
+//! [`IN_THE_CLI`] 是归命令行、界面里不做的。
 //!
 //! **什么时候删**：`CLASSIC_ONLY` 里的命令在这块屏幕上真做出来时逐条拿掉，
-//! F1 删 tuix 之前它必须已经空了；`IN_THE_CLI` 不会空——它说的是一条长期的边界。
+//! F1 删 tuix 之前它必须已经空了。`IN_THE_CLI` 原先放着 `/upgrade`，理由是「自下载
+//! 替换二进制，界面里再做一遍只是重复命令行」；2026-09-29 用户推翻了这一条：经典
+//! 界面里 `/upgrade` 就地升级、带进度、自己重启，换到这块屏幕的人不该为同一件事
+//! 离开它。现在它是 `tui_upgrade` 那一行做的，这里空了；命令行的 `atomcode upgrade`
+//! 照旧在。
 
 use atomcode_i18n::screen::{t as tr, Msg as SMsg};
 use std::sync::Arc;
@@ -38,7 +41,7 @@ pub const ROW: &str = "tui-elsewhere";
 pub const CLASSIC_ONLY: &[&str] = &[];
 
 /// 归命令行的命令，以及在命令行里怎么运行它。
-pub const IN_THE_CLI: &[(&str, &str)] = &[("upgrade", "atomcode upgrade")];
+pub const IN_THE_CLI: &[(&str, &str)] = &[];
 
 pub fn row_layer() -> String {
     format!("[[insert]]\nname = \"{ROW}\"\n")

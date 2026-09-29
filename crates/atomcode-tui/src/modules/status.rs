@@ -368,10 +368,21 @@ impl View for Status {
             row.push(El::styled(sep_text.clone(), dim));
             row.push(El::styled(text, style));
         }
+        // A newer build: a nudge, so last and only in the room left over — the
+        // way tuix gives it the lowest place in its footer. Never pushes the
+        // model or the directory off the row.
+        let mut taken = taken;
         if let Some(text) = pointer {
             if taken + sep_w + width::str_width(&text) <= w as usize {
+                taken += sep_w + width::str_width(&text);
                 row.push(El::styled(sep_text.clone(), dim));
                 row.push(El::styled(text, dim));
+            }
+        }
+        if let Some(text) = &vp.moment.update {
+            if taken + sep_w + width::str_width(text) <= w as usize {
+                row.push(El::styled(sep_text.clone(), dim));
+                row.push(El::styled(text.clone(), dim));
             }
         }
         El::row(row).lay(w)
@@ -834,6 +845,24 @@ mod tests {
                 "{plain:?}: {row}"
             );
         }
+    }
+
+    /// A newer build is a nudge: said at the end where there is room, and never
+    /// at the cost of the model or the directory on a narrow row.
+    #[test]
+    fn a_newer_build_is_said_only_in_the_room_left_over() {
+        let hint = "↑ v9.9.9 可用 · 使用 /upgrade 升级";
+        let moment = Moment {
+            cwd: "~/work/project".into(),
+            model: "glm-5".into(),
+            update: Some(hint.into()),
+            ..Moment::default()
+        };
+        let wide = draw::<Status>(&State::default(), 160, &moment);
+        assert!(wide.contains(hint), "{wide}");
+        let narrow = draw::<Status>(&State::default(), 40, &moment);
+        assert!(!narrow.contains("v9.9.9"), "{narrow}");
+        assert!(narrow.contains("glm-5"), "the model stays: {narrow}");
     }
 
     /// The mouse handed back is said on the row — at the end, and only where it

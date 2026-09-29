@@ -92,6 +92,7 @@ pub mod surface;
 pub mod text;
 pub mod theme;
 pub mod tools;
+pub mod update;
 pub mod widget;
 pub mod width;
 pub mod wizard;
