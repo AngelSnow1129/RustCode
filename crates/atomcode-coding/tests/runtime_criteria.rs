@@ -5430,6 +5430,50 @@ async fn a_runtime_under_another_name_keeps_to_its_own_dirs() {
     );
 }
 
+/// The product's own skills lead the catalog, ahead of `.claude` and `.agents`
+/// — a budget squeeze cuts from the tail, and the tail must be someone else's.
+/// "Own" is the tree the host handed in, not a directory name: under a renamed
+/// tree the runtime still has to know which skills are its own.
+async fn our_own_skills_lead_the_catalog() {
+    let env = env();
+    let fork_home = tempfile::tempdir().unwrap();
+    let fork =
+        atomcode_capabilities::ProductDirs::new(fork_home.path().join(".forkcode"), ".forkcode");
+    let theirs = fork_home.path().join(".claude/skills");
+    let ours = fork.user().join("skills");
+    for (dir, name) in [(&theirs, "aaa-theirs"), (&ours, "zzz-ours")] {
+        std::fs::create_dir_all(dir.join(name)).unwrap();
+        std::fs::write(
+            dir.join(name).join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: the {name} skill\n---\n\nbody\n"),
+        )
+        .unwrap();
+    }
+    let recorder = Arc::new(Recorder::default());
+    let mut started = start(env.project.path(), &recorder, SessionMode::Fresh);
+    started.agent.dirs = fork;
+    started.prepare.skill_dirs = Some(vec![theirs, ours]);
+    let mut runtime = CodingRuntime::start(started).await.unwrap();
+
+    turn(&mut runtime, "hello").await;
+
+    let first = recorder.requests.lock().unwrap().first().cloned().unwrap();
+    let system: String = first
+        .iter()
+        .filter(|m| m.role == Role::System)
+        .map(|m| m.text.as_str())
+        .collect();
+    let at = |name: &str| {
+        system
+            .find(&format!("- {name}:"))
+            .unwrap_or_else(|| panic!("{name} is not in the catalog:\n{system}"))
+    };
+    assert!(
+        at("zzz-ours") < at("aaa-theirs"),
+        "a skill from the product's own tree ranks below `.claude`:\n{system}"
+    );
+}
+
 /// Each scenario as its own test. Serialized because they share the process's
 /// environment (`ATOMCODE_HOME`, the offline verdict), which is also why each is
 /// its own process under `cargo nextest`.
@@ -5533,5 +5577,6 @@ mod criteria {
         a_capability_the_runtime_mounts_itself_still_describes_itself,
         a_runtime_configured_from_a_file_describes_the_file,
         a_runtime_under_another_name_keeps_to_its_own_dirs,
+        our_own_skills_lead_the_catalog,
     );
 }

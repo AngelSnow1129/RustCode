@@ -733,6 +733,14 @@ async fn prepare_with_plugin_hooks_reusing_lease(
     // convention. Empty when the driver saw no installed plugins (the L1
     // capabilities crate cannot reach the core plugin loader by design).
     let skills = SkillRegistry::load(&skill_dirs);
+    // Our own trees rank first in the catalog, whatever they are named — the
+    // host handed them in, so this is the one place that knows. Set whether or
+    // not the driver named its own dirs: a skill under our tree is ours either
+    // way. A reload swaps the skills and keeps these.
+    skills.set_native_roots(vec![
+        cfg.dirs.user().to_path_buf(),
+        cfg.dirs.project(&cfg.working_dir),
+    ]);
     if opts.tools {
         for (dir, ns) in &opts.plugin_skill_dirs {
             skills.load_dir(dir, Some(ns));

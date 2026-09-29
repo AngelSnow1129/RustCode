@@ -159,6 +159,7 @@ impl Plugin for OpenAiCompatPlugin {
                 supports_reasoning_effort: Some(
                     row.supports_reasoning_effort || resolved.supports_reasoning_effort,
                 ),
+                wire_dump_dir: Some(crate::product_dirs(ctx)?.user().join("wire-dump")),
             },
         )?;
         // Read the window off the provider, not off the row: the row is an
@@ -227,6 +228,9 @@ struct AdapterKnobs<'a> {
     /// capability, not a level. `None` means "the row did not say", and what
     /// that defaults to differs by row: see the call sites.
     supports_reasoning_effort: Option<bool>,
+    /// Where `ATOMCODE_WIRE_DUMP` writes this adapter's requests — the host's
+    /// tree, from the `product-dirs` seam. `None` dumps nothing.
+    wire_dump_dir: Option<std::path::PathBuf>,
 }
 
 /// A scripted provider: same seam, no network.
@@ -242,6 +246,7 @@ fn openai_compat(
     knobs: AdapterKnobs<'_>,
 ) -> Result<OpenAiCompatProvider, String> {
     let mut cfg = OpenAiCompatConfig::new(api_key, base_url, model);
+    cfg.wire_dump_dir = knobs.wire_dump_dir;
     if let Some(window) = knobs.context_window {
         cfg.context_window = window;
     }
@@ -450,6 +455,7 @@ impl Plugin for LlmUtilityOpenAiCompatPlugin {
                 thinking_type: row.thinking_type.as_deref(),
                 thinking_keep: row.thinking_keep.as_deref(),
                 supports_reasoning_effort: Some(row.supports_reasoning_effort),
+                wire_dump_dir: Some(crate::product_dirs(ctx)?.user().join("wire-dump")),
                 ..AdapterKnobs::default()
             },
         )?;
@@ -765,6 +771,7 @@ impl Plugin for AtomcodeConfigPlugin {
 
         let mut provider_cfg =
             OpenAiCompatConfig::new(&endpoint.api_key, &endpoint.base_url, &endpoint.model);
+        provider_cfg.wire_dump_dir = Some(user_dir.join("wire-dump"));
         if let Some(window) = endpoint.context_window {
             provider_cfg.context_window = window;
         }

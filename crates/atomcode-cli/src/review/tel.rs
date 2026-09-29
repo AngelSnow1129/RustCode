@@ -121,6 +121,7 @@ pub fn build_review_provider(
 ) -> Result<Arc<dyn LlmProvider>, String> {
     use atomcode_capabilities::provider::{OpenAiCompatConfig, OpenAiCompatProvider};
     let mut pc = OpenAiCompatConfig::new(&cfg.api_key, &cfg.base_url, &cfg.model);
+    pc.wire_dump_dir = Some(cfg.dirs.user().join("wire-dump"));
     pc.context_window = cfg.context_window;
     // Byte-idle liveness follows the review config's stream_timeout (mirrors
     // `atomcode_review::build_review_agent`), not the adapter's hardcoded 120s.

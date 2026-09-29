@@ -3096,7 +3096,7 @@ fn execute_slash_command_impl(
             // LLM-driven: submit the init prompt as a normal user turn; the agent explores the
             // repo with its tools and writes/improves AGENTS.md via write_file. Replaces the old
             // static .atomcode.md generator.
-            let prompt = match build_init_prompt_from_config(&ctx.config) {
+            let prompt = match build_init_prompt_from_config(&ctx.config, ctx.config_store.path()) {
                 Ok(prompt) => prompt,
                 Err(error) => {
                     renderer.render(UiLine::Error(error.to_string()));
@@ -4234,14 +4234,19 @@ fn execute_slash_command_impl(
     Ok(())
 }
 
-fn build_init_prompt_from_config(config: &atomcode_config::Config) -> Result<String, String> {
+/// A relative `init_prompt_file` is read beside the config file that named it
+/// — the same answer the `/init` row gives (`host_rows::init_prompt_from`).
+fn build_init_prompt_from_config(
+    config: &atomcode_config::Config,
+    config_path: &std::path::Path,
+) -> Result<String, String> {
     let locale = config
         .language
         .unwrap_or_else(atomcode_config::i18n::current_locale);
     atomcode_coding::build_init_prompt(
         locale,
         config.init_prompt_file.as_deref(),
-        atomcode_coding::config::product_dirs_from_env().user(),
+        config_path.parent().unwrap_or(std::path::Path::new(".")),
     )
 }
 
@@ -9532,8 +9537,23 @@ mod todo_command_tests {
     fn init_prompt_uses_the_language_from_the_live_config() {
         let mut config = atomcode_config::Config::default();
         config.language = Some(atomcode_config::locale::Locale::ZhCn);
-        let prompt = build_init_prompt_from_config(&config).unwrap();
+        let prompt =
+            build_init_prompt_from_config(&config, std::path::Path::new("config.toml")).unwrap();
         assert!(prompt.contains("最终文件使用简体中文编写"));
+    }
+
+    /// A relative `init_prompt_file` is the file beside the config that named
+    /// it, as the `/init` row reads it — one config, one prompt, whichever
+    /// front end runs it.
+    #[test]
+    fn a_relative_init_prompt_is_read_beside_its_config() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("init.md"), "BESIDE-THE-CONFIG").unwrap();
+        let mut config = atomcode_config::Config::default();
+        config.init_prompt_file = Some(std::path::PathBuf::from("init.md"));
+        let prompt =
+            build_init_prompt_from_config(&config, &dir.path().join("config.toml")).unwrap();
+        assert!(prompt.contains("BESIDE-THE-CONFIG"), "{prompt}");
     }
 
     #[test]
@@ -9541,7 +9561,8 @@ mod todo_command_tests {
         let dir = tempfile::tempdir().unwrap();
         let mut config = atomcode_config::Config::default();
         config.init_prompt_file = Some(dir.path().join("missing.md"));
-        let error = build_init_prompt_from_config(&config).unwrap_err();
+        let error = build_init_prompt_from_config(&config, std::path::Path::new("config.toml"))
+            .unwrap_err();
         assert!(error.contains("failed to read custom /init prompt"));
     }
 

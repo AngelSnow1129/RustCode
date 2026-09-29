@@ -82,6 +82,7 @@ fn review_tool_names(no_web: bool, mount_graph: bool) -> Vec<&'static str> {
 /// `Err` only if the provider fails to construct.
 pub fn build_review_agent(cfg: ReviewAgentConfig) -> Result<(Agent, ReportFindingTool), String> {
     let mut provider_cfg = OpenAiCompatConfig::new(&cfg.api_key, &cfg.base_url, &cfg.model);
+    provider_cfg.wire_dump_dir = Some(cfg.dirs.user().join("wire-dump"));
     provider_cfg.context_window = cfg.context_window;
     // Byte-idle liveness follows the review config's stream_timeout (the same value
     // handed to the kernel below), not the adapter's hardcoded 120s default — so the
