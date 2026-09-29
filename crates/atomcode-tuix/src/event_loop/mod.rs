@@ -7008,6 +7008,28 @@ mod menu_tests {
             .any(|(n, _)| matches!(n.as_str(), "low" | "medium" | "high" | "max" | "default")));
     }
 
+    /// Picked from the menu, `/upgrade` opens what it can do instead of
+    /// starting a download at once — `rollback` is one of the rows.
+    #[test]
+    fn upgrade_is_picked_through_its_sub_menu() {
+        let reg = CommandRegistry::builtin();
+        let custom = CustomCommandRegistry::empty();
+        assert!(
+            reg.matching_prefix("upgrade")
+                .iter()
+                .any(|c| c.name == "upgrade" && c.needs_args),
+            "picking `/upgrade` must stop for its argument"
+        );
+        let all = build_menu_items("/upgrade ", 0, &reg, &custom, None, None)
+            .expect("/upgrade sub-mode must list its arguments");
+        let names: Vec<&str> = all.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["latest", "--force", "rollback"]);
+        let roll = build_menu_items("/upgrade ro", 0, &reg, &custom, None, None)
+            .expect("`ro` must match rollback");
+        assert_eq!(roll.len(), 1);
+        assert_eq!(roll[0].0, "rollback");
+    }
+
     #[test]
     fn effort_sub_mode_lists_and_filters_choices() {
         let reg = CommandRegistry::builtin();
@@ -9470,7 +9492,13 @@ pub enum ExitReason {
     /// `std::env::current_exe()` returns the renamed path after the swap,
     /// so callers MUST use this path for `re_exec_self` instead of
     /// `current_exe()`.
-    UpgradeRestart { exe: std::path::PathBuf },
+    ///
+    /// `rolled_back` is a rollback's restart: the binary started next is the
+    /// OLDER one, so nothing may tell it it was "upgraded".
+    UpgradeRestart {
+        exe: std::path::PathBuf,
+        rolled_back: bool,
+    },
 }
 
 /// Drive one decision step of a fixed-interval `/loop`.
@@ -9972,7 +10000,7 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
     // True once Done fired successfully — the loop exits after the
     // current pending message finishes so the user sees the success
     // line before the TUI shuts down.
-    let mut upgrade_done: Option<std::path::PathBuf> = None;
+    let mut upgrade_done: Option<(std::path::PathBuf, bool)> = None;
 
     // DEVIATION from plan:
     // 1. plan uses `SignalKind::terminal_stop()` which does not exist in tokio 1.x.
@@ -10905,8 +10933,8 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
     // Determine the exit reason. If the upgrade_done flag was set,
     // the loop exited because /upgrade (or /upgrade rollback) succeeded
     // and the live binary has been replaced — the caller should re-exec.
-    if let Some(exe) = upgrade_done {
-        Ok(ExitReason::UpgradeRestart { exe })
+    if let Some((exe, rolled_back)) = upgrade_done {
+        Ok(ExitReason::UpgradeRestart { exe, rolled_back })
     } else {
         Ok(ExitReason::Normal)
     }
@@ -16046,6 +16074,26 @@ fn build_menu_items_with_efforts(
         return if items.is_empty() { None } else { Some(items) };
     }
 
+    // `/upgrade`: what it can do, picked rather than guessed — Enter on a
+    // bare `/upgrade` used to start downloading at once.
+    if let Some(after) = buf.strip_prefix("/upgrade ") {
+        if after.contains(char::is_whitespace) {
+            return None;
+        }
+        let prefix = after.to_ascii_lowercase();
+        use crate::i18n::{t, Msg};
+        let items: Vec<(String, String)> = [
+            ("latest", Msg::UpgradeOptLatest),
+            ("--force", Msg::UpgradeOptForce),
+            ("rollback", Msg::UpgradeOptRollback),
+        ]
+        .into_iter()
+        .filter(|(arg, _)| arg.starts_with(prefix.as_str()))
+        .map(|(arg, about)| (arg.to_string(), t(about).into_owned()))
+        .collect();
+        return if items.is_empty() { None } else { Some(items) };
+    }
+
     let rest = &buf[1..];
     // Once a space appears (user is typing args), stop showing menu.
     if rest.contains(char::is_whitespace) {
@@ -16227,7 +16275,7 @@ fn confirm_idle_menu_selected(
     app.menu.selected = 0;
     if needs_args {
         app.buf.replace_all_text(format!("/{name} "));
-        if matches!(name.as_str(), "skills" | "effort") {
+        if matches!(name.as_str(), "skills" | "effort" | "upgrade") {
             let efforts = selection_allowed_efforts(ctx);
             if let Some(next_items) = build_menu_items_with_efforts(
                 &app.buf.text,
@@ -16599,7 +16647,7 @@ fn handle_idle_key(
 
                     // `/effort` gateway: render the high/max/off sub-menu
                     // immediately so it doesn't blink out and reappear.
-                    if name == "effort" {
+                    if matches!(name.as_str(), "effort" | "upgrade") {
                         let efforts = selection_allowed_efforts(ctx);
                         if let Some(items) = build_menu_items_with_efforts(
                             &app.buf.text,
@@ -16635,14 +16683,19 @@ fn handle_idle_key(
                 // high|max|off. Tab completes to `/effort <choice> ` (parked,
                 // consistent with the top-level Tab≠Enter rule); Enter commits
                 // `/effort <choice>` and executes via the regular dispatch path.
-                let in_effort_sub_mode = app.buf.text.starts_with("/effort ");
-                if in_effort_sub_mode {
+                // `/upgrade` has the same shape: its sub-menu rows are the
+                // arguments it takes, so picking `/upgrade` never upgrades
+                // before the person has seen that `rollback` is one of them.
+                let picking_for = ["effort", "upgrade"]
+                    .into_iter()
+                    .find(|command| app.buf.text.starts_with(&format!("/{command} ")));
+                if let Some(command) = picking_for {
                     if code == KeyCode::Tab {
-                        app.buf.replace_all_text(format!("/effort {} ", name));
+                        app.buf.replace_all_text(format!("/{command} {} ", name));
                         redraw_idle_plain(&app.buf, &app.state, ctx, renderer);
                         return Ok(());
                     }
-                    let committed = format!("/effort {}", name);
+                    let committed = format!("/{command} {}", name);
                     renderer.render(UiLine::ClearTransient);
                     renderer.render(UiLine::User(committed.clone()));
                     app.buf.clear_text();
@@ -21715,7 +21768,7 @@ pub(super) fn handle_plugin_job_event(
 pub(super) fn handle_upgrade_event(
     ev: atomcode_updater::UpgradeEvent,
     last_pct: &mut i32,
-    done: &mut Option<std::path::PathBuf>,
+    done: &mut Option<(std::path::PathBuf, bool)>,
     ctx: &mut LoopCtx,
     renderer: &mut dyn Renderer,
 ) {
@@ -21777,7 +21830,7 @@ pub(super) fn handle_upgrade_event(
             // Store the *original* exe path so `re_exec_self` uses it
             // instead of `current_exe()` (which on Windows returns the
             // renamed `.atomcode.rolling` after `replace_binary`).
-            *done = Some(exe);
+            *done = Some((exe, false));
             // Tell the agent to shut down so the loop exits cleanly.
             ctx.runtime
                 .dispatch(atomcode_coding::DriverCommand::Shutdown)
@@ -21811,7 +21864,11 @@ pub(super) fn handle_upgrade_event(
                 ));
             }
         }
-        UpgradeEvent::RolledBack { exe, backup } => {
+        UpgradeEvent::RolledBack {
+            exe,
+            backup,
+            updates,
+        } => {
             renderer.render(UiLine::CommandOutput(
                 crate::i18n::t(crate::i18n::Msg::UpgradeRolledBack {
                     exe: &exe.display().to_string(),
@@ -21819,7 +21876,12 @@ pub(super) fn handle_upgrade_event(
                 })
                 .into_owned(),
             ));
-            *done = Some(exe);
+            // Said here, before the restart: the older build started next
+            // knows nothing about the pause this rollback made.
+            for note in atomcode_updater::rollback_notes(&updates) {
+                renderer.render(UiLine::CommandOutput(note));
+            }
+            *done = Some((exe, true));
             ctx.runtime
                 .dispatch(atomcode_coding::DriverCommand::Shutdown)
                 .ok();

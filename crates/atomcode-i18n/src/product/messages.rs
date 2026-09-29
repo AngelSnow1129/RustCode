@@ -862,6 +862,25 @@ pub enum Msg<'a> {
         exe: &'a str,
         backup: &'a str,
     },
+    /// After a rollback: automatic updates are off, so the next launch does not
+    /// undo it; a manual upgrade turns them back on.
+    RollbackUpdatesPaused,
+    /// After a rollback: the swap happened but `auto_update` could not be written.
+    RollbackUpdatesNotPaused {
+        error: &'a str,
+    },
+    /// After a rollback: sessions a newer build wrote may not open in this one.
+    RollbackSessionsNote,
+    /// After a manual upgrade that lifted a rollback's pause.
+    UpgradeUpdatesResumed,
+    /// After a manual upgrade that could not lift a rollback's pause.
+    UpgradeUpdatesNotResumed {
+        error: &'a str,
+    },
+    /// The `/upgrade` sub-menu rows.
+    UpgradeOptLatest,
+    UpgradeOptForce,
+    UpgradeOptRollback,
 
     // ── /config command ──
     ConfigProviderLabel {

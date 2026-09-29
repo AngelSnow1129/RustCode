@@ -958,14 +958,28 @@ pub async fn run(
     // On Windows, `std::env::current_exe()` would return the renamed
     // `.atomcode.rolling` path after the swap, so we MUST use this saved
     // value instead.
-    if let Ok(event_loop::ExitReason::UpgradeRestart { exe }) = &result {
+    if let Ok(event_loop::ExitReason::UpgradeRestart { exe, rolled_back }) = &result {
         // Set env var so the new process can show a one-time "upgraded" banner
-        // on the welcome screen.
-        std::env::set_var(
-            "ATOMCODE_UPGRADED_FROM",
-            format!("v{}", env!("CARGO_PKG_VERSION")),
-        );
-        match atomcode_updater::re_exec_self(Some(exe)) {
+        // on the welcome screen. Not after a rollback: the process started
+        // next is the OLDER build, and it reads this var as "you were just
+        // upgraded from …" — so it is cleared instead, in case this launch
+        // was itself an upgrade's restart and still carries one.
+        if *rolled_back {
+            std::env::remove_var("ATOMCODE_UPGRADED_FROM");
+        } else {
+            std::env::set_var(
+                "ATOMCODE_UPGRADED_FROM",
+                format!("v{}", env!("CARGO_PKG_VERSION")),
+            );
+        }
+        // A rollback starts the older build bare, in this directory: it may
+        // not know this launch's flags, nor open the session this build wrote.
+        let restarted = if *rolled_back {
+            atomcode_updater::restart_fresh(exe)
+        } else {
+            atomcode_updater::re_exec_self(Some(exe))
+        };
+        match restarted {
             Ok(_infallible) => unreachable!("re_exec_self returned Ok"),
             Err(e) => {
                 // Re-exec failed. The upgrade is on disk, so the user just

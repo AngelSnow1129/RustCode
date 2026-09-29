@@ -752,6 +752,19 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             format!("Upgrade failed: {}", error).into(),
         Msg::UpgradeRolledBack { exe, backup } =>
             format!("\n✓ Rolled back. Current binary: {}; other version saved at {}\n  Restarting rolled-back version...\n", exe, backup).into(),
+        Msg::RollbackUpdatesPaused =>
+            "Automatic updates are off, so the next launch will not upgrade you again. To go back to the newer version, run `atomcode upgrade` (or /upgrade in the UI); that turns automatic updates back on.".into(),
+        Msg::RollbackUpdatesNotPaused { error } =>
+            format!("Rolled back, but automatic updates could not be turned off ({error}); the next launch may upgrade again. Set auto_update = false in the config file.").into(),
+        Msg::RollbackSessionsNote =>
+            "Sessions the newer version wrote may not open in this one (the list marks them \"needs a newer version\"); they open again after upgrading.".into(),
+        Msg::UpgradeUpdatesResumed =>
+            "Automatic updates, turned off by a rollback, are back on.".into(),
+        Msg::UpgradeUpdatesNotResumed { error } =>
+            format!("Upgraded, but automatic updates could not be turned back on ({error}). Set auto_update = true in the config file if you want them.").into(),
+        Msg::UpgradeOptLatest => "Upgrade to the latest version".into(),
+        Msg::UpgradeOptForce => "Reinstall the latest version".into(),
+        Msg::UpgradeOptRollback => "Roll back to the previous version".into(),
 
 
         // ── /config ──

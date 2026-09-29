@@ -1827,6 +1827,15 @@ pub enum Msg<'a> {
         run: &'a str,
     },
     CmdAboutInTheCli,
+    /// The confirmation before a rollback (titled by the product's
+    /// `UpgradeOptRollback`).
+    RollbackConfirmSwitch,
+    RollbackConfirmNoUpdates,
+    RollbackConfirmKeys,
+    /// No `.bak` next to the binary: nothing to roll back to.
+    RollbackNothingToRollBackTo {
+        path: &'a str,
+    },
     /// Sharing a session needs a model to be configured first.
     ShareNoModel,
     CmdAboutWebui,

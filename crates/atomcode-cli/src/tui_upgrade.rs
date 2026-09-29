@@ -22,7 +22,7 @@ use async_trait::async_trait;
 use atomcode_config::i18n::{t, Msg};
 use atomcode_harness::seams::{UiSvc, UserInterface};
 use atomcode_plexus::{Context, Plugin};
-use atomcode_tui::command::{Command, CommandSet, Outcome};
+use atomcode_tui::command::{Command, CommandOption, CommandSet, Outcome};
 use atomcode_tui::plugin::{CommandsSvc, UpdateCheckSvc};
 use atomcode_tui::update::UpdateCheck;
 use atomcode_updater::UpgradeEvent;
@@ -38,13 +38,27 @@ pub fn row_layer() -> String {
     format!("[[insert]]\nname = \"{ROW}\"\n")
 }
 
+/// What the launcher starts once the screen has closed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Restart {
+    /// The binary now in place — captured before the swap (on Windows
+    /// `current_exe()` names the renamed file afterwards).
+    pub exe: PathBuf,
+    /// A rollback's restart. The binary is then the OLDER build: it is started
+    /// bare (`atomcode_updater::restart_fresh`) and not told it was upgraded.
+    pub rolled_back: bool,
+    /// Said by the launcher before the restart — what a rollback did to
+    /// automatic updates, which the older build cannot say.
+    pub notes: Vec<String>,
+}
+
 /// The binary to start again once the screen has closed, when an upgrade or a
 /// rollback asked for it.
-static RESTART: Mutex<Option<PathBuf>> = Mutex::new(None);
+static RESTART: Mutex<Option<Restart>> = Mutex::new(None);
 
 /// Take the restart an upgrade asked for, if any. The launcher calls this after
 /// the screen has closed and re-executes into the path it gets.
-pub fn take_restart() -> Option<PathBuf> {
+pub fn take_restart() -> Option<Restart> {
     RESTART.lock().ok()?.take()
 }
 
@@ -126,17 +140,38 @@ fn hint_for(version: &str, package_managed: bool) -> String {
 /// What `/upgrade` was asked to do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Asked {
-    Upgrade { force: bool },
-    Rollback,
+    Upgrade {
+        force: bool,
+    },
+    /// `confirmed` only from the confirmation (or typed out in full): a
+    /// rollback restarts into an older build and stops automatic updates, so it
+    /// is asked about first.
+    Rollback {
+        confirmed: bool,
+    },
 }
+
+/// What the confirmation dispatches when it is taken.
+const ROLLBACK_CONFIRMED: &str = "/upgrade rollback --yes";
 
 impl Asked {
     /// `None` for an argument it does not take.
     fn of(args: &str) -> Option<Self> {
-        match args.trim().to_ascii_lowercase().as_str() {
-            "" => Some(Asked::Upgrade { force: false }),
-            "--force" | "-f" => Some(Asked::Upgrade { force: true }),
-            "rollback" => Some(Asked::Rollback),
+        let words: Vec<String> = args
+            .split_whitespace()
+            .map(str::to_ascii_lowercase)
+            .collect();
+        match words
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .as_slice()
+        {
+            // `latest` is the sub-menu's row for a plain upgrade.
+            [] | ["latest"] => Some(Asked::Upgrade { force: false }),
+            ["--force"] | ["-f"] => Some(Asked::Upgrade { force: true }),
+            ["rollback"] => Some(Asked::Rollback { confirmed: false }),
+            ["rollback", "--yes"] => Some(Asked::Rollback { confirmed: true }),
             _ => None,
         }
     }
@@ -187,7 +222,7 @@ fn said_for(event: UpgradeEvent, last_pct: &mut i32) -> (Option<String>, Option<
             Some(exe),
         ),
         UpgradeEvent::Failed(message) => (Some(failed(&message)), None),
-        UpgradeEvent::RolledBack { exe, backup } => (
+        UpgradeEvent::RolledBack { exe, backup, .. } => (
             Some(
                 t(Msg::UpgradeRolledBack {
                     exe: &exe.display().to_string(),
@@ -228,11 +263,7 @@ impl CommandSet for Upgrade {
     }
 
     fn commands(&self) -> Vec<Command> {
-        vec![Command::said_taking(
-            COMMAND,
-            "[--force | rollback]".into(),
-            t(Msg::CmdDescUpgrade),
-        )]
+        vec![upgrade_command()]
     }
 
     async fn run(&self, name: &str, args: &str, _ctx: &Context) -> Outcome {
@@ -250,29 +281,52 @@ impl CommandSet for Upgrade {
         if restart_pending() {
             return Outcome::Said(t(Msg::UpgradeRestartPending).into_owned());
         }
+        // Asked first — and only when there is something to roll back to.
+        if asked == (Asked::Rollback { confirmed: false }) {
+            return match rollback_target() {
+                Ok(_) => Outcome::Open(confirmation()),
+                Err(why) => Outcome::Refused(why),
+            };
+        }
         if self.running.swap(true, Ordering::SeqCst) {
             return Outcome::Quiet;
         }
         let ui = self.ui.clone();
         let running = self.running.clone();
         match asked {
-            Asked::Rollback => {
-                let event = match atomcode_updater::run_rollback() {
-                    Ok(summary) => UpgradeEvent::RolledBack {
-                        exe: summary.exe,
-                        backup: summary.backup,
-                    },
-                    Err(e) => UpgradeEvent::Failed(format!("{e:#}")),
+            Asked::Rollback { .. } => {
+                // With the pause on automatic updates: the older build is the
+                // live `atomcode` now, and its own startup would upgrade again.
+                let (event, notes) = match atomcode_updater::rollback_and_pause() {
+                    Ok(summary) => {
+                        let notes = atomcode_updater::rollback_notes(&summary.updates);
+                        (
+                            UpgradeEvent::RolledBack {
+                                exe: summary.exe,
+                                backup: summary.backup,
+                                updates: summary.updates,
+                            },
+                            notes,
+                        )
+                    }
+                    Err(e) => (UpgradeEvent::Failed(format!("{e:#}")), Vec::new()),
                 };
                 running.store(false, Ordering::SeqCst);
-                let (said, restart) = said_for(event, &mut -1);
+                let (said, exe) = said_for(event, &mut -1);
                 // Said before the screen is asked to close, as the upgrade does:
                 // returned as this command's answer instead, it raced the quit
                 // and could be lost with the screen.
                 if let Some(said) = said {
                     ui.say(&said);
                 }
-                finish(ui.as_ref(), restart);
+                finish(
+                    ui.as_ref(),
+                    exe.map(|exe| Restart {
+                        exe,
+                        rolled_back: true,
+                        notes,
+                    }),
+                );
                 Outcome::Quiet
             }
             Asked::Upgrade { force } => {
@@ -297,7 +351,14 @@ impl CommandSet for Upgrade {
                     }
                     let _ = driver.await;
                     running.store(false, Ordering::SeqCst);
-                    finish(ui.as_ref(), restart);
+                    finish(
+                        ui.as_ref(),
+                        restart.map(|exe| Restart {
+                            exe,
+                            rolled_back: false,
+                            notes: Vec::new(),
+                        }),
+                    );
                 });
                 Outcome::Said(t(Msg::CmdCheckingUpdate).into_owned())
             }
@@ -305,16 +366,72 @@ impl CommandSet for Upgrade {
     }
 }
 
+/// `/upgrade` as the menu lists it. The options are rows: taking `/upgrade`
+/// there opens them instead of starting a download, so `rollback` is seen
+/// before anything happens.
+fn upgrade_command() -> Command {
+    Command::said_taking(
+        COMMAND,
+        "[--force | rollback]".into(),
+        t(Msg::CmdDescUpgrade),
+    )
+    .selecting(vec![
+        CommandOption::new("latest", t(Msg::UpgradeOptLatest)),
+        CommandOption::new("--force", t(Msg::UpgradeOptForce)),
+        CommandOption::new("rollback", t(Msg::UpgradeOptRollback)),
+    ])
+}
+
 /// A new binary is in place: leave it to the launcher to start it once this
 /// screen has closed, and close the screen the way `/quit` does.
-fn finish(ui: &dyn UserInterface, restart: Option<PathBuf>) {
-    let Some(exe) = restart else {
+fn finish(ui: &dyn UserInterface, restart: Option<Restart>) {
+    let Some(restart) = restart else {
         return;
     };
     if let Ok(mut slot) = RESTART.lock() {
-        *slot = Some(exe);
+        *slot = Some(restart);
     }
     ui.run_slash("/quit");
+}
+
+/// The file a rollback would go back to; `Err` says why there is none.
+fn rollback_target() -> Result<PathBuf, String> {
+    if atomcode_updater::is_package_managed() {
+        return Err(t(Msg::UpgradePackageManaged).into_owned());
+    }
+    let exe = atomcode_updater::current_exe_path().map_err(|error| format!("{error:#}"))?;
+    let backup = atomcode_updater::backup_path(&exe);
+    if backup.exists() {
+        Ok(backup)
+    } else {
+        Err(
+            atomcode_i18n::screen::t(atomcode_i18n::screen::Msg::RollbackNothingToRollBackTo {
+                path: &backup.display().to_string(),
+            })
+            .into_owned(),
+        )
+    }
+}
+
+/// The question before a rollback: what happens, Enter to go, Esc to stay.
+fn confirmation() -> Arc<atomcode_tui::wizard::Wizard> {
+    use atomcode_i18n::screen::{t as tr, Msg as SMsg};
+    use atomcode_tui::wizard::{StepDef, StepKind, Wizard};
+    let title = t(Msg::UpgradeOptRollback).into_owned();
+    let step = StepDef::new("rollback", title.clone(), StepKind::Note).saying(vec![
+        tr(SMsg::RollbackConfirmSwitch).into_owned(),
+        tr(SMsg::RollbackConfirmNoUpdates).into_owned(),
+        t(Msg::RollbackSessionsNote).into_owned(),
+        String::new(),
+        tr(SMsg::RollbackConfirmKeys).into_owned(),
+    ]);
+    Wizard::new(
+        "upgrade-rollback",
+        title,
+        vec![step],
+        Box::new(|_| {}),
+        ROLLBACK_CONFIRMED,
+    )
 }
 
 #[cfg(test)]
@@ -327,8 +444,46 @@ mod tests {
         assert_eq!(Asked::of(""), Some(Asked::Upgrade { force: false }));
         assert_eq!(Asked::of(" --force "), Some(Asked::Upgrade { force: true }));
         assert_eq!(Asked::of("-f"), Some(Asked::Upgrade { force: true }));
-        assert_eq!(Asked::of("ROLLBACK"), Some(Asked::Rollback));
+        assert_eq!(Asked::of("latest"), Some(Asked::Upgrade { force: false }));
+        assert_eq!(
+            Asked::of("ROLLBACK"),
+            Some(Asked::Rollback { confirmed: false })
+        );
+        assert_eq!(
+            Asked::of("rollback --yes"),
+            Some(Asked::Rollback { confirmed: true })
+        );
         assert_eq!(Asked::of("now"), None);
+    }
+
+    /// Taken from the menu, `/upgrade` opens its options instead of starting
+    /// a download: the rows are what it can do, `rollback` among them.
+    #[test]
+    fn upgrade_is_picked_through_its_options() {
+        let options: Vec<String> = ["latest", "--force", "rollback"]
+            .iter()
+            .map(|v| v.to_string())
+            .collect();
+        let command = upgrade_command();
+        let offered: Vec<String> = command
+            .options
+            .iter()
+            .map(|o| o.value.to_string())
+            .collect();
+        assert_eq!(offered, options);
+        // Each row is something `run` accepts.
+        for value in &offered {
+            assert!(Asked::of(value).is_some(), "{value}");
+        }
+        // And the one that restarts into an older build is asked about first.
+        assert_eq!(
+            Asked::of("rollback"),
+            Some(Asked::Rollback { confirmed: false })
+        );
+        assert_eq!(
+            Asked::of(ROLLBACK_CONFIRMED.trim_start_matches("/upgrade ")),
+            Some(Asked::Rollback { confirmed: true })
+        );
     }
 
     /// Progress at the quarter marks only, each said once; a finished upgrade
@@ -371,6 +526,7 @@ mod tests {
             UpgradeEvent::RolledBack {
                 exe: exe.clone(),
                 backup: PathBuf::from("/opt/atomcode/bin/atomcode.bak"),
+                updates: atomcode_updater::UpdatesAfterRollback::Paused,
             },
             &mut last,
         );
@@ -411,13 +567,14 @@ mod tests {
     #[test]
     fn a_waiting_restart_is_seen_until_it_is_taken() {
         assert!(!restart_pending());
-        *RESTART.lock().expect("restart poisoned") =
-            Some(PathBuf::from("/opt/atomcode/bin/atomcode"));
+        let restart = Restart {
+            exe: PathBuf::from("/opt/atomcode/bin/atomcode"),
+            rolled_back: false,
+            notes: Vec::new(),
+        };
+        *RESTART.lock().expect("restart poisoned") = Some(restart.clone());
         assert!(restart_pending());
-        assert_eq!(
-            take_restart(),
-            Some(PathBuf::from("/opt/atomcode/bin/atomcode"))
-        );
+        assert_eq!(take_restart(), Some(restart));
         assert!(!restart_pending());
     }
 

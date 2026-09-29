@@ -1098,6 +1098,15 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             format!("/{command} 归命令行：退出后运行 `{run}`。").into()
         }
         Msg::CmdAboutInTheCli => "归命令行".into(),
+        Msg::RollbackConfirmSwitch => "会切换到上一版本,并在这个目录里重新启动 AtomCode。".into(),
+        Msg::RollbackConfirmNoUpdates => {
+            "之后不再自动升级;想回到新版本时运行 /upgrade(或命令行 `atomcode upgrade`)。".into()
+        }
+        Msg::RollbackConfirmKeys => "enter 回退并重启 · esc 取消".into(),
+        Msg::RollbackNothingToRollBackTo { path } => format!(
+            "没有可回退的上一版本:{path} 不存在。通过自动更新或 `atomcode upgrade` 升级过一次之后,才会留下上一版本。"
+        )
+        .into(),
         Msg::ShareNoModel => "还没有配好模型——先 /login 或 /model".into(),
         Msg::CmdAboutWebui => "把这个会话共享给浏览器(lan 暴露到局域网;stop 结束)".into(),
         Msg::WebuiTakes => "[lan | --host <地址> | stop]".into(),

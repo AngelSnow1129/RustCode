@@ -2726,11 +2726,32 @@ async fn run() -> Result<i32> {
                     .await;
                 // `/upgrade` (or `/upgrade rollback`) replaced the binary and
                 // closed the screen: start the new one now that the terminal is
-                // back, the way the classic screen does. The version we leave
-                // rides along so the new process can say it was upgraded.
-                if let Some(exe) = atomcode::tui_upgrade::take_restart() {
-                    std::env::set_var(UPGRADED_FROM_ENV, format!("v{}", env!("CARGO_PKG_VERSION")));
-                    if let Err(e) = atomcode_updater::re_exec_self(Some(&exe)) {
+                // back, the way the classic screen does.
+                if let Some(restart) = atomcode::tui_upgrade::take_restart() {
+                    if restart.rolled_back {
+                        // The OLDER build takes over, bare, in this directory:
+                        // it may not know this launch's flags, nor open the
+                        // session this build wrote. What the rollback did is
+                        // said here — the older build knows nothing of it — and
+                        // nothing may tell it it was "upgraded".
+                        for note in &restart.notes {
+                            println!("{note}");
+                        }
+                        std::env::remove_var(UPGRADED_FROM_ENV);
+                        // Returns only when the start failed.
+                        let Err(error) = atomcode_updater::restart_fresh(&restart.exe);
+                        eprintln!(
+                            "Rolled back, but the previous version could not be started ({error:#}). Run `atomcode` to start it."
+                        );
+                    } else {
+                        // The version we leave rides along so the new process
+                        // can say it was upgraded.
+                        std::env::set_var(
+                            UPGRADED_FROM_ENV,
+                            format!("v{}", env!("CARGO_PKG_VERSION")),
+                        );
+                        // Returns only when the start failed.
+                        let Err(e) = atomcode_updater::re_exec_self(Some(&restart.exe));
                         eprintln!(
                             "Upgrade applied but re-exec failed ({}). The new version will be used on the next launch.",
                             e
@@ -4675,7 +4696,7 @@ async fn run_upgrade_cli(force: bool) -> Result<()> {
                     eprintln!("\nupgrade failed: {}", msg);
                 }
             }
-            UpgradeEvent::RolledBack { exe, backup } => {
+            UpgradeEvent::RolledBack { exe, backup, .. } => {
                 println!(
                     "\n✓ Rolled back. exe={}, backup={}",
                     exe.display(),
@@ -4686,7 +4707,12 @@ async fn run_upgrade_cli(force: bool) -> Result<()> {
     }
 
     match driver.await {
-        Ok(Ok(_summary)) => Ok(()),
+        Ok(Ok(summary)) => {
+            if let Some(note) = atomcode_updater::upgrade_note(&summary.updates) {
+                println!("  {note}");
+            }
+            Ok(())
+        }
         Ok(Err(e)) => {
             let msg = format!("{:#}", e);
             if msg.contains(atomcode_updater::PACKAGE_MANAGED) {
@@ -4708,7 +4734,8 @@ async fn run_upgrade_cli(force: bool) -> Result<()> {
 }
 
 fn run_rollback_cli() -> Result<()> {
-    let summary = match atomcode_updater::run_rollback() {
+    // With the pause: a bare swap is undone by the next launch's auto-update.
+    let summary = match atomcode_updater::rollback_and_pause() {
         Ok(s) => s,
         Err(e) => {
             let msg = format!("{:#}", e);
@@ -4727,6 +4754,9 @@ fn run_rollback_cli() -> Result<()> {
         summary.exe.display(),
         summary.backup.display()
     );
+    for note in atomcode_updater::rollback_notes(&summary.updates) {
+        println!("  {note}");
+    }
     println!("  Run `atomcode` to start the rolled-back version.");
     Ok(())
 }

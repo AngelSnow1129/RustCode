@@ -724,6 +724,19 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             format!("升级失败: {}", error).into(),
         Msg::UpgradeRolledBack { exe, backup } =>
             format!("\n✓ 已回滚。当前二进制: {}；另一版本保存在 {}\n  正在重启回滚版本...\n", exe, backup).into(),
+        Msg::RollbackUpdatesPaused =>
+            "自动更新已关闭，下次启动不会再升级回去。想回到新版本时运行 `atomcode upgrade`（或界面里的 /upgrade），自动更新会随之重新打开。".into(),
+        Msg::RollbackUpdatesNotPaused { error } =>
+            format!("回退已完成，但没能关闭自动更新（{error}），下次启动可能又升级回去。请把配置文件里的 auto_update 设为 false。").into(),
+        Msg::RollbackSessionsNote =>
+            "新版本写过的会话在这个版本里可能打不开（列表里会标「需要更新的版本」），升级回去后即可打开。".into(),
+        Msg::UpgradeUpdatesResumed =>
+            "回退时关掉的自动更新已重新打开。".into(),
+        Msg::UpgradeUpdatesNotResumed { error } =>
+            format!("升级已完成，但没能重新打开自动更新（{error}）。需要的话请把配置文件里的 auto_update 设为 true。").into(),
+        Msg::UpgradeOptLatest => "升级到最新版本".into(),
+        Msg::UpgradeOptForce => "重新安装最新版本".into(),
+        Msg::UpgradeOptRollback => "回退到上一版本".into(),
 
 
         // ── /config ──

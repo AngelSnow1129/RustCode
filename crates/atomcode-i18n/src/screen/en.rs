@@ -1164,6 +1164,15 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             format!("/{command} belongs to the command line: quit and run `{run}`.").into()
         }
         Msg::CmdAboutInTheCli => "belongs to the command line".into(),
+        Msg::RollbackConfirmSwitch => "AtomCode switches to the previous version and starts again in this directory.".into(),
+        Msg::RollbackConfirmNoUpdates => {
+            "Automatic updates stay off afterwards; to go back to the newer version, run /upgrade (or `atomcode upgrade` on the command line).".into()
+        }
+        Msg::RollbackConfirmKeys => "enter roll back and restart · esc cancel".into(),
+        Msg::RollbackNothingToRollBackTo { path } => format!(
+            "There is no previous version to roll back to: {path} does not exist. One is kept after the first upgrade, automatic or `atomcode upgrade`."
+        )
+        .into(),
         Msg::ShareNoModel => "no model is configured yet — run /login or /model first".into(),
         Msg::CmdAboutWebui => "share this session with a browser (lan to expose it; stop to end)".into(),
         Msg::WebuiTakes => "[lan | --host <addr> | stop]".into(),

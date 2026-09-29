@@ -2711,7 +2711,9 @@ fn execute_slash_command_impl(
                 // Rollback is sync and fast (three renames). Run inline
                 // so the user sees the result immediately without waiting
                 // for an async task to schedule.
-                match atomcode_updater::run_rollback() {
+                // With the pause: a bare swap is undone by the next launch's
+                // auto-update, which the restart below is.
+                match atomcode_updater::rollback_and_pause() {
                     Ok(sum) => {
                         // Route through the event channel so rendering
                         // and "set done → exit" logic stays in one place.
@@ -2720,6 +2722,7 @@ fn execute_slash_command_impl(
                             .send(atomcode_updater::UpgradeEvent::RolledBack {
                                 exe: sum.exe,
                                 backup: sum.backup,
+                                updates: sum.updates,
                             });
                     }
                     Err(e) => {
@@ -2730,7 +2733,8 @@ fn execute_slash_command_impl(
                 }
             } else {
                 let force = arg_norm == "--force" || arg_norm == "-f";
-                if !force && !arg_norm.is_empty() {
+                // `latest` is the sub-menu's row for a plain upgrade.
+                if !force && !arg_norm.is_empty() && arg_norm != "latest" {
                     renderer.render(UiLine::Error(
                         t(Msg::UpgradeUnknownArg { arg }).into_owned(),
                     ));

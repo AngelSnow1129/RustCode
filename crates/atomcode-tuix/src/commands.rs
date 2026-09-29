@@ -192,7 +192,9 @@ const BUILTIN_COMMANDS: &[Command] = &[
     // selection happens in the modal, not on the command line.
     Command { name: "rewind",  desc: "Restore the conversation to an earlier checkpoint", needs_args: false, hidden: false, acp: false },
     Command { name: "worktree", desc: "Git worktree isolation (create/list/done/cleanup)", needs_args: true, hidden: false, acp: false },
-    Command { name: "upgrade", desc: "Upgrade atomcode to latest (subcommand: rollback)", needs_args: false, hidden: false, acp: false },
+    // needs_args=true: picked from the menu, `/upgrade` opens its sub-menu
+    // (latest / --force / rollback) instead of starting a download at once.
+    Command { name: "upgrade", desc: "Upgrade atomcode to latest (subcommand: rollback)", needs_args: true, hidden: false, acp: false },
     Command { name: "plan",    desc: "Switch to Plan mode (read-only exploration)", needs_args: false, hidden: false, acp: true },
     Command { name: "build",   desc: "Switch to Build mode (full execution)", needs_args: false, hidden: false, acp: true },
     Command { name: "auto",    desc: "Switch to Auto mode (auto-approve all tools)", needs_args: false, hidden: false, acp: true },
