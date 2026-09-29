@@ -59,7 +59,7 @@ fn talker(steps: &[&str]) -> String {
 }
 
 async fn start(tree: ConfigTree) -> App {
-    let mut app = App::new(plugins::catalog(), tree);
+    let mut app = App::new(atomcode_coding::on_harness::catalog(), tree);
     app.start().await.expect("must mount");
     app
 }
@@ -232,7 +232,7 @@ async fn without_a_utility_model_the_conversation_model_names_it() {
     // and no model is ranked, so there is no utility model. The host's
     // catalog still serves the conversation's own.
     let models = "[[insert]]\nid = \"models\"\nname = \"test-models-unranked\"";
-    let mut catalog = plugins::catalog();
+    let mut catalog = atomcode_coding::on_harness::catalog();
     catalog.register(std::sync::Arc::new(UnrankedPlugin));
     let mut app = App::new(
         catalog,
@@ -352,7 +352,7 @@ impl atomcode_plexus::Plugin for ThinkingUtilityPlugin {
 async fn a_model_that_thinks_first_is_not_starved_by_an_output_cap() {
     let dir = scratch("thinking");
     let utility = "[[insert]]\nid = \"llm-utility\"\nname = \"llm-utility-thinking\"";
-    let mut catalog = plugins::catalog();
+    let mut catalog = atomcode_coding::on_harness::catalog();
     catalog.register(std::sync::Arc::new(ThinkingUtilityPlugin));
     let mut app = App::new(
         catalog,

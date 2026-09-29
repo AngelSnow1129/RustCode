@@ -92,7 +92,7 @@ fn layers_with(root: &std::path::Path, lead: &str, member: &str, team: &str) -> 
 }
 
 async fn start(tree: ConfigTree) -> App {
-    let mut app = App::new(plugins::catalog(), tree);
+    let mut app = App::new(atomcode_coding::on_harness::catalog(), tree);
     app.start().await.expect("must mount");
     app
 }
@@ -483,7 +483,7 @@ async fn a_bad_role_file_refuses_to_mount() {
         "---\npermission: root\ndifficulty: simple\n---\nnope\n",
     );
     let mut app = App::new(
-        plugins::catalog(),
+        atomcode_coding::on_harness::catalog(),
         tree(&dir, r#"{ text = "ok" }"#, r#"{ text = "ok" }"#),
     );
     let err = app
@@ -752,7 +752,7 @@ async fn a_typo_in_a_roles_effort_is_refused_at_mount() {
         r#"{ text = "delegating", calls = [ { name = "team", args = { action = "delegate", name = "lib", role = "librarian", task = "list the docs" } } ] }"#,
         r#"{ text = "catalogued" }"#,
     );
-    let mut app = App::new(plugins::catalog(), tree);
+    let mut app = App::new(atomcode_coding::on_harness::catalog(), tree);
     let err = app
         .start()
         .await
@@ -1153,7 +1153,7 @@ async fn a_person_cancels_and_compacts_a_member() {
         Layer::from_toml("[[patch]]\nid = \"llm-utility\"\nname = \"test-stalling-utility\"\n")
             .unwrap(),
     );
-    let mut registry = plugins::catalog();
+    let mut registry = atomcode_coding::on_harness::catalog();
     registry.register(Arc::new(StallingUtilityRow));
     let mut app = App::new(registry, ConfigTree::from_layers(layers).unwrap());
     app.start().await.expect("must mount");
@@ -1311,7 +1311,7 @@ async fn a_person_stopping_a_member_wakes_the_lead_only_when_it_was_owed_a_repor
         Layer::from_toml("[[patch]]\nid = \"llm-utility\"\nname = \"test-stalling-utility\"\n")
             .unwrap(),
     );
-    let mut registry = plugins::catalog();
+    let mut registry = atomcode_coding::on_harness::catalog();
     registry.register(Arc::new(StallingUtilityRow));
     let mut app = App::new(registry, ConfigTree::from_layers(layers).unwrap());
     app.start().await.expect("must mount");
@@ -1460,7 +1460,7 @@ async fn cancelling_the_lead_leaves_its_members_working() {
         Layer::from_toml("[[patch]]\nid = \"llm-utility\"\nname = \"test-stalling-utility\"\n")
             .unwrap(),
     );
-    let mut registry = plugins::catalog();
+    let mut registry = atomcode_coding::on_harness::catalog();
     registry.register(Arc::new(StallingUtilityRow));
     let mut app = App::new(registry, ConfigTree::from_layers(layers).unwrap());
     app.start().await.expect("must mount");
@@ -1913,7 +1913,7 @@ async fn a_member_stopped_mid_turn_says_so_last() {
         ))
         .unwrap(),
     );
-    let mut registry = plugins::catalog();
+    let mut registry = atomcode_coding::on_harness::catalog();
     registry.register(Arc::new(StallingUtilityRow));
     let mut app = App::new(registry, ConfigTree::from_layers(layers).unwrap());
     app.start().await.expect("must mount");
@@ -2159,7 +2159,7 @@ async fn a_role_file_cannot_hand_a_member_a_shell() {
         "---\npermission: worker\ndifficulty: simple\ntools: read_file, bash\n---\nYou run things.\n",
     );
     let mut app = App::new(
-        plugins::catalog(),
+        atomcode_coding::on_harness::catalog(),
         tree(&dir, r#"{ text = "ok" }"#, r#"{ text = "ok" }"#),
     );
     let err = app.start().await.expect_err("a role listing `bash`");

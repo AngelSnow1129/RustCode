@@ -78,7 +78,7 @@ async fn after_one_turn(config: Value) -> Seen {
 /// Mounted, with the recorder attached — for the test that drives two turns and
 /// swaps the model in between.
 async fn mount(config: Value) -> (App, Arc<Mutex<Seen>>) {
-    let mut app = App::new(plugins::catalog(), tree(config));
+    let mut app = App::new(atomcode_coding::on_harness::catalog(), tree(config));
     app.start().await.expect("mount");
     let seen = Arc::new(Mutex::new(Seen::default()));
     // A `Disposable` that is never dropped would unregister the listener, so it

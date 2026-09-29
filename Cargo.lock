@@ -567,7 +567,6 @@ dependencies = [
  "atomcode-config",
  "atomcode-kernel",
  "atomcode-plexus",
- "atomcode-review",
  "axum",
  "ctor",
  "futures",

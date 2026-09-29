@@ -1421,7 +1421,24 @@ pub fn plugins() -> Vec<Arc<dyn Plugin>> {
         // call should say about itself is a presentation decision
         // (`docs/adr/0024`, and `tool_intent`'s own module doc).
         Arc::new(crate::tool_intent::ToolIntentPlugin),
+        // The review specialization's rows. Here, not in the harness: which
+        // reviewer and which reviewer prompt is this product's answer, and the
+        // mechanism must not depend on a specialization to offer `/review`.
+        Arc::new(crate::review_rows::ReviewToolPlugin),
+        Arc::new(crate::review_rows::ReviewPersonaPlugin),
     ]
+}
+
+/// The harness catalog with this crate's rows added — every row a coding tree
+/// can name. [`plugins`] alone is what this crate brings; a tree built from
+/// [`CODING_DEFAULTS`] also names rows the harness provides, and the review
+/// rows it inserts (`tool-code-review`) are this crate's, not the harness's.
+pub fn catalog() -> atomcode_plexus::PluginRegistry {
+    let mut registry = atomcode_harness::plugins::catalog();
+    for row in plugins() {
+        registry.register(row);
+    }
+    registry
 }
 
 /// Mount a coding assembly on the harness and take its driver handle.
@@ -1850,10 +1867,7 @@ pub async fn mount_hosted(
     // and every other assembly from ever mounting them.
     //
     // What IS registered here is what this crate owns: the coding discipline.
-    let mut registry = atomcode_harness::plugins::catalog();
-    for row in plugins() {
-        registry.register(row);
-    }
+    let mut registry = catalog();
     registry.register(Arc::new(InjectProvider(providers.clone())));
     if let Some(stored) = host.session.stored.clone() {
         registry.register(Arc::new(crate::session_store::SessionStorePlugin(stored)));

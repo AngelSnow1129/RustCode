@@ -146,7 +146,7 @@ config = {{ script = [
 const YOLO: &str = "[[patch]]\nid = \"approval\"\nconfig = { mode = \"yolo\" }";
 
 async fn start(tree: ConfigTree) -> App {
-    let mut app = App::new(plugins::catalog(), tree);
+    let mut app = App::new(atomcode_coding::on_harness::catalog(), tree);
     app.start().await.expect("must mount");
     app
 }
@@ -257,7 +257,7 @@ async fn a_read_only_world_refuses_writes_even_with_approval_wide_open() {
 async fn replacing_the_shell_provider_relocates_bash() {
     let dir = scratch("relocate");
     let recorder = Arc::new(RecordingShell::default());
-    let mut registry = plugins::catalog();
+    let mut registry = atomcode_coding::on_harness::catalog();
     registry.register(Arc::new(RecordingShellPlugin(recorder.clone())));
 
     let script = script_one("bash", r#"{ command = "echo hello" }"#);
@@ -358,7 +358,7 @@ async fn the_two_tool_implementations_are_mutually_exclusive() {
     // loudly: two rows claiming `read_file` is an ambiguous config.
     let both = "[[patch]]\nid = \"tool-fs\"\ndisabled = false";
     let mut app = App::new(
-        plugins::catalog(),
+        atomcode_coding::on_harness::catalog(),
         tree(&dir, &script_one("read_file", "{}"), &[both]),
     );
     let err = app.start().await.unwrap_err().to_string();
@@ -402,7 +402,7 @@ fn transcript(app: &App) -> String {
 async fn unloading_the_world_takes_its_tools_with_it() {
     let dir = scratch("unload");
     let mut app = App::new(
-        plugins::catalog(),
+        atomcode_coding::on_harness::catalog(),
         tree(&dir, &script_one("read_file", "{}"), &[]),
     );
     app.start().await.unwrap();
@@ -441,7 +441,7 @@ async fn a_routed_world_mounts_no_process_path_that_bypasses_it() {
     // `with_world` and this assertion moves to "mounted, and routed".
     let dir = scratch("no-side-door");
     let recorder = Arc::new(RecordingShell::default());
-    let mut registry = plugins::catalog();
+    let mut registry = atomcode_coding::on_harness::catalog();
     registry.register(Arc::new(RecordingShellPlugin(recorder)));
     let swap = "[[patch]]\nid = \"shell\"\nname = \"shell-recording\"";
     let mut app = App::new(

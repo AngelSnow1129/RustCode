@@ -807,7 +807,7 @@ async fn candidate_app(script: Arc<Script>, dir: &std::path::Path) -> atomcode_p
     ])
     .expect("tree");
 
-    let mut registry = atomcode_harness::plugins::catalog();
+    let mut registry = atomcode_coding::on_harness::catalog();
     registry.register(Arc::new(InjectScript(script)));
     let mut app = App::new(registry, tree);
     app.start().await.expect("the candidate tree must mount");

@@ -76,56 +76,8 @@ impl Plugin for CodingPersonaPlugin {
 
 // ---- the audit personas -------------------------------------------------
 
-/// The reviewer prompt, taken from the shipped review specialization rather
-/// than restated here. Two copies of a hard-won prompt drift, and the one that
-/// drifts is always the copy.
-pub struct ReviewPersonaPlugin;
-
-#[derive(Debug, Deserialize, Default)]
-struct ReviewPersonaRow {
-    /// Named in the prompt, and used to decide whether the firmer wording is
-    /// needed for models that under-execute without it.
-    #[serde(default)]
-    model: Option<String>,
-}
-
-#[async_trait]
-impl Plugin for ReviewPersonaPlugin {
-    fn name(&self) -> &'static str {
-        "persona-review"
-    }
-    fn inject(&self) -> &'static [&'static str] {
-        &["system-prompt"]
-    }
-    fn description(&self) -> &'static str {
-        "the read-only reviewer prompt from atomcode-review"
-    }
-    async fn apply(&self, ctx: &Context, config: &Value) -> Result<(), String> {
-        let row: ReviewPersonaRow = if config.is_null() {
-            ReviewPersonaRow::default()
-        } else {
-            serde_json::from_value(config.clone()).map_err(|e| format!("bad config: {e}"))?
-        };
-        // No environment read: the model name is asked of whatever provider is
-        // actually mounted, which is the same answer from any source — config
-        // file, environment, or a scripted one in a test.
-        let model = row
-            .model
-            .clone()
-            .or_else(|| {
-                ctx.service::<crate::seams::LlmSvc>()
-                    .map(|p| p.model_name().to_string())
-            })
-            .unwrap_or_default();
-        super::tools::contribute_prompt(
-            ctx,
-            "persona-review",
-            0,
-            &atomcode_review::review_persona(&model),
-        );
-        Ok(())
-    }
-}
+// The reviewer persona is `atomcode-coding`'s `persona-review` row: its text
+// belongs to the review specialization, which the mechanism does not depend on.
 
 const SECURITY_PERSONA: &str = "\
 You are a security reviewer with read-only access to a codebase. Your job is to find \

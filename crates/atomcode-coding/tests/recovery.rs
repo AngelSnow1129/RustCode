@@ -62,7 +62,7 @@ fn tree(root: &std::path::Path, extra: &[&str]) -> ConfigTree {
 }
 
 async fn start(tree: ConfigTree) -> App {
-    let mut app = App::new(plugins::catalog(), tree);
+    let mut app = App::new(atomcode_coding::on_harness::catalog(), tree);
     app.start().await.expect("must mount");
     app
 }

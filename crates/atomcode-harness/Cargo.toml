@@ -34,9 +34,6 @@ atomcode-capabilities = { path = "../atomcode-capabilities", default-features = 
 # configured for AtomCode instead of asking them to restate it as env vars.
 # It is a leaf by design — every stack layer reads config without pulling core.
 atomcode-config = { path = "../atomcode-config" }
-# The review specialization's persona and rules. Reused rather than restated:
-# the reviewer prompt is hard-won, and two copies of it drift.
-atomcode-review = { path = "../atomcode-review" }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "signal", "io-std", "io-util", "process"] }
 tokio-util = "0.7"
 async-trait = "0.1"

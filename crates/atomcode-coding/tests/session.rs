@@ -686,7 +686,7 @@ config = { stream = false, tools = false, summary = false }
 
 #[tokio::test]
 async fn a_turn_records_every_fact_and_folds_the_projections() {
-    let mut app = App::new(plugins::catalog(), tree(&[]));
+    let mut app = App::new(atomcode_coding::on_harness::catalog(), tree(&[]));
     app.start().await.unwrap();
     run_turn(&app, "say hello").await.unwrap();
 
@@ -739,7 +739,10 @@ async fn persistence_is_a_listener_and_round_trips_the_log() {
         "[[patch]]\nid = \"session-persistence-jsonl\"\nconfig = {{ root = {:?} }}\n",
         dir.to_string_lossy()
     );
-    let mut app = App::new(plugins::catalog(), tree(&[row.as_str()]));
+    let mut app = App::new(
+        atomcode_coding::on_harness::catalog(),
+        tree(&[row.as_str()]),
+    );
     app.start().await.unwrap();
     run_turn(&app, "persist me").await.unwrap();
 
@@ -777,7 +780,7 @@ async fn persistence_is_a_listener_and_round_trips_the_log() {
 #[tokio::test]
 async fn removing_the_persistence_row_leaves_the_loop_unchanged() {
     let mut app = App::new(
-        plugins::catalog(),
+        atomcode_coding::on_harness::catalog(),
         tree(&["[[remove]]\nid = \"session-persistence-jsonl\""]),
     );
     app.start().await.unwrap();
@@ -807,7 +810,7 @@ async fn the_loop_refuses_to_continue_on_an_unexplainable_prompt() {
         }
     }
 
-    let mut app = App::new(plugins::catalog(), tree(&[]));
+    let mut app = App::new(atomcode_coding::on_harness::catalog(), tree(&[]));
     app.start().await.unwrap();
     let _guard = app
         .context()
@@ -884,13 +887,19 @@ async fn a_resumed_session_carries_its_history_to_the_model() {
     let home = resume_home("history");
     let id = "fixed-id";
 
-    let mut first = App::new(plugins::catalog(), resumable(&home, Some(id), false));
+    let mut first = App::new(
+        atomcode_coding::on_harness::catalog(),
+        resumable(&home, Some(id), false),
+    );
     first.start().await.unwrap();
     run_turn(&first, "remember the number 42").await.unwrap();
     settle(&first, id, 5).await;
     drop(first);
 
-    let mut second = App::new(plugins::catalog(), resumable(&home, Some(id), true));
+    let mut second = App::new(
+        atomcode_coding::on_harness::catalog(),
+        resumable(&home, Some(id), true),
+    );
     second.start().await.unwrap();
     atomcode_harness::create_agent(&second).await.unwrap();
 
@@ -917,14 +926,20 @@ async fn a_resumed_session_continues_its_turn_numbering() {
     let home = resume_home("numbering");
     let id = "numbered";
 
-    let mut first = App::new(plugins::catalog(), resumable(&home, Some(id), false));
+    let mut first = App::new(
+        atomcode_coding::on_harness::catalog(),
+        resumable(&home, Some(id), false),
+    );
     first.start().await.unwrap();
     run_turn(&first, "one").await.unwrap();
     run_turn(&first, "two").await.unwrap();
     settle(&first, id, 10).await;
     drop(first);
 
-    let mut second = App::new(plugins::catalog(), resumable(&home, Some(id), true));
+    let mut second = App::new(
+        atomcode_coding::on_harness::catalog(),
+        resumable(&home, Some(id), true),
+    );
     second.start().await.unwrap();
     atomcode_harness::create_agent(&second).await.unwrap();
     let outcome = run_turn(&second, "three").await.unwrap();
@@ -939,13 +954,19 @@ async fn the_turn_boundary_survives_a_round_trip() {
     let home = resume_home("boundary");
     let id = "boundaries";
 
-    let mut first = App::new(plugins::catalog(), resumable(&home, Some(id), false));
+    let mut first = App::new(
+        atomcode_coding::on_harness::catalog(),
+        resumable(&home, Some(id), false),
+    );
     first.start().await.unwrap();
     run_turn(&first, "one").await.unwrap();
     settle(&first, id, 5).await;
     drop(first);
 
-    let mut second = App::new(plugins::catalog(), resumable(&home, Some(id), true));
+    let mut second = App::new(
+        atomcode_coding::on_harness::catalog(),
+        resumable(&home, Some(id), true),
+    );
     second.start().await.unwrap();
     atomcode_harness::create_agent(&second).await.unwrap();
     let turns = second
@@ -970,13 +991,19 @@ async fn resume_is_off_unless_asked_for() {
     let home = resume_home("off");
     let id = "not-resumed";
 
-    let mut first = App::new(plugins::catalog(), resumable(&home, Some(id), false));
+    let mut first = App::new(
+        atomcode_coding::on_harness::catalog(),
+        resumable(&home, Some(id), false),
+    );
     first.start().await.unwrap();
     run_turn(&first, "the first thing").await.unwrap();
     settle(&first, id, 5).await;
     drop(first);
 
-    let mut second = App::new(plugins::catalog(), resumable(&home, Some(id), false));
+    let mut second = App::new(
+        atomcode_coding::on_harness::catalog(),
+        resumable(&home, Some(id), false),
+    );
     second.start().await.unwrap();
     atomcode_harness::create_agent(&second).await.unwrap();
     assert!(
@@ -989,7 +1016,7 @@ async fn resume_is_off_unless_asked_for() {
 async fn resuming_a_session_that_does_not_exist_starts_a_fresh_one() {
     let home = resume_home("missing");
     let mut app = App::new(
-        plugins::catalog(),
+        atomcode_coding::on_harness::catalog(),
         resumable(&home, Some("never-written"), true),
     );
     app.start()
@@ -1010,7 +1037,10 @@ async fn facts_a_plugin_writes_survive_a_resume() {
     )
     .unwrap();
 
-    let mut first = App::new(plugins::catalog(), resumable(&home, Some(id), false));
+    let mut first = App::new(
+        atomcode_coding::on_harness::catalog(),
+        resumable(&home, Some(id), false),
+    );
     first.start().await.unwrap();
     run_turn(&first, "hello").await.unwrap();
     settle(&first, id, 6).await;
@@ -1026,7 +1056,10 @@ async fn facts_a_plugin_writes_survive_a_resume() {
     assert_eq!(injected_live, 1, "the memory row injected once");
     drop(first);
 
-    let mut second = App::new(plugins::catalog(), resumable(&home, Some(id), true));
+    let mut second = App::new(
+        atomcode_coding::on_harness::catalog(),
+        resumable(&home, Some(id), true),
+    );
     second.start().await.unwrap();
     atomcode_harness::create_agent(&second).await.unwrap();
     let restored = second.context().only_session().unwrap();
@@ -1065,7 +1098,10 @@ fn lines_of(path: &std::path::Path) -> Vec<serde_json::Value> {
 async fn the_file_begins_with_a_header_and_the_events_follow() {
     let home = resume_home("header");
     let id = "headed";
-    let mut app = App::new(plugins::catalog(), resumable(&home, Some(id), false));
+    let mut app = App::new(
+        atomcode_coding::on_harness::catalog(),
+        resumable(&home, Some(id), false),
+    );
     app.start().await.unwrap();
     run_turn(&app, "hello").await.unwrap();
     settle(&app, id, 5).await;
@@ -1117,7 +1153,10 @@ async fn a_file_from_before_headers_still_loads() {
     )
     .unwrap();
 
-    let mut app = App::new(plugins::catalog(), resumable(&home, Some(id), true));
+    let mut app = App::new(
+        atomcode_coding::on_harness::catalog(),
+        resumable(&home, Some(id), true),
+    );
     app.start().await.unwrap();
     let agent = atomcode_harness::create_agent(&app).await.unwrap();
     assert_eq!(agent.session().len(), 2, "the events were replayed");
@@ -1133,7 +1172,10 @@ async fn a_file_from_before_headers_still_loads() {
 async fn a_resume_keeps_the_header_the_session_was_created_with() {
     let home = resume_home("header-kept");
     let id = "kept";
-    let mut first = App::new(plugins::catalog(), resumable(&home, Some(id), false));
+    let mut first = App::new(
+        atomcode_coding::on_harness::catalog(),
+        resumable(&home, Some(id), false),
+    );
     first.start().await.unwrap();
     let born = atomcode_harness::create_agent(&first).await.unwrap();
     let original = born.session().header().clone();
@@ -1141,7 +1183,10 @@ async fn a_resume_keeps_the_header_the_session_was_created_with() {
     settle(&first, id, 5).await;
     drop(first);
 
-    let mut second = App::new(plugins::catalog(), resumable(&home, Some(id), true));
+    let mut second = App::new(
+        atomcode_coding::on_harness::catalog(),
+        resumable(&home, Some(id), true),
+    );
     second.start().await.unwrap();
     let back = atomcode_harness::create_agent(&second).await.unwrap();
     assert_eq!(
@@ -1154,7 +1199,10 @@ async fn a_resume_keeps_the_header_the_session_was_created_with() {
 #[tokio::test]
 async fn a_fork_carries_the_parents_events_under_its_own_name() {
     let home = resume_home("fork");
-    let mut app = App::new(plugins::catalog(), resumable(&home, Some("parent"), false));
+    let mut app = App::new(
+        atomcode_coding::on_harness::catalog(),
+        resumable(&home, Some("parent"), false),
+    );
     app.start().await.unwrap();
     let parent = atomcode_harness::create_agent(&app).await.unwrap();
     run_turn(&app, "the parent speaks").await.unwrap();
@@ -1250,7 +1298,7 @@ async fn every_record_carries_the_time_it_was_committed() {
     const AT: u64 = 1_789_000_000_000;
     let home = resume_home("commit-time");
     let id = "timed-id";
-    let mut catalog = plugins::catalog();
+    let mut catalog = atomcode_coding::on_harness::catalog();
     catalog.register(Arc::new(PinnedClock(AT)));
     let mut tree = resumable(&home, Some(id), false);
     tree.apply(&Layer::from_toml("[[insert]]\nname = \"test-pinned-clock\"\n").unwrap())
