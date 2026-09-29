@@ -157,26 +157,36 @@ async fn a_session_the_product_wrote_comes_back_on_the_row_assembled_screen() {
     .await
     .expect("the screen mounts");
 
-    // The row that gets an unconfigured machine working is mounted here, and
-    // not behind a condition: what it contributes is a command, and whether it
-    // runs is readiness's answer when the screen starts. A build that mounted
-    // it only when it was needed would have to decide that before the host has
-    // been asked.
+    // A machine with no provider is told where to go (`/login`, `/provider`)
+    // and nothing is opened for it: the first-run wizard is not started on its
+    // own. It is still mounted, and `/onboarding` still runs it.
     {
         let commands = mounted
             .app
             .context()
             .service::<atomcode_tui::plugin::CommandsSvc>()
             .expect("the screen provides its commands");
-        let named = match atomcode::host::readiness_for(Some(
+        match atomcode::host::readiness_for(Some(
             atomcode_coding::ProviderUnavailableReason::NotConfigured,
         )) {
-            atomcode_host_api::HostReply::Readiness { fix: Some(fix), .. } => fix,
-            other => panic!("nothing named for a machine with no provider: {other:?}"),
-        };
+            atomcode_host_api::HostReply::Readiness {
+                fix: None,
+                why: Some(why),
+                ..
+            } => {
+                for named in ["login", "provider"] {
+                    assert!(why.contains(&format!("/{named}")), "{why}");
+                    assert!(
+                        commands.find(named).is_some(),
+                        "the sentence names /{named}, which this screen runs"
+                    );
+                }
+            }
+            other => panic!("a machine with no provider: {other:?}"),
+        }
         assert!(
-            commands.find(&named).is_some(),
-            "the command readiness names is one this screen can run: {named}"
+            commands.find(atomcode::tui_onboarding::COMMAND).is_some(),
+            "the walkthrough is still there to type"
         );
     }
     // **`/login` is the launcher's, not the screen's shipped one.**
