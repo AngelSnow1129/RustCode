@@ -58,7 +58,13 @@ async fn the_command_hands_the_model_the_prompt_this_machine_is_configured_with(
     std::env::set_var("ATOMCODE_HOME", home.path());
     let project = tempfile::tempdir().unwrap();
 
-    let cfg = CodingAgentConfig::new("k", "http://localhost", "canned", project.path());
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost",
+        "canned",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     let opts = PrepareOptions {
         session: SessionMode::Fresh,
         ..quiet_options()
@@ -160,7 +166,13 @@ async fn a_skill_a_person_can_invoke_is_a_command_the_agent_can_run() {
     let skills = tempfile::tempdir().unwrap();
     write_skill(skills.path(), "demo-skill", "does demo things");
 
-    let cfg = CodingAgentConfig::new("k", "http://localhost", "canned", project.path());
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost",
+        "canned",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     let opts = PrepareOptions {
         session: SessionMode::Fresh,
         skill_dirs: Some(vec![skills.path().to_path_buf()]),

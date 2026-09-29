@@ -1368,12 +1368,16 @@ fn launch_warnings(
 /// 先跑一次迁移:装在这条规矩之前的插件是被顺延信任的,不先迁移就会把它们
 /// 全列出来 —— 一句关于并不存在的问题的提醒。
 fn untrusted_plugin_hooks() -> Vec<String> {
-    atomcode_capabilities::plugin::hook_trust::ensure_migrated();
-    atomcode_capabilities::plugin::installed_plugin_hook_trust_status()
-        .into_iter()
-        .filter(|status| !status.trusted)
-        .map(|status| status.plugin)
-        .collect()
+    atomcode_capabilities::plugin::hook_trust::ensure_migrated(
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
+    atomcode_capabilities::plugin::installed_plugin_hook_trust_status(
+        &atomcode_coding::config::product_dirs_from_env(),
+    )
+    .into_iter()
+    .filter(|status| !status.trusted)
+    .map(|status| status.plugin)
+    .collect()
 }
 
 /// 这一趟启动,开场要说的全部。
@@ -1575,6 +1579,7 @@ async fn run() -> Result<i32> {
         // / --seed-config custom paths surface the real brand, not the
         // default-path pre-scan value.
         atomcode_config::i18n::set_brand(&pre_scan.brand_name, &pre_scan.oauth_provider_name);
+        atomcode_coding::config::settle_dir_names(&atomcode_coding::config::product_dirs_from_env());
         let help_cmd = build_i18n_command();
         help_cmd
             .try_get_matches_from(std::env::args_os())
@@ -1753,7 +1758,10 @@ async fn run() -> Result<i32> {
                 let repo = atomcode_telemetry::detect_repo_origin(
                     &std::env::current_dir().unwrap_or_default(),
                 );
-                telemetry.set_account_id(auth::get_stored_auth().map(|a| a.user.id.to_string()));
+                telemetry.set_account_id(
+                    auth::get_stored_auth(atomcode_coding::config::product_dirs_from_env().user())
+                        .map(|a| a.user.id.to_string()),
+                );
                 let scope_ctx = CurrentContext {
                     repo_origin: Some(repo),
                     mode: Some(SessionMode::Headless),
@@ -2185,6 +2193,7 @@ async fn run() -> Result<i32> {
     // Idempotent (`OnceLock` keeps the first value); a mid-session `/reload`
     // does NOT flip the brand, matching `theme`'s startup-only semantics.
     atomcode_config::i18n::set_brand(&config.ui.brand_name, &config.ui.oauth_provider_name);
+    atomcode_coding::config::settle_dir_names(&atomcode_coding::config::product_dirs_from_env());
 
     // ── Plugin marketplace bootstrap + post-upgrade refresh ──
     //
@@ -2243,7 +2252,9 @@ async fn run() -> Result<i32> {
                 // only runs on this miss path, never on a normal in-project resume.
                 None => {
                     let scan = atomcode_capabilities::session::SessionManager::scan_catalog(
-                        &atomcode_capabilities::session::SessionManager::sessions_root(),
+                        &atomcode_capabilities::session::SessionManager::sessions_root(
+                            atomcode_coding::config::product_dirs_from_env().user(),
+                        ),
                     );
                     let entries = resume_candidates(scan.entries, sel);
                     match resolve_resume_elsewhere(&entries, sel, |p| p.is_dir()) {
@@ -2353,8 +2364,10 @@ async fn run() -> Result<i32> {
     );
     // TUI replay remains a presentation projection during S4; runtime resume above
     // has already converged and loaded the native snapshot under one lease.
-    let resume_project_bucket =
-        atomcode_capabilities::session::SessionManager::project_hash(&working_dir);
+    let resume_project_bucket = atomcode_capabilities::session::SessionManager::project_hash(
+        &working_dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let session_to_continue = match continued_session
         .as_ref()
         .map(|session| session.id.as_str())
@@ -2466,7 +2479,10 @@ async fn run() -> Result<i32> {
     let repo = atomcode_telemetry::detect_repo_origin(
         &std::env::current_dir().unwrap_or_else(|_| working_dir.clone()),
     );
-    telemetry.set_account_id(auth::get_stored_auth().map(|a| a.user.id.to_string()));
+    telemetry.set_account_id(
+        auth::get_stored_auth(atomcode_coding::config::product_dirs_from_env().user())
+            .map(|a| a.user.id.to_string()),
+    );
     let session_mode = if effective_prompt.is_some() {
         SessionMode::Headless
     } else {
@@ -3050,6 +3066,7 @@ pub(crate) fn runtime_config_from(
     let mut runtime = atomcode_coding::CodingRuntimeConfig::from_config(
         config,
         working_dir,
+        atomcode_coding::config::product_dirs_from_env(),
         provider_override,
         telemetry,
         dangerously_skip_permissions,
@@ -3110,8 +3127,10 @@ pub(crate) async fn spawn_native_cli_runtime(
     } else {
         match resume_session_id {
             Some(id) => {
-                let manager =
-                    atomcode_capabilities::session::SessionManager::for_project(&agent.working_dir);
+                let manager = atomcode_capabilities::session::SessionManager::for_project(
+                    &agent.working_dir,
+                    &atomcode_coding::config::product_dirs_from_env(),
+                );
                 match manager.acquire_lease(&id) {
                     Ok(lease) => {
                         atomcode_daemon::legacy_convert::converge_session(&manager, &lease)?;
@@ -3758,7 +3777,10 @@ fn run_setup_command(force: bool) -> i32 {
             return 1;
         }
     };
-    let mut opts = setup::RunOptions::new(project_root);
+    let mut opts = setup::RunOptions::new(
+        project_root,
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     opts.force = force;
 
     match setup::run(opts) {
@@ -3794,13 +3816,15 @@ async fn handle_command(cmd: Commands, telemetry: &std::sync::Arc<Telemetry>) ->
             unreachable!("Resume is handled inline in run() before handle_command")
         }
         Commands::Logout => {
-            auth::logout()?;
+            auth::logout(atomcode_coding::config::product_dirs_from_env().user())?;
             telemetry.set_account_id(None);
             println!("  You have been logged out.");
             Ok(())
         }
         Commands::Status => {
-            if let Some(auth) = auth::get_stored_auth() {
+            if let Some(auth) =
+                auth::get_stored_auth(atomcode_coding::config::product_dirs_from_env().user())
+            {
                 println!(
                     "\n  Logged in as: {} ({})",
                     auth.user.username, auth.user.id
@@ -3811,7 +3835,11 @@ async fn handle_command(cmd: Commands, telemetry: &std::sync::Arc<Telemetry>) ->
                 if let Some(email) = auth.user.email {
                     println!("  Email: {}", email);
                 }
-                println!("  Auth file: {}\n", auth::auth_file_path().display());
+                println!(
+                    "  Auth file: {}\n",
+                    auth::auth_file_path(atomcode_coding::config::product_dirs_from_env().user())
+                        .display()
+                );
             } else {
                 println!("\n  Not logged in.");
                 println!("  Run 'atomcode login' to authenticate.\n");
@@ -3906,7 +3934,10 @@ async fn handle_command(cmd: Commands, telemetry: &std::sync::Arc<Telemetry>) ->
             client_secret_env,
             scopes,
         }) => {
-            let configs = load_mcp_config(&std::env::current_dir()?)?;
+            let configs = load_mcp_config(
+                &std::env::current_dir()?,
+                atomcode_coding::config::product_dirs_from_env().user(),
+            )?;
             let server = configs
                 .into_iter()
                 .find(|config| config.name == name)
@@ -3936,6 +3967,7 @@ async fn handle_command(cmd: Commands, telemetry: &std::sync::Arc<Telemetry>) ->
                     client_secret_env,
                     scopes,
                 },
+                atomcode_coding::config::product_dirs_from_env().user(),
                 &|step| match step {
                     McpOAuthStep::Asking { host } => {
                         println!("  Asking {host} for its OAuth metadata...")
@@ -3957,7 +3989,9 @@ async fn handle_command(cmd: Commands, telemetry: &std::sync::Arc<Telemetry>) ->
             Ok(())
         }
         Commands::Mcp(McpCli::Logout { name }) => {
-            let removed = McpTokenStore::default().delete_token(&name)?;
+            let removed =
+                McpTokenStore::in_tree(atomcode_coding::config::product_dirs_from_env().user())
+                    .delete_token(&name)?;
             if removed {
                 println!("  Removed saved OAuth token for MCP server {:?}", name);
             } else {
@@ -4056,7 +4090,9 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
     // beside it read as "loaded".
     let project_hooks = project_hooks_path(&cwd);
     let print_paths = || {
-        match global_hooks_path() {
+        match Some(global_hooks_path(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        )) {
             Some(g) => println!(
                 "{}",
                 hooks_file_line("Global:  ", &g, &hooks_file_status(&g))
@@ -4075,7 +4111,10 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
 
     match cmd {
         HookCommands::List => {
-            let hooks = load_hooks_config(&cwd);
+            let hooks = load_hooks_config(
+                &cwd,
+                atomcode_coding::config::product_dirs_from_env().user(),
+            );
             println!("\nLoaded Hooks:");
             println!("─────────────────────────────────────────────");
             if hooks.is_empty() {
@@ -4100,10 +4139,12 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
             println!();
 
             let untrusted: Vec<_> =
-                atomcode_capabilities::plugin::installed_plugin_hook_trust_status()
-                    .into_iter()
-                    .filter(|s| !s.trusted)
-                    .collect();
+                atomcode_capabilities::plugin::installed_plugin_hook_trust_status(
+                    &atomcode_coding::config::product_dirs_from_env(),
+                )
+                .into_iter()
+                .filter(|s| !s.trusted)
+                .collect();
             if !untrusted.is_empty() {
                 println!("Untrusted plugin hooks (not loaded):");
                 for s in &untrusted {
@@ -4120,7 +4161,10 @@ async fn handle_hooks(cmd: HookCommands) -> Result<()> {
             Ok(())
         }
         HookCommands::Test { name } => {
-            let hooks = load_hooks_config(&cwd);
+            let hooks = load_hooks_config(
+                &cwd,
+                atomcode_coding::config::product_dirs_from_env().user(),
+            );
             // cc_hooks hooks carry no name — match by event name or a command substring.
             let found = hooks.iter().find(|h| {
                 event_name(h.event).eq_ignore_ascii_case(&name) || h.command.contains(&name)
@@ -4247,8 +4291,11 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
     use atomcode_capabilities::plugin::{installer, marketplace};
     match sub {
         PluginCli::Marketplace(MarketplaceCli::Add { url }) => {
-            let info = marketplace::add_marketplace(&url)
-                .map_err(|e| anyhow::anyhow!("add marketplace: {:#}", e))?;
+            let info = marketplace::add_marketplace(
+                &atomcode_coding::config::product_dirs_from_env(),
+                &url,
+            )
+            .map_err(|e| anyhow::anyhow!("add marketplace: {:#}", e))?;
             println!(
                 "  marketplace `{}` added at {} ({} plugins)",
                 info.name,
@@ -4258,14 +4305,20 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
             Ok(())
         }
         PluginCli::Marketplace(MarketplaceCli::Remove { name }) => {
-            marketplace::remove_marketplace(&name)
-                .map_err(|e| anyhow::anyhow!("remove marketplace: {:#}", e))?;
+            marketplace::remove_marketplace(
+                &atomcode_coding::config::product_dirs_from_env(),
+                &name,
+            )
+            .map_err(|e| anyhow::anyhow!("remove marketplace: {:#}", e))?;
             println!("  marketplace `{}` removed", name);
             Ok(())
         }
         PluginCli::Marketplace(MarketplaceCli::Update { name }) => {
-            let info = marketplace::update_marketplace(&name)
-                .map_err(|e| anyhow::anyhow!("update marketplace: {:#}", e))?;
+            let info = marketplace::update_marketplace(
+                &atomcode_coding::config::product_dirs_from_env(),
+                &name,
+            )
+            .map_err(|e| anyhow::anyhow!("update marketplace: {:#}", e))?;
             println!(
                 "  marketplace `{}` updated to {}",
                 info.name,
@@ -4274,7 +4327,8 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
             Ok(())
         }
         PluginCli::Marketplace(MarketplaceCli::List) => {
-            let items = marketplace::list_marketplaces()?;
+            let items =
+                marketplace::list_marketplaces(&atomcode_coding::config::product_dirs_from_env())?;
             if items.is_empty() {
                 println!("  no marketplaces registered");
             } else {
@@ -4298,6 +4352,7 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
                     marketplace: mp,
                 } => {
                     let info = installer::install(
+                        &atomcode_coding::config::product_dirs_from_env(),
                         &plugin,
                         &mp,
                         atomcode_capabilities::plugin::InstallScope::User,
@@ -4307,14 +4362,18 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
                     installed_plugin_name = info.plugin;
                 }
                 PluginSpec::Bare { plugin } => {
-                    match installer::resolve_plugin_marketplace(&plugin)
-                        .map_err(|e| anyhow::anyhow!("resolve: {:#}", e))?
+                    match installer::resolve_plugin_marketplace(
+                        &atomcode_coding::config::product_dirs_from_env(),
+                        &plugin,
+                    )
+                    .map_err(|e| anyhow::anyhow!("resolve: {:#}", e))?
                     {
                         matches if matches.len() == 1 => {
                             let m = &matches[0];
                             let mp = m.marketplace.clone();
                             let resolved_plugin = m.plugin.clone();
                             let info = installer::install(
+                                &atomcode_coding::config::product_dirs_from_env(),
                                 &resolved_plugin,
                                 &mp,
                                 atomcode_capabilities::plugin::InstallScope::User,
@@ -4346,7 +4405,9 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
             // will NOT run until the user trusts them (loaded-code trust gate).
             // Filtered by `info.plugin` (the canonical plugin name returned by the
             // installer) so pre-existing untrusted plugins don't produce spurious output.
-            for s in atomcode_capabilities::plugin::installed_plugin_hook_trust_status() {
+            for s in atomcode_capabilities::plugin::installed_plugin_hook_trust_status(
+                &atomcode_coding::config::product_dirs_from_env(),
+            ) {
                 if !s.trusted && s.plugin == installed_plugin_name {
                     println!(
                         "Plugin `{}` ships {} hook(s) on [{}]. They will NOT run until trusted:\n  atomcode plugin trust {}",
@@ -4363,6 +4424,7 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
                     marketplace: mp,
                 } => {
                     installer::uninstall(
+                        &atomcode_coding::config::product_dirs_from_env(),
                         &plugin,
                         &mp,
                         atomcode_capabilities::plugin::InstallScope::User,
@@ -4371,7 +4433,10 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
                     println!("  uninstalled `{}@{}`", plugin, mp);
                 }
                 PluginSpec::Bare { plugin } => {
-                    let installed = installer::list_installed().unwrap_or_default();
+                    let installed = installer::list_installed(
+                        &atomcode_coding::config::product_dirs_from_env(),
+                    )
+                    .unwrap_or_default();
                     let matches: Vec<_> = installed
                         .into_iter()
                         .filter(|p| {
@@ -4386,8 +4451,13 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
                         0 => anyhow::bail!("plugin `{}` is not installed", plugin),
                         1 => {
                             let p = &matches[0];
-                            installer::uninstall(&p.plugin, &p.marketplace, p.scope.clone())
-                                .map_err(|e| anyhow::anyhow!("uninstall: {:#}", e))?;
+                            installer::uninstall(
+                                &atomcode_coding::config::product_dirs_from_env(),
+                                &p.plugin,
+                                &p.marketplace,
+                                p.scope.clone(),
+                            )
+                            .map_err(|e| anyhow::anyhow!("uninstall: {:#}", e))?;
                             println!("  uninstalled `{}@{}`", p.plugin, p.marketplace);
                         }
                         _ => {
@@ -4412,7 +4482,9 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
             Ok(())
         }
         PluginCli::Trust { name } => {
-            let status = atomcode_capabilities::plugin::installed_plugin_hook_trust_status();
+            let status = atomcode_capabilities::plugin::installed_plugin_hook_trust_status(
+                &atomcode_coding::config::product_dirs_from_env(),
+            );
             let matches: Vec<_> = if name.contains('@') {
                 status.iter().filter(|s| s.plugin_id == name).collect()
             } else {
@@ -4421,7 +4493,11 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
             match matches.as_slice() {
                 [] => anyhow::bail!("plugin `{name}` has no hooks (or is not installed)"),
                 [s] => {
-                    atomcode_capabilities::plugin::hook_trust::trust(&s.plugin_id, &s.hash)?;
+                    atomcode_capabilities::plugin::hook_trust::trust(
+                        atomcode_coding::config::product_dirs_from_env().user(),
+                        &s.plugin_id,
+                        &s.hash,
+                    )?;
                     println!(
                         "Trusted {} hook(s) from `{}` [{}].",
                         s.hook_count,
@@ -4441,7 +4517,9 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
             Ok(())
         }
         PluginCli::Untrust { name } => {
-            let status = atomcode_capabilities::plugin::installed_plugin_hook_trust_status();
+            let status = atomcode_capabilities::plugin::installed_plugin_hook_trust_status(
+                &atomcode_coding::config::product_dirs_from_env(),
+            );
             let matches: Vec<_> = if name.contains('@') {
                 status.iter().filter(|s| s.plugin_id == name).collect()
             } else {
@@ -4450,7 +4528,10 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
             match matches.as_slice() {
                 [] => anyhow::bail!("plugin `{name}` has no hooks (or is not installed)"),
                 [s] => {
-                    atomcode_capabilities::plugin::hook_trust::untrust(&s.plugin_id)?;
+                    atomcode_capabilities::plugin::hook_trust::untrust(
+                        atomcode_coding::config::product_dirs_from_env().user(),
+                        &s.plugin_id,
+                    )?;
                     println!("Untrusted hooks from `{name}`.");
                 }
                 many => {
@@ -4465,7 +4546,8 @@ fn handle_plugin_cli(sub: PluginCli) -> Result<()> {
             Ok(())
         }
         PluginCli::List => {
-            let items = installer::list_installed()?;
+            let items =
+                installer::list_installed(&atomcode_coding::config::product_dirs_from_env())?;
             if items.is_empty() {
                 println!("  no installed plugins");
             } else {
@@ -4661,18 +4743,28 @@ fn run_codingplan_core(
     // do itself.
     let mut report = atomcode_codingplan::run(
         &mut config,
+        atomcode_coding::config::product_dirs_from_env().user(),
         telemetry,
         atomcode_codingplan::DefaultModelPolicy::AdoptServerDefault,
     )?;
     if report.auth_expired {
         use atomcode_config::i18n::{t, Msg};
         print!("{}", t(Msg::CpReauthAfter401));
-        match atomcode_auth::login(telemetry)
-            .and_then(|auth| atomcode_auth::save_auth(&auth).map(|_| auth))
-        {
+        match atomcode_auth::login(
+            atomcode_coding::config::product_dirs_from_env().user(),
+            telemetry,
+        )
+        .and_then(|auth| {
+            atomcode_auth::save_auth(
+                atomcode_coding::config::product_dirs_from_env().user(),
+                &auth,
+            )
+            .map(|_| auth)
+        }) {
             Ok(_) => {
                 report = atomcode_codingplan::run(
                     &mut config,
+                    atomcode_coding::config::product_dirs_from_env().user(),
                     telemetry,
                     atomcode_codingplan::DefaultModelPolicy::AdoptServerDefault,
                 )?;
@@ -4709,7 +4801,9 @@ fn run_codingplan_core(
         // the 24h hint would be miscounted, which self-corrects on the
         // next successful run.
         if persisted {
-            if let Err(e) = atomcode_codingplan::write_last_sync_now() {
+            if let Err(e) = atomcode_codingplan::write_last_sync_now(
+                atomcode_coding::config::product_dirs_from_env().user(),
+            ) {
                 eprintln!("  ⚠ Failed to write codingplan sync marker: {:#}", e);
             }
         }

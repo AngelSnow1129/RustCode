@@ -494,7 +494,13 @@ fn start(
     session: SessionMode,
 ) -> CodingRuntimeStart {
     CodingRuntimeStart {
-        agent: CodingAgentConfig::new("key", "https://example.test/v1", "recorder", project),
+        agent: CodingAgentConfig::new(
+            "key",
+            "https://example.test/v1",
+            "recorder",
+            project,
+            atomcode_coding::config::product_dirs_from_env(),
+        ),
         prepare: PrepareOptions {
             request_user_input: true,
             session,
@@ -605,9 +611,12 @@ async fn the_turn_is_stored_before_it_is_reported_finished() {
 
     turn(&mut runtime, "remember pineapple").await;
 
-    let stored = SessionManager::for_project(env.project.path())
-        .load_native_session(&id)
-        .unwrap();
+    let stored = SessionManager::for_project(
+        env.project.path(),
+        &atomcode_coding::config::product_dirs_from_env(),
+    )
+    .load_native_session(&id)
+    .unwrap();
     assert!(
         user_texts(&stored.snapshot.messages).contains(&"remember pineapple".to_string()),
         "stored: {:?}",
@@ -674,7 +683,10 @@ async fn a_resumed_session_is_its_log_and_nothing_else() {
     first.handle.shutdown().await.unwrap();
     let _ = first.task.await;
 
-    let manager = SessionManager::for_project(env.project.path());
+    let manager = SessionManager::for_project(
+        env.project.path(),
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     std::fs::write(
         manager.snapshot_path(&id).unwrap(),
         serde_json::to_vec(&SessionSnapshot::new(vec![
@@ -719,7 +731,10 @@ async fn a_resumed_session_is_its_log_and_nothing_else() {
 async fn a_session_a_released_build_stored_is_converted_when_resumed() {
     let env = env();
     let recorder = Arc::new(Recorder::default());
-    let manager = SessionManager::for_project(env.project.path());
+    let manager = SessionManager::for_project(
+        env.project.path(),
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let id = "5b0e0b8e-0000-4000-8000-000000000001";
     let lease = manager.acquire_lease(id).unwrap();
     let mut meta = atomcode_capabilities::session::SessionMeta::new(
@@ -786,9 +801,12 @@ async fn a_failed_write_to_the_log_stops_the_session() {
     let id = runtime.session.clone().unwrap().id;
     turn(&mut runtime, "one").await;
 
-    let log = SessionManager::for_project(env.project.path())
-        .events_path(&id)
-        .unwrap();
+    let log = SessionManager::for_project(
+        env.project.path(),
+        &atomcode_coding::config::product_dirs_from_env(),
+    )
+    .events_path(&id)
+    .unwrap();
     std::fs::set_permissions(&log, std::fs::Permissions::from_mode(0o444)).unwrap();
 
     runtime.handle.submit(UserInput::from("two")).await.unwrap();
@@ -851,9 +869,12 @@ async fn an_undone_turn_is_gone_from_what_the_model_sees() {
     // An undo is the projection's business (`docs/adr/0024` §17): the log still
     // holds what was undone, and a resume leaves it out the same way.
     let log = std::fs::read_to_string(
-        SessionManager::for_project(env.project.path())
-            .events_path(&id)
-            .unwrap(),
+        SessionManager::for_project(
+            env.project.path(),
+            &atomcode_coding::config::product_dirs_from_env(),
+        )
+        .events_path(&id)
+        .unwrap(),
     )
     .unwrap();
     assert!(
@@ -1302,9 +1323,12 @@ async fn a_turn_is_transcribed_and_metered() {
 
     turn(&mut runtime, "hello").await;
 
-    let transcript = SessionManager::for_project(env.project.path())
-        .jsonl_path(&id)
-        .unwrap();
+    let transcript = SessionManager::for_project(
+        env.project.path(),
+        &atomcode_coding::config::product_dirs_from_env(),
+    )
+    .jsonl_path(&id)
+    .unwrap();
     let text = std::fs::read_to_string(&transcript).unwrap_or_default();
     assert!(
         text.contains("hello"),
@@ -1489,9 +1513,10 @@ async fn a_stop_hook_is_pointed_at_the_sessions_log() {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
     let payload = written.expect("the Stop hook ran");
-    let log = SessionManager::for_project(project)
-        .events_path(&id)
-        .unwrap();
+    let log =
+        SessionManager::for_project(project, &atomcode_coding::config::product_dirs_from_env())
+            .events_path(&id)
+            .unwrap();
     assert_eq!(
         payload["transcript_path"],
         serde_json::json!(log.display().to_string())
@@ -2525,10 +2550,13 @@ async fn a_written_task_list_outlives_the_messages_it_came_from() {
 
     turn(&mut runtime, "plan two things").await;
 
-    let sidecar = SessionManager::for_project(env.project.path())
-        .read_todo_sidecar(&id)
-        .expect("reading the sidecar must not fail")
-        .expect("a turn that wrote a task list must leave a sidecar");
+    let sidecar = SessionManager::for_project(
+        env.project.path(),
+        &atomcode_coding::config::product_dirs_from_env(),
+    )
+    .read_todo_sidecar(&id)
+    .expect("reading the sidecar must not fail")
+    .expect("a turn that wrote a task list must leave a sidecar");
     let titles: Vec<String> = sidecar.todos.iter().map(|t| t.content.clone()).collect();
     assert!(
         titles.iter().any(|t| t.contains("first")),
@@ -3145,7 +3173,10 @@ async fn a_stopped_reply_is_kept_as_far_as_it_got() {
             assert!(said.is_none(), "an undone turn's words stayed: {seen:?}");
         }
 
-        let manager = SessionManager::for_project(env.project.path());
+        let manager = SessionManager::for_project(
+            env.project.path(),
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
         let kinds: Vec<String> = std::fs::read_to_string(manager.events_path(&id).unwrap())
             .unwrap()
             .lines()
@@ -3416,7 +3447,10 @@ async fn a_committed_compaction_is_stored_at_once_and_reported_truthfully() {
         )
         .await;
     }
-    let manager = SessionManager::for_project(env.project.path());
+    let manager = SessionManager::for_project(
+        env.project.path(),
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let before = manager.load_native_session(&id).unwrap().snapshot.messages;
 
     runtime.handle.compact(None).unwrap();
@@ -3565,9 +3599,12 @@ async fn a_delegated_subtask_is_reported_narrated_and_billed() {
         "the child's report never reached the model: {:?}",
         recorder.last_request()
     );
-    let meta = SessionManager::for_project(env.project.path())
-        .read_meta(&id)
-        .unwrap();
+    let meta = SessionManager::for_project(
+        env.project.path(),
+        &atomcode_coding::config::product_dirs_from_env(),
+    )
+    .read_meta(&id)
+    .unwrap();
     let billed: u64 = meta
         .detached_model_usage
         .iter()
@@ -3648,7 +3685,8 @@ async fn a_team_is_kept_and_comes_back_with_its_lead() {
     let env = env();
     let project = env.project.path();
     let recorder = Arc::new(Recorder::default());
-    let store = SessionManager::for_project(project);
+    let store =
+        SessionManager::for_project(project, &atomcode_coding::config::product_dirs_from_env());
     let mut runtime = CodingRuntime::start(production_start(project, &recorder, |_| {}))
         .await
         .unwrap();
@@ -4142,9 +4180,12 @@ async fn a_requested_compaction_is_summarized_by_the_model_about_the_focus() {
         summary_call,
         "no model was asked to summarize with the focus"
     );
-    let meta = SessionManager::for_project(env.project.path())
-        .read_meta(&id)
-        .unwrap();
+    let meta = SessionManager::for_project(
+        env.project.path(),
+        &atomcode_coding::config::product_dirs_from_env(),
+    )
+    .read_meta(&id)
+    .unwrap();
     let billed: u64 = meta
         .detached_model_usage
         .iter()
@@ -4278,7 +4319,10 @@ async fn the_session_transcript_has_one_writer() {
     turn(&mut runtime, "one").await;
     runtime.handle.shutdown().await.unwrap();
 
-    let manager = SessionManager::for_project(env.project.path());
+    let manager = SessionManager::for_project(
+        env.project.path(),
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let path = manager.events_path(&id).unwrap();
     let log = std::fs::read_to_string(&path).unwrap();
     let mut lines = log.lines().filter(|line| !line.trim().is_empty());
@@ -4353,7 +4397,10 @@ async fn the_agent_is_told_where_its_session_really_is() {
     let operations = last_tool_result(&recorder);
     runtime.handle.shutdown().await.unwrap();
 
-    let store = SessionManager::for_project(env.project.path());
+    let store = SessionManager::for_project(
+        env.project.path(),
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let log = store.events_path(&id).unwrap();
     assert!(session.contains(&id), "{session}");
     assert!(
@@ -4519,6 +4566,7 @@ async fn a_runtime_configured_from_a_file_describes_the_file() {
     let from_file = atomcode_coding::CodingRuntimeConfig::from_config(
         &file,
         env.project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
         None,
         None,
         false,
@@ -4785,9 +4833,12 @@ async fn past_most_of_the_window_older_turns_are_summarized_and_the_summary_kept
         1,
         "the model sees one summary"
     );
-    let meta = SessionManager::for_project(env.project.path())
-        .read_meta(&id)
-        .unwrap();
+    let meta = SessionManager::for_project(
+        env.project.path(),
+        &atomcode_coding::config::product_dirs_from_env(),
+    )
+    .read_meta(&id)
+    .unwrap();
     assert!(
         meta.detached_model_usage
             .iter()
@@ -5113,20 +5164,23 @@ async fn telemetry_and_the_session_log_agree_on_where_they_are() {
     }
     runtime.handle.shutdown().await.unwrap();
 
-    let logged: Vec<(u64, u32, u64)> = SessionManager::for_project(env.project.path())
-        .load_events(&id)
-        .expect("the session log is readable")
-        .iter()
-        .filter_map(|entry| match &entry.event {
-            SessionEvent::AssistantMessage {
-                turn,
-                round,
-                meta: Some(meta),
-                ..
-            } => Some((*turn, *round, meta.request_id)),
-            _ => None,
-        })
-        .collect();
+    let logged: Vec<(u64, u32, u64)> = SessionManager::for_project(
+        env.project.path(),
+        &atomcode_coding::config::product_dirs_from_env(),
+    )
+    .load_events(&id)
+    .expect("the session log is readable")
+    .iter()
+    .filter_map(|entry| match &entry.event {
+        SessionEvent::AssistantMessage {
+            turn,
+            round,
+            meta: Some(meta),
+            ..
+        } => Some((*turn, *round, meta.request_id)),
+        _ => None,
+    })
+    .collect();
 
     assert!(!logged.is_empty(), "the log recorded no assistant message");
     assert_eq!(
@@ -5337,6 +5391,45 @@ async fn a_failed_mcp_connection_is_metered() {
     );
 }
 
+/// A program that embeds the runtime under its own name hands in its own
+/// dirs, and that is the whole of where the runtime writes: the session lands
+/// in its tree, the project gets its dir name, and neither this product's
+/// home (`ATOMCODE_HOME`, set here to a directory of its own) nor a
+/// `.atomcode` in the project is touched. The environment is set on purpose —
+/// a library that still read it would write there and this would say so.
+async fn a_runtime_under_another_name_keeps_to_its_own_dirs() {
+    let env = env();
+    let fork_home = tempfile::tempdir().unwrap();
+    let fork =
+        atomcode_capabilities::ProductDirs::new(fork_home.path().join(".forkcode"), ".forkcode");
+    let recorder = Arc::new(Recorder::default());
+    let mut started = start(env.project.path(), &recorder, SessionMode::Fresh);
+    started.agent.dirs = fork.clone();
+    started.prepare.memory = true;
+    let mut runtime = CodingRuntime::start(started).await.unwrap();
+    let id = runtime.session.clone().unwrap().id;
+
+    turn(&mut runtime, "remember pineapple").await;
+
+    let stored = SessionManager::for_project(env.project.path(), &fork)
+        .load_native_session(&id)
+        .expect("the session is in the tree that was handed in");
+    assert!(user_texts(&stored.snapshot.messages).contains(&"remember pineapple".to_string()));
+
+    let upstream_home: Vec<_> = std::fs::read_dir(env._home.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert!(
+        upstream_home.is_empty(),
+        "the runtime wrote into the environment's home: {upstream_home:?}"
+    );
+    assert!(
+        !env.project.path().join(".atomcode").exists(),
+        "the runtime made the upstream project dir"
+    );
+}
+
 /// Each scenario as its own test. Serialized because they share the process's
 /// environment (`ATOMCODE_HOME`, the offline verdict), which is also why each is
 /// its own process under `cargo nextest`.
@@ -5439,5 +5532,6 @@ mod criteria {
         the_agent_is_told_where_its_session_really_is,
         a_capability_the_runtime_mounts_itself_still_describes_itself,
         a_runtime_configured_from_a_file_describes_the_file,
+        a_runtime_under_another_name_keeps_to_its_own_dirs,
     );
 }

@@ -280,23 +280,10 @@ fn load_hooks_file(path: &Path) -> Vec<HookConfig> {
     hooks
 }
 
-/// Resolve `$ATOMCODE_HOME` (fallback `~/.atomcode`).
-fn atomcode_home() -> Option<PathBuf> {
-    if let Ok(h) = std::env::var("ATOMCODE_HOME") {
-        if !h.is_empty() {
-            return Some(PathBuf::from(h));
-        }
-    }
-    dirs::home_dir().map(|h| h.join(".atomcode"))
-}
-
-/// The GLOBAL hooks file `load_hooks_config` reads
-/// (`$ATOMCODE_HOME`/`~/.atomcode` + `/hooks.json`), or `None` when no home resolves.
-/// Exposed so diagnostics (`atomcode hooks paths`/`list`) show EXACTLY the file that is
-/// loaded — which under `sudo` is NOT the sudo-aware `Config::config_dir()` this module
-/// deliberately does not use.
-pub fn global_hooks_path() -> Option<PathBuf> {
-    atomcode_home().map(|h| h.join("hooks.json"))
+/// The GLOBAL hooks file `load_hooks_config` reads: `<user tree>/hooks.json`.
+/// Exposed so diagnostics (`hooks paths`/`list`) show EXACTLY the file that is loaded.
+pub fn global_hooks_path(user_dir: &Path) -> PathBuf {
+    user_dir.join("hooks.json")
 }
 
 /// The PROJECT hooks file `load_hooks_config` reads (`<root>/.hooks.json`).
@@ -304,12 +291,10 @@ pub fn project_hooks_path(project_dir: &Path) -> PathBuf {
     project_dir.join(".hooks.json")
 }
 
-/// Load user (`$ATOMCODE_HOME/hooks.json`) + project (`<root>/.hooks.json`) hooks.
-pub fn load_hooks_config(project_dir: &Path) -> Vec<HookConfig> {
+/// Load user (`<user tree>/hooks.json`) + project (`<root>/.hooks.json`) hooks.
+pub fn load_hooks_config(project_dir: &Path, user_dir: &Path) -> Vec<HookConfig> {
     let mut out = Vec::new();
-    if let Some(p) = global_hooks_path() {
-        out.extend(load_hooks_file(&p));
-    }
+    out.extend(load_hooks_file(&global_hooks_path(user_dir)));
     out.extend(load_hooks_file(&project_hooks_path(project_dir)));
     out
 }
@@ -626,10 +611,10 @@ impl CCExternalHooks {
         }
     }
 
-    /// Load user + project `hooks.json` for `project_dir`.
-    pub fn load(project_dir: &Path) -> Self {
+    /// Load user (`user_dir`'s) + project `hooks.json` for `project_dir`.
+    pub fn load(project_dir: &Path, user_dir: &Path) -> Self {
         Self::new(
-            load_hooks_config(project_dir),
+            load_hooks_config(project_dir, user_dir),
             project_dir.to_string_lossy().into_owned(),
         )
     }
@@ -639,8 +624,8 @@ impl CCExternalHooks {
     /// live behind the plugin loader that L1 cannot depend on. File hooks come first, then
     /// the extras (order only affects context-injection order; the gate fold is
     /// order-independent). An empty `extra` makes this identical to `load`.
-    pub fn load_with_extra(project_dir: &Path, extra: Vec<HookConfig>) -> Self {
-        let mut hooks = load_hooks_config(project_dir);
+    pub fn load_with_extra(project_dir: &Path, user_dir: &Path, extra: Vec<HookConfig>) -> Self {
+        let mut hooks = load_hooks_config(project_dir, user_dir);
         hooks.extend(extra);
         Self::new(hooks, project_dir.to_string_lossy().into_owned())
     }
@@ -1400,7 +1385,7 @@ mod tests {
             }}"#,
         )
         .unwrap();
-        let hooks = load_hooks_config(dir.path());
+        let hooks = load_hooks_config(dir.path(), &dir.path().join("tree"));
         // `b` disabled, `c` unknown event → only `a` survives.
         assert_eq!(hooks.len(), 1);
         assert_eq!(hooks[0].event, HookEvent::PreToolUse);
@@ -1520,7 +1505,7 @@ mod tests {
             r#"{"hooks":{"a":{"event":"PreToolUse","command":"echo a"},}}"#,
         )
         .unwrap();
-        let hooks = load_hooks_config(dir.path());
+        let hooks = load_hooks_config(dir.path(), &dir.path().join("tree"));
         assert!(hooks.is_empty(), "malformed file yields no hooks, no panic");
     }
 

@@ -133,7 +133,8 @@ mod tests {
         std::fs::write(d.path().join("dep.rs"), "pub fn dep_fn() {}\n").unwrap();
         std::fs::write(d.path().join("mid.rs"), "fn mid() { dep_fn(); }\n").unwrap();
         std::fs::write(d.path().join("top.rs"), "fn top() { mid(); }\n").unwrap();
-        let tool = FileDependenciesTool::new(Arc::new(CodeIndex::new()));
+        let tool =
+            FileDependenciesTool::new(Arc::new(CodeIndex::new(&crate::product_dirs::test_dirs())));
         let ctx = ToolContext {
             working_dir: d.path().to_path_buf(),
             cancel: CancellationToken::new(),

@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -171,19 +171,15 @@ struct AuthorizationServerMetadata {
     _scopes_supported: Vec<String>,
 }
 
+#[derive(Clone, Debug)]
 pub struct McpTokenStore {
     path: PathBuf,
 }
 
-impl Default for McpTokenStore {
-    fn default() -> Self {
-        Self::new(Self::default_path())
-    }
-}
-
 impl McpTokenStore {
-    pub fn default_path() -> PathBuf {
-        crate::mcp::util::config_dir().join("mcp_auth.toml")
+    /// The store in a user tree: `<user tree>/mcp_auth.toml`.
+    pub fn in_tree(user_dir: &Path) -> Self {
+        Self::new(user_dir.join("mcp_auth.toml"))
     }
 
     pub fn new(path: PathBuf) -> Self {
@@ -231,7 +227,12 @@ pub fn token_is_expired(token: &McpOAuthToken) -> bool {
 }
 
 /// Refresh an expired MCP OAuth token when refresh metadata is available.
-pub fn refresh_mcp_oauth_token(server_name: &str, token: &McpOAuthToken) -> Result<McpOAuthToken> {
+/// The refreshed token is saved back into `store`.
+pub fn refresh_mcp_oauth_token(
+    server_name: &str,
+    token: &McpOAuthToken,
+    store: &McpTokenStore,
+) -> Result<McpOAuthToken> {
     let Some(refresh_token) = token.refresh_token.as_deref() else {
         bail!(
             "MCP server {} OAuth token is expired and has no refresh token",
@@ -292,7 +293,7 @@ pub fn refresh_mcp_oauth_token(server_name: &str, token: &McpOAuthToken) -> Resu
     if new_token.refresh_token.is_none() {
         new_token.refresh_token = token.refresh_token.clone();
     }
-    McpTokenStore::default().save_token(server_name, new_token.clone())?;
+    store.save_token(server_name, new_token.clone())?;
     Ok(new_token)
 }
 
@@ -322,12 +323,15 @@ pub enum McpOAuthStep<'a> {
 /// them is the caller's business: a terminal command prints them, a runtime
 /// behind a full-screen UI must not, because this process's stdout is that UI.
 /// Nothing in this module writes to stdout or stderr itself.
+///
+/// The token is saved in `user_dir`'s `mcp_auth.toml`.
 pub fn login_mcp_oauth(
     server: &McpServerConfig,
     opts: McpOAuthLoginOptions,
+    user_dir: &Path,
     announce: &dyn Fn(McpOAuthStep<'_>),
 ) -> Result<McpOAuthToken> {
-    login_mcp_oauth_with(server, opts, None, announce)
+    login_mcp_oauth_with(server, opts, user_dir, None, announce)
 }
 
 /// [`login_mcp_oauth`], but giving up when `stop` says so: when its flag is
@@ -339,15 +343,17 @@ pub fn login_mcp_oauth(
 pub fn login_mcp_oauth_until(
     server: &McpServerConfig,
     opts: McpOAuthLoginOptions,
+    user_dir: &Path,
     stop: &McpOAuthLoginStop,
     announce: &dyn Fn(McpOAuthStep<'_>),
 ) -> Result<McpOAuthToken> {
-    login_mcp_oauth_with(server, opts, Some(stop), announce)
+    login_mcp_oauth_with(server, opts, user_dir, Some(stop), announce)
 }
 
 fn login_mcp_oauth_with(
     server: &McpServerConfig,
     opts: McpOAuthLoginOptions,
+    user_dir: &Path,
     stop: Option<&McpOAuthLoginStop>,
     announce: &dyn Fn(McpOAuthStep<'_>),
 ) -> Result<McpOAuthToken> {
@@ -386,6 +392,7 @@ fn login_mcp_oauth_with(
             } else {
                 &opts.scopes
             },
+            user_dir,
             stop,
             announce,
         );
@@ -408,7 +415,14 @@ fn login_mcp_oauth_with(
     let client_id = match opts.client_id.or(auth.client_id.clone()) {
         Some(id) => id,
         None => {
-            register_oauth_client(&client, &discovered.metadata, &redirect_uri, server)?.client_id
+            register_oauth_client(
+                &client,
+                &discovered.metadata,
+                &redirect_uri,
+                server,
+                user_dir,
+            )?
+            .client_id
         }
     };
     let scopes = if !opts.scopes.is_empty() {
@@ -488,7 +502,7 @@ fn login_mcp_oauth_with(
         client_secret_env,
         Some(discovered.metadata.token_endpoint),
     );
-    McpTokenStore::default().save_token(&server.name, token.clone())?;
+    McpTokenStore::in_tree(user_dir).save_token(&server.name, token.clone())?;
     Ok(token)
 }
 
@@ -499,6 +513,7 @@ pub fn login_github_oauth(
     client_id: &str,
     client_secret_env: Option<&str>,
     scopes: &[String],
+    user_dir: &Path,
     announce: &dyn Fn(McpOAuthStep<'_>),
 ) -> Result<McpOAuthToken> {
     login_github_oauth_with(
@@ -506,6 +521,7 @@ pub fn login_github_oauth(
         client_id,
         client_secret_env,
         scopes,
+        user_dir,
         None,
         announce,
     )
@@ -516,6 +532,7 @@ fn login_github_oauth_with(
     client_id: &str,
     client_secret_env: Option<&str>,
     scopes: &[String],
+    user_dir: &Path,
     stop: Option<&McpOAuthLoginStop>,
     announce: &dyn Fn(McpOAuthStep<'_>),
 ) -> Result<McpOAuthToken> {
@@ -593,7 +610,7 @@ fn login_github_oauth_with(
         Some(client_secret_env.to_string()),
         Some(GITHUB_TOKEN_URL.to_string()),
     );
-    McpTokenStore::default().save_token(server_name, token.clone())?;
+    McpTokenStore::in_tree(user_dir).save_token(server_name, token.clone())?;
     Ok(token)
 }
 
@@ -869,7 +886,7 @@ fn fetch_metadata_url(
 /// Said where it is needed, not as "your .mcp.json": a server in the user file
 /// has no `.mcp.json` at all, and one a client injected has no file. The
 /// secret is named by the variable that holds it, never written into the file.
-fn client_id_advice(server: &McpServerConfig) -> String {
+fn client_id_advice(server: &McpServerConfig, user_dir: &Path) -> String {
     let name = &server.name;
     let entry = format!(
         "\"auth\": {{ \"type\": \"oauth\", \"client_id\": \"<client id>\", \
@@ -880,7 +897,7 @@ fn client_id_advice(server: &McpServerConfig) -> String {
     match server.source {
         McpConfigSource::User => format!(
             "{register}\nThen add its client id to \"{name}\" in {}:\n{entry}",
-            crate::mcp::util::config_dir().join("mcp.json").display()
+            user_dir.join("mcp.json").display()
         ),
         McpConfigSource::Project => format!(
             "{register}\nThen add its client id to \"{name}\" in .mcp.json at the project root:\n{entry}"
@@ -897,13 +914,14 @@ fn register_oauth_client(
     metadata: &AuthorizationServerMetadata,
     redirect_uri: &str,
     server: &McpServerConfig,
+    user_dir: &Path,
 ) -> Result<ClientRegistrationResponse> {
     let Some(registration_endpoint) = metadata.registration_endpoint.as_deref() else {
         bail!(
             "MCP OAuth for \"{}\" needs a pre-registered client_id: its authorization server \
              does not support dynamic client registration (RFC 7591).\n{}",
             server.name,
-            client_id_advice(server)
+            client_id_advice(server, user_dir)
         );
     };
     let resp = client
@@ -926,7 +944,7 @@ fn register_oauth_client(
                 "MCP OAuth dynamic client registration for \"{}\" failed: HTTP {status} — \
                  the authorization server rejected the request.\n{}\nResponse: {body}",
                 server.name,
-                client_id_advice(server)
+                client_id_advice(server, user_dir)
             );
         }
         bail!("MCP OAuth dynamic client registration failed: HTTP {status}\nResponse: {body}");
@@ -1137,9 +1155,16 @@ mod tests {
         // when it's missing the error must POINT the user at the plain discovery
         // login (which needs no secret) instead of dead-ending. Bails before any
         // network/browser work, so this is a pure error-shape check.
-        let err = login_github_oauth("espressif-documentation", "cid", None, &[], &|_| {})
-            .unwrap_err()
-            .to_string();
+        let err = login_github_oauth(
+            "espressif-documentation",
+            "cid",
+            None,
+            &[],
+            std::path::Path::new("/nonexistent/tree"),
+            &|_| {},
+        )
+        .unwrap_err()
+        .to_string();
         assert!(
             err.contains("mcp login espressif-documentation"),
             "should signpost the discovery login: {err}"
@@ -1512,6 +1537,7 @@ mod tests {
                 &metadata,
                 "http://127.0.0.1:1/callback",
                 &server(source),
+                std::path::Path::new("/the/user/tree"),
             )
             .map(|_| ())
             .expect_err("no registration endpoint")
@@ -1519,7 +1545,7 @@ mod tests {
         };
 
         let user = said(McpConfigSource::User);
-        let user_file = crate::mcp::util::config_dir().join("mcp.json");
+        let user_file = std::path::Path::new("/the/user/tree").join("mcp.json");
         assert!(
             user.contains(&user_file.display().to_string()),
             "a user-level server is pointed at the user file: {user}"

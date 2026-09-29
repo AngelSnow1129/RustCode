@@ -32,7 +32,13 @@ async fn main() {
     let model = std::env::var("ATOMCODE_MODEL").unwrap_or_else(|_| "deepseek-chat".to_string());
     let cwd = std::env::current_dir().expect("cwd");
 
-    let cfg = CodingAgentConfig::new(api_key, base_url, model, cwd);
+    let cfg = CodingAgentConfig::new(
+        api_key,
+        base_url,
+        model,
+        cwd,
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     // No session on disk, and no MCP: a smoke run should not adopt the machine's
     // state or connect anyone else's processes.
     let opts = PrepareOptions {

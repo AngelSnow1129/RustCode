@@ -312,7 +312,13 @@ pub async fn review(args: ReviewArgs) -> Result<()> {
     let context_window =
         resolve_context_window(args.context_window, entry.and_then(|e| e.context_window));
 
-    let mut cfg = ReviewAgentConfig::new(api_key, base_url, model, &repo);
+    let mut cfg = ReviewAgentConfig::new(
+        api_key,
+        base_url,
+        model,
+        &repo,
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     cfg.context_window = context_window;
     cfg.stream_timeout = std::time::Duration::from_secs(args.stream_timeout);
     cfg.max_rounds = args.max_rounds;

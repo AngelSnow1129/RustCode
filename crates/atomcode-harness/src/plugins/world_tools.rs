@@ -43,7 +43,7 @@ impl Plugin for FsWorldToolsPlugin {
         "tool-fs-world"
     }
     fn inject(&self) -> &'static [&'static str] {
-        &["tools", "fs"]
+        &["product-dirs", "tools", "fs"]
     }
     fn description(&self) -> &'static str {
         "read/write/edit/list, routed through the `fs` seam"
@@ -62,6 +62,7 @@ impl Plugin for FsWorldToolsPlugin {
             serde_json::from_value(config.clone()).map_err(|e| format!("bad config: {e}"))?
         };
         let fs = ctx.require::<FsSvc>().map_err(|e| e.to_string())?;
+        let dirs = (*crate::product_dirs(ctx)?).clone();
         // The SAME implementations `tool-fs` mounts, handed a world instead of
         // the local disk. There is no second copy of `read_file` any more: this
         // row and that one differ by one argument, which is the whole claim the
@@ -70,13 +71,13 @@ impl Plugin for FsWorldToolsPlugin {
             Arc::new(ReadFileTool::with_world(row.vision, fs.clone())),
             Arc::new(WriteFileTool::with_world(fs.clone())),
             Arc::new(EditFileTool::with_world(fs.clone())),
-            Arc::new(ListDirTool::with_world(fs.clone())),
+            Arc::new(ListDirTool::with_world(fs.clone(), dirs.clone())),
             // Same family, same argument. Its own doc says routing through the
             // world is why it waited for `walk` — "a fenced or read-only world
             // refuses the write it would have refused for `write_file`" — so
             // leaving it out was an omission, not a boundary. Found by comparing
             // this catalog against the chain's.
-            Arc::new(SearchReplaceTool::with_world(fs.clone())),
+            Arc::new(SearchReplaceTool::with_world(fs.clone(), dirs.clone())),
         ];
         super::tools::mount(ctx, tools)?;
         // The model is told which world it is in, because "the file is not
@@ -106,13 +107,14 @@ impl Plugin for SearchWorldToolsPlugin {
         "tool-search-world"
     }
     fn inject(&self) -> &'static [&'static str] {
-        &["tools", "fs"]
+        &["product-dirs", "tools", "fs"]
     }
     fn description(&self) -> &'static str {
         "grep and glob, routed through the `fs` seam"
     }
     async fn apply(&self, ctx: &Context, _config: &Value) -> Result<(), String> {
         let fs = ctx.require::<FsSvc>().map_err(|e| e.to_string())?;
+        let dirs = (*crate::product_dirs(ctx)?).clone();
         // These were the two tools a fenced world could not contain: they walked
         // the host disk with their own `ignore::WalkBuilder`. The walk and the
         // search are the world's now (`FileSystem::walk` / `search`), so a
@@ -120,8 +122,8 @@ impl Plugin for SearchWorldToolsPlugin {
         super::tools::mount(
             ctx,
             vec![
-                Arc::new(GrepTool::with_world(fs.clone())),
-                Arc::new(GlobTool::with_world(fs.clone())),
+                Arc::new(GrepTool::with_world(fs.clone(), dirs.clone())),
+                Arc::new(GlobTool::with_world(fs.clone(), dirs)),
             ],
         )?;
         super::tools::contribute_prompt(
@@ -145,7 +147,7 @@ impl Plugin for BashWorldToolPlugin {
         "tool-bash-world"
     }
     fn inject(&self) -> &'static [&'static str] {
-        &["tools", "shell"]
+        &["product-dirs", "tools", "shell"]
     }
     fn description(&self) -> &'static str {
         "shell execution, routed through the `shell` seam"
@@ -157,7 +159,12 @@ impl Plugin for BashWorldToolPlugin {
         // to be a 150-line stand-in with a 16-word read-only allow-list is gone;
         // the timeout ceiling and output framing are the tool's own, as they are
         // for `tool-bash`.
-        super::tools::mount(ctx, vec![Arc::new(BashTool::with_world(shell.clone()))])?;
+        let sensitive =
+            atomcode_capabilities::tools::SensitivePaths::of(&*crate::product_dirs(ctx)?);
+        super::tools::mount(
+            ctx,
+            vec![Arc::new(BashTool::with_world(shell.clone(), sensitive))],
+        )?;
         super::tools::contribute_prompt(
             ctx,
             "tool-bash-world",

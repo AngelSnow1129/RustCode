@@ -202,6 +202,9 @@ pub struct OpenAiCompatConfig {
     /// the model's config. Reported through [`LlmProvider::effort_levels`] so a
     /// menu can offer exactly what the model supports.
     pub effort_levels: Vec<String>,
+    /// Where `ATOMCODE_WIRE_DUMP=1` writes the exact request bodies (the host
+    /// passes `<user tree>/wire-dump`). `None` ⇒ no dump even with the switch on.
+    pub wire_dump_dir: Option<std::path::PathBuf>,
 }
 
 /// Canonical native-stack heuristic for whether a model name looks vision-capable.
@@ -271,6 +274,7 @@ impl OpenAiCompatConfig {
             skip_tls_verify: false,
             supports_vision,
             effort_levels: Vec::new(),
+            wire_dump_dir: None,
         }
     }
 }
@@ -587,9 +591,9 @@ impl LlmProvider for OpenAiCompatProvider {
             &self.cfg,
             self.policy,
         );
-        super::wire_dump_request(&self.cfg.model, &body); // byte-level dump (ATOMCODE_WIRE_DUMP=1)
-                                                          // Serialize once and reuse the exact bytes across retries (hence `.body()`
-                                                          // with an explicit content-type rather than re-serializing via `.json()`).
+        super::wire_dump_request(self.cfg.wire_dump_dir.as_deref(), &self.cfg.model, &body); // byte-level dump (ATOMCODE_WIRE_DUMP=1)
+                                                                                             // Serialize once and reuse the exact bytes across retries (hence `.body()`
+                                                                                             // with an explicit content-type rather than re-serializing via `.json()`).
         let body_bytes = match serde_json::to_vec(&body) {
             Ok(b) => b,
             Err(e) => {

@@ -10,6 +10,7 @@
 //! (the neutral version kills the direct child via `kill_on_drop`).
 
 use super::bash_workspace_gate::scan_redirect_writes;
+use super::sensitive_path::SensitivePaths;
 use super::{err, ok};
 use async_trait::async_trait;
 use atomcode_kernel::tool::{RiskLevel, Tool, ToolContext, ToolResult};
@@ -120,20 +121,26 @@ pub use background::{BashKillTool, BashPollTool, BashStartTool};
 /// how to present the result.
 pub struct BashTool {
     world: Arc<dyn crate::world::Shell>,
+    /// What counts as a sensitive target (the "allow all" floor and the grant scope).
+    sensitive: SensitivePaths,
 }
 
+#[cfg(test)]
 impl Default for BashTool {
     fn default() -> Self {
-        Self {
-            world: Arc::new(LocalShell),
-        }
+        Self::new(super::sensitive_path::test_guard())
     }
 }
 
 impl BashTool {
+    /// Run commands on this machine.
+    pub fn new(sensitive: SensitivePaths) -> Self {
+        Self::with_world(Arc::new(LocalShell), sensitive)
+    }
+
     /// Run commands through `world` instead of this machine.
-    pub fn with_world(world: Arc<dyn crate::world::Shell>) -> Self {
-        Self { world }
+    pub fn with_world(world: Arc<dyn crate::world::Shell>, sensitive: SensitivePaths) -> Self {
+        Self { world, sensitive }
     }
 }
 
@@ -207,7 +214,7 @@ impl Tool for BashTool {
     /// SAME command still matches an existing command-scoped grant.
     fn always_grant_scope(&self, args: &str) -> String {
         match serde_json::from_str::<Args>(args) {
-            Ok(a) => shell_always_grant_scope(args, &a.command),
+            Ok(a) => shell_always_grant_scope(&self.sensitive, args, &a.command),
             Err(_) => args.to_string(),
         }
     }
@@ -225,8 +232,11 @@ impl Tool for BashTool {
     /// what `bash_workspace_verdict` keys destructive `grantable:false` on — the raw
     /// substring form misses `/etc`, `.bashrc`, `*.key/.crt`, …).
     fn allow_all_group(&self, args: &str) -> Option<String> {
-        let sensitive = super::sensitive_path::references_sensitive_path(args)
-            || super::bash_workspace_gate::args_name_sensitive_destructive_target(args);
+        let sensitive = self.sensitive.references(args)
+            || super::bash_workspace_gate::args_name_sensitive_destructive_target(
+                &self.sensitive,
+                args,
+            );
         (!sensitive).then(|| "bash".to_string())
     }
     /// Read-only bash commands (per [`is_read_only_bash`]) may run concurrently;
@@ -1773,8 +1783,8 @@ pub fn strip_bash_comments(cmd: &str) -> String {
 /// is how the panel came to offer a session-wide grant that nothing recorded. A backgrounded
 /// command is exactly as dangerous as a foreground one, so `bash_start` must reach the same
 /// verdict as `bash` by CALLING this, not by keeping its own copy.
-pub fn shell_always_grant_scope(args: &str, command: &str) -> String {
-    if !super::sensitive_path::references_sensitive_path(args) {
+pub fn shell_always_grant_scope(sensitive: &SensitivePaths, args: &str, command: &str) -> String {
+    if !sensitive.references(args) {
         return String::new(); // tool-wide: one "Always" covers this session's shell
     }
     normalize_command_for_grant(command)

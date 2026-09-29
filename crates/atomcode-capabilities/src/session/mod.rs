@@ -18,7 +18,6 @@
 //! and `list_sessions` are normal tools. WALL-CLOCK LIVES ONLY HERE — the kernel is
 //! deliberately clock-free — so L1 stamps what it writes via [`now_ms`].
 
-use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub mod context;
@@ -69,11 +68,4 @@ pub fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
-}
-
-/// The atomcode config/data root — delegates to the crate-shared
-/// [`crate::paths::config_dir`] (one home for the rule + its documented `sudo`
-/// divergence from production).
-pub(crate) fn config_dir() -> PathBuf {
-    crate::paths::config_dir()
 }

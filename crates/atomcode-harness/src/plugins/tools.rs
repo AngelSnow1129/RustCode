@@ -118,7 +118,7 @@ impl Plugin for FsToolsPlugin {
         "tool-fs"
     }
     fn inject(&self) -> &'static [&'static str] {
-        &["tools"]
+        &["product-dirs", "tools"]
     }
     fn description(&self) -> &'static str {
         "read/write/edit/list against the local disk (the alternative to tool-fs-world)"
@@ -135,7 +135,7 @@ impl Plugin for FsToolsPlugin {
                 Arc::new(ReadFileTool::new(row.vision)),
                 Arc::new(WriteFileTool::default()),
                 Arc::new(EditFileTool::default()),
-                Arc::new(ListDirTool::default()),
+                Arc::new(ListDirTool::new((*crate::product_dirs(ctx)?).clone())),
             ],
         )?;
         contribute_prompt(
@@ -157,13 +157,15 @@ impl Plugin for BashToolPlugin {
         "tool-bash"
     }
     fn inject(&self) -> &'static [&'static str] {
-        &["tools"]
+        &["product-dirs", "tools"]
     }
     fn description(&self) -> &'static str {
         "shell execution"
     }
     async fn apply(&self, ctx: &Context, _config: &Value) -> Result<(), String> {
-        mount(ctx, vec![Arc::new(BashTool::default())])?;
+        let sensitive =
+            atomcode_capabilities::tools::SensitivePaths::of(&*crate::product_dirs(ctx)?);
+        mount(ctx, vec![Arc::new(BashTool::new(sensitive))])?;
         contribute_prompt(
             ctx,
             "tool-bash",
@@ -210,16 +212,19 @@ impl Plugin for SearchToolsPlugin {
         "tool-search"
     }
     fn inject(&self) -> &'static [&'static str] {
-        &["tools"]
+        &["product-dirs", "tools"]
     }
     fn description(&self) -> &'static str {
         "grep and glob over the working directory"
     }
     async fn apply(&self, ctx: &Context, _config: &Value) -> Result<(), String> {
-        mount(
-            ctx,
-            vec![Arc::new(GrepTool::default()), Arc::new(GlobTool::default())],
-        )?;
+        mount(ctx, {
+            let dirs = (*crate::product_dirs(ctx)?).clone();
+            vec![
+                Arc::new(GrepTool::new(dirs.clone())),
+                Arc::new(GlobTool::new(dirs)),
+            ]
+        })?;
         contribute_prompt(
             ctx,
             "tool-search",

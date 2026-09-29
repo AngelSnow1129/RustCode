@@ -216,7 +216,11 @@ async fn connected_mcp(env: &Env) -> (HostConnection, Arc<FrontEnd>) {
         "ATOMCODE_MCP_TRUST_STORE",
         env._home.path().join("mcp_trust.json"),
     );
-    atomcode_capabilities::mcp::trust::trust_project(env.project.path()).unwrap();
+    atomcode_capabilities::mcp::trust::trust_project(
+        env.project.path(),
+        atomcode_coding::config::product_dirs_from_env().user(),
+    )
+    .unwrap();
 
     started(env, SubagentPolicy::Disabled, None, Vec::new(), true).await
 }
@@ -290,6 +294,7 @@ async fn started(
         "https://example.test/v1",
         "scripted",
         env.project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
     );
     agent.interactive = true;
     let start = CodingRuntimeStart {
@@ -537,6 +542,7 @@ async fn a_finished_turn_offers_what_might_be_said_next() {
         "https://example.test/v1",
         "scripted",
         env.project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
     );
     agent.interactive = true;
     // 交互式启动时 `main.rs` 打开的就是这个;headless 关着,因为没人在看。
@@ -871,11 +877,14 @@ async fn a_session_a_newer_build_wrote_is_listed_and_refused() {
         panic!("a third session");
     };
 
-    atomcode_capabilities::session::SessionManager::for_project(env.project.path())
-        .update_meta(&first, |meta| {
-            meta.format_version = atomcode_kernel::session::SESSION_FORMAT_VERSION + 1;
-        })
-        .unwrap();
+    atomcode_capabilities::session::SessionManager::for_project(
+        env.project.path(),
+        &atomcode_coding::config::product_dirs_from_env(),
+    )
+    .update_meta(&first, |meta| {
+        meta.format_version = atomcode_kernel::session::SESSION_FORMAT_VERSION + 1;
+    })
+    .unwrap();
 
     let Ok(HostReply::Sessions { sessions }) = connection
         .control
@@ -1762,7 +1771,13 @@ impl Editable {
 
 impl HostConfig for Editable {
     fn for_model(&self, model: &str) -> Result<CodingAgentConfig, String> {
-        let mut config = CodingAgentConfig::new("key", "https://example.test/v1", model, &self.dir);
+        let mut config = CodingAgentConfig::new(
+            "key",
+            "https://example.test/v1",
+            model,
+            &self.dir,
+            atomcode_coding::config::product_dirs_from_env(),
+        );
         config.interactive = true;
         Ok(config)
     }
@@ -1849,7 +1864,13 @@ impl HostConfig for Models {
         if model == "missing" {
             return Err("no model `missing` is configured".into());
         }
-        let mut config = CodingAgentConfig::new("key", "https://example.test/v1", model, &self.0);
+        let mut config = CodingAgentConfig::new(
+            "key",
+            "https://example.test/v1",
+            model,
+            &self.0,
+            atomcode_coding::config::product_dirs_from_env(),
+        );
         config.interactive = true;
         Ok(config)
     }
@@ -3160,6 +3181,7 @@ async fn started_without_a_provider_on(
         "https://llm-api.atomgit.com/v1",
         "scripted",
         env.project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
     );
     agent.interactive = true;
     let start = CodingRuntimeStart {
@@ -3235,7 +3257,13 @@ async fn a_screen_that_opened_before_any_provider_is_fed_once_one_serves() {
         "the reason, said once, and no refusal of the subscription: {opening:#?}"
     );
 
-    let serves = CodingAgentConfig::new("key", "https://example.test/v1", "ready", ".");
+    let serves = CodingAgentConfig::new(
+        "key",
+        "https://example.test/v1",
+        "ready",
+        ".",
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     handle.reassemble_provider(serves).await.unwrap();
     connection.commands.send(message("hello")).unwrap();
     let turn = through_turn(&mut connection).await;
@@ -3339,6 +3367,7 @@ async fn a_provider_back_by_a_reload_that_goes_again_is_said_again() {
         "https://example.test/v1",
         "ready",
         env.project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
     );
     handle.reprepare_config(serves).await.unwrap();
     let _ = quiet(&mut connection).await;

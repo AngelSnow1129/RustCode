@@ -308,8 +308,10 @@ pub async fn resume_session(
             working_dir: binding.working_dir,
         });
     }
-    let project_bucket =
-        atomcode_capabilities::session::SessionManager::project_hash(&binding.working_dir);
+    let project_bucket = atomcode_capabilities::session::SessionManager::project_hash(
+        &binding.working_dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let prepared = match crate::legacy_convert::prepare_catalog_session_resume_in_project(
         &project_bucket,
         &session_id,
@@ -401,7 +403,10 @@ pub fn commit_runtime_snapshot(
 }
 
 fn load_snapshot(working_dir: &Path, session_id: &str) -> Result<SessionSnapshot, String> {
-    let bucket = atomcode_capabilities::session::SessionManager::project_hash(working_dir);
+    let bucket = atomcode_capabilities::session::SessionManager::project_hash(
+        working_dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     crate::legacy_convert::load_catalog_session_view_in_project(&bucket, session_id)
         .map_err(|error| error.to_string())?
         .map(|session| session.snapshot)

@@ -14,7 +14,8 @@ use super::approval::{
     ApprovalRequest, InMemoryPermissionStore, PermissionDecision, PermissionStore, APPROVAL_KIND,
 };
 use super::bash::is_read_only_bash;
-use super::{bash_invocations, references_sensitive_path};
+use super::bash_invocations;
+use super::sensitive_path::SensitivePaths;
 
 /// Stable, policy-authored reason carried in the blocked ToolResult. It contains
 /// no rejected command bytes or credential values, so drivers may compare it for
@@ -180,12 +181,12 @@ fn invokes_any(command: &str, commands: &[&str]) -> bool {
     })
 }
 
-fn references_sensitive_shell_argument(command: &str) -> bool {
+fn references_sensitive_shell_argument(sensitive: &SensitivePaths, command: &str) -> bool {
     bash_invocations(command).is_some_and(|invocations| {
         invocations.iter().any(|invocation| {
             invocation.arguments.iter().any(|argument| {
                 let encoded = serde_json::json!({ "path": argument }).to_string();
-                references_sensitive_path(&encoded)
+                sensitive.references(&encoded)
             })
         })
     })
@@ -372,9 +373,13 @@ fn classify_explicit_credentials(command: &str) -> ExplicitCredentialVerdict {
     }
 }
 
-fn credential_bash_decision(raw_args: &str, command: &str) -> Option<CredentialBashDecision> {
+fn credential_bash_decision(
+    sensitive: &SensitivePaths,
+    raw_args: &str,
+    command: &str,
+) -> Option<CredentialBashDecision> {
     let references_sensitive_source =
-        references_sensitive_path(raw_args) || references_sensitive_shell_argument(command);
+        sensitive.references(raw_args) || references_sensitive_shell_argument(sensitive, command);
     // Value extraction of a credential-named field from an ordinary config file: the
     // coarse sensitive-path markers only know credential *stores*, so a real secret in
     // the user's own `config/prod.toml` would otherwise read out freely (e.g.
@@ -434,9 +439,9 @@ pub fn grant_scope(args: &str) -> String {
     }
 }
 
-pub fn bash_command_may_expose_credentials(arguments: &str) -> bool {
+pub fn bash_command_may_expose_credentials(sensitive: &SensitivePaths, arguments: &str) -> bool {
     match serde_json::from_str::<BashArgs>(arguments) {
-        Ok(args) => credential_bash_decision(arguments, &args.command).is_some(),
+        Ok(args) => credential_bash_decision(sensitive, arguments, &args.command).is_some(),
         Err(_) => false,
     }
 }
@@ -448,37 +453,49 @@ pub struct CredentialBashGate {
     // team children run `AutoRespond::AllowAll`, so a prompt would auto-approve itself) ⇒
     // under `Prompt`, fail closed to a call-only deny, mirroring `DenySensitivePaths`.
     approval_store: Option<Arc<dyn PermissionStore>>,
+    sensitive: SensitivePaths,
 }
 
+#[cfg(test)]
 impl Default for CredentialBashGate {
     fn default() -> Self {
-        Self::new(CredentialShellPolicy::default())
+        Self::new(
+            CredentialShellPolicy::default(),
+            super::sensitive_path::test_guard(),
+        )
     }
 }
 
 impl CredentialBashGate {
     /// Interactive gate: `Prompt` asks the user for approval before a detected access.
-    pub fn new(policy: CredentialShellPolicy) -> Self {
+    pub fn new(policy: CredentialShellPolicy, sensitive: SensitivePaths) -> Self {
         Self {
             policy,
             approval_store: Some(Arc::new(InMemoryPermissionStore::new())),
+            sensitive,
         }
     }
 
     /// Interactive gate over a caller-supplied (shared / persisted) grant store.
-    pub fn with_store(policy: CredentialShellPolicy, store: Arc<dyn PermissionStore>) -> Self {
+    pub fn with_store(
+        policy: CredentialShellPolicy,
+        store: Arc<dyn PermissionStore>,
+        sensitive: SensitivePaths,
+    ) -> Self {
         Self {
             policy,
             approval_store: Some(store),
+            sensitive,
         }
     }
 
     /// Non-interactive gate for subagent / team children (no human in the loop): under
     /// `Prompt`, fail closed to a call-only deny instead of auto-approving the prompt.
-    pub fn non_interactive(policy: CredentialShellPolicy) -> Self {
+    pub fn non_interactive(policy: CredentialShellPolicy, sensitive: SensitivePaths) -> Self {
         Self {
             policy,
             approval_store: None,
+            sensitive,
         }
     }
 
@@ -547,6 +564,7 @@ pub enum CredentialShellVerdict {
 /// [`CredentialShellVerdict::Deny`]: without someone to answer, a prompt is an
 /// auto-approval wearing a question mark.
 pub fn credential_shell_verdict(
+    sensitive: &SensitivePaths,
     policy: CredentialShellPolicy,
     tool_name: &str,
     arguments: &str,
@@ -561,7 +579,7 @@ pub fn credential_shell_verdict(
     // The detected severity (`DenyTurn` vs `DenyCall`) drives only `strict` vs the
     // detection tests; `Prompt` treats every detection the same (prompt / fail-closed,
     // never terminating the turn), so a legitimate sensitive read is not interrupted.
-    if credential_bash_decision(arguments, &args.command).is_none() {
+    if credential_bash_decision(sensitive, arguments, &args.command).is_none() {
         return CredentialShellVerdict::NotOurs;
     }
     match policy {
@@ -583,6 +601,7 @@ impl ToolMiddleware for CredentialBashGate {
         // `approval_store` is this shell's stand-in for "there is a human": it is
         // `None` exactly for the non-interactive children that would auto-approve.
         match credential_shell_verdict(
+            &self.sensitive,
             self.policy,
             tool.name(),
             &call.arguments,
@@ -639,7 +658,7 @@ mod tests {
     /// extraction/exfil, `DenyCall` = literal/config read)?
     fn decide(command: &str) -> Option<CredentialBashDecision> {
         let raw = serde_json::json!({ "command": command }).to_string();
-        credential_bash_decision(&raw, command)
+        credential_bash_decision(&crate::tools::sensitive_path::test_guard(), &raw, command)
     }
 
     /// A `RequestCtx` whose approval round-trip is never answered: the bounded timeout
@@ -665,6 +684,7 @@ mod tests {
     #[tokio::test]
     async fn extraction_and_exfil_are_detected_as_deny_turn() {
         assert!(references_sensitive_shell_argument(
+            &crate::tools::sensitive_path::test_guard(),
             "grep '^IMGBED_TOKEN' src-tauri/.env > /tmp/token.txt"
         ));
         for command in [
@@ -776,14 +796,20 @@ mod tests {
 
     #[tokio::test]
     async fn off_defers_to_ordinary_approval() {
-        let gate = CredentialBashGate::new(CredentialShellPolicy::Off);
+        let gate = CredentialBashGate::new(
+            CredentialShellPolicy::Off,
+            crate::tools::sensitive_path::test_guard(),
+        );
         assert_eq!(run(&gate, DETECTED).await, BeforeOutcome::Proceed);
         assert_eq!(run(&gate, EXFIL).await, BeforeOutcome::Proceed);
     }
 
     #[tokio::test]
     async fn strict_terminates_the_turn() {
-        let gate = CredentialBashGate::new(CredentialShellPolicy::Strict);
+        let gate = CredentialBashGate::new(
+            CredentialShellPolicy::Strict,
+            crate::tools::sensitive_path::test_guard(),
+        );
         for command in [DETECTED, EXFIL, "grep '^sasl_password' config/prod.toml"] {
             assert!(
                 matches!(
@@ -800,7 +826,10 @@ mod tests {
         // Under `Prompt`, NO detection terminates the turn — not even extraction / exfil.
         // A silent driver degrades the round-trip to a call-only deny (reject ends only
         // this call), so a legitimate sensitive read is never interrupted.
-        let gate = CredentialBashGate::new(CredentialShellPolicy::Prompt);
+        let gate = CredentialBashGate::new(
+            CredentialShellPolicy::Prompt,
+            crate::tools::sensitive_path::test_guard(),
+        );
         for command in [DETECTED, EXFIL] {
             assert!(
                 matches!(run(&gate, command).await, BeforeOutcome::Deny { .. }),
@@ -819,7 +848,11 @@ mod tests {
             "credential-shell::bash::{}",
             super::grant_scope(&args)
         ));
-        let gate = CredentialBashGate::with_store(CredentialShellPolicy::Prompt, store);
+        let gate = CredentialBashGate::with_store(
+            CredentialShellPolicy::Prompt,
+            store,
+            crate::tools::sensitive_path::test_guard(),
+        );
         assert_eq!(run(&gate, DETECTED).await, BeforeOutcome::Proceed);
     }
 
@@ -828,7 +861,10 @@ mod tests {
         // A subagent/team child cannot prompt (AllowAll auto-approves), so `Prompt`
         // denies just the call (both literal and extraction) without terminating the
         // turn; undetected commands still proceed.
-        let gate = CredentialBashGate::non_interactive(CredentialShellPolicy::Prompt);
+        let gate = CredentialBashGate::non_interactive(
+            CredentialShellPolicy::Prompt,
+            crate::tools::sensitive_path::test_guard(),
+        );
         for command in [DETECTED, EXFIL] {
             assert!(
                 matches!(run(&gate, command).await, BeforeOutcome::Deny { .. }),

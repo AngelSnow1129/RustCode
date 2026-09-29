@@ -58,7 +58,11 @@ mod tests {
     fn no_mounted_guidance_leaves_no_fragment() {
         let prompts = PromptRegistry::new();
         prompts.contribute(FRAGMENT.0, FRAGMENT.1, "stale guidance");
-        project(&prompts, &McpRegistry::new(), &[]);
+        project(
+            &prompts,
+            &McpRegistry::new(crate::config::product_dirs_from_env().user()),
+            &[],
+        );
         assert!(!prompts.ids().contains(&FRAGMENT.0.to_string()));
     }
 }

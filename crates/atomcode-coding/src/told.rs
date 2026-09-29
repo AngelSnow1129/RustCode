@@ -290,7 +290,13 @@ mod tests {
 
     #[test]
     fn choosing_what_is_already_in_use_says_nothing() {
-        let config = CodingAgentConfig::new("key", "https://example.test/v1", "m", ".");
+        let config = CodingAgentConfig::new(
+            "key",
+            "https://example.test/v1",
+            "m",
+            ".",
+            crate::config::product_dirs_from_env(),
+        );
         assert_eq!(reconfigured(&config, &config), None);
         assert_eq!(mode_changed(RuntimeMode::Plan, RuntimeMode::Plan), None);
     }

@@ -169,7 +169,13 @@ mod tests {
 
     #[test]
     fn engine_config_builds_coding_config() {
-        let mut base = CodingAgentConfig::new("k", "https://x", "m", "/original");
+        let mut base = CodingAgentConfig::new(
+            "k",
+            "https://x",
+            "m",
+            "/original",
+            atomcode_coding::config::product_dirs_from_env(),
+        );
         base.context_window = 200_000;
         base.chat_options.max_tokens = Some(8192);
         base.provider_type = "openai".into();
@@ -189,6 +195,7 @@ mod tests {
             "https://internal.example/v1",
             "reasoning-model",
             "/original",
+            atomcode_coding::config::product_dirs_from_env(),
         );
         original.provider_type = "anthropic".into();
         original.skip_tls_verify = true;
@@ -223,7 +230,13 @@ mod tests {
 
     #[tokio::test]
     async fn shared_factory_builds_each_session_with_its_own_identity() {
-        let mut base = CodingAgentConfig::new("k", "https://example.test/v1", "m", "/original");
+        let mut base = CodingAgentConfig::new(
+            "k",
+            "https://example.test/v1",
+            "m",
+            "/original",
+            atomcode_coding::config::product_dirs_from_env(),
+        );
         base.context_window = 200_000;
         base.chat_options.max_tokens = Some(8192);
         let engine = EngineConfig::from_coding_config(base);

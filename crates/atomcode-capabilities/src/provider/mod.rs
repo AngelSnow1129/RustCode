@@ -52,24 +52,26 @@ static WIRE_DUMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// BYTE-LEVEL outbound-request dump for wire diagnosis. No-op unless `ATOMCODE_WIRE_DUMP=1`.
 /// Writes the EXACT JSON body an adapter built (post-projection, pre-send) to
-/// `<config_dir>/wire-dump/<seq>-<ts>-<model>.req.json`. Best-effort: any failure (env unset,
-/// unwritable dir) is silently ignored so diagnostics never break a real request.
+/// `<dir>/<seq>-<ts>-<model>.req.json`, `dir` being the config's `wire_dump_dir` (the host
+/// passes `<user tree>/wire-dump`). Best-effort: any failure (env unset, no dir, unwritable
+/// dir) is silently ignored so diagnostics never break a real request.
 ///
 /// This is the ADAPTER-level, provider-SPECIFIC counterpart to the neutral
 /// [`WireLogHooks`](crate::hooks::WireLogHooks) (which logs the kernel `Message` view, not
 /// these bytes). The kernel has NO byte seam by design — byte framing is intrinsically the
 /// adapter's concern (each backend's JSON differs), so every adapter routes its built body
-/// through here. Ported from core's v1 `ATOMCODE_WIRE_DUMP` (same env + `wire-dump/` dir),
-/// but `config_dir()` honors `$ATOMCODE_HOME` (v1 used `$HOME`).
-pub(crate) fn wire_dump_request(model: &str, body: &Value) {
+/// through here. Ported from core's v1 `ATOMCODE_WIRE_DUMP` (same env + `wire-dump/` dir).
+pub(crate) fn wire_dump_request(dir: Option<&std::path::Path>, model: &str, body: &Value) {
     if std::env::var("ATOMCODE_WIRE_DUMP").ok().as_deref() != Some("1") {
         return;
     }
-    wire_dump_to(&crate::paths::config_dir().join("wire-dump"), model, body);
+    if let Some(dir) = dir {
+        wire_dump_to(dir, model, body);
+    }
 }
 
-/// The pure writer behind [`wire_dump_request`] — `dir`-injected so it's testable without
-/// mutating the process-global `$ATOMCODE_HOME`/`$ATOMCODE_WIRE_DUMP`. Best-effort.
+/// The pure writer behind [`wire_dump_request`] — testable without mutating the
+/// process-global `$ATOMCODE_WIRE_DUMP`. Best-effort.
 fn wire_dump_to(dir: &std::path::Path, model: &str, body: &Value) {
     if std::fs::create_dir_all(dir).is_err() {
         return;

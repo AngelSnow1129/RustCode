@@ -1,9 +1,8 @@
-//! `MemoryStore` — ported VERBATIM from `atomcode_core::config::memory` (the only
-//! change: `global()` resolves the root via [`super::config_dir`] instead of
-//! `Config::config_dir`, the standard L1 decoupling). Byte-compatible with
+//! `MemoryStore` — ported from `atomcode_core::config::memory`. Byte-compatible with
 //! production's `memory.md` files: same `- ` bullet format, same 64KB tail-read cap,
-//! same merged-prompt header and 4000-char truncation — old and new stacks read and
-//! write the same memory (caveat for `sudo`: see [`super::config_dir`]).
+//! same merged-prompt header and 4000-char truncation. The three tiers take the
+//! directory they live in from the caller ([`crate::ProductDirs`]); nothing here
+//! spells the product directory or reads the environment for it.
 
 use std::fs;
 use std::io::{self, Write};
@@ -22,28 +21,6 @@ pub struct MemoryStore {
     /// entries never reach version control even in repos where `atomcode setup`
     /// never appended the repo-root marker.
     local: bool,
-}
-
-/// Resolve the project-scope memory file. `override_dir` = the value of
-/// `ATOMCODE_PROJECT_MEMORY_DIR` (None/empty → default ".atomcode"). A relative value
-/// nests under `project_root`; an absolute value is used as-is (std `Path::join`
-/// semantics). `memory.md` is appended in either case.
-fn project_memory_path(project_root: &Path, override_dir: Option<&str>) -> PathBuf {
-    let dir = override_dir
-        .filter(|s| !s.is_empty())
-        .unwrap_or(".atomcode");
-    project_root.join(dir).join("memory.md")
-}
-
-/// Resolve the machine-local, project-scoped memory file. `override_dir` = the value of
-/// `ATOMCODE_LOCAL_MEMORY_DIR` (None/empty → default ".atomcode/local"). A relative value
-/// nests under `project_root`; an absolute value is used as-is — the same path-join
-/// semantics as `project_memory_path`. `memory.md` is appended in either case.
-fn local_memory_path(project_root: &Path, override_dir: Option<&str>) -> PathBuf {
-    let dir = override_dir
-        .filter(|s| !s.is_empty())
-        .unwrap_or(".atomcode/local");
-    project_root.join(dir).join("memory.md")
 }
 
 /// True when `store_path` is already excluded by some `.gitignore` layer between its
@@ -97,26 +74,23 @@ impl MemoryStore {
         Self { path, local: false }
     }
 
-    pub fn global() -> Self {
-        let dir = super::config_dir();
-        Self::new(dir.join("memory.md"))
+    /// The global tier: `<user tree>/memory.md`.
+    pub fn global(user_dir: &Path) -> Self {
+        Self::new(user_dir.join("memory.md"))
     }
 
-    /// Project-scope store. Honors `ATOMCODE_PROJECT_MEMORY_DIR` (host rebrand parity with
-    /// the global scope's `ATOMCODE_HOME`); default `.atomcode` is unchanged.
-    pub fn project(project_root: &Path) -> Self {
-        let override_dir = std::env::var("ATOMCODE_PROJECT_MEMORY_DIR").ok();
-        Self::new(project_memory_path(project_root, override_dir.as_deref()))
+    /// The project tier: `<project dir>/memory.md`, committed with the project.
+    pub fn project(project_dir: &Path) -> Self {
+        Self::new(project_dir.join("memory.md"))
     }
 
-    /// Machine-local, project-scoped store. Honors `ATOMCODE_LOCAL_MEMORY_DIR` (host
-    /// rebrand parity with the project scope's `ATOMCODE_PROJECT_MEMORY_DIR`); default
-    /// `.atomcode/local` is unchanged. Best home for facts unique to this machine that
-    /// should not be committed (`.atomcode/local/` is gitignored).
-    pub fn local(project_root: &Path) -> Self {
-        let override_dir = std::env::var("ATOMCODE_LOCAL_MEMORY_DIR").ok();
+    /// The machine-local, project-scoped tier: `<project dir>/local/memory.md`.
+    /// Best home for facts unique to this machine that should not be committed
+    /// (`local/` is gitignored by `setup`, and [`Self::append`] drops a sentinel
+    /// `.gitignore` beside it when nothing else covers it).
+    pub fn local(project_dir: &Path) -> Self {
         Self {
-            path: local_memory_path(project_root, override_dir.as_deref()),
+            path: project_dir.join("local").join("memory.md"),
             local: true,
         }
     }
@@ -386,52 +360,20 @@ mod tests {
     }
 
     #[test]
-    fn project_memory_path_resolves_override() {
+    fn each_tier_lives_in_the_dir_it_is_given() {
         use std::path::Path;
-        let root = Path::new("/proj");
-        // Default (unset/empty) is byte-identical to today's hardcoded path.
+        let project_dir = Path::new("/proj/.fork");
         assert_eq!(
-            super::project_memory_path(root, None),
-            Path::new("/proj/.atomcode/memory.md")
+            MemoryStore::global(Path::new("/elsewhere/tree")).path(),
+            Path::new("/elsewhere/tree/memory.md")
         );
         assert_eq!(
-            super::project_memory_path(root, Some("")),
-            Path::new("/proj/.atomcode/memory.md")
-        );
-        // Relative override nests under project_root.
-        assert_eq!(
-            super::project_memory_path(root, Some(".myapp")),
-            Path::new("/proj/.myapp/memory.md")
-        );
-        // Absolute override is used as-is (Path::join replaces the base).
-        assert_eq!(
-            super::project_memory_path(root, Some("/opt/brand/mem")),
-            Path::new("/opt/brand/mem/memory.md")
-        );
-    }
-
-    #[test]
-    fn local_memory_path_resolves_override() {
-        use std::path::Path;
-        let root = Path::new("/proj");
-        // Default (unset/empty) resolves under `.atomcode/local`.
-        assert_eq!(
-            super::local_memory_path(root, None),
-            Path::new("/proj/.atomcode/local/memory.md")
+            MemoryStore::project(project_dir).path(),
+            Path::new("/proj/.fork/memory.md")
         );
         assert_eq!(
-            super::local_memory_path(root, Some("")),
-            Path::new("/proj/.atomcode/local/memory.md")
-        );
-        // Relative override nests under project_root.
-        assert_eq!(
-            super::local_memory_path(root, Some(".myapp/local")),
-            Path::new("/proj/.myapp/local/memory.md")
-        );
-        // Absolute override is used as-is (Path::join replaces the base).
-        assert_eq!(
-            super::local_memory_path(root, Some("/opt/brand/mem")),
-            Path::new("/opt/brand/mem/memory.md")
+            MemoryStore::local(project_dir).path(),
+            Path::new("/proj/.fork/local/memory.md")
         );
     }
 
@@ -440,8 +382,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // A repo-root layer already covers `.atomcode/local/` (as `atomcode setup`
         // would have appended): the wildcard sentinel must NOT be written.
-        fs::write(dir.path().join(".gitignore"), ".atomcode/local/\n").unwrap();
-        let store = MemoryStore::local(dir.path());
+        fs::write(dir.path().join(".gitignore"), ".ours/local/\n").unwrap();
+        let store = MemoryStore::local(&dir.path().join(".ours"));
         store.append("machine only").unwrap();
         let sentinel = store.path().parent().unwrap().join(".gitignore");
         assert!(
@@ -453,7 +395,7 @@ mod tests {
     #[test]
     fn local_append_writes_gitignore_sentinel() {
         let dir = tempfile::tempdir().unwrap();
-        let store = MemoryStore::local(dir.path());
+        let store = MemoryStore::local(&dir.path().join(".ours"));
         store.append("machine only").unwrap();
         // Sentinel lands NEXT TO the store file (env-neutral: derive from the
         // resolved path, not from a hardcoded `.atomcode/local` guess).
@@ -469,10 +411,11 @@ mod tests {
     #[test]
     fn non_local_append_writes_no_sentinel() {
         let dir = tempfile::tempdir().unwrap();
-        MemoryStore::project(dir.path())
+        let project_dir = dir.path().join(".ours");
+        MemoryStore::project(&project_dir)
             .append("committed fact")
             .unwrap();
-        let sentinel = MemoryStore::project(dir.path())
+        let sentinel = MemoryStore::project(&project_dir)
             .path()
             .parent()
             .unwrap()

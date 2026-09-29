@@ -1440,7 +1440,7 @@ fn approval_mode_requires_responder(mode: crate::approval_mode::ApprovalMode) ->
 /// Delegates to the native store so API project ids and physical buckets stay
 /// byte-for-byte identical.
 pub(crate) fn hash_path(path: &std::path::Path) -> String {
-    NativeSessionManager::project_hash(path)
+    NativeSessionManager::project_hash(path, &atomcode_coding::config::product_dirs_from_env())
 }
 
 fn response_project_hash(path: &std::path::Path) -> String {
@@ -1475,7 +1475,9 @@ fn is_system_temp_dir(path: &std::path::Path) -> bool {
 
 /// List all projects (scans sessions directory)
 fn list_projects() -> std::io::Result<Vec<ProjectInfo>> {
-    let scan = catalog_scan_in_root(&NativeSessionManager::sessions_root())?;
+    let scan = catalog_scan_in_root(&NativeSessionManager::sessions_root(
+        atomcode_coding::config::product_dirs_from_env().user(),
+    ))?;
     let mut by_project = std::collections::BTreeMap::<String, ProjectInfo>::new();
     for entry in scan.entries {
         if is_system_temp_dir(&entry.working_dir) {
@@ -1730,10 +1732,14 @@ where
 
 /// List sessions for a project
 fn list_sessions(project_hash: &str) -> std::io::Result<Vec<SessionSummary>> {
-    let scan = catalog_scan_in_root(&NativeSessionManager::sessions_root())?;
+    let scan = catalog_scan_in_root(&NativeSessionManager::sessions_root(
+        atomcode_coding::config::product_dirs_from_env().user(),
+    ))?;
     let active = active_catalog_location(&scan.entries);
     list_sessions_in_root(
-        &NativeSessionManager::sessions_root(),
+        &NativeSessionManager::sessions_root(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        ),
         project_hash,
         active.as_ref(),
     )
@@ -1762,9 +1768,16 @@ fn list_sessions_in_root(
 
 /// List all sessions across all projects
 fn list_all_sessions() -> std::io::Result<Vec<SessionMetaWithProject>> {
-    let scan = catalog_scan_in_root(&NativeSessionManager::sessions_root())?;
+    let scan = catalog_scan_in_root(&NativeSessionManager::sessions_root(
+        atomcode_coding::config::product_dirs_from_env().user(),
+    ))?;
     let active = active_catalog_location(&scan.entries);
-    list_all_sessions_in_root(&NativeSessionManager::sessions_root(), active.as_ref())
+    list_all_sessions_in_root(
+        &NativeSessionManager::sessions_root(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        ),
+        active.as_ref(),
+    )
 }
 
 fn list_all_sessions_in_root(
@@ -1812,7 +1825,12 @@ fn resolve_session_in_root(
 fn resolve_session_by_id(
     id_prefix: &str,
 ) -> atomcode_capabilities::session::SessionResult<Option<SessionMetaWithProject>> {
-    resolve_session_in_root(&NativeSessionManager::sessions_root(), id_prefix)
+    resolve_session_in_root(
+        &NativeSessionManager::sessions_root(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        ),
+        id_prefix,
+    )
 }
 
 // ============== HTTP Handlers ==============
@@ -2282,8 +2300,12 @@ async fn get_session_transcript(Path((hash, id)): Path<(String, String)>) -> imp
     let task_hash = hash.clone();
     let task_id = id.clone();
     let loaded = tokio::task::spawn_blocking(move || {
-        let manager =
-            NativeSessionManager::with_root(NativeSessionManager::sessions_root().join(&task_hash));
+        let manager = NativeSessionManager::with_root(
+            NativeSessionManager::sessions_root(
+                atomcode_coding::config::product_dirs_from_env().user(),
+            )
+            .join(&task_hash),
+        );
         manager.load_transcript_records(&task_id)
     })
     .await;
@@ -2322,9 +2344,12 @@ pub(crate) struct ImageSidecar {
 }
 
 fn image_sidecar_path(working_dir: &std::path::Path, session_id: &str) -> PathBuf {
-    atomcode_capabilities::session::SessionManager::for_project(working_dir)
-        .root()
-        .join(format!("{session_id}.images.json"))
+    atomcode_capabilities::session::SessionManager::for_project(
+        working_dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    )
+    .root()
+    .join(format!("{session_id}.images.json"))
 }
 
 /// Append a VL-preprocessed message's ORIGINAL images to the session's display-only
@@ -2398,8 +2423,12 @@ pub(crate) struct TurnTimestamp {
 pub(crate) type TurnTimestamps = std::collections::BTreeMap<u64, TurnTimestamp>;
 
 fn load_turn_timestamps_blocking(project_hash: &str, session_id: &str) -> TurnTimestamps {
-    let manager =
-        NativeSessionManager::with_root(NativeSessionManager::sessions_root().join(project_hash));
+    let manager = NativeSessionManager::with_root(
+        NativeSessionManager::sessions_root(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        )
+        .join(project_hash),
+    );
     match manager.load_transcript_timestamps(session_id) {
         Ok(timestamps) => timestamps
             .into_iter()
@@ -2506,6 +2535,7 @@ fn read_todo_sidecar_for_detail(
 ) -> Vec<atomcode_capabilities::session::manager::TodoSidecarItem> {
     let manager = atomcode_capabilities::session::SessionManager::for_project(
         std::path::Path::new(&session.meta.working_dir),
+        &atomcode_coding::config::product_dirs_from_env(),
     );
     manager
         .read_todo_sidecar(&session.meta.id)
@@ -2676,7 +2706,10 @@ async fn create_session(
     }
 
     let id = uuid::Uuid::new_v4().to_string();
-    let manager = atomcode_capabilities::session::SessionManager::for_project(&working_dir);
+    let manager = atomcode_capabilities::session::SessionManager::for_project(
+        &working_dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let lease = match manager.acquire_lease(&id) {
         Ok(lease) => lease,
         Err(error) => {
@@ -2777,7 +2810,12 @@ async fn append_session_messages(
 
 /// Search sessions by name across all projects
 fn search_sessions_by_name(keyword: &str) -> std::io::Result<Vec<SessionMetaWithProject>> {
-    search_sessions_by_name_in_root(&NativeSessionManager::sessions_root(), keyword)
+    search_sessions_by_name_in_root(
+        &NativeSessionManager::sessions_root(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        ),
+        keyword,
+    )
 }
 
 fn search_sessions_by_name_in_root(
@@ -2920,8 +2958,12 @@ fn repair_session_file(
     session_id: &str,
     apply: bool,
 ) -> Result<RepairSessionResponse, RepairSessionFailure> {
-    let manager =
-        NativeSessionManager::with_root(NativeSessionManager::sessions_root().join(project_hash));
+    let manager = NativeSessionManager::with_root(
+        NativeSessionManager::sessions_root(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        )
+        .join(project_hash),
+    );
     repair_session_with_manager(&manager, session_id, apply).map_err(|error| RepairSessionFailure {
         transcript: transcript_state(&manager, session_id),
         error,
@@ -3143,7 +3185,9 @@ async fn delete_session(
             .filter(|binding| binding.session_id == id)
         {
             Some(binding) => {
-                let sessions_root = NativeSessionManager::sessions_root();
+                let sessions_root = NativeSessionManager::sessions_root(
+                    atomcode_coding::config::product_dirs_from_env().user(),
+                );
                 match run_session_catalog_io(move || catalog_scan_in_root(&sessions_root)).await {
                     Ok(scan)
                         if binding_targets_catalog_location(
@@ -4774,7 +4818,10 @@ fn resolve_chat_session(
             effective_working_dir: working_dir.to_path_buf(),
         });
     };
-    let project_bucket = NativeSessionManager::project_hash(working_dir);
+    let project_bucket = NativeSessionManager::project_hash(
+        working_dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let session = match crate::legacy_convert::load_catalog_session_view_in_project(
         &project_bucket,
         session_id_str,
@@ -5067,7 +5114,10 @@ fn publish_chat_session_assignment(
     event_tx: &mpsc::UnboundedSender<ChatEvent>,
 ) -> anyhow::Result<()> {
     if is_new_session {
-        let manager = NativeSessionManager::for_project(working_dir);
+        let manager = NativeSessionManager::for_project(
+            working_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
         let lease = manager.acquire_lease(session_id)?;
         let now = atomcode_capabilities::session::now_ms();
         let mut meta = atomcode_capabilities::session::SessionMeta::new(
@@ -5273,19 +5323,29 @@ fn merge_configured_mcp_statuses(
 
 async fn mcp_status(State(state): State<AppState>) -> Json<McpStatusResponse> {
     let working_dir = state.project.read().await.working_dir.clone();
-    let all_cfgs = atomcode_capabilities::mcp::load_mcp_config(&working_dir).unwrap_or_default();
+    let all_cfgs = atomcode_capabilities::mcp::load_mcp_config(
+        &working_dir,
+        atomcode_coding::config::product_dirs_from_env().user(),
+    )
+    .unwrap_or_default();
 
     // Trust / blocked enrichment: compute blocked FIRST so we can exclude them from the
     // server rows. Blocked (untrusted-project) servers are withheld — they never
     // connect — so they appear in `blocked[]` only, never also as a row (a
     // contradiction the webui rendered).
-    let trusted = atomcode_capabilities::mcp::trust::is_project_trusted(&working_dir);
-    let blocked: Vec<String> =
-        atomcode_capabilities::mcp::trust::partition_by_trust(all_cfgs.clone(), &working_dir)
-            .blocked
-            .into_iter()
-            .map(|c| c.name)
-            .collect();
+    let trusted = atomcode_capabilities::mcp::trust::is_project_trusted(
+        &working_dir,
+        atomcode_coding::config::product_dirs_from_env().user(),
+    );
+    let blocked: Vec<String> = atomcode_capabilities::mcp::trust::partition_by_trust(
+        all_cfgs.clone(),
+        &working_dir,
+        atomcode_coding::config::product_dirs_from_env().user(),
+    )
+    .blocked
+    .into_iter()
+    .map(|c| c.name)
+    .collect();
     let configured_names: Vec<String> = all_cfgs
         .iter()
         .map(|c| c.name.clone())
@@ -6064,7 +6124,11 @@ async fn get_skills(State(state): State<AppState>) -> impl IntoResponse {
     // Keep this composition in the plugin integration layer so the shared
     // SkillRegistry remains independent of plugin storage.
     let mut registry = atomcode_capabilities::skills::SkillRegistry::new();
-    atomcode_capabilities::plugin::loader::reload_skill_registry(&mut registry, &working_dir);
+    atomcode_capabilities::plugin::loader::reload_skill_registry(
+        &mut registry,
+        &atomcode_coding::config::product_dirs_from_env(),
+        &working_dir,
+    );
     let skills: Vec<SkillInfo> = registry
         .user_invocable()
         .into_iter()
@@ -6169,10 +6233,15 @@ pub struct FsSearchQuery {
 /// what guarantees the webui `@`-mention picker matches the CLI exactly.
 fn search_at_mention(dir: &std::path::Path, token: &str) -> Vec<serde_json::Value> {
     let (scope, filter) = atomcode_capabilities::file_index::split_token(token);
-    atomcode_capabilities::file_index::FileIndex::search_blocking(dir, &scope, &filter)
-        .into_iter()
-        .map(|e| serde_json::json!({ "path": e.rel_path, "is_dir": e.is_dir }))
-        .collect()
+    atomcode_capabilities::file_index::FileIndex::search_blocking(
+        dir,
+        &scope,
+        &filter,
+        atomcode_coding::config::product_dirs_from_env().project_dir_name(),
+    )
+    .into_iter()
+    .map(|e| serde_json::json!({ "path": e.rel_path, "is_dir": e.is_dir }))
+    .collect()
 }
 
 /// Recursive, gitignore-aware `@`-mention search for the webui picker. Mirrors
@@ -6290,7 +6359,9 @@ async fn fs_open(
     let active_binding = crate::native_live::binding().ok();
     let resolved = tokio::task::spawn_blocking(move || {
         resolve_session_workspace_file(
-            &NativeSessionManager::sessions_root(),
+            &NativeSessionManager::sessions_root(
+                atomcode_coding::config::product_dirs_from_env().user(),
+            ),
             &current_root,
             &requested,
             session_id.as_deref(),
@@ -6398,12 +6469,14 @@ pub struct ServerOpts {
 /// while it exited). Non-collision errors keep the plain form.
 fn daemon_bind_failure_message(addr: &str, port: u16, err: &std::io::Error) -> String {
     if err.kind() == std::io::ErrorKind::AddrInUse {
+        let marker = crate::daemon_token_file::token_file_path(port);
+        let marker = marker.display();
         format!(
             "Fatal: 端口 {addr} 已被占用,daemon 未能启动。\n\
              很可能是 JetBrains/VSCode 插件的 daemon 已占用该端口(常驻 13456)。\n\
              处理:改用其它端口 `--port <PORT>`(并让客户端 / 飞书 daemonBaseUrl 指向同一端口),\n\
              或退出占用 {port} 的程序后重试。\n\
-             提示:若用 `&` 后台启动,这行报错会被吞掉——请确认 `~/.atomcode/daemon-{port}.json` \
+             提示:若用 `&` 后台启动,这行报错会被吞掉——请确认 `{marker}` \
              是否真的生成,以判断 daemon 是否启动成功。\n\
              (底层错误:{err})"
         )
@@ -6516,7 +6589,10 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
     let repo_origin = detect_repo_origin(&project_state.working_dir);
 
     // Step 6: Seed account_id from stored auth (R4.3)
-    telemetry.set_account_id(auth::get_stored_auth().map(|a| a.user.id));
+    telemetry.set_account_id(
+        auth::get_stored_auth(atomcode_coding::config::product_dirs_from_env().user())
+            .map(|a| a.user.id),
+    );
 
     // Step 7: Build AppState (R1.4)
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -7622,7 +7698,10 @@ mod tests {
 
         publish_chat_session_assignment(&working_dir, session_id, true, &event_tx).unwrap();
 
-        let manager = NativeSessionManager::for_project(&working_dir);
+        let manager = NativeSessionManager::for_project(
+            &working_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
         let loaded = manager.load_native_session(session_id).unwrap();
         assert!(loaded.snapshot.messages.is_empty());
         assert!(matches!(
@@ -7636,7 +7715,9 @@ mod tests {
         let home = ScopedChatHome::new();
         let working_dir = home._dir.path().join("project");
         std::fs::create_dir_all(&working_dir).unwrap();
-        let sessions_root = NativeSessionManager::sessions_root();
+        let sessions_root = NativeSessionManager::sessions_root(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        );
         std::fs::write(&sessions_root, b"block session directory creation").unwrap();
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
 
@@ -7972,7 +8053,10 @@ mod tests {
         config.save(&Config::default_path()).unwrap();
 
         let session_id = "33333333-3333-4333-8333-333333333333";
-        let manager = SessionManager::for_project(&working_dir);
+        let manager = SessionManager::for_project(
+            &working_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
         let lease = manager.acquire_lease(session_id).unwrap();
         let mut meta = SessionMeta::new(session_id, working_dir.to_string_lossy(), 1);
         meta.owner = StorageOwner::Native;
@@ -8329,7 +8413,13 @@ mod tests {
             )
             .unwrap();
 
-        let hook = SnapshotHook::new(manager.clone(), session_id, "/project").with_lease(lease);
+        let hook = SnapshotHook::new(
+            manager.clone(),
+            session_id,
+            "/project",
+            &atomcode_coding::config::product_dirs_from_env(),
+        )
+        .with_lease(lease);
         let mut conversation = Conversation::default();
         conversation.push(Message::user("正在执行的首轮任务"));
         hook.turn_start(&mut conversation).await;
@@ -8373,7 +8463,10 @@ mod tests {
         let historical_bucket = "0123456789abcdef";
         assert_ne!(
             historical_bucket,
-            atomcode_capabilities::session::SessionManager::project_hash(&working_dir)
+            atomcode_capabilities::session::SessionManager::project_hash(
+                &working_dir,
+                &atomcode_coding::config::product_dirs_from_env()
+            )
         );
         let entry = CatalogEntry {
             id: "resumed-session".into(),
@@ -8682,7 +8775,10 @@ mod tests {
             use atomcode_capabilities::session::{
                 PresentationFile, SessionManager, SessionMeta, StorageOwner,
             };
-            let manager = SessionManager::for_project(dir_b.path());
+            let manager = SessionManager::for_project(
+                dir_b.path(),
+                &atomcode_coding::config::product_dirs_from_env(),
+            );
             let lease = manager.acquire_lease(id).unwrap();
             let snapshot = atomcode_kernel::message::SessionSnapshot::new(vec![
                 atomcode_kernel::message::Message::user("history from B"),

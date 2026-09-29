@@ -53,10 +53,22 @@ pub struct AtomgitConfig {
 /// Live token provider — reads/refreshes the OAuth token from auth.toml.
 /// NOTE: `token()` is sync and (rarely) does network I/O on refresh; callers on
 /// the hot async path should prefer prefetching via spawn_blocking + StaticTokenProvider.
-pub struct LiveTokenProvider;
+pub struct LiveTokenProvider {
+    /// The user tree whose `auth.toml` holds the login.
+    user_dir: std::path::PathBuf,
+}
+
+impl LiveTokenProvider {
+    pub fn new(user_dir: impl Into<std::path::PathBuf>) -> Self {
+        Self {
+            user_dir: user_dir.into(),
+        }
+    }
+}
+
 impl TokenProvider for LiveTokenProvider {
     fn token(&self) -> Result<String, String> {
-        atomcode_auth::oauth::get_valid_token().map_err(|e| format!("{e:#}"))
+        atomcode_auth::oauth::get_valid_token(&self.user_dir).map_err(|e| format!("{e:#}"))
     }
 }
 

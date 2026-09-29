@@ -35,7 +35,13 @@ async fn session_context_block_reaches_the_provider() {
     ]]));
     let calls = provider.calls(); // capture the shared handle before moving the provider
 
-    let cfg = CodingAgentConfig::new("k", "http://localhost", "test-model", d.path());
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost",
+        "test-model",
+        d.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     let mut mounted = mount(&cfg, quiet_options(), provider).await;
     let _ = turn(&mut mounted.handle, "hello", allow()).await;
 

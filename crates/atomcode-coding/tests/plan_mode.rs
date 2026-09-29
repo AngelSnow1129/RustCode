@@ -24,7 +24,13 @@ async fn plan_mode_blocks_a_write_tool_through_the_assembly() {
     let project = tempfile::tempdir().unwrap();
     std::env::set_var("ATOMCODE_HOME", home.path());
 
-    let mut cfg = CodingAgentConfig::new("k", "http://unused", "test-model", project.path());
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://unused",
+        "test-model",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     cfg.stream_timeout = Duration::from_secs(5);
     cfg.request_timeout = Some(Duration::from_secs(5));
     let opts = PrepareOptions {

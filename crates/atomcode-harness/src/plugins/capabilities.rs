@@ -16,7 +16,7 @@ use atomcode_capabilities::codeintel::{
 use atomcode_capabilities::mcp::{McpRegistry, McpToolAdapter};
 use atomcode_capabilities::memory::MemoryStore;
 use atomcode_capabilities::skills::{
-    runtime_skill_dirs, ListSkillsTool, SkillRegistry, UseSkillTool,
+    standard_skill_dirs, ListSkillsTool, SkillRegistry, SkillRoots, UseSkillTool,
 };
 use atomcode_capabilities::tools::{WebFetchTool, WebSearchTool};
 use atomcode_kernel::tool::Tool;
@@ -107,7 +107,7 @@ impl Plugin for SkillsPlugin {
         "skills"
     }
     fn inject(&self) -> &'static [&'static str] {
-        &["tools"]
+        &["product-dirs", "tools"]
     }
     fn uses(&self) -> &'static [&'static str] {
         // `use_skill` / `list_skills` hold the registry this row provides;
@@ -135,9 +135,16 @@ impl Plugin for SkillsPlugin {
             .map(PathBuf::from)
             .or_else(crate::model_source::user_home)
             .unwrap_or_else(|| PathBuf::from("."));
-        let mut dirs = runtime_skill_dirs(&home, &project);
+        let product = crate::product_dirs(ctx)?;
+        let roots = SkillRoots {
+            home: &home,
+            project: &project,
+            dirs: &product,
+        };
+        let mut dirs = standard_skill_dirs(roots);
         dirs.extend(row.dirs.iter().map(PathBuf::from));
         let registry = Arc::new(SkillRegistry::load(&dirs));
+        registry.set_native_roots(roots.native());
         let count = registry.len();
 
         let _ = ctx
@@ -222,7 +229,7 @@ impl Plugin for CodeGraphPlugin {
         "code-graph"
     }
     fn inject(&self) -> &'static [&'static str] {
-        &["tools"]
+        &["product-dirs", "tools"]
     }
     fn uses(&self) -> &'static [&'static str] {
         // The graph tools hold the index this row provides.
@@ -237,7 +244,7 @@ impl Plugin for CodeGraphPlugin {
     async fn apply(&self, ctx: &Context, _config: &Value) -> Result<(), String> {
         // One shared, lazily-built index behind a service: every graph tool
         // reads the same cache, and a different indexer could fill the slot.
-        let index = Arc::new(CodeIndex::new());
+        let index = Arc::new(CodeIndex::new(&*crate::product_dirs(ctx)?));
         let _ = ctx
             .provide::<CodeIndexSvc>(index.clone())
             .map_err(|e| e.to_string())?;
@@ -477,7 +484,7 @@ impl Plugin for ReviewToolPlugin {
         "tool-code-review"
     }
     fn inject(&self) -> &'static [&'static str] {
-        &["tools", "llm"]
+        &["product-dirs", "tools", "llm"]
     }
     fn uses(&self) -> &'static [&'static str] {
         // `commands` carries the `/review` a person runs; `fs` says which
@@ -508,7 +515,11 @@ impl Plugin for ReviewToolPlugin {
             ..defaults
         };
         let slot: SharedReviewProvider = Arc::new(std::sync::RwLock::new(Some(provider)));
-        let tool = Arc::new(ReviewTool::new(slot, cfg));
+        let tool = Arc::new(ReviewTool::new(
+            slot,
+            cfg,
+            (*crate::product_dirs(ctx)?).clone(),
+        ));
         mount(ctx, vec![tool.clone() as Arc<dyn Tool>])?;
         // And as a command a person runs, through the same tool
         // (`docs/adr/0021` §10,
@@ -794,6 +805,8 @@ struct MemoryCommand {
     summary: &'static str,
     action: &'static str,
     project: PathBuf,
+    /// Where the project tiers live (`<project dir>/memory.md`, `…/local/…`).
+    dirs: atomcode_capabilities::ProductDirs,
     /// The global tier's file, as the row resolved it.
     ///
     /// Carried rather than looked up, for the same reason the tool takes one: a
@@ -856,7 +869,8 @@ impl crate::commands::CatalogCommand for MemoryCommand {
             };
             call[key] = serde_json::Value::String(content.to_string());
         }
-        let result = atomcode_capabilities::tools::MemoryTool::with_global(self.global.clone())
+        let result = atomcode_capabilities::tools::MemoryTool::new(self.dirs.clone())
+            .with_global(self.global.clone())
             .execute(
                 &call.to_string(),
                 &ToolContext {
@@ -887,6 +901,9 @@ impl Plugin for MemoryPlugin {
     fn name(&self) -> &'static str {
         "memory"
     }
+    fn inject(&self) -> &'static [&'static str] {
+        &["product-dirs"]
+    }
     fn uses(&self) -> &'static [&'static str] {
         // The tool half is optional: a tree with no catalog still gets the
         // injection, which is the half that works with no model cooperation.
@@ -909,14 +926,16 @@ impl Plugin for MemoryPlugin {
             .unwrap_or_else(|| "project".into());
         // Resolved once, and handed to both halves: the injection that reads the
         // global tier and the tool that writes it must agree on which file it is.
+        let dirs = (*crate::product_dirs(ctx)?).clone();
+        let project_dir = dirs.project(&project);
         let global = row
             .global
             .map(PathBuf::from)
-            .unwrap_or_else(|| MemoryStore::global().path().to_path_buf());
+            .unwrap_or_else(|| MemoryStore::global(dirs.user()).path().to_path_buf());
         let merged = MemoryStore::merged_for_prompt(
             &MemoryStore::new(global.clone()),
-            &MemoryStore::project(&project),
-            &MemoryStore::local(&project),
+            &MemoryStore::project(&project_dir),
+            &MemoryStore::local(&project_dir),
             &project_name,
         );
         // The write half. Until this the agent could read the user's memory but
@@ -926,7 +945,8 @@ impl Plugin for MemoryPlugin {
         super::tools::mount_optional(
             ctx,
             vec![Arc::new(
-                atomcode_capabilities::tools::MemoryTool::with_global(global.clone()),
+                atomcode_capabilities::tools::MemoryTool::new(dirs.clone())
+                    .with_global(global.clone()),
             )],
         )?;
 
@@ -942,6 +962,7 @@ impl Plugin for MemoryPlugin {
                 summary: "存下来的那些话",
                 action: "list",
                 project: project.clone(),
+                dirs: dirs.clone(),
                 global: global.clone(),
             }) as Arc<dyn crate::commands::CatalogCommand>,
             Arc::new(MemoryCommand {
@@ -950,6 +971,7 @@ impl Plugin for MemoryPlugin {
                 summary: "记住一句话,以后每个会话都带着",
                 action: "remember",
                 project: project.clone(),
+                dirs: dirs.clone(),
                 global: global.clone(),
             }),
             Arc::new(MemoryCommand {
@@ -958,6 +980,7 @@ impl Plugin for MemoryPlugin {
                 summary: "把记住的某句话删掉",
                 action: "forget",
                 project: project.clone(),
+                dirs: dirs.clone(),
                 global: global.clone(),
             }),
         ] {
@@ -978,8 +1001,8 @@ impl Plugin for MemoryPlugin {
                  Memory is what someone chose to state; for everything that was \
                  merely *said*, use `recall` instead.",
                 global.display(),
-                MemoryStore::project(&project).path().display(),
-                MemoryStore::local(&project).path().display(),
+                MemoryStore::project(&project_dir).path().display(),
+                MemoryStore::local(&project_dir).path().display(),
             ),
         );
 
@@ -1045,7 +1068,7 @@ impl Plugin for McpPlugin {
         "mcp"
     }
     fn inject(&self) -> &'static [&'static str] {
-        &["tools"]
+        &["product-dirs", "tools"]
     }
     fn uses(&self) -> &'static [&'static str] {
         // Every mounted adapter calls back into the registry this row provides.
@@ -1065,7 +1088,8 @@ impl Plugin for McpPlugin {
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
 
-        let registry = Arc::new(McpRegistry::from_config(&project).await);
+        let user_dir = crate::product_dirs(ctx)?.user().to_path_buf();
+        let registry = Arc::new(McpRegistry::from_config(&project, &user_dir).await);
         registry
             .wait_for_initial_connections(std::time::Duration::from_millis(row.connect_timeout_ms))
             .await;

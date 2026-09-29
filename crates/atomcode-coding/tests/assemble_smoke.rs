@@ -30,7 +30,13 @@ async fn assembles_and_runs_a_tool_end_to_end() {
         ],
     ]));
 
-    let cfg = CodingAgentConfig::new("k", "http://localhost:0", "mock-model", ".");
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost:0",
+        "mock-model",
+        ".",
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     let mut mounted = mount(&cfg, quiet_options(), provider).await;
     let outcome = turn(&mut mounted.handle, "list the current directory", allow()).await;
 
@@ -74,7 +80,13 @@ async fn coding_assembly_enables_the_round_fuse() {
         list_round("1", "."),
         list_round("2", "./"),
     ]));
-    let mut cfg = CodingAgentConfig::new("k", "http://localhost:0", "mock-model", project.path());
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost:0",
+        "mock-model",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     cfg.max_rounds = 2;
 
     let mut mounted = mount(&cfg, quiet_options(), provider).await;
@@ -101,7 +113,13 @@ async fn coding_assembly_enables_the_round_fuse() {
 #[tokio::test]
 async fn coding_assembly_enables_exact_stable_loop_detection() {
     let project = tempfile::tempdir().unwrap();
-    let mut cfg = CodingAgentConfig::new("k", "http://localhost:0", "mock-model", project.path());
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost:0",
+        "mock-model",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     cfg.max_rounds = 20;
     let stops_at = cfg
         .tool_loop_policy
@@ -137,7 +155,13 @@ async fn coding_assembly_can_disable_exact_guard_for_intentional_repetition() {
             StreamEvent::Done { truncated: false },
         ],
     ]));
-    let mut cfg = CodingAgentConfig::new("k", "http://localhost:0", "mock-model", project.path());
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost:0",
+        "mock-model",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     cfg.max_rounds = 20;
     cfg.tool_loop_policy = None;
 

@@ -6,7 +6,7 @@
 
 use super::read::lenient_usize;
 use super::sensitive_path::is_credential_path;
-use super::{err, is_skip_dir, not_found_hint, ok, resolve_path};
+use super::{err, not_found_hint, ok, resolve_path};
 use crate::world::{FileSystem, LocalFs, SearchLine, SearchQuery};
 use async_trait::async_trait;
 use atomcode_kernel::tool::{Tool, ToolContext, ToolResult};
@@ -28,20 +28,27 @@ pub struct GrepTool {
     /// are the world's ([`FileSystem::search`]); the pattern, the caps, what to
     /// skip and how a hit is shown stay here.
     world: Arc<dyn FileSystem>,
+    /// Where the product keeps its data: our own per-project dir is skipped
+    /// in walks (plugin clones, artifacts, team worktrees).
+    dirs: crate::ProductDirs,
 }
 
+#[cfg(test)]
 impl Default for GrepTool {
     fn default() -> Self {
-        Self {
-            world: Arc::new(LocalFs::unfenced()),
-        }
+        Self::new(crate::product_dirs::test_dirs())
     }
 }
 
 impl GrepTool {
+    /// Work on this machine's disk.
+    pub fn new(dirs: crate::ProductDirs) -> Self {
+        Self::with_world(Arc::new(LocalFs::unfenced()), dirs)
+    }
+
     /// Search `world` instead of this machine's disk.
-    pub fn with_world(world: Arc<dyn FileSystem>) -> Self {
-        Self { world }
+    pub fn with_world(world: Arc<dyn FileSystem>, dirs: crate::ProductDirs) -> Self {
+        Self { world, dirs }
     }
 }
 
@@ -139,27 +146,28 @@ impl Tool for GrepTool {
             literal
         };
 
-        // A credential store in the AtomCode home (`config.toml` with its api keys,
+        // A credential store in the user tree (`config.toml` with its api keys,
         // `auth.toml`, …) is searched only when the call names it — and then the
         // sensitive-path gate has already asked. A walk that merely passes through
         // the home must not read it: `grep api_key ~/.atomcode` would otherwise
         // hand over what `read_file ~/.atomcode/config.toml` asks about. Resolved
         // on the first file the walk meets, on the walker's own thread.
         let credential_homes = std::sync::OnceLock::new();
+        let user_dir = self.dirs.user().to_path_buf();
         let query = SearchQuery {
             pattern,
             case_insensitive,
             context,
             max_matches: max,
             cancel: ctx.cancel.clone(),
-            skip_dir: Arc::new(is_skip_dir),
+            skip_dir: crate::pathutil::skip_dir_for(&self.dirs),
             skip_file: Arc::new(move |path: &std::path::Path| {
                 path.extension()
                     .map(|x| x.eq_ignore_ascii_case("log"))
                     .unwrap_or(false)
                     || (walks_a_dir
                         && credential_homes
-                            .get_or_init(home_spellings)
+                            .get_or_init(|| home_spellings(&user_dir))
                             .iter()
                             .any(|home| is_credential_path(path, home)))
             }),
@@ -200,10 +208,10 @@ impl Tool for GrepTool {
     }
 }
 
-/// The AtomCode home as a walk may spell it: as configured, and canonical when
+/// The user tree as a walk may spell it: as handed in, and canonical when
 /// that differs — a fenced world walks the canonical path.
-fn home_spellings() -> Vec<std::path::PathBuf> {
-    let home = crate::paths::config_dir();
+fn home_spellings(home: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let home = home.to_path_buf();
     let canonical = home.canonicalize().ok().filter(|real| *real != home);
     std::iter::once(home).chain(canonical).collect()
 }
@@ -526,15 +534,15 @@ mod tests {
         );
     }
 
-    /// Walking the AtomCode home must not read its credential stores on the way past.
+    /// Walking the user tree must not read its credential stores on the way past.
     /// The sensitive-path gate asks before `read_file ~/.atomcode/config.toml`, and it
     /// asks before a grep that names that file — but a grep rooted at the home names
     /// only the directory, so without this every plain `api_key` in `config.toml` (and
     /// in its hand-made backups) came back as a match line, unasked.
     #[tokio::test]
     async fn a_walk_through_the_home_skips_its_credential_stores() {
-        // The crate's `#[ctor]` points `$ATOMCODE_HOME` at a throwaway dir.
-        let home = crate::paths::config_dir();
+        // The test user tree (a throwaway dir) — the one `GrepTool::default()` guards.
+        let home = crate::product_dirs::test_dirs().user().to_path_buf();
         std::fs::create_dir_all(&home).unwrap();
         let needle = "sk-grep-walk-criterion";
         let line = format!("api_key = \"{needle}\"\n");

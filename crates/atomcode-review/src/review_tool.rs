@@ -241,10 +241,16 @@ pub struct ReviewTool {
     max_turn_duration: Option<Duration>,
     tool_loop_policy: Option<ToolLoopPolicy>,
     delegate: Option<Arc<dyn ReviewDelegate>>,
+    /// Where the product keeps its data — handed to the child reviewer's tools.
+    dirs: atomcode_capabilities::ProductDirs,
 }
 
 impl ReviewTool {
-    pub fn new(provider: SharedReviewProvider, cfg: ReviewToolConfig) -> Self {
+    pub fn new(
+        provider: SharedReviewProvider,
+        cfg: ReviewToolConfig,
+        dirs: atomcode_capabilities::ProductDirs,
+    ) -> Self {
         let (max_rounds, max_turn_duration) = resolve_embedded_review_limits(
             std::env::var("ATOMCODE_REVIEW_MAX_ROUNDS").ok().as_deref(),
             std::env::var("ATOMCODE_REVIEW_MAX_DURATION_SECS")
@@ -254,6 +260,7 @@ impl ReviewTool {
         Self {
             provider,
             cfg,
+            dirs,
             max_rounds,
             max_turn_duration,
             delegate: None,
@@ -619,7 +626,13 @@ impl Tool for ReviewTool {
 
         // Shared per-agent config seed (both paths).
         let make_cfg = || {
-            let mut cfg = ReviewAgentConfig::new("", "", &self.cfg.model, &ctx.working_dir);
+            let mut cfg = ReviewAgentConfig::new(
+                "",
+                "",
+                &self.cfg.model,
+                &ctx.working_dir,
+                self.dirs.clone(),
+            );
             cfg.context_window = self.cfg.context_window;
             cfg.stream_timeout = self.cfg.stream_timeout;
             cfg.first_token_timeout = self.cfg.first_token_timeout;
@@ -1011,6 +1024,13 @@ fn render_incomplete_review(
 
 #[cfg(test)]
 mod tests {
+    fn test_dirs() -> atomcode_capabilities::ProductDirs {
+        atomcode_capabilities::ProductDirs::new(
+            std::env::temp_dir().join("review-test-tree"),
+            ".ours",
+        )
+    }
+
     use super::*;
     use async_trait::async_trait;
     use atomcode_kernel::message::{Message, Role};
@@ -1159,7 +1179,11 @@ mod tests {
                 _ => {}
             }
         }
-        let tool = ReviewTool::new(Arc::new(RwLock::new(None)), ReviewToolConfig::default());
+        let tool = ReviewTool::new(
+            Arc::new(RwLock::new(None)),
+            ReviewToolConfig::default(),
+            test_dirs(),
+        );
         assert_no_forbidden_keys(&tool.parameters_schema(), "$");
     }
 
@@ -1514,6 +1538,7 @@ mod tests {
                 max_changed_lines_without_confirmation: 0,
                 ..Default::default()
             },
+            test_dirs(),
         );
         let ctx = ToolContext {
             working_dir: dir.path().to_path_buf(),
@@ -1578,8 +1603,12 @@ mod tests {
             takes: true,
             asked: Default::default(),
         });
-        let tool = ReviewTool::new(Arc::new(RwLock::new(None)), ReviewToolConfig::default())
-            .with_delegate(Some(delegate.clone()));
+        let tool = ReviewTool::new(
+            Arc::new(RwLock::new(None)),
+            ReviewToolConfig::default(),
+            test_dirs(),
+        )
+        .with_delegate(Some(delegate.clone()));
 
         let result = tool
             .execute(r#"{"depth":"deep"}"#, &ctx_in(dir.path()))
@@ -1611,8 +1640,12 @@ mod tests {
             takes: false,
             asked: Default::default(),
         });
-        let tool = ReviewTool::new(Arc::new(RwLock::new(None)), ReviewToolConfig::default())
-            .with_delegate(Some(declines.clone()));
+        let tool = ReviewTool::new(
+            Arc::new(RwLock::new(None)),
+            ReviewToolConfig::default(),
+            test_dirs(),
+        )
+        .with_delegate(Some(declines.clone()));
         let result = tool.execute("{}", &ctx_in(dir.path())).await;
         // Inline, with no provider wired in this test: the error is the proof it
         // tried to review here rather than claiming it went elsewhere.
@@ -1629,6 +1662,7 @@ mod tests {
                 max_changed_lines_without_confirmation: 0,
                 ..Default::default()
             },
+            test_dirs(),
         )
         .with_delegate(Some(takes.clone()));
         let result = tool.execute("{}", &ctx_in(dir.path())).await;
@@ -1696,6 +1730,7 @@ mod tests {
                 model: "mock-model".into(),
                 ..Default::default()
             },
+            test_dirs(),
         );
         let ctx = ToolContext {
             working_dir: dir.path().to_path_buf(),
@@ -1729,6 +1764,7 @@ mod tests {
                 request_timeout: Duration::from_secs(700),
                 ..Default::default()
             },
+            test_dirs(),
         );
         let ctx = ToolContext {
             working_dir: dir.path().to_path_buf(),
@@ -1777,6 +1813,7 @@ mod tests {
                 model: "mock-model".into(),
                 ..Default::default()
             },
+            test_dirs(),
         );
         let ctx = ToolContext {
             working_dir: root.to_path_buf(),
@@ -1824,7 +1861,7 @@ mod tests {
     #[test]
     fn depth_schema_guides_when_to_escalate() {
         let provider: SharedReviewProvider = Arc::new(RwLock::new(None));
-        let tool = ReviewTool::new(provider, ReviewToolConfig::default());
+        let tool = ReviewTool::new(provider, ReviewToolConfig::default(), test_dirs());
         let schema = tool.parameters_schema();
         let depth_desc = schema["properties"]["depth"]["description"]
             .as_str()
@@ -1872,6 +1909,7 @@ mod tests {
                 model: "mock-model".into(),
                 ..Default::default()
             },
+            test_dirs(),
         );
         let ctx = ToolContext {
             working_dir: dir.path().to_path_buf(),
@@ -1916,6 +1954,7 @@ mod tests {
                 model: "mock-model".into(),
                 ..Default::default()
             },
+            test_dirs(),
         );
         let ctx = ToolContext {
             working_dir: dir.path().to_path_buf(),
@@ -1961,7 +2000,7 @@ mod tests {
 
         // No working-tree change → clean. Provider must NOT be needed (early return).
         let provider: SharedReviewProvider = Arc::new(RwLock::new(None));
-        let tool = ReviewTool::new(provider, ReviewToolConfig::default());
+        let tool = ReviewTool::new(provider, ReviewToolConfig::default(), test_dirs());
         let ctx = ToolContext {
             working_dir: root.to_path_buf(),
             cancel: Default::default(),

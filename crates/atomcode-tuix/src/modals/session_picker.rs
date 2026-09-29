@@ -238,7 +238,10 @@ impl SessionPicker {
             .current_session_project_bucket
             .clone()
             .unwrap_or_else(|| {
-                atomcode_capabilities::session::SessionManager::project_hash(&ctx.working_dir)
+                atomcode_capabilities::session::SessionManager::project_hash(
+                    &ctx.working_dir,
+                    &atomcode_coding::config::product_dirs_from_env(),
+                )
             });
         if self.replay_selected_current_session(
             &ctx.current_session,
@@ -588,8 +591,10 @@ impl Modal for SessionPicker {
                     p.into_owned()
                 }
             });
-        let current_project_bucket =
-            atomcode_capabilities::session::SessionManager::project_hash(&ctx.working_dir);
+        let current_project_bucket = atomcode_capabilities::session::SessionManager::project_hash(
+            &ctx.working_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
         let payload = build_menu_payload_with_preview(
             self,
             &project,
@@ -1482,8 +1487,10 @@ mod tests {
         ];
         let mut selected = meta("current session", current.messages.len());
         selected.id = current.id.clone();
-        let current_bucket =
-            atomcode_capabilities::session::SessionManager::project_hash(&current.working_dir);
+        let current_bucket = atomcode_capabilities::session::SessionManager::project_hash(
+            &current.working_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
         selected.project_bucket = current_bucket.clone();
         let picker = SessionPicker::open(vec![selected]);
         let mut state = UiState::with_unicode(true);

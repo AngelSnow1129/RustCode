@@ -26,7 +26,13 @@ async fn sensitive_read_is_gated_and_fails_closed_through_full_assembly() {
     let project = tempfile::tempdir().unwrap();
     std::env::set_var("ATOMCODE_HOME", home.path());
 
-    let mut cfg = CodingAgentConfig::new("k", "http://unused", "test-model", project.path());
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://unused",
+        "test-model",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     cfg.stream_timeout = Duration::from_secs(5);
     // A driver-approval wait this short degrades the un-answered round-trip to Deny fast.
     cfg.request_timeout = Some(Duration::from_millis(100));
@@ -118,7 +124,13 @@ async fn the_config_file_api_keys_never_reach_the_provider_unasked() {
     )
     .unwrap();
 
-    let mut cfg = CodingAgentConfig::new("k", "http://unused", "test-model", project.path());
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://unused",
+        "test-model",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     cfg.stream_timeout = Duration::from_secs(5);
     cfg.interactive = true;
     let opts = quiet_options();

@@ -39,7 +39,7 @@
 //! ## Precedence and the hard floor
 //!
 //! `deny` is checked first and wins. An `allow` NEVER applies to a call whose arguments
-//! reference a sensitive path ([`references_sensitive_path`]) — a broad `Bash(rm *)` must not
+//! reference a sensitive path ([`SensitivePaths::references`]) — a broad `Bash(rm *)` must not
 //! silently delete `~/.ssh/id_rsa`. Such a call falls through to the normal gates and still
 //! prompts. `deny` is unconditional.
 //!
@@ -65,7 +65,7 @@ use atomcode_kernel::tool::{Tool, ToolCall};
 
 use super::bash::normalize_command_for_grant;
 use super::resolve_path;
-use super::sensitive_path::references_sensitive_path;
+use super::sensitive_path::SensitivePaths;
 
 /// What the rule set says about one call.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -225,8 +225,15 @@ impl PermissionRules {
         self.allow.is_empty() && self.deny.is_empty()
     }
 
-    /// Decide one call. `deny` wins; `allow` is suppressed for sensitive-path arguments.
-    pub fn decide(&self, tool: &str, args: &str, cwd: &Path) -> RuleDecision {
+    /// Decide one call. `deny` wins; `allow` is suppressed for arguments `sensitive`
+    /// recognises.
+    pub fn decide(
+        &self,
+        sensitive: &SensitivePaths,
+        tool: &str,
+        args: &str,
+        cwd: &Path,
+    ) -> RuleDecision {
         if self.is_empty() {
             return RuleDecision::NoMatch;
         }
@@ -237,7 +244,7 @@ impl PermissionRules {
         if self.allow.iter().any(|r| r.matches(tool, &targets)) {
             // HARD FLOOR: a user allow-rule pre-authorizes convenience, never a secret. A
             // sensitive target falls through so the normal gates still prompt.
-            if references_sensitive_path(args) {
+            if sensitive.references(args) {
                 return RuleDecision::NoMatch;
             }
             return RuleDecision::Allow;
@@ -282,16 +289,25 @@ pub struct PermissionRuleGate {
     /// LIVE working dir — the same handle the other gates read, so a `/cd` moves the
     /// baseline a relative path rule resolves against.
     cwd: Arc<RwLock<PathBuf>>,
+    sensitive: SensitivePaths,
 }
 
 impl PermissionRuleGate {
-    pub fn new(rules: Arc<PermissionRules>, cwd: Arc<RwLock<PathBuf>>) -> Self {
-        Self { rules, cwd }
+    pub fn new(
+        rules: Arc<PermissionRules>,
+        cwd: Arc<RwLock<PathBuf>>,
+        sensitive: SensitivePaths,
+    ) -> Self {
+        Self {
+            rules,
+            cwd,
+            sensitive,
+        }
     }
 
     /// Gate over a FIXED workspace root (tests / assemblies with an immutable working dir).
-    pub fn pinned(rules: PermissionRules, root: PathBuf) -> Self {
-        Self::new(Arc::new(rules), Arc::new(RwLock::new(root)))
+    pub fn pinned(rules: PermissionRules, root: PathBuf, sensitive: SensitivePaths) -> Self {
+        Self::new(Arc::new(rules), Arc::new(RwLock::new(root)), sensitive)
     }
 }
 
@@ -311,7 +327,10 @@ impl ToolMiddleware for PermissionRuleGate {
             .ok()
             .map(|g| g.clone())
             .unwrap_or_else(|| PathBuf::from("."));
-        match self.rules.decide(tool.name(), &call.arguments, &cwd) {
+        match self
+            .rules
+            .decide(&self.sensitive, tool.name(), &call.arguments, &cwd)
+        {
             RuleDecision::Allow => BeforeOutcome::Allow {
                 reason: Some(format!(
                     "pre-authorized by a [permissions] allow rule for '{}'",
@@ -374,7 +393,12 @@ mod tests {
     fn bare_tool_rule_matches_any_args() {
         let r = rules(&["Bash"], &[]);
         assert_eq!(
-            r.decide("bash", &bash_args("rm -rf build"), &cwd()),
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "bash",
+                &bash_args("rm -rf build"),
+                &cwd()
+            ),
             RuleDecision::Allow
         );
     }
@@ -383,11 +407,21 @@ mod tests {
     fn command_pattern_scopes_the_grant() {
         let r = rules(&["Bash(git *)"], &[]);
         assert_eq!(
-            r.decide("bash", &bash_args("git status"), &cwd()),
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "bash",
+                &bash_args("git status"),
+                &cwd()
+            ),
             RuleDecision::Allow
         );
         assert_eq!(
-            r.decide("bash", &bash_args("rm -rf /"), &cwd()),
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "bash",
+                &bash_args("rm -rf /"),
+                &cwd()
+            ),
             RuleDecision::NoMatch
         );
     }
@@ -403,7 +437,12 @@ mod tests {
             "python3 /home/u/下载/b.py",
         ] {
             assert_eq!(
-                r.decide("bash", &bash_args(cmd), &cwd()),
+                r.decide(
+                    &crate::tools::sensitive_path::test_guard(),
+                    "bash",
+                    &bash_args(cmd),
+                    &cwd()
+                ),
                 RuleDecision::Allow,
                 "{cmd}"
             );
@@ -414,7 +453,12 @@ mod tests {
     fn cc_colon_star_prefix_form_is_accepted() {
         let r = rules(&["Bash(npm run test:*)"], &[]);
         assert_eq!(
-            r.decide("bash", &bash_args("npm run test -- --watch"), &cwd()),
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "bash",
+                &bash_args("npm run test -- --watch"),
+                &cwd()
+            ),
             RuleDecision::Allow
         );
     }
@@ -423,11 +467,21 @@ mod tests {
     fn deny_beats_allow() {
         let r = rules(&["Bash"], &["Bash(rm *)"]);
         assert_eq!(
-            r.decide("bash", &bash_args("ls"), &cwd()),
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "bash",
+                &bash_args("ls"),
+                &cwd()
+            ),
             RuleDecision::Allow
         );
         assert_eq!(
-            r.decide("bash", &bash_args("rm -rf build"), &cwd()),
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "bash",
+                &bash_args("rm -rf build"),
+                &cwd()
+            ),
             RuleDecision::Deny
         );
     }
@@ -437,11 +491,24 @@ mod tests {
     fn allow_never_applies_to_a_sensitive_target() {
         let r = rules(&["Bash", "Read"], &[]);
         assert_eq!(
-            r.decide("bash", &bash_args("cat ~/.ssh/id_rsa"), &cwd()),
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "bash",
+                &bash_args("cat ~/.ssh/id_rsa"),
+                &cwd()
+            ),
             RuleDecision::NoMatch
         );
         let args = serde_json::json!({ "file_path": "/home/u/.ssh/id_rsa" }).to_string();
-        assert_eq!(r.decide("read_file", &args, &cwd()), RuleDecision::NoMatch);
+        assert_eq!(
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "read_file",
+                &args,
+                &cwd()
+            ),
+            RuleDecision::NoMatch
+        );
     }
 
     /// …but a deny rule still applies to one (deny is unconditional).
@@ -449,7 +516,12 @@ mod tests {
     fn deny_still_applies_to_a_sensitive_target() {
         let r = rules(&[], &["Bash"]);
         assert_eq!(
-            r.decide("bash", &bash_args("cat ~/.ssh/id_rsa"), &cwd()),
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "bash",
+                &bash_args("cat ~/.ssh/id_rsa"),
+                &cwd()
+            ),
             RuleDecision::Deny
         );
     }
@@ -465,7 +537,16 @@ mod tests {
         ] {
             let r = rules(&[rule], &[]);
             let args = serde_json::json!({ "file_path": "/work/x.rs" }).to_string();
-            assert_eq!(r.decide(wire, &args, &cwd()), RuleDecision::Allow, "{rule}");
+            assert_eq!(
+                r.decide(
+                    &crate::tools::sensitive_path::test_guard(),
+                    wire,
+                    &args,
+                    &cwd()
+                ),
+                RuleDecision::Allow,
+                "{rule}"
+            );
         }
     }
 
@@ -475,8 +556,24 @@ mod tests {
     fn tool_name_match_is_case_and_underscore_insensitive() {
         let r = rules(&["ReadFile"], &[]);
         let args = serde_json::json!({ "file_path": "/work/x.rs" }).to_string();
-        assert_eq!(r.decide("read_file", &args, &cwd()), RuleDecision::Allow);
-        assert_eq!(r.decide("Read_File", &args, &cwd()), RuleDecision::Allow);
+        assert_eq!(
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "read_file",
+                &args,
+                &cwd()
+            ),
+            RuleDecision::Allow
+        );
+        assert_eq!(
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "Read_File",
+                &args,
+                &cwd()
+            ),
+            RuleDecision::Allow
+        );
     }
 
     #[test]
@@ -484,10 +581,23 @@ mod tests {
         let r = rules(&["Read(/work/src/**)"], &[]);
         // Relative as written, absolute after resolution against the cwd.
         let args = serde_json::json!({ "file_path": "src/main.rs" }).to_string();
-        assert_eq!(r.decide("read_file", &args, &cwd()), RuleDecision::Allow);
+        assert_eq!(
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "read_file",
+                &args,
+                &cwd()
+            ),
+            RuleDecision::Allow
+        );
         let outside = serde_json::json!({ "file_path": "/etc/hosts" }).to_string();
         assert_eq!(
-            r.decide("read_file", &outside, &cwd()),
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "read_file",
+                &outside,
+                &cwd()
+            ),
             RuleDecision::NoMatch
         );
     }
@@ -496,21 +606,44 @@ mod tests {
     fn star_tool_matches_everything() {
         let r = rules(&[], &["*"]);
         assert_eq!(
-            r.decide("bash", &bash_args("ls"), &cwd()),
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "bash",
+                &bash_args("ls"),
+                &cwd()
+            ),
             RuleDecision::Deny
         );
-        assert_eq!(r.decide("web_fetch", "{}", &cwd()), RuleDecision::Deny);
+        assert_eq!(
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "web_fetch",
+                "{}",
+                &cwd()
+            ),
+            RuleDecision::Deny
+        );
     }
 
     #[test]
     fn mcp_tool_names_are_matchable() {
         let r = rules(&["mcp__playwright__navigate"], &[]);
         assert_eq!(
-            r.decide("mcp__playwright__navigate", "{}", &cwd()),
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "mcp__playwright__navigate",
+                "{}",
+                &cwd()
+            ),
             RuleDecision::Allow
         );
         assert_eq!(
-            r.decide("mcp__playwright__click", "{}", &cwd()),
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "mcp__playwright__click",
+                "{}",
+                &cwd()
+            ),
             RuleDecision::NoMatch
         );
     }
@@ -522,17 +655,32 @@ mod tests {
     fn background_shell_tool_matches_command_rules() {
         let r = rules(&[], &["BashStart(rm *)"]);
         assert_eq!(
-            r.decide("bash_start", &bash_args("rm -rf /"), &cwd()),
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "bash_start",
+                &bash_args("rm -rf /"),
+                &cwd()
+            ),
             RuleDecision::Deny
         );
         assert_eq!(
-            r.decide("bash_start", &bash_args("git status"), &cwd()),
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "bash_start",
+                &bash_args("git status"),
+                &cwd()
+            ),
             RuleDecision::NoMatch
         );
         // A rule naming one shell tool does not leak onto the other.
         let only_fg = rules(&["Bash(git *)"], &[]);
         assert_eq!(
-            only_fg.decide("bash_start", &bash_args("git status"), &cwd()),
+            only_fg.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "bash_start",
+                &bash_args("git status"),
+                &cwd()
+            ),
             RuleDecision::NoMatch
         );
     }
@@ -556,7 +704,12 @@ mod tests {
         let r = PermissionRules::default();
         assert!(r.is_empty());
         assert_eq!(
-            r.decide("bash", &bash_args("rm -rf /"), &cwd()),
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "bash",
+                &bash_args("rm -rf /"),
+                &cwd()
+            ),
             RuleDecision::NoMatch
         );
     }
@@ -567,7 +720,12 @@ mod tests {
     fn command_match_is_normalized_like_the_grant_key() {
         let r = rules(&["Bash(git status)"], &[]);
         assert_eq!(
-            r.decide("bash", &bash_args("git   status  # check"), &cwd()),
+            r.decide(
+                &crate::tools::sensitive_path::test_guard(),
+                "bash",
+                &bash_args("git   status  # check"),
+                &cwd()
+            ),
             RuleDecision::Allow
         );
     }

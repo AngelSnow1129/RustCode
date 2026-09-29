@@ -214,19 +214,20 @@ impl std::error::Error for IndexError {}
 /// list keeps codeintel consistent with the other walkers instead of maintaining a
 /// second copy that drifts. (The `ignore` builder methods return `&mut WalkBuilder`,
 /// so options are set as statements and the owned builder returned at the end.)
-fn build_walk(root: &Path) -> WalkBuilder {
+fn build_walk(root: &Path, skip: &crate::world::SkipDir) -> WalkBuilder {
+    let skip = skip.clone();
     let mut walker = WalkBuilder::new(root);
     walker.hidden(true);
     walker.git_ignore(true);
     walker.git_global(true);
     walker.git_exclude(true);
-    walker.filter_entry(|e: &DirEntry| {
+    walker.filter_entry(move |e: &DirEntry| {
         // Prune excluded DIRECTORIES (whole subtree); never prune files. The `ignore`
         // crate never passes the walk-root entry here (depth 0 is exempt), so a workdir
         // that is itself named like a skip-dir is still walked.
         if e.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
             if let Some(name) = e.file_name().to_str() {
-                return !crate::pathutil::is_skip_dir(name);
+                return !skip(name);
             }
         }
         true
@@ -237,10 +238,14 @@ fn build_walk(root: &Path) -> WalkBuilder {
 /// Walk `root` (assumed already canonical) for indexable source files + staleness
 /// inputs. `limits` caps the walk (see [`IndexLimits`]); the first cap breach aborts
 /// with `IndexError::oversize` — never a silent partial file set.
-fn collect_files_limited(root: &Path, limits: &IndexLimits) -> Result<Vec<Walked>, IndexError> {
+fn collect_files_limited(
+    root: &Path,
+    limits: &IndexLimits,
+    skip: &crate::world::SkipDir,
+) -> Result<Vec<Walked>, IndexError> {
     let mut out = Vec::new();
     let mut total_bytes: u64 = 0;
-    for entry in build_walk(root).build().flatten() {
+    for entry in build_walk(root, skip).build().flatten() {
         let p = entry.path();
         if !p.is_file() {
             continue;
@@ -297,8 +302,8 @@ fn collect_files_limited(root: &Path, limits: &IndexLimits) -> Result<Vec<Walked
 /// inputs, with [`IndexLimits::default`] caps. An oversize walk yields an EMPTY file
 /// set (the caller then builds an empty graph — never a hang, never a partial set).
 /// [`CodeIndex::get_limited`] is the fallible entry point that surfaces the error.
-fn collect_files(root: &Path) -> Vec<Walked> {
-    collect_files_limited(root, &IndexLimits::default()).unwrap_or_default()
+fn collect_files(root: &Path, skip: &crate::world::SkipDir) -> Vec<Walked> {
+    collect_files_limited(root, &IndexLimits::default(), skip).unwrap_or_default()
 }
 
 fn fingerprint(files: &[Walked]) -> u64 {
@@ -407,22 +412,32 @@ fn build_from_files(root: &Path, files: Vec<Walked>) -> CodeGraph {
 /// Applies the default directory excludes and the [`IndexLimits::default`] caps; if the
 /// walk is oversize it returns an EMPTY graph (never a hang, never a partial graph). The
 /// graph TOOLS surface a proper error instead, via [`CodeIndex::get_limited`].
-pub fn build_graph(root: &Path) -> CodeGraph {
+/// Our own per-project dir (named by `dirs`) is skipped along with the fixed list.
+pub fn build_graph(root: &Path, dirs: &crate::ProductDirs) -> CodeGraph {
     let root = super::canonical(root);
-    build_from_files(&root, collect_files(&root))
+    build_from_files(
+        &root,
+        collect_files(&root, &crate::pathutil::skip_dir_for(dirs)),
+    )
 }
 
 /// Shared, lazily-built code index the graph tools hold. `get` returns a cached graph
 /// when the indexed files' (path, mtime) fingerprint is unchanged, else rebuilds. O(repo)
 /// and CPU-bound — call from a blocking context (the tools use `spawn_blocking`).
-#[derive(Default)]
 pub struct CodeIndex {
     cache: Mutex<Option<(u64, Arc<CodeGraph>)>>,
+    /// Directories the walk never enters — the fixed list plus our own project dir.
+    skip: crate::world::SkipDir,
 }
 
 impl CodeIndex {
-    pub fn new() -> Self {
-        Self::default()
+    /// An index whose walks skip `dirs`' per-project dir (plugin clones, artifacts,
+    /// team worktrees — whole copies of the repository) along with the fixed list.
+    pub fn new(dirs: &crate::ProductDirs) -> Self {
+        Self {
+            cache: Mutex::new(None),
+            skip: crate::pathutil::skip_dir_for(dirs),
+        }
     }
     /// Cached graph for `root`, built with [`IndexLimits::default`]. An oversize walk
     /// (issue #1538) yields an EMPTY graph instead of hanging; call
@@ -443,7 +458,7 @@ impl CodeIndex {
         limits: &IndexLimits,
     ) -> Result<Arc<CodeGraph>, IndexError> {
         let root = super::canonical(root);
-        let files = collect_files_limited(&root, limits)?;
+        let files = collect_files_limited(&root, limits, &self.skip)?;
         let fp = fingerprint(&files);
         if let Some((cfp, g)) = self.cache.lock().unwrap().as_ref() {
             if *cfp == fp {
@@ -468,7 +483,7 @@ mod tests {
             "fn helper() {}\nfn main() {\n    helper();\n}\n",
         )
         .unwrap();
-        let g = build_graph(d.path());
+        let g = build_graph(d.path(), &crate::product_dirs::test_dirs());
         let main = g.find_by_name("main").into_iter().next().expect("main");
         let helper = g.find_by_name("helper").into_iter().next().expect("helper");
         // main → helper edge exists
@@ -494,7 +509,7 @@ mod tests {
             "fn run() {\n    let _ = compute();\n}\n",
         )
         .unwrap();
-        let g = build_graph(d.path());
+        let g = build_graph(d.path(), &crate::product_dirs::test_dirs());
         let run = g.find_by_name("run").into_iter().next().expect("run");
         let compute = g
             .find_by_name("compute")
@@ -518,7 +533,7 @@ mod tests {
             "fn recur(n: i32) {\n    if n > 0 { recur(n - 1); }\n}\n",
         )
         .unwrap();
-        let g = build_graph(d.path());
+        let g = build_graph(d.path(), &crate::product_dirs::test_dirs());
         let recur = g.find_by_name("recur").into_iter().next().expect("recur");
         assert!(
             g.callees(recur.id).map(|e| e.is_empty()).unwrap_or(true),
@@ -533,7 +548,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let f = d.path().join("a.rs");
         std::fs::write(&f, "fn one() {}\n").unwrap();
-        let idx = CodeIndex::new();
+        let idx = CodeIndex::new(&crate::product_dirs::test_dirs());
         let g1 = idx.get(d.path());
         assert!(g1.find_by_name("two").is_empty());
         std::fs::write(&f, "fn one() {}\nfn two() {}\n").unwrap();
@@ -552,7 +567,7 @@ mod tests {
         std::fs::write(d.path().join("a_util.rs"), "pub fn dup() {}\n").unwrap();
         std::fs::write(d.path().join("z_util.rs"), "pub fn dup() {}\n").unwrap();
         std::fs::write(d.path().join("main.rs"), "fn run() { dup(); }\n").unwrap();
-        let g = build_graph(d.path());
+        let g = build_graph(d.path(), &crate::product_dirs::test_dirs());
         let run = g.find_by_name("run").into_iter().next().unwrap();
         let target = g
             .callees(run.id)
@@ -567,7 +582,7 @@ mod tests {
             "tie → a_util.rs, got {target:?}"
         );
         // stable across a rebuild
-        let g2 = build_graph(d.path());
+        let g2 = build_graph(d.path(), &crate::product_dirs::test_dirs());
         let run2 = g2.find_by_name("run").into_iter().next().unwrap();
         let t2 = g2
             .callees(run2.id)
@@ -581,7 +596,7 @@ mod tests {
     fn index_caches_then_rebuilds_on_change() {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("a.rs"), "fn one() {}\n").unwrap();
-        let idx = CodeIndex::new();
+        let idx = CodeIndex::new(&crate::product_dirs::test_dirs());
         let g1 = idx.get(d.path());
         let g2 = idx.get(d.path());
         assert!(
@@ -615,7 +630,7 @@ mod tests {
             "fn handler() {\n    beta();\n}\nfn beta() {}\n",
         )
         .unwrap();
-        let g = build_graph(d.path());
+        let g = build_graph(d.path(), &crate::product_dirs::test_dirs());
 
         let a_handler = g
             .find_by_name("handler")
@@ -663,7 +678,11 @@ mod tests {
             max_files: 4,
             ..IndexLimits::default()
         };
-        let r = collect_files_limited(d.path(), &limits);
+        let r = collect_files_limited(
+            d.path(),
+            &limits,
+            &crate::pathutil::skip_dir_for(&crate::product_dirs::test_dirs()),
+        );
         assert!(
             r.is_err(),
             "oversize tree must error, not walk on: {:?}",
@@ -686,7 +705,11 @@ mod tests {
             max_total_bytes: 128 * 1024,
             ..IndexLimits::default()
         };
-        let r = collect_files_limited(d.path(), &limits);
+        let r = collect_files_limited(
+            d.path(),
+            &limits,
+            &crate::pathutil::skip_dir_for(&crate::product_dirs::test_dirs()),
+        );
         assert!(
             r.is_err(),
             "oversize tree must error on the byte cap: {:?}",
@@ -712,7 +735,12 @@ mod tests {
         std::fs::create_dir_all(&appdata_temp).unwrap();
         std::fs::write(appdata_temp.join("junk.rs"), "fn j() {}\n").unwrap();
 
-        let files = collect_files_limited(d.path(), &IndexLimits::default()).unwrap();
+        let files = collect_files_limited(
+            d.path(),
+            &IndexLimits::default(),
+            &crate::pathutil::skip_dir_for(&crate::product_dirs::test_dirs()),
+        )
+        .unwrap();
         let names: Vec<String> = files
             .iter()
             .map(|w| w.path.file_name().unwrap().to_string_lossy().into_owned())

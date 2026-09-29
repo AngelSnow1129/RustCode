@@ -63,18 +63,10 @@ pub mod cc_hooks;
 /// Kernel-only deps, so it is always available regardless of capability features.
 pub mod compaction;
 
-/// Shared `$ATOMCODE_HOME` path resolution for the persisting capabilities — one
-/// home for the rule (and for documenting its single known `sudo` divergence from
-/// production). Internal; compiled only when a feature that persists needs it.
-/// `provider` also needs it for wire dumps; `tools` needs it for the credential-path gate.
-#[cfg(any(
-    feature = "mcp",
-    feature = "session",
-    feature = "memory",
-    feature = "provider",
-    feature = "tools"
-))]
-pub(crate) mod paths;
+/// Where the product keeps its data, handed in by the host ([`ProductDirs`]).
+/// Unconditional and dependency-free: every persisting capability takes it.
+pub mod product_dirs;
+pub use product_dirs::ProductDirs;
 
 /// Shared L1 process utilities (console-window suppression, `shell_command`,
 /// UTF-8 locale, `is_running_as_admin`) — used here and by the CLI/TUI drivers, so

@@ -56,7 +56,13 @@ async fn the_command_recaps_the_day_this_session_actually_worked() {
     let home = tempfile::tempdir().unwrap();
     std::env::set_var("ATOMCODE_HOME", home.path());
     let project = tempfile::tempdir().unwrap();
-    let cfg = CodingAgentConfig::new("k", "http://localhost", "canned", project.path());
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost",
+        "canned",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
 
     // A store-keeping session, which is what makes the row mount at all.
     let opts = PrepareOptions {
@@ -149,7 +155,13 @@ async fn a_runtime_that_keeps_no_sessions_does_not_offer_it() {
     let home = tempfile::tempdir().unwrap();
     std::env::set_var("ATOMCODE_HOME", home.path());
     let project = tempfile::tempdir().unwrap();
-    let cfg = CodingAgentConfig::new("k", "http://localhost", "canned", project.path());
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost",
+        "canned",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
 
     let opts = PrepareOptions {
         session: SessionMode::Disabled,

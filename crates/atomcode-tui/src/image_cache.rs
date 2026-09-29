@@ -13,21 +13,6 @@
 
 use atomcode_kernel::message::ImageContent;
 
-/// `$ATOMCODE_HOME/image-cache`, or `~/.atomcode/image-cache`. `None` when there
-/// is no home to write under — the caller just skips caching.
-///
-/// Resolved here rather than through `atomcode-config` on purpose: the screen is
-/// an App apart and does not depend on that crate (see this crate's Cargo.toml).
-/// It agrees with it on the one thing that matters — the `ATOMCODE_HOME` override
-/// and the `.atomcode` directory name.
-pub fn cache_dir() -> Option<std::path::PathBuf> {
-    let home = match std::env::var_os("ATOMCODE_HOME") {
-        Some(value) if !value.is_empty() => std::path::PathBuf::from(value),
-        _ => crate::text::home_dir()?.join(".atomcode"),
-    };
-    Some(home.join("image-cache"))
-}
-
 /// A stable content hash of an image, for its cache filename and the dedup the
 /// cache rests on. FNV-1a over the media type and base64 bytes — stable across
 /// runs (unlike `DefaultHasher`), which a filename needs.
@@ -61,24 +46,20 @@ fn path_for(dir: &std::path::Path, hash: u64, media_type: &str) -> std::path::Pa
     dir.join(format!("{hash:016x}.{}", ext_for(media_type)))
 }
 
-/// Best-effort write of an image's (already-normalised) bytes, keyed by content
+/// Best-effort write of an image's (already-normalised) bytes into the cache at
+/// `dir` (`<user tree>/image-cache`, handed in by the launcher), keyed by content
 /// hash. Idempotent — a content-addressed file that exists is left alone. Every
 /// failure is swallowed.
-pub fn write(img: &ImageContent) {
-    if let Some(dir) = cache_dir() {
-        write_to(&dir, img);
-    }
+pub fn write(dir: &std::path::Path, img: &ImageContent) {
+    write_to(dir, img);
 }
 
-/// Read an image's bytes back from the cache by content hash, for re-attaching a
-/// recalled or resumed image. `None` when the file is gone.
-pub fn read(hash: u64, media_type: &str) -> Option<Vec<u8>> {
-    read_from(&cache_dir()?, hash, media_type)
+/// Read an image's bytes back from the cache at `dir` by content hash, for
+/// re-attaching a recalled or resumed image. `None` when the file is gone.
+pub fn read(dir: &std::path::Path, hash: u64, media_type: &str) -> Option<Vec<u8>> {
+    read_from(dir, hash, media_type)
 }
 
-/// The `write`/`read` bodies against an explicit directory — the seam that keeps
-/// the tests off the process-global `ATOMCODE_HOME` env (a data race with any
-/// concurrent `getenv`).
 fn write_to(dir: &std::path::Path, img: &ImageContent) {
     use base64::Engine as _;
     let path = path_for(dir, hash(img), &img.media_type);

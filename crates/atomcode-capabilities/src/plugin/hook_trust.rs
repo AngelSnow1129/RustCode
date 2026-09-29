@@ -4,7 +4,7 @@
 //! which blocks a benign-at-install plugin from silently adding hooks in an update.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
@@ -44,14 +44,14 @@ pub fn plugin_hook_set_hash(hooks: &[PluginCcHook]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn trust_store_path() -> Option<PathBuf> {
-    Some(super::paths::plugins_root()?.join("hook_trust.json"))
+fn trust_store_path(user_dir: &Path) -> Option<PathBuf> {
+    Some(super::paths::plugins_root(user_dir)?.join("hook_trust.json"))
 }
 
 /// Load the trust map. Missing/unreadable/malformed → empty (⇒ nothing trusted,
 /// the safe default).
-pub fn load_trust() -> TrustMap {
-    let Some(path) = trust_store_path() else {
+pub fn load_trust(user_dir: &Path) -> TrustMap {
+    let Some(path) = trust_store_path(user_dir) else {
         return TrustMap::new();
     };
     let Ok(raw) = std::fs::read_to_string(&path) else {
@@ -64,8 +64,8 @@ pub fn is_trusted(map: &TrustMap, plugin_id: &str, hash: &str) -> bool {
     map.get(plugin_id).map(|h| h == hash).unwrap_or(false)
 }
 
-fn save_trust(map: &TrustMap) -> Result<()> {
-    let path = trust_store_path().context("plugin home not configured")?;
+fn save_trust(user_dir: &Path, map: &TrustMap) -> Result<()> {
+    let path = trust_store_path(user_dir).context("plugin home not configured")?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).ok();
     }
@@ -73,20 +73,20 @@ fn save_trust(map: &TrustMap) -> Result<()> {
     crate::fs::atomic_write(&path, &json, 0o600).context("write trust store")
 }
 
-pub fn trust(plugin_id: &str, hash: &str) -> Result<()> {
-    let mut map = load_trust();
+pub fn trust(user_dir: &Path, plugin_id: &str, hash: &str) -> Result<()> {
+    let mut map = load_trust(user_dir);
     map.insert(plugin_id.to_string(), hash.to_string());
-    save_trust(&map)
+    save_trust(user_dir, &map)
 }
 
-pub fn untrust(plugin_id: &str) -> Result<()> {
-    let mut map = load_trust();
+pub fn untrust(user_dir: &Path, plugin_id: &str) -> Result<()> {
+    let mut map = load_trust(user_dir);
     map.remove(plugin_id);
-    save_trust(&map)
+    save_trust(user_dir, &map)
 }
 
-fn migration_marker_path() -> Option<PathBuf> {
-    Some(super::paths::plugins_root()?.join(".hook_trust_migrated"))
+fn migration_marker_path(user_dir: &Path) -> Option<PathBuf> {
+    Some(super::paths::plugins_root(user_dir)?.join(".hook_trust_migrated"))
 }
 
 /// One-time upgrade migration. The FIRST time this runs in a given home, trust
@@ -95,16 +95,17 @@ fn migration_marker_path() -> Option<PathBuf> {
 /// After the marker is written, new installs / changed hooks require explicit
 /// `plugin trust`. Idempotent (marker-guarded). Best-effort: IO errors are
 /// swallowed (worst case a plugin stays untrusted and the user re-trusts).
-pub fn ensure_migrated() {
-    let Some(marker) = migration_marker_path() else {
+pub fn ensure_migrated(dirs: &crate::ProductDirs) {
+    let user_dir = dirs.user();
+    let Some(marker) = migration_marker_path(user_dir) else {
         return;
     };
     if marker.exists() {
         return;
     }
-    for s in super::loader::installed_plugin_hook_trust_status() {
+    for s in super::loader::installed_plugin_hook_trust_status(dirs) {
         if !s.trusted {
-            let _ = trust(&s.plugin_id, &s.hash);
+            let _ = trust(user_dir, &s.plugin_id, &s.hash);
         }
     }
     if let Some(parent) = marker.parent() {
@@ -159,15 +160,16 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn trust_roundtrip() {
-        let _home = crate::plugin::test_support::isolated_home();
+        let home = crate::plugin::test_support::isolated_home();
+        let tree = home.path();
         let id = plugin_id("superpowers", "superpowers-dev");
-        let map = load_trust();
+        let map = load_trust(tree);
         assert!(!is_trusted(&map, &id, "h1"));
-        trust(&id, "h1").unwrap();
-        assert!(is_trusted(&load_trust(), &id, "h1"));
+        trust(tree, &id, "h1").unwrap();
+        assert!(is_trusted(&load_trust(tree), &id, "h1"));
         // wrong hash (e.g. plugin updated) → not trusted
-        assert!(!is_trusted(&load_trust(), &id, "h2"));
-        untrust(&id).unwrap();
-        assert!(!is_trusted(&load_trust(), &id, "h1"));
+        assert!(!is_trusted(&load_trust(tree), &id, "h2"));
+        untrust(tree, &id).unwrap();
+        assert!(!is_trusted(&load_trust(tree), &id, "h1"));
     }
 }

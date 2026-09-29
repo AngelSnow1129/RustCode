@@ -101,6 +101,9 @@ impl Plugin for OpenAiCompatPlugin {
     fn name(&self) -> &'static str {
         "llm-openai-compat"
     }
+    fn inject(&self) -> &'static [&'static str] {
+        &["product-dirs"]
+    }
     fn uses(&self) -> &'static [&'static str] {
         // This row tells `describe_self` how to switch the model.
         &["operations"]
@@ -121,7 +124,7 @@ impl Plugin for OpenAiCompatPlugin {
         // re-derived: this row says only what it knows, and `ConfigAndEnv` owns
         // the config file, the environment and how they rank.
         let source = model_source::ConfigAndEnv {
-            home: crate::home(),
+            home: crate::product_dirs(ctx)?.user().to_path_buf(),
         };
         let want = match (row.base_url.as_deref(), row.model.as_deref()) {
             (Some(base_url), Some(model)) => model_source::Want::Explicit {
@@ -403,6 +406,9 @@ impl Plugin for LlmUtilityOpenAiCompatPlugin {
     fn name(&self) -> &'static str {
         "llm-utility-openai-compat"
     }
+    fn inject(&self) -> &'static [&'static str] {
+        &["product-dirs"]
+    }
     fn provides(&self) -> &'static [&'static str] {
         &["llm-utility"]
     }
@@ -417,7 +423,7 @@ impl Plugin for LlmUtilityOpenAiCompatPlugin {
         // required here; the endpoint and the key are the ones the tree is
         // already using unless this row overrides them.
         let source = model_source::ConfigAndEnv {
-            home: crate::home(),
+            home: crate::product_dirs(ctx)?.user().to_path_buf(),
         };
         let want = match row.base_url.as_deref() {
             Some(base_url) => model_source::Want::Explicit {
@@ -712,6 +718,9 @@ impl Plugin for AtomcodeConfigPlugin {
     fn name(&self) -> &'static str {
         "llm-atomcode-config"
     }
+    fn inject(&self) -> &'static [&'static str] {
+        &["product-dirs"]
+    }
     fn uses(&self) -> &'static [&'static str] {
         // This row tells `describe_self` how to switch the model.
         &["operations"]
@@ -720,7 +729,7 @@ impl Plugin for AtomcodeConfigPlugin {
         &["llm"]
     }
     fn description(&self) -> &'static str {
-        "the model AtomCode is already configured to use (~/.atomcode/config.toml)"
+        "the model AtomCode is already configured to use (`config.toml` in the user tree)"
     }
     async fn apply(&self, ctx: &Context, config: &Value) -> Result<(), String> {
         let row: ConfigRow = if config.is_null() {
@@ -728,10 +737,11 @@ impl Plugin for AtomcodeConfigPlugin {
         } else {
             serde_json::from_value(config.clone()).map_err(|e| format!("bad config: {e}"))?
         };
+        let user_dir = crate::product_dirs(ctx)?.user().to_path_buf();
         let path = row
             .path
             .map(std::path::PathBuf::from)
-            .unwrap_or_else(atomcode_config::config::Config::default_path);
+            .unwrap_or_else(|| user_dir.join("config.toml"));
         if !path.exists() {
             return Err(format!(
                 "{} does not exist.\n  \
@@ -747,7 +757,7 @@ impl Plugin for AtomcodeConfigPlugin {
         // it wants and which `[models.*]` selection. The file itself, and the
         // account/key rules around it, are read in one place.
         let source = model_source::ConfigAndEnv {
-            home: crate::home(),
+            home: crate::product_dirs(ctx)?.user().to_path_buf(),
         };
         let endpoint = source.resolve(model_source::Want::UserConfig {
             selection: row.model.as_deref(),

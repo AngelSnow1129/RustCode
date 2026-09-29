@@ -12,20 +12,24 @@ pub struct InstalledPluginHookSource;
 
 impl PluginHookSource for InstalledPluginHookSource {
     fn load(&self) -> Result<Vec<HookConfig>, String> {
-        atomcode_capabilities::plugin::hook_trust::ensure_migrated();
+        atomcode_capabilities::plugin::hook_trust::ensure_migrated(
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
         Ok(
-            atomcode_capabilities::plugin::loader::installed_plugin_cc_hooks()
-                .into_iter()
-                .filter_map(|hook| {
-                    HookConfig::from_plugin_spec(
-                        &hook.event,
-                        hook.matcher,
-                        hook.command,
-                        hook.timeout_secs,
-                        hook.plugin_root,
-                    )
-                })
-                .collect(),
+            atomcode_capabilities::plugin::loader::installed_plugin_cc_hooks(
+                &atomcode_coding::config::product_dirs_from_env(),
+            )
+            .into_iter()
+            .filter_map(|hook| {
+                HookConfig::from_plugin_spec(
+                    &hook.event,
+                    hook.matcher,
+                    hook.command,
+                    hook.timeout_secs,
+                    hook.plugin_root,
+                )
+            })
+            .collect(),
         )
     }
 }
@@ -42,7 +46,10 @@ pub fn gather_plugin_skill_dirs() -> Vec<(std::path::PathBuf, String)> {
 pub fn gather_plugin_skill_dirs_for(
     working_dir: &std::path::Path,
 ) -> Vec<(std::path::PathBuf, String)> {
-    atomcode_capabilities::plugin::loader::installed_plugin_skill_dirs(working_dir)
+    atomcode_capabilities::plugin::loader::installed_plugin_skill_dirs(
+        &atomcode_coding::config::product_dirs_from_env(),
+        working_dir,
+    )
 }
 
 #[derive(Debug, Default)]
@@ -56,8 +63,10 @@ impl RateLimitWindowSource for CodingPlanRateLimitSource {
 
     async fn fetch_windows(&self) -> Result<Vec<RateLimitWindow>, String> {
         tokio::task::spawn_blocking(|| {
-            let client = atomcode_codingplan::Client::from_stored_auth()
-                .map_err(|error| error.to_string())?;
+            let client = atomcode_codingplan::Client::from_stored_auth(
+                atomcode_coding::config::product_dirs_from_env().user(),
+            )
+            .map_err(|error| error.to_string())?;
             let status = client.status_v2().map_err(|error| error.to_string())?;
             Ok(status
                 .rate_limit_windows
@@ -73,8 +82,10 @@ impl RateLimitWindowSource for CodingPlanRateLimitSource {
     /// from, asked a second time (see the trait's own note on why).
     async fn fetch_plan(&self) -> Result<Option<Entitlement>, String> {
         tokio::task::spawn_blocking(|| {
-            let client = atomcode_codingplan::Client::from_stored_auth()
-                .map_err(|error| error.to_string())?;
+            let client = atomcode_codingplan::Client::from_stored_auth(
+                atomcode_coding::config::product_dirs_from_env().user(),
+            )
+            .map_err(|error| error.to_string())?;
             let status = client.status_v2().map_err(|error| error.to_string())?;
             Ok(status.codingplan_free.map(plan_from))
         })
@@ -90,8 +101,10 @@ impl RateLimitWindowSource for CodingPlanRateLimitSource {
     /// that the service answers in hash maps.
     async fn fetch_usage(&self) -> Result<Option<AccountUsage>, String> {
         tokio::task::spawn_blocking(move || -> Result<Option<AccountUsage>, String> {
-            let client = atomcode_codingplan::client::Client::from_stored_auth()
-                .map_err(|error| error.to_string())?;
+            let client = atomcode_codingplan::client::Client::from_stored_auth(
+                atomcode_coding::config::product_dirs_from_env().user(),
+            )
+            .map_err(|error| error.to_string())?;
             let usage = client.usage().map_err(|error| error.to_string())?;
             Ok(Some(usage_from(usage)))
         })

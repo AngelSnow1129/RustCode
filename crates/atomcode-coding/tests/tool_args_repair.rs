@@ -48,7 +48,13 @@ fn assert_repaired_write(outcome: &Turn, file_path: &Path) {
 async fn the_assembly_repairs_tool_arguments_before_execution() {
     let project = tempfile::tempdir().unwrap();
     let file_path = project.path().join("full.txt");
-    let cfg = CodingAgentConfig::new("k", "http://localhost:0", "mock-model", project.path());
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost:0",
+        "mock-model",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     let opts = PrepareOptions {
         session: SessionMode::Disabled,
         tools: true,
@@ -77,7 +83,13 @@ async fn approval_sees_the_repaired_arguments_that_execute() {
         .join("target");
     let outside = tempfile::tempdir_in(workspace_target).unwrap();
     let file_path = outside.path().join("approved.txt");
-    let mut cfg = CodingAgentConfig::new("k", "http://localhost:0", "mock-model", project.path());
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost:0",
+        "mock-model",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     // A person is at the screen, so a write next door is a question rather than
     // something the world refuses on its own.
     cfg.interactive = true;

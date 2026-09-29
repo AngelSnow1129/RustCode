@@ -67,7 +67,13 @@ fn start(
     session: SessionMode,
     front_end: Option<Arc<FrontEnd>>,
 ) -> (CodingRuntimeStart, CodingAgentConfig) {
-    let mut agent = CodingAgentConfig::new("key", "https://example.test/v1", "scripted", project);
+    let mut agent = CodingAgentConfig::new(
+        "key",
+        "https://example.test/v1",
+        "scripted",
+        project,
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     agent.interactive = true;
     (
         CodingRuntimeStart {

@@ -828,6 +828,7 @@ mod tests {
             "https://example.test/v1",
             "m",
             "/original",
+            atomcode_coding::config::product_dirs_from_env(),
         ));
         let sessions: Sessions =
             std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
@@ -982,6 +983,7 @@ mod tests {
             "https://example.test/v1",
             "m",
             "/original",
+            atomcode_coding::config::product_dirs_from_env(),
         ));
         let sessions: Sessions =
             std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
@@ -1048,6 +1050,7 @@ mod tests {
             "https://example.test/v1",
             "m",
             "/original",
+            atomcode_coding::config::product_dirs_from_env(),
         ));
         let sessions: Sessions =
             std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));

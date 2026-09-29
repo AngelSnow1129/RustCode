@@ -224,6 +224,7 @@ impl World {
                 let mut cfg = config;
                 let report = atomcode_codingplan::run(
                     &mut cfg,
+                    atomcode_coding::config::product_dirs_from_env().user(),
                     tel.as_ref(),
                     atomcode_codingplan::DefaultModelPolicy::AdoptServerDefault,
                 );
@@ -251,7 +252,9 @@ impl World {
                 // Non-fatal: the configuration already landed, and only the
                 // staleness hint would be miscounted, which the next run
                 // corrects.
-                let _ = atomcode_codingplan::write_last_sync_now();
+                let _ = atomcode_codingplan::write_last_sync_now(
+                    atomcode_coding::config::product_dirs_from_env().user(),
+                );
                 Ok(())
             },
         );
@@ -284,7 +287,9 @@ impl World {
         });
 
         Self {
-            logged_in: atomcode_auth::is_logged_in(),
+            logged_in: atomcode_auth::is_logged_in(
+                atomcode_coding::config::product_dirs_from_env().user(),
+            ),
             load,
             login,
             setup,
@@ -377,7 +382,7 @@ fn run_login_flow_with(world: &World, ui: &Arc<dyn UserInterface>, painted: &dyn
 /// (`atomcode login`, tuix's `run_login_flow`). Leaving it out is what this
 /// command did, and how it looks is not an error but a **second, worse login**:
 /// `is_logged_in()` still answers no, so the codingplan setup below runs its own
-/// `step_login`, which reaches for the stdout-driven `oauth::login()` and prints
+/// `step_login`, which reaches for the stdout-driven `oauth::login(atomcode_coding::config::product_dirs_from_env().user(), )` and prints
 /// an English URL banner straight onto the frame — the URL landing past the
 /// border because stdout was never the screen.
 fn run_oauth(
@@ -407,12 +412,17 @@ fn run_oauth(
         }
     }
 
-    let auth = session.finish(telemetry.as_ref()).map_err(|error| {
-        tr(SMsg::TokenExchangeFailed {
-            error: &format!("{error:#}"),
-        })
-        .into_owned()
-    })?;
+    let auth = session
+        .finish(
+            atomcode_coding::config::product_dirs_from_env().user(),
+            telemetry.as_ref(),
+        )
+        .map_err(|error| {
+            tr(SMsg::TokenExchangeFailed {
+                error: &format!("{error:#}"),
+            })
+            .into_owned()
+        })?;
     keep_credentials(&auth)
 }
 
@@ -424,7 +434,11 @@ fn run_oauth(
 /// next thing that wants a token goes and asks for another login. Naming it and
 /// testing it is what keeps that from being a silent gap again.
 fn keep_credentials(auth: &atomcode_auth::AuthInfo) -> Result<(), String> {
-    atomcode_auth::save_auth(auth).map_err(|error| {
+    atomcode_auth::save_auth(
+        atomcode_coding::config::product_dirs_from_env().user(),
+        auth,
+    )
+    .map_err(|error| {
         tr(SMsg::SignedInCredentialsNotSaved {
             error: &format!("{error:#}"),
         })
@@ -742,7 +756,7 @@ mod credential_tests {
         std::env::set_var("ATOMCODE_HOME", home.path());
 
         assert!(
-            !atomcode_auth::is_logged_in(),
+            !atomcode_auth::is_logged_in(atomcode_coding::config::product_dirs_from_env().user()),
             "nothing stored to begin with"
         );
 
@@ -767,11 +781,15 @@ mod credential_tests {
         keep_credentials(&auth).expect("the credentials land");
 
         assert!(
-            atomcode_auth::is_logged_in(),
+            atomcode_auth::is_logged_in(atomcode_coding::config::product_dirs_from_env().user()),
             "after the save, the process sees the login — this is the answer \
              `step_login` reads, and answering no is what sent it to the \
              stdout-driven login"
         );
-        assert!(atomcode_auth::auth_file_path().is_file(), "there is a file");
+        assert!(
+            atomcode_auth::auth_file_path(atomcode_coding::config::product_dirs_from_env().user())
+                .is_file(),
+            "there is a file"
+        );
     }
 }

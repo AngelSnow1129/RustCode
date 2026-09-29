@@ -28,7 +28,6 @@ pub(crate) const SKIP_DIRS: &[&str] = &[
     "datalog",
     "logs",
     "log",
-    ".atomcode",
     ".claude",
     "runs",
     "tmp",
@@ -38,8 +37,19 @@ pub(crate) const SKIP_DIRS: &[&str] = &[
 /// Should a directory with this name be skipped during a walk? `AppData` is matched
 /// case-insensitively — on Windows a huge `C:/Users/<name>` workdir buries the tree
 /// under `AppData\Local\Temp` (issue #1538), and it is never project source.
+///
+/// The fixed list only. Our own per-project dir (plugin clones, tool-output
+/// artifacts, team worktrees — whole copies of the repository) is skipped too,
+/// but its name is the host's: see [`skip_dir_for`].
 pub(crate) fn is_skip_dir(name: &str) -> bool {
     SKIP_DIRS.contains(&name) || name.starts_with(".venv-") || name.eq_ignore_ascii_case("appdata")
+}
+
+/// The skip test for a walk in a product whose per-project dir is named
+/// `dirs.project_dir_name()`: the fixed list plus that dir.
+pub(crate) fn skip_dir_for(dirs: &crate::ProductDirs) -> crate::world::SkipDir {
+    let own: std::sync::Arc<str> = dirs.project_dir_name().into();
+    std::sync::Arc::new(move |name: &str| is_skip_dir(name) || name == &*own)
 }
 
 /// The user's home directory, dependency-free (`HOME`, or `USERPROFILE` on Windows).

@@ -2028,6 +2028,7 @@ async fn on_harness_handle(
     let quiet = quiet_rows(dir);
     atomcode_coding::on_harness::mount(
         dir,
+        &atomcode_coding::config::product_dirs_from_env(),
         atomcode_coding::on_harness::Presence::Attended,
         script,
         &[quiet.clone()],
@@ -2384,6 +2385,7 @@ async fn headless_refuses_what_attended_would_ask_about() {
     ]);
     let (handle, mut app) = atomcode_coding::on_harness::mount(
         &dir,
+        &atomcode_coding::config::product_dirs_from_env(),
         atomcode_coding::on_harness::Presence::Headless,
         script,
         &[quiet.clone()],
@@ -2914,6 +2916,7 @@ async fn on_harness_headless(
     let quiet = quiet_rows(dir);
     atomcode_coding::on_harness::mount(
         dir,
+        &atomcode_coding::config::product_dirs_from_env(),
         atomcode_coding::on_harness::Presence::Headless,
         script,
         &[quiet.clone()],
@@ -3272,6 +3275,7 @@ async fn the_datalog_records_the_same_turn_on_both_engines() {
     );
     let (handle, mut app) = atomcode_coding::on_harness::mount(
         &dir,
+        &atomcode_coding::config::product_dirs_from_env(),
         atomcode_coding::on_harness::Presence::Attended,
         script(),
         &[
@@ -3389,6 +3393,7 @@ async fn a_users_hook_can_refuse_a_tool_on_both_engines() {
     );
     let (handle, mut app) = atomcode_coding::on_harness::mount(
         &dir,
+        &atomcode_coding::config::product_dirs_from_env(),
         atomcode_coding::on_harness::Presence::Attended,
         script(),
         &[
@@ -3448,6 +3453,7 @@ async fn without_a_hooks_file_nothing_is_mounted_and_nothing_changes() {
     );
     let (handle, mut app) = atomcode_coding::on_harness::mount(
         &dir,
+        &atomcode_coding::config::product_dirs_from_env(),
         atomcode_coding::on_harness::Presence::Attended,
         script(),
         &[
@@ -3556,6 +3562,7 @@ async fn a_model_switch_puts_a_different_provider_behind_the_seam() {
     let quiet = quiet_rows(&dir);
     let (handle, mut app, slots) = atomcode_coding::on_harness::mount_swappable(
         &dir,
+        &atomcode_coding::config::product_dirs_from_env(),
         atomcode_coding::on_harness::Presence::Attended,
         first,
         None,
@@ -3616,6 +3623,7 @@ async fn a_model_switch_renames_the_persona_too() {
     let quiet = quiet_rows(&dir);
     let (handle, mut app, slots) = atomcode_coding::on_harness::mount_swappable(
         &dir,
+        &atomcode_coding::config::product_dirs_from_env(),
         atomcode_coding::on_harness::Presence::Attended,
         Script::text(&["ok"]),
         None,
@@ -3670,6 +3678,7 @@ async fn the_delegation_guidance_comes_from_the_rows_that_own_the_tools() {
     let quiet = quiet_rows(&dir);
     let (handle, mut app, _) = atomcode_coding::on_harness::mount_swappable(
         &dir,
+        &atomcode_coding::config::product_dirs_from_env(),
         atomcode_coding::on_harness::Presence::Attended,
         Script::text(&["ok"]).as_model("rows-own-their-words"),
         None,
@@ -3777,6 +3786,7 @@ async fn a_logout_takes_the_credentials_and_leaves_the_agent() {
     let quiet = quiet_rows(&dir);
     let (handle, mut app, slots) = atomcode_coding::on_harness::mount_swappable(
         &dir,
+        &atomcode_coding::config::product_dirs_from_env(),
         atomcode_coding::on_harness::Presence::Attended,
         Script::text(&["ok"]).as_model("signed-in-model"),
         None,
@@ -3847,6 +3857,7 @@ async fn a_logout_drops_the_provider_object_and_not_only_the_seam() {
 
     let (handle, mut app, slots) = atomcode_coding::on_harness::mount_swappable(
         &dir,
+        &atomcode_coding::config::product_dirs_from_env(),
         atomcode_coding::on_harness::Presence::Attended,
         signed_in.clone(),
         None,

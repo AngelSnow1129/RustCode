@@ -30,14 +30,17 @@ fn is_git_push(arguments: &str) -> bool {
 
 pub struct GitPushLabelMiddleware {
     working_dir: PathBuf,
+    /// The user tree whose `auth.toml` holds the login used for the label.
+    user_dir: PathBuf,
     pending: Arc<Mutex<HashSet<String>>>, // call_ids of in-flight git push
     ensured: Arc<Mutex<HashSet<String>>>, // "owner/repo@base" already labelled
 }
 
 impl GitPushLabelMiddleware {
-    pub fn new(working_dir: PathBuf) -> Self {
+    pub fn new(working_dir: PathBuf, user_dir: PathBuf) -> Self {
         Self {
             working_dir,
+            user_dir,
             pending: Arc::default(),
             ensured: Arc::default(),
         }
@@ -54,7 +57,12 @@ impl GitPushLabelMiddleware {
             return;
         }
         // Fetch the token OFF the async runtime (blocking auth I/O).
-        let token = match tokio::task::spawn_blocking(atomcode_auth::oauth::get_valid_token).await {
+        let user_dir = self.user_dir.clone();
+        let token = match tokio::task::spawn_blocking(move || {
+            atomcode_auth::oauth::get_valid_token(&user_dir)
+        })
+        .await
+        {
             Ok(Ok(tok)) => tok,
             Ok(Err(e)) => {
                 tracing::warn!("atomcode-label: no token: {e:#}");

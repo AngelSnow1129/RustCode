@@ -25,7 +25,10 @@
 //! # async fn demo() -> Result<(), String> {
 //! use atomcode_coding::{prepare, CodingAgentConfig, PrepareOptions};
 //!
-//! let cfg = CodingAgentConfig::new("sk-...", "https://api.deepseek.com/v1", "deepseek-chat", ".");
+//! // Where this host keeps its data. This product's own hosts use
+//! // `atomcode_coding::config::product_dirs_from_env()`; an embedder names its own.
+//! let dirs = atomcode_capabilities::ProductDirs::new("/home/me/.myapp", ".myapp");
+//! let cfg = CodingAgentConfig::new("sk-...", "https://api.deepseek.com/v1", "deepseek-chat", ".", dirs);
 //! let opts = PrepareOptions::default();
 //! let parts = prepare(&cfg, opts.clone()).await.map_err(|e| e.to_string())?;
 //! # let provider: std::sync::Arc<dyn atomcode_kernel::provider::LlmProvider> = todo!();

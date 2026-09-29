@@ -38,6 +38,8 @@ use serde_json::Value;
 struct CredentialShell {
     ctx: Context,
     policy: atomcode_capabilities::tools::CredentialShellPolicy,
+    /// What counts as sensitive — the tree's credential stores included.
+    sensitive: atomcode_capabilities::tools::SensitivePaths,
 }
 
 #[async_trait]
@@ -57,6 +59,7 @@ impl Waterfall<ToolsExecute> for CredentialShell {
         // No `approval` row mounted is this shell's "nobody to ask": the same
         // condition the kernel gate reads off a missing `PermissionStore`.
         let verdict = credential_shell_verdict(
+            &self.sensitive,
             self.policy,
             &exec.call.name,
             &exec.call.arguments,
@@ -161,7 +164,7 @@ impl Plugin for CredentialShellPlugin {
         "tool-credential-shell"
     }
     fn inject(&self) -> &'static [&'static str] {
-        &["tools"]
+        &["product-dirs", "tools"]
     }
     fn uses(&self) -> &'static [&'static str] {
         &["approval"]
@@ -190,6 +193,9 @@ impl Plugin for CredentialShellPlugin {
             Arc::new(CredentialShell {
                 ctx: ctx.clone(),
                 policy,
+                sensitive: atomcode_capabilities::tools::SensitivePaths::of(
+                    &*atomcode_harness::product_dirs(ctx)?,
+                ),
             }),
             true,
         );
@@ -213,6 +219,8 @@ struct WriteApproval {
     ctx: Context,
     working_dir: std::path::PathBuf,
     accept_edits: bool,
+    /// What counts as sensitive — the tree's credential stores included.
+    sensitive: atomcode_capabilities::tools::SensitivePaths,
 }
 
 #[async_trait]
@@ -239,6 +247,7 @@ impl Waterfall<ToolsExecute> for WriteApproval {
                         .load(std::sync::atomic::Ordering::Relaxed)
                 });
         let verdict = write_verdict(
+            &self.sensitive,
             &exec.call.name,
             &exec.call.arguments,
             Some(self.working_dir.as_path()),
@@ -314,7 +323,7 @@ impl Plugin for WriteApprovalPlugin {
         "tool-write-approval"
     }
     fn inject(&self) -> &'static [&'static str] {
-        &["tools"]
+        &["product-dirs", "tools"]
     }
     fn uses(&self) -> &'static [&'static str] {
         &["approval", "modes"]
@@ -334,6 +343,9 @@ impl Plugin for WriteApprovalPlugin {
                 ctx: ctx.clone(),
                 working_dir,
                 accept_edits: row.accept_edits,
+                sensitive: atomcode_capabilities::tools::SensitivePaths::of(
+                    &*atomcode_harness::product_dirs(ctx)?,
+                ),
             }),
             true,
         );
@@ -361,6 +373,8 @@ impl Plugin for WriteApprovalPlugin {
 struct BashWorkspace {
     ctx: Context,
     working_dir: std::path::PathBuf,
+    /// What counts as sensitive — the tree's credential stores included.
+    sensitive: atomcode_capabilities::tools::SensitivePaths,
 }
 
 #[async_trait]
@@ -386,6 +400,7 @@ impl Waterfall<ToolsExecute> for BashWorkspace {
             return next.run(exec).await;
         };
         let verdict = bash_workspace_verdict(
+            &self.sensitive,
             &exec.call.name,
             &exec.call.arguments,
             Some(self.working_dir.as_path()),
@@ -437,7 +452,7 @@ impl Plugin for BashWorkspacePlugin {
         "tool-bash-workspace"
     }
     fn inject(&self) -> &'static [&'static str] {
-        &["tools"]
+        &["product-dirs", "tools"]
     }
     fn uses(&self) -> &'static [&'static str] {
         &["approval"]
@@ -456,6 +471,9 @@ impl Plugin for BashWorkspacePlugin {
             Arc::new(BashWorkspace {
                 ctx: ctx.clone(),
                 working_dir,
+                sensitive: atomcode_capabilities::tools::SensitivePaths::of(
+                    &*atomcode_harness::product_dirs(ctx)?,
+                ),
             }),
             true,
         );

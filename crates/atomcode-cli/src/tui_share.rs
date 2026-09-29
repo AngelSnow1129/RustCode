@@ -283,7 +283,9 @@ async fn start_for_phone(config_path: &std::path::Path) -> Result<String, String
     }
     // 先把旧的收掉:两个中继客户端连同一个 token,手机连上的是哪一个说不准。
     stop_for_phone();
-    let signed_in = atomcode_auth::oauth::get_stored_auth();
+    let signed_in = atomcode_auth::oauth::get_stored_auth(
+        atomcode_coding::config::product_dirs_from_env().user(),
+    );
     let (_host, port) = atomcode_daemon::ensure_app_server(
         "127.0.0.1",
         atomcode_daemon::APP_DEFAULT_PORT,

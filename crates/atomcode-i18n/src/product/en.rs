@@ -940,7 +940,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::HelpCustomNone =>
             "    (none)\n\n".into(),
         Msg::HelpCustomCreateHint =>
-            "  Create: ~/.atomcode/commands/<name>.md or .atomcode/commands/<name>.md\n".into(),
+            "  Create: {user_dir}/commands/<name>.md or {project_dir}/commands/<name>.md\n".into(),
         Msg::HelpSourceGlobal => "global".into(),
         Msg::HelpSourceProject => "project".into(),
 
@@ -1054,11 +1054,11 @@ Msg::PluginMgrInstallingLabel => "Installing…".into(),
         Msg::PluginMgrRemoveMarketplaceNo => "No, keep".into(),
         Msg::PluginMgrRemoveMarketplaceHint => "↑/↓ select · ⏎ confirm · esc cancel".into(),
         Msg::PluginScopeUser => "Install for you (user scope)".into(),
-        Msg::PluginScopeUserDesc => "~/.atomcode/plugins — all projects".into(),
+        Msg::PluginScopeUserDesc => "{user_dir}/plugins — all projects".into(),
         Msg::PluginScopeProject => "Install for all collaborators (project scope)".into(),
-        Msg::PluginScopeProjectDesc => ".atomcode/plugins — shared via git".into(),
+        Msg::PluginScopeProjectDesc => "{project_dir}/plugins — shared via git".into(),
         Msg::PluginScopeLocal => "Install for you, in this repo only (local scope)".into(),
-        Msg::PluginScopeLocalDesc => ".atomcode/plugins/local — not committed".into(),
+        Msg::PluginScopeLocalDesc => "{project_dir}/plugins/local — not committed".into(),
         Msg::PluginScopeHint => "↑↓ Select scope · Enter confirm · Esc back".into(),
         Msg::PluginScopeUserShort => "user".into(),
         Msg::PluginScopeProjectShort => "project".into(),
@@ -1333,7 +1333,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
              \u{20}\u{20}/goal help            this help\n  \
              Notes:\n  \
              \u{20}\u{20}- A model evaluates each round; pick it with evaluator_provider (a [models]\n  \
-             \u{20}\u{20}\u{20}\u{20}id or [providers] name) in ~/.atomcode/config.toml.\n  \
+             \u{20}\u{20}\u{20}\u{20}id or [providers] name) in {user_dir}/config.toml.\n  \
              \u{20}\u{20}- Round cap: 30% of your CodingPlan call limit (at least 50), else 300;\n  \
              \u{20}\u{20}\u{20}\u{20}ATOMCODE_GOAL_MAX_ROUNDS overrides it. No time cap unless\n  \
              \u{20}\u{20}\u{20}\u{20}ATOMCODE_GOAL_MAX_DURATION_SECS is set. At a cap the goal pauses —\n  \
@@ -1454,7 +1454,7 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CliAboutTelemetry => "Telemetry controls".into(),
         Msg::CliAboutPlugin => "Manage skill/command plugins".into(),
         Msg::CliAboutUninstall => "Uninstall {brand}: remove the binary, PATH edit, and data".into(),
-        Msg::CliAboutSetup => "Install seed files (skills/commands/hooks/MCP) to ~/.atomcode/".into(),
+        Msg::CliAboutSetup => "Install seed files (skills/commands/hooks/MCP) to {user_dir}/".into(),
         Msg::CliAboutHooks => "Manage hooks (list, test, enable/disable)".into(),
         Msg::CliAboutHooksList => "List all loaded hooks with their status".into(),
         Msg::CliAboutHooksTest => "Test a specific hook by name".into(),
@@ -1495,10 +1495,10 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CliHelpPortWebui => "Port (default: 13457)".into(),
         Msg::CliHelpHost => "Bind address (default: 127.0.0.1)".into(),
         Msg::CliHelpUninstallYes => "Skip prompts; use per-group default decisions".into(),
-        Msg::CliHelpUninstallPurge => "Wipe ~/.atomcode/ entirely".into(),
-        Msg::CliHelpUninstallKeepData => "Keep ~/.atomcode/ entirely".into(),
+        Msg::CliHelpUninstallPurge => "Wipe {user_dir}/ entirely".into(),
+        Msg::CliHelpUninstallKeepData => "Keep {user_dir}/ entirely".into(),
         Msg::CliHelpUninstallDryRun => "Print the plan; do nothing".into(),
-        Msg::CliHelpMcpGlobal => "Write ~/.atomcode/mcp.json instead of <dir>/.mcp.json".into(),
+        Msg::CliHelpMcpGlobal => "Write {user_dir}/mcp.json instead of <dir>/.mcp.json".into(),
         Msg::CliHelpMcpDir => "Directory for project .mcp.json".into(),
         Msg::CliHelpMcpName => "Server key".into(),
         Msg::CliHelpHooksTestName => "Hook name to test".into(),

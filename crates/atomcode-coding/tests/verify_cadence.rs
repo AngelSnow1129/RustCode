@@ -34,7 +34,13 @@ async fn text_only_verify_continuation_is_suppressed() {
         ],
     ]));
 
-    let cfg = CodingAgentConfig::new("k", "http://localhost:0", "mock-model", dir.path());
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost:0",
+        "mock-model",
+        dir.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     let mut mounted = mount(&cfg, quiet_options(), provider).await;
     let outcome = turn(&mut mounted.handle, "create f.rs", allow()).await;
 
@@ -78,7 +84,13 @@ async fn reasoning_only_verify_continuation_is_suppressed() {
         ],
     ]));
 
-    let cfg = CodingAgentConfig::new("k", "http://localhost:0", "mock-model", dir.path());
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost:0",
+        "mock-model",
+        dir.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     let mut mounted = mount(&cfg, quiet_options(), provider).await;
     let handle = &mut mounted.handle;
     handle
@@ -149,7 +161,13 @@ async fn verify_continuation_with_tool_call_still_runs_and_surfaces_tool_result(
         ],
     ]));
 
-    let cfg = CodingAgentConfig::new("k", "http://localhost:0", "mock-model", dir.path());
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost:0",
+        "mock-model",
+        dir.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     let mut mounted = mount(&cfg, quiet_options(), provider).await;
     let outcome = turn(&mut mounted.handle, "create f.rs", allow()).await;
 
@@ -191,7 +209,13 @@ async fn later_user_turn_does_not_reopen_prior_unverified_edit() {
         ],
     ]));
 
-    let cfg = CodingAgentConfig::new("k", "http://localhost:0", "mock-model", dir.path());
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost:0",
+        "mock-model",
+        dir.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     let mut mounted = mount(&cfg, quiet_options(), provider).await;
     let handle = &mut mounted.handle;
 

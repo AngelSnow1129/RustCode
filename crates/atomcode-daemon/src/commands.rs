@@ -4,13 +4,13 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::AppState;
+use atomcode_capabilities::memory::MemoryStore;
 #[cfg(test)]
 use atomcode_capabilities::session::SessionMeta as NativeSessionMeta;
 use atomcode_capabilities::session::{
     LoadedSession, SessionLease as NativeSessionLease, SessionManager as NativeSessionManager,
     SessionStoreError,
 };
-use atomcode_config::config::memory::MemoryStore;
 
 #[derive(serde::Serialize)]
 pub(crate) struct CostModelResult {
@@ -118,9 +118,12 @@ fn command_project_bucket(
     working_dir: &std::path::Path,
     project_hash: Option<&str>,
 ) -> anyhow::Result<String> {
-    let bucket = project_hash
-        .map(str::to_owned)
-        .unwrap_or_else(|| NativeSessionManager::project_hash(working_dir));
+    let bucket = project_hash.map(str::to_owned).unwrap_or_else(|| {
+        NativeSessionManager::project_hash(
+            working_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        )
+    });
     if bucket.len() != 16 || !bucket.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         anyhow::bail!("invalid project session bucket")
     }
@@ -133,8 +136,12 @@ fn load_native_command_session(
     id: &str,
 ) -> anyhow::Result<Option<NativeCommandSession>> {
     let bucket = command_project_bucket(working_dir, project_hash)?;
-    let manager =
-        NativeSessionManager::with_root(NativeSessionManager::sessions_root().join(bucket));
+    let manager = NativeSessionManager::with_root(
+        NativeSessionManager::sessions_root(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        )
+        .join(bucket),
+    );
     let has_existing = [
         manager.meta_path(id)?,
         manager.snapshot_path(id)?,
@@ -414,9 +421,9 @@ fn exec_remember(working_dir: &Path, arg: &str) -> anyhow::Result<CommandResult>
         anyhow::bail!("remember needs content");
     }
     let store = if global {
-        MemoryStore::global()
+        MemoryStore::global(atomcode_coding::config::product_dirs_from_env().user())
     } else {
-        MemoryStore::project(working_dir)
+        MemoryStore::project(&atomcode_coding::config::product_dirs_from_env().project(working_dir))
     };
     store.append(content)?;
     Ok(CommandResult::Remember {
@@ -429,17 +436,32 @@ fn exec_forget(working_dir: &Path, arg: &str) -> anyhow::Result<CommandResult> {
     if keyword.is_empty() {
         anyhow::bail!("forget needs a keyword");
     }
-    let mut removed = MemoryStore::global().remove_matching(keyword)?;
-    removed.extend(MemoryStore::project(working_dir).remove_matching(keyword)?);
-    removed.extend(MemoryStore::local(working_dir).remove_matching(keyword)?);
+    let mut removed = MemoryStore::global(atomcode_coding::config::product_dirs_from_env().user())
+        .remove_matching(keyword)?;
+    removed.extend(
+        MemoryStore::project(
+            &atomcode_coding::config::product_dirs_from_env().project(working_dir),
+        )
+        .remove_matching(keyword)?,
+    );
+    removed.extend(
+        MemoryStore::local(&atomcode_coding::config::product_dirs_from_env().project(working_dir))
+            .remove_matching(keyword)?,
+    );
     Ok(CommandResult::Forget { removed })
 }
 
 fn exec_memory(working_dir: &Path) -> anyhow::Result<CommandResult> {
     Ok(CommandResult::Memory {
-        global: MemoryStore::global().load(),
-        project: MemoryStore::project(working_dir).load(),
-        local: MemoryStore::local(working_dir).load(),
+        global: MemoryStore::global(atomcode_coding::config::product_dirs_from_env().user()).load(),
+        project: MemoryStore::project(
+            &atomcode_coding::config::product_dirs_from_env().project(working_dir),
+        )
+        .load(),
+        local: MemoryStore::local(
+            &atomcode_coding::config::product_dirs_from_env().project(working_dir),
+        )
+        .load(),
     })
 }
 
@@ -458,7 +480,7 @@ async fn exec_compact(
 }
 
 fn exec_whoami() -> anyhow::Result<CommandResult> {
-    match atomcode_auth::get_stored_auth() {
+    match atomcode_auth::get_stored_auth(atomcode_coding::config::product_dirs_from_env().user()) {
         Some(auth) => Ok(CommandResult::Whoami {
             logged_in: true,
             username: Some(auth.user.username),
@@ -531,15 +553,21 @@ fn render_context_file_status_block(working_dir: &std::path::Path) -> String {
     for (scope_msg, store) in [
         (
             Msg::StatusMemoryScopeGlobal,
-            atomcode_config::config::memory::MemoryStore::global(),
+            atomcode_capabilities::memory::MemoryStore::global(
+                atomcode_coding::config::product_dirs_from_env().user(),
+            ),
         ),
         (
             Msg::StatusMemoryScopeProject,
-            atomcode_config::config::memory::MemoryStore::project(working_dir),
+            atomcode_capabilities::memory::MemoryStore::project(
+                &atomcode_coding::config::product_dirs_from_env().project(working_dir),
+            ),
         ),
         (
             Msg::StatusMemoryScopeLocal,
-            atomcode_config::config::memory::MemoryStore::local(working_dir),
+            atomcode_capabilities::memory::MemoryStore::local(
+                &atomcode_coding::config::product_dirs_from_env().project(working_dir),
+            ),
         ),
     ] {
         let scope = t(scope_msg);
@@ -578,7 +606,7 @@ fn format_login_identity(name: Option<&str>, username: &str) -> String {
 }
 
 fn render_login_line_from_stored_auth() -> String {
-    match atomcode_auth::get_stored_auth() {
+    match atomcode_auth::get_stored_auth(atomcode_coding::config::product_dirs_from_env().user()) {
         Some(a) => {
             let identity = format_login_identity(a.user.name.as_deref(), &a.user.username);
             render_login_line(Some(&identity))
@@ -603,10 +631,14 @@ fn render_codingplan_status_for_status_cmd() -> String {
         use atomcode_codingplan::Client;
         use atomcode_config::i18n::{t, Msg};
 
-        let client = match Client::from_stored_auth() {
-            Ok(c) => c,
-            Err(e) => return render_cp_auth_error(&e, || t(Msg::StatusCpNotSignedIn).into_owned()),
-        };
+        let client =
+            match Client::from_stored_auth(atomcode_coding::config::product_dirs_from_env().user())
+            {
+                Ok(c) => c,
+                Err(e) => {
+                    return render_cp_auth_error(&e, || t(Msg::StatusCpNotSignedIn).into_owned())
+                }
+            };
         let status = match client.status_v2() {
             Ok(s) => s,
             Err(e) => {
@@ -696,7 +728,8 @@ fn exec_status(
         .and_then(|c| c.provider_config_for_selection(&provider_name))
         .map(|p| p.model)
         .unwrap_or_default();
-    let auth = atomcode_auth::get_stored_auth();
+    let auth =
+        atomcode_auth::get_stored_auth(atomcode_coding::config::product_dirs_from_env().user());
 
     let body = t(Msg::StatusBody {
         model: &model,
@@ -857,15 +890,17 @@ pub(crate) async fn run_command(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use atomcode_capabilities::memory::MemoryStore;
     use atomcode_capabilities::session::PresentationFile;
     use atomcode_capabilities::session::{StorageOwner, TurnStat};
-    use atomcode_config::config::memory::MemoryStore;
 
     #[test]
     fn context_file_status_shows_instruction_and_memory_paths() {
         let project = tempfile::tempdir().unwrap();
         std::fs::write(project.path().join("AGENTS.md"), "project instructions").unwrap();
-        let project_memory = MemoryStore::project(project.path());
+        let project_memory = MemoryStore::project(
+            &atomcode_coding::config::product_dirs_from_env().project(project.path()),
+        );
         std::fs::create_dir_all(project_memory.path().parent().unwrap()).unwrap();
         std::fs::write(project_memory.path(), "- remembered fact\n").unwrap();
         let status = render_context_file_status_block(project.path());
@@ -1171,7 +1206,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let wd = dir.path();
         exec_remember(wd, "阿童木用 Rust 写").unwrap();
-        let store = MemoryStore::project(wd);
+        let store =
+            MemoryStore::project(&atomcode_coding::config::product_dirs_from_env().project(wd));
         assert!(store.load().iter().any(|e| e.contains("阿童木用 Rust 写")));
     }
 
@@ -1183,7 +1219,9 @@ mod tests {
         exec_remember(wd, "keep-me fact").unwrap();
         // exec_forget 也会扫全局，但全局此刻应无匹配；断言项目侧被删。
         let _ = exec_forget(wd, "delete-me");
-        let remaining = MemoryStore::project(wd).load();
+        let remaining =
+            MemoryStore::project(&atomcode_coding::config::product_dirs_from_env().project(wd))
+                .load();
         assert!(!remaining.iter().any(|e| e.contains("delete-me")));
         assert!(remaining.iter().any(|e| e.contains("keep-me")));
     }

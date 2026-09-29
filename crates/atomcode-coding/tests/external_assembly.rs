@@ -185,6 +185,7 @@ async fn the_one_call_mount_takes_rows_written_elsewhere() {
 
     let (mut handle, app, _slots) = on_harness::mount_hosted(
         &dir,
+        &atomcode_coding::config::product_dirs_from_env(),
         Presence::Headless,
         counting_model(),
         None,
@@ -223,6 +224,7 @@ async fn the_scoped_layer_carries_the_fuse_too() {
     let dir = scratch("fuse");
     let (_handle, app, _slots) = on_harness::mount_hosted(
         &dir,
+        &atomcode_coding::config::product_dirs_from_env(),
         Presence::Headless,
         Arc::new(AlwaysStopProvider::new("unused")),
         None,
@@ -264,6 +266,7 @@ async fn a_row_that_takes_one_of_codings_names_is_refused_with_a_reason() {
     let dir = scratch("clash");
     let refused = on_harness::mount_hosted(
         &dir,
+        &atomcode_coding::config::product_dirs_from_env(),
         Presence::Headless,
         Arc::new(AlwaysStopProvider::new("unused")),
         None,

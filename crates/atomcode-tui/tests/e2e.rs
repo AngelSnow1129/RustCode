@@ -588,6 +588,7 @@ async fn start_full(
             providers: None,
             plugins,
             setup: None,
+            dirs: None,
         },
         connection,
     )

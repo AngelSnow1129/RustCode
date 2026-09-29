@@ -41,7 +41,13 @@ async fn dump_row_order() {
     let home = tempfile::tempdir().unwrap();
     std::env::set_var("ATOMCODE_HOME", home.path());
     let project = tempfile::tempdir().unwrap();
-    let mut cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost",
+        "m",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     let (rules, invalid) =
         atomcode_capabilities::tools::PermissionRules::parse(&["Bash(curl *)".to_string()], &[]);
     assert!(invalid.is_empty());
@@ -72,7 +78,13 @@ async fn the_product_mounts_and_audits_clean() {
     let home = tempfile::tempdir().unwrap();
     std::env::set_var("ATOMCODE_HOME", home.path());
     let project = tempfile::tempdir().unwrap();
-    let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost",
+        "m",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
 
     let mounted = support::mount(&cfg, support::quiet_options(), Arc::new(Silent)).await;
     let defects = mounted.audit();
@@ -115,7 +127,13 @@ async fn the_permission_gate_is_mounted_once() {
     let home = tempfile::tempdir().unwrap();
     std::env::set_var("ATOMCODE_HOME", home.path());
     let project = tempfile::tempdir().unwrap();
-    let mut cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost",
+        "m",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     let (rules, invalid) =
         atomcode_capabilities::tools::PermissionRules::parse(&["Bash(curl *)".to_string()], &[]);
     assert!(invalid.is_empty());
@@ -165,7 +183,13 @@ async fn no_row_silently_loses_a_configured_field() {
     let home = tempfile::tempdir().unwrap();
     std::env::set_var("ATOMCODE_HOME", home.path());
     let project = tempfile::tempdir().unwrap();
-    let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost",
+        "m",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
 
     // What the layers under the product declare, by row id. Stacked in the real
     // order — `CODING_DEFAULTS` patches rows `INFRA` inserts, so it does not
@@ -228,7 +252,13 @@ async fn the_runaway_fuse_is_the_products_number() {
     let home = tempfile::tempdir().unwrap();
     std::env::set_var("ATOMCODE_HOME", home.path());
     let project = tempfile::tempdir().unwrap();
-    let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost",
+        "m",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     let mounted = support::mount(&cfg, support::quiet_options(), Arc::new(Silent)).await;
 
     let fuse = mounted
@@ -257,7 +287,13 @@ async fn a_sessions_log_is_kept_in_the_session_store() {
     let home = tempfile::tempdir().unwrap();
     std::env::set_var("ATOMCODE_HOME", home.path());
     let project = tempfile::tempdir().unwrap();
-    let cfg = CodingAgentConfig::new("k", "http://localhost", "m", project.path());
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost",
+        "m",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     let mut opts = support::quiet_options();
     opts.session = atomcode_coding::SessionMode::Fresh;
     let parts = atomcode_coding::prepare(&cfg, opts.clone())

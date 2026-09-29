@@ -33,6 +33,7 @@ use atomcode_config::config::Config;
 use super::installer::{install, list_installed};
 use super::marketplace::{add_marketplace, list_marketplaces, update_marketplace};
 use super::PluginJobEvent;
+use crate::ProductDirs;
 use std::io::Write;
 
 /// Append a diagnostic line to `$ATOMCODE_HOME/stderr.log`.
@@ -46,8 +47,8 @@ use std::io::Write;
 /// Best-effort: if the home dir can't be resolved or the file can't
 /// be opened, silently drop the line — bootstrap failures are already
 /// reported through `PluginJobEvent` channels.
-fn log_to_file(msg: &str) {
-    let home = Config::config_dir();
+fn log_to_file(dirs: &ProductDirs, msg: &str) {
+    let home = dirs.user();
     if std::fs::create_dir_all(&home).is_err() {
         return;
     }
@@ -111,10 +112,10 @@ const MARKETPLACE_REFRESH_INTERVAL_HOURS: i64 = 24;
 /// Returns the list of `PluginJobEvent`s the caller should forward to
 /// the TUI event loop so the user sees a toast (e.g. "marketplace
 /// `atomcode` added at abc1234 (3 plugins)"). Diagnostic lines are
-/// written to `$ATOMCODE_HOME/stderr.log` for posterity. No-op cases
+/// written to `<user tree>/stderr.log` for posterity. No-op cases
 /// (marker already present, no marketplaces to refresh, nothing
 /// changed under HEAD) return an empty vec.
-pub fn run_startup_hooks(config: &Config) -> Vec<PluginJobEvent> {
+pub fn run_startup_hooks(config: &Config, dirs: &ProductDirs) -> Vec<PluginJobEvent> {
     let mut events = Vec::new();
 
     // Early check: if git is not available, skip both auto-install and
@@ -124,6 +125,7 @@ pub fn run_startup_hooks(config: &Config) -> Vec<PluginJobEvent> {
     // the user's shell profile).
     if super::marketplace::find_git().is_err() {
         log_to_file(
+            dirs,
             "⚠ git is not installed or not on PATH. \
              Plugin marketplace auto-install and auto-update are disabled. \
              Install git (e.g. `xcode-select --install` on macOS, \
@@ -134,42 +136,42 @@ pub fn run_startup_hooks(config: &Config) -> Vec<PluginJobEvent> {
     }
 
     if config.plugin.auto_install_default_skills {
-        events.extend(maybe_install_default_skills());
+        events.extend(maybe_install_default_skills(dirs));
     }
     if config.plugin.auto_update_marketplaces
         && !atomcode_config::config::offline::is_offline_active()
-        && marketplace_refresh_due_now()
+        && marketplace_refresh_due_now(dirs)
     {
-        events.extend(refresh_installed_marketplaces());
+        events.extend(refresh_installed_marketplaces(dirs));
         // Stamp after the attempt so the next launch inside the throttle
         // window skips the per-marketplace `git` spawns entirely.
-        touch_marketplace_refresh_marker();
+        touch_marketplace_refresh_marker(dirs);
     }
     events
 }
 
-fn bootstrap_marker_path() -> std::path::PathBuf {
-    // Lives directly under `~/.atomcode/` (the canonical config dir),
+fn bootstrap_marker_path(dirs: &ProductDirs) -> std::path::PathBuf {
+    // Lives directly under the user tree (the canonical config dir),
     // not nested under `plugins/` — it's a per-user run-state flag,
     // not a plugin asset. Same neighbourhood as
     // `.telemetry_notice_shown`.
-    Config::config_dir().join(BOOTSTRAP_MARKER_FILENAME)
+    dirs.user().join(BOOTSTRAP_MARKER_FILENAME)
 }
 
-fn marker_exists() -> bool {
-    bootstrap_marker_path().exists()
+fn marker_exists(dirs: &ProductDirs) -> bool {
+    bootstrap_marker_path(dirs).exists()
 }
 
-fn touch_marker() {
-    let path = bootstrap_marker_path();
+fn touch_marker(dirs: &ProductDirs) {
+    let path = bootstrap_marker_path(dirs);
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
     let _ = std::fs::write(&path, b"");
 }
 
-fn marketplace_refresh_marker_path() -> std::path::PathBuf {
-    Config::config_dir().join(MARKETPLACE_REFRESH_MARKER_FILENAME)
+fn marketplace_refresh_marker_path(dirs: &ProductDirs) -> std::path::PathBuf {
+    dirs.user().join(MARKETPLACE_REFRESH_MARKER_FILENAME)
 }
 
 /// Pure throttle decision for marketplace auto-update: is a refresh due?
@@ -194,8 +196,8 @@ fn refresh_is_due(
 }
 
 /// Read the last-refresh marker and decide whether a refresh is due now.
-fn marketplace_refresh_due_now() -> bool {
-    let last = std::fs::read_to_string(marketplace_refresh_marker_path())
+fn marketplace_refresh_due_now(dirs: &ProductDirs) -> bool {
+    let last = std::fs::read_to_string(marketplace_refresh_marker_path(dirs))
         .ok()
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s.trim()).ok())
         .map(|dt| dt.with_timezone(&chrono::Utc));
@@ -209,8 +211,8 @@ fn marketplace_refresh_due_now() -> bool {
 /// Stamp "we just ran an auto-refresh cycle". Written AFTER the attempt (even a
 /// partial/failed one) — the point is to throttle the git-spawn cadence, and a
 /// failed attempt still spawned git, so we don't want to retry it next launch.
-fn touch_marketplace_refresh_marker() {
-    let path = marketplace_refresh_marker_path();
+fn touch_marketplace_refresh_marker(dirs: &ProductDirs) {
+    let path = marketplace_refresh_marker_path(dirs);
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -224,7 +226,7 @@ fn should_auto_install(source_url: &str) -> bool {
 }
 
 /// Plan A: clone the default plugin marketplaces into
-/// `$ATOMCODE_HOME/plugins/marketplaces/<name>/` and install every
+/// `<user tree>/plugins/marketplaces/<name>/` and install every
 /// plugin listed in their manifests. Iterates [`default_skills_urls`].
 /// After this attempt — successful or not — the marker is written so
 /// the next startup doesn't try again.
@@ -236,8 +238,8 @@ fn should_auto_install(source_url: &str) -> bool {
 ///
 /// Returns one `PluginJobEvent` per marketplace/plugin actually
 /// installed, or one `Failed` event per failure.
-fn maybe_install_default_skills() -> Vec<PluginJobEvent> {
-    if marker_exists() {
+fn maybe_install_default_skills(dirs: &ProductDirs) -> Vec<PluginJobEvent> {
+    if marker_exists(dirs) {
         return vec![];
     }
 
@@ -247,7 +249,7 @@ fn maybe_install_default_skills() -> Vec<PluginJobEvent> {
     // `/plugin marketplace add`. Either way, the marketplace entry
     // exists but its plugins may not — we still need to run the install
     // loop on the already-installed entry.
-    let installed = list_marketplaces().unwrap_or_default();
+    let installed = list_marketplaces(dirs).unwrap_or_default();
 
     let mut events = Vec::new();
 
@@ -259,28 +261,31 @@ fn maybe_install_default_skills() -> Vec<PluginJobEvent> {
 
         if let Some(mp) = already {
             if should_auto_install(url) {
-                install_plugins_from_marketplace(&mut events, &mp.name, &mp.plugins);
+                install_plugins_from_marketplace(dirs, &mut events, &mp.name, &mp.plugins);
             }
             continue;
         }
 
-        match add_marketplace(url) {
+        match add_marketplace(dirs, url) {
             Ok(info) => {
                 let mp_name = info.name.clone();
                 let plugins = info.plugins.clone();
-                log_to_file(&format!(
-                    "✓ Auto-installed plugin marketplace `{}` (commit {}).",
-                    mp_name,
-                    short_commit(&info.git_commit)
-                ));
+                log_to_file(
+                    dirs,
+                    &format!(
+                        "✓ Auto-installed plugin marketplace `{}` (commit {}).",
+                        mp_name,
+                        short_commit(&info.git_commit)
+                    ),
+                );
                 events.push(PluginJobEvent::MarketplaceAdded(info));
                 if should_auto_install(url) {
-                    install_plugins_from_marketplace(&mut events, &mp_name, &plugins);
+                    install_plugins_from_marketplace(dirs, &mut events, &mp_name, &plugins);
                 }
             }
             Err(e) => {
                 let msg = auto_install_failure_msg(url, &e);
-                log_to_file(&format!("⚠ {msg}"));
+                log_to_file(dirs, &format!("⚠ {msg}"));
                 events.push(PluginJobEvent::Failed {
                     op: "auto-install".into(),
                     msg,
@@ -292,7 +297,7 @@ fn maybe_install_default_skills() -> Vec<PluginJobEvent> {
     // Mark the bootstrap as attempted. Even on failure we don't want
     // to retry on every launch — that turns into a flapping network
     // probe. The user can delete the marker to force a retry.
-    touch_marker();
+    touch_marker(dirs);
     events
 }
 
@@ -313,17 +318,21 @@ fn auto_install_failure_msg(url: &str, err: &anyhow::Error) -> String {
 /// individual plugins are logged but swallowed so one bad plugin
 /// doesn't block the rest.
 fn install_plugins_from_marketplace(
+    dirs: &ProductDirs,
     events: &mut Vec<PluginJobEvent>,
     mp_name: &str,
     plugins: &[String],
 ) {
     for plugin in plugins {
-        match install(plugin, mp_name, super::state::InstallScope::User) {
+        match install(dirs, plugin, mp_name, super::state::InstallScope::User) {
             Ok(pi) => {
-                log_to_file(&format!(
-                    "  ✓ Installed plugin `{}@{}` from marketplace `{mp_name}`.",
-                    pi.plugin, pi.marketplace
-                ));
+                log_to_file(
+                    dirs,
+                    &format!(
+                        "  ✓ Installed plugin `{}@{}` from marketplace `{mp_name}`.",
+                        pi.plugin, pi.marketplace
+                    ),
+                );
                 events.push(PluginJobEvent::PluginInstalled(pi));
             }
             Err(e) => {
@@ -331,7 +340,7 @@ fn install_plugins_from_marketplace(
                 // registered during an earlier bootstrap attempt (e.g.
                 // re-run after deleting the marker).
                 let msg = format!("auto-install of plugin `{plugin}@{mp_name}` failed: {e:#}");
-                log_to_file(&format!("  ⚠ {msg}"));
+                log_to_file(dirs, &format!("  ⚠ {msg}"));
                 events.push(PluginJobEvent::Failed {
                     op: "auto-install-plugin".into(),
                     msg,
@@ -350,13 +359,13 @@ fn install_plugins_from_marketplace(
 /// moved, plus one `Failed` event per pull error. No-op pulls (HEAD
 /// unchanged) produce no event — keeps the toast lane quiet when
 /// there's nothing the user needs to know about.
-fn refresh_installed_marketplaces() -> Vec<PluginJobEvent> {
+fn refresh_installed_marketplaces(dirs: &ProductDirs) -> Vec<PluginJobEvent> {
     let mut events = Vec::new();
-    let list = match list_marketplaces() {
+    let list = match list_marketplaces(dirs) {
         Ok(l) => l,
         Err(e) => {
             let msg = format!("could not enumerate marketplaces for auto-update: {e:#}");
-            log_to_file(&format!("⚠ {msg}"));
+            log_to_file(dirs, &format!("⚠ {msg}"));
             events.push(PluginJobEvent::Failed {
                 op: "auto-update".into(),
                 msg,
@@ -369,23 +378,26 @@ fn refresh_installed_marketplaces() -> Vec<PluginJobEvent> {
     }
     let mut failures: Vec<(String, String)> = Vec::new();
     for entry in list {
-        match update_marketplace(&entry.name) {
+        match update_marketplace(dirs, &entry.name) {
             Ok(info) => {
                 if info.git_commit != entry.git_commit {
                     let is_auto = should_auto_install(&entry.source);
                     let name = info.name.clone();
                     let plugins = info.plugins.clone();
-                    log_to_file(&format!(
-                        "✓ Updated marketplace `{}` ({} → {}).",
-                        entry.name,
-                        short_commit(&entry.git_commit),
-                        short_commit(&info.git_commit)
-                    ));
+                    log_to_file(
+                        dirs,
+                        &format!(
+                            "✓ Updated marketplace `{}` ({} → {}).",
+                            entry.name,
+                            short_commit(&entry.git_commit),
+                            short_commit(&info.git_commit)
+                        ),
+                    );
                     events.push(PluginJobEvent::MarketplaceUpdated(info));
                     if is_auto {
                         // Only install plugins not already present — avoids
                         // AlreadyInstalledError noise on every upgrade.
-                        let installed = list_installed().unwrap_or_default();
+                        let installed = list_installed(dirs).unwrap_or_default();
                         let installed_names: std::collections::HashSet<&str> =
                             installed.iter().map(|i| i.plugin.as_str()).collect();
                         let new_plugins: Vec<String> = plugins
@@ -394,7 +406,12 @@ fn refresh_installed_marketplaces() -> Vec<PluginJobEvent> {
                             .cloned()
                             .collect();
                         if !new_plugins.is_empty() {
-                            install_plugins_from_marketplace(&mut events, &name, &new_plugins);
+                            install_plugins_from_marketplace(
+                                dirs,
+                                &mut events,
+                                &name,
+                                &new_plugins,
+                            );
                         }
                     }
                 }
@@ -404,10 +421,13 @@ fn refresh_installed_marketplaces() -> Vec<PluginJobEvent> {
                 // surface is collapsed below so N simultaneous failures (offline / host
                 // down hits every marketplace in the same pass) don't fan out to N
                 // near-identical "sync skipped" warnings (issue #1368).
-                log_to_file(&format!(
-                    "⚠ auto-update of marketplace `{}` failed: {e:#}",
-                    entry.name
-                ));
+                log_to_file(
+                    dirs,
+                    &format!(
+                        "⚠ auto-update of marketplace `{}` failed: {e:#}",
+                        entry.name
+                    ),
+                );
                 failures.push((entry.name.clone(), format!("{e:#}")));
             }
         }
@@ -579,13 +599,13 @@ mod tests {
 
     #[test]
     fn marker_path_uses_versioned_filename() {
-        // We don't assert the exact `~/.atomcode/...` location (depends
-        // on $HOME / env), but the suffix should be the versioned
-        // marker name so future bootstrap-v2 introductions don't
+        // The marker sits directly in the user tree handed in, under the
+        // versioned name so future bootstrap-v2 introductions don't
         // accidentally overwrite v1's marker.
-        let p = bootstrap_marker_path();
-        assert!(
-            p.to_string_lossy().ends_with(BOOTSTRAP_MARKER_FILENAME),
+        let p = bootstrap_marker_path(&ProductDirs::new("/the/tree", ".ours"));
+        assert_eq!(
+            p,
+            std::path::Path::new("/the/tree").join(BOOTSTRAP_MARKER_FILENAME),
             "marker path must end with versioned filename, got {:?}",
             p
         );

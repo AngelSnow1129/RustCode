@@ -13,6 +13,7 @@ pub mod opener;
 pub mod persona;
 pub mod policy;
 pub mod policy_rows;
+pub mod product_dirs;
 pub mod reasoning_effort;
 pub mod recall;
 pub mod recovery;
@@ -44,6 +45,7 @@ use atomcode_plexus::PluginRegistry;
 pub fn catalog() -> PluginRegistry {
     let mut registry = PluginRegistry::new();
     registry
+        .register(Arc::new(product_dirs::ProductDirsPlugin))
         .register(Arc::new(registries::ToolsPlugin))
         .register(Arc::new(registries::SystemPromptPlugin))
         .register(Arc::new(registries::OperationsPlugin))

@@ -3,7 +3,7 @@
 //! does not) via `globset` with `literal_separator(true)`. Build/VCS/cache dirs are
 //! skipped; results sorted, capped at 100.
 
-use super::{err, is_absolute_path, is_skip_dir, not_found_hint, ok, resolve_path};
+use super::{err, is_absolute_path, not_found_hint, ok, resolve_path};
 use crate::world::{FileSystem, LocalFs};
 use async_trait::async_trait;
 use atomcode_kernel::tool::{Tool, ToolContext, ToolResult};
@@ -20,20 +20,27 @@ pub struct GlobTool {
     /// ([`FileSystem::walk`]); which subtrees are noise and how hits are shown
     /// stay here.
     world: Arc<dyn FileSystem>,
+    /// Where the product keeps its data: our own per-project dir is skipped
+    /// in walks (plugin clones, artifacts, team worktrees).
+    dirs: crate::ProductDirs,
 }
 
+#[cfg(test)]
 impl Default for GlobTool {
     fn default() -> Self {
-        Self {
-            world: Arc::new(LocalFs::unfenced()),
-        }
+        Self::new(crate::product_dirs::test_dirs())
     }
 }
 
 impl GlobTool {
+    /// Work on this machine's disk.
+    pub fn new(dirs: crate::ProductDirs) -> Self {
+        Self::with_world(Arc::new(LocalFs::unfenced()), dirs)
+    }
+
     /// Search `world` instead of this machine's disk.
-    pub fn with_world(world: Arc<dyn FileSystem>) -> Self {
-        Self { world }
+    pub fn with_world(world: Arc<dyn FileSystem>, dirs: crate::ProductDirs) -> Self {
+        Self { world, dirs }
     }
 }
 
@@ -115,7 +122,7 @@ impl Tool for GlobTool {
 
         let wd = ctx.working_dir.clone();
         let pattern = a.pattern.clone();
-        let skip: crate::world::SkipDir = Arc::new(is_skip_dir);
+        let skip = crate::pathutil::skip_dir_for(&self.dirs);
         let res = self
             .world
             .walk(&base, &skip, &ctx.cancel)

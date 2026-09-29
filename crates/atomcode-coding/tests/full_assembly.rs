@@ -25,7 +25,13 @@ fn _isolate_atomcode_home() {
 }
 
 fn cfg(working_dir: &std::path::Path) -> CodingAgentConfig {
-    let mut c = CodingAgentConfig::new("k", "http://unused", "test-model", working_dir);
+    let mut c = CodingAgentConfig::new(
+        "k",
+        "http://unused",
+        "test-model",
+        working_dir,
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     c.stream_timeout = Duration::from_secs(5);
     c.request_timeout = Some(Duration::from_secs(5));
     c

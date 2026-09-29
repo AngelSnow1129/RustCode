@@ -156,8 +156,10 @@ impl Client {
     /// Build a client using the currently-stored OAuth token. Refreshes
     /// the token if expired. Errors with a user-facing message if the
     /// user isn't logged in.
-    pub fn from_stored_auth() -> Result<Self> {
-        if !auth::is_logged_in() {
+    ///
+    /// `user_dir` is the user tree whose `auth.toml` holds the login.
+    pub fn from_stored_auth(user_dir: &std::path::Path) -> Result<Self> {
+        if !auth::is_logged_in(user_dir) {
             return Err(anyhow!(
                 "not logged in — run `atomcode login` (or the codingplan flow) first"
             ));
@@ -168,7 +170,7 @@ impl Client {
         // Surface as `AuthExpired` so the orchestrator triggers the same
         // recovery path it uses for an API-side 401, instead of bailing
         // with a generic "build client" error that callers can't act on.
-        let token = match auth::get_valid_token() {
+        let token = match auth::get_valid_token(user_dir) {
             Ok(t) => t,
             Err(e) => {
                 return Err(anyhow::Error::new(AuthExpired { status: 401 })

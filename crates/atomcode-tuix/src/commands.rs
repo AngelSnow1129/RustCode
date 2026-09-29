@@ -167,7 +167,7 @@ const BUILTIN_COMMANDS: &[Command] = &[
     Command { name: "proxy",   desc: "Switch outbound proxy mode", needs_args: false, hidden: false, acp: false },
     Command { name: "status",  desc: "Show session status", needs_args: false, hidden: false, acp: true },
     Command { name: "config",  desc: "Show config path", needs_args: false, hidden: false, acp: true },
-    Command { name: "reload",  desc: "Reload ~/.atomcode/config.toml from disk", needs_args: false, hidden: false, acp: false },
+    Command { name: "reload",  desc: "Reload config.toml from disk", needs_args: false, hidden: false, acp: false },
     Command { name: "cd",      desc: "Change working directory and start a new session", needs_args: false, hidden: false, acp: false },
     Command { name: "init",    desc: "Analyze the project and generate AGENTS.md", needs_args: false, hidden: false, acp: false },
     Command { name: "bg",      desc: "Background sessions: /bg, /bg list, /bg <N>, /bg drop <N>", needs_args: false, hidden: false, acp: false },

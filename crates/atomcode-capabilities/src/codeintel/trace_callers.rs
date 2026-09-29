@@ -119,7 +119,8 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("lib.rs"), "fn target() {}\n").unwrap();
         std::fs::write(d.path().join("a.rs"), "fn caller_a() { target(); }\n").unwrap();
-        let tool = TraceCallersTool::new(Arc::new(CodeIndex::new()));
+        let tool =
+            TraceCallersTool::new(Arc::new(CodeIndex::new(&crate::product_dirs::test_dirs())));
         let ctx = ToolContext {
             working_dir: d.path().to_path_buf(),
             cancel: CancellationToken::new(),
@@ -149,7 +150,8 @@ mod tests {
             "fun callerA() { target() }\nfun makeWidget() { Widget() }\n",
         )
         .unwrap();
-        let tool = TraceCallersTool::new(Arc::new(CodeIndex::new()));
+        let tool =
+            TraceCallersTool::new(Arc::new(CodeIndex::new(&crate::product_dirs::test_dirs())));
         let ctx = ToolContext {
             working_dir: d.path().to_path_buf(),
             cancel: CancellationToken::new(),
@@ -169,7 +171,8 @@ mod tests {
     async fn missing_symbol_errors() {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("a.rs"), "fn x() {}\n").unwrap();
-        let tool = TraceCallersTool::new(Arc::new(CodeIndex::new()));
+        let tool =
+            TraceCallersTool::new(Arc::new(CodeIndex::new(&crate::product_dirs::test_dirs())));
         let ctx = ToolContext {
             working_dir: d.path().to_path_buf(),
             cancel: CancellationToken::new(),

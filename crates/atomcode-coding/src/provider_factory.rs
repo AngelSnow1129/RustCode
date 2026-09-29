@@ -35,9 +35,11 @@ impl std::error::Error for ProviderBuildError {}
 /// uses the configured static API key. The implementation owns gateway identification as well as
 /// signer construction, keeping auth and stored-credential access out of the coding layer.
 pub trait ProviderAuthenticator: Send + Sync {
+    /// `dirs` is the runtime's own — the user tree a stored login is read from.
     fn request_signer(
         &self,
         base_url: &str,
+        dirs: &atomcode_capabilities::ProductDirs,
     ) -> Result<Option<Arc<dyn RequestSigner>>, ProviderBuildError>;
 }
 
@@ -47,6 +49,7 @@ impl ProviderAuthenticator for AtomGitProviderAuthenticator {
     fn request_signer(
         &self,
         base_url: &str,
+        dirs: &atomcode_capabilities::ProductDirs,
     ) -> Result<Option<Arc<dyn RequestSigner>>, ProviderBuildError> {
         if !is_atomgit_gateway(base_url) {
             return Ok(None);
@@ -56,7 +59,7 @@ impl ProviderAuthenticator for AtomGitProviderAuthenticator {
                 base_url: base_url.to_string(),
             });
         }
-        atomgit_request_signer(base_url)
+        atomgit_request_signer(base_url, dirs.user())
             .map(Some)
             .map_err(ProviderBuildError::Authentication)
     }
@@ -112,6 +115,7 @@ impl CodingProviderFactory for DefaultCodingProviderFactory {
         let provider: Arc<dyn LlmProvider> = match cfg.provider_type.as_str() {
             "claude" | "anthropic" => {
                 let mut ac = AnthropicConfig::new(&cfg.api_key, &cfg.base_url, &cfg.model);
+                ac.wire_dump_dir = Some(cfg.dirs.user().join("wire-dump"));
                 ac.context_window = cfg.context_window;
                 ac.idle_timeout = cfg.stream_timeout;
                 ac.first_token_timeout = cfg.first_token_timeout;
@@ -129,6 +133,7 @@ impl CodingProviderFactory for DefaultCodingProviderFactory {
             }
             "ollama" => {
                 let mut oc = OllamaConfig::new(&cfg.base_url, &cfg.model);
+                oc.wire_dump_dir = Some(cfg.dirs.user().join("wire-dump"));
                 oc.api_key = cfg.api_key.clone();
                 oc.context_window = cfg.context_window;
                 oc.idle_timeout = cfg.stream_timeout;
@@ -153,6 +158,7 @@ impl CodingProviderFactory for DefaultCodingProviderFactory {
                 // OpenAiCompatConfig shape (same auth/timeouts/signer fields);
                 // only the URL path + codecs differ.
                 let mut pc = OpenAiCompatConfig::new(&cfg.api_key, &cfg.base_url, &cfg.model);
+                pc.wire_dump_dir = Some(cfg.dirs.user().join("wire-dump"));
                 pc.context_window = cfg.context_window;
                 pc.idle_timeout = cfg.stream_timeout;
                 pc.first_token_timeout = cfg.first_token_timeout;
@@ -167,7 +173,7 @@ impl CodingProviderFactory for DefaultCodingProviderFactory {
                 pc.skip_tls_verify = cfg.skip_tls_verify;
                 pc.retry = retry_policy_for(cfg.retry_max_attempts)?;
                 if let Some(authenticator) = &self.authenticator {
-                    pc.request_signer = authenticator.request_signer(&cfg.base_url)?;
+                    pc.request_signer = authenticator.request_signer(&cfg.base_url, &cfg.dirs)?;
                 }
                 Arc::new(
                     ResponsesProvider::new(pc)
@@ -176,6 +182,7 @@ impl CodingProviderFactory for DefaultCodingProviderFactory {
             }
             _ => {
                 let mut pc = OpenAiCompatConfig::new(&cfg.api_key, &cfg.base_url, &cfg.model);
+                pc.wire_dump_dir = Some(cfg.dirs.user().join("wire-dump"));
                 pc.context_window = cfg.context_window;
                 pc.idle_timeout = cfg.stream_timeout;
                 pc.first_token_timeout = cfg.first_token_timeout;
@@ -195,7 +202,7 @@ impl CodingProviderFactory for DefaultCodingProviderFactory {
                 pc.skip_tls_verify = cfg.skip_tls_verify;
                 pc.retry = retry_policy_for(cfg.retry_max_attempts)?;
                 if let Some(authenticator) = &self.authenticator {
-                    pc.request_signer = authenticator.request_signer(&cfg.base_url)?;
+                    pc.request_signer = authenticator.request_signer(&cfg.base_url, &cfg.dirs)?;
                 }
                 Arc::new(
                     OpenAiCompatProvider::new(pc)
@@ -491,6 +498,7 @@ mod tests {
             "http://localhost:11434/v1",
             "model",
             PathBuf::from("."),
+            crate::config::product_dirs_from_env(),
         );
         cfg.provider_type = provider_type.to_string();
         cfg.context_window = 64_000;

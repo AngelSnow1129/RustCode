@@ -22,7 +22,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Instant;
 
 use async_trait::async_trait;
-use atomcode_config::config::{Config, DatalogConfig};
+use atomcode_config::config::DatalogConfig;
 use atomcode_kernel::event::StopReason;
 use atomcode_kernel::hook::{LifecycleHooks, TurnCtx};
 use atomcode_kernel::message::{Conversation, Message};
@@ -147,6 +147,8 @@ pub fn rehydrate_record(
 /// observability must never change a turn's behavior or terminal.
 pub struct DatalogHook {
     working_dir: PathBuf,
+    /// The user tree: the default root is its `datalog/`.
+    user_dir: PathBuf,
     configured_dir: Option<String>,
     model: String,
     context_window: u32,
@@ -218,14 +220,17 @@ enum WriteOp {
 }
 
 impl DatalogHook {
+    /// `user_dir` is the user tree — the default root is its `datalog/`.
     pub fn new(
         working_dir: impl Into<PathBuf>,
+        user_dir: impl Into<PathBuf>,
         config: &DatalogConfig,
         model: impl Into<String>,
         context_window: u32,
     ) -> Option<Self> {
         config.enabled.then(|| Self {
             working_dir: working_dir.into(),
+            user_dir: user_dir.into(),
             configured_dir: config.dir.clone(),
             model: model.into(),
             context_window,
@@ -236,11 +241,22 @@ impl DatalogHook {
     }
 
     /// Resolve `<configured-root>/<project-basename>-<hash8>`.
-    pub fn resolve_log_dir(working_dir: &Path, configured_dir: Option<&str>) -> PathBuf {
+    ///
+    /// The default root is `user_dir/datalog`. `DatalogConfig::default`
+    /// materializes a spelling of it into config.toml; that exact value is read
+    /// back as the default — compared against the same function, never a
+    /// copied literal — so the logs follow the tree the host handed in.
+    pub fn resolve_log_dir(
+        working_dir: &Path,
+        configured_dir: Option<&str>,
+        user_dir: &Path,
+    ) -> PathBuf {
+        let materialized_default = DatalogConfig::default().dir;
         let root = match configured_dir.filter(|value| !value.trim().is_empty()) {
-            // `DatalogConfig::default` materializes this value into config.toml.
-            // Treat it as the semantic default so ATOMCODE_HOME keeps working.
-            None | Some("~/.atomcode/datalog") => Config::config_dir().join("datalog"),
+            None => user_dir.join("datalog"),
+            Some(value) if Some(value) == materialized_default.as_deref() => {
+                user_dir.join("datalog")
+            }
             Some("~") => {
                 atomcode_config::util::real_home_dir().unwrap_or_else(|| PathBuf::from("."))
             }
@@ -317,7 +333,11 @@ impl DatalogHook {
             std::process::id(),
             self.instance_id
         );
-        let directory = Self::resolve_log_dir(&self.working_dir, self.configured_dir.as_deref());
+        let directory = Self::resolve_log_dir(
+            &self.working_dir,
+            self.configured_dir.as_deref(),
+            &self.user_dir,
+        );
         let build_id = option_env!("ATOMCODE_BUILD_ID").unwrap_or("dev");
         let mut markdown = String::new();
         let _ = writeln!(markdown, "# Turn {display_timestamp} [build:{build_id}]");
@@ -898,13 +918,21 @@ mod tests {
             enabled: false,
             dir: None,
         };
-        assert!(DatalogHook::new("/repo", &config, "model", 128_000).is_none());
+        assert!(DatalogHook::new("/repo", "/tree", &config, "model", 128_000).is_none());
     }
 
     #[test]
     fn relative_roots_are_project_scoped_and_collision_safe() {
-        let first = DatalogHook::resolve_log_dir(Path::new("/work/foo"), Some("logs"));
-        let second = DatalogHook::resolve_log_dir(Path::new("/personal/foo"), Some("logs"));
+        let first = DatalogHook::resolve_log_dir(
+            Path::new("/work/foo"),
+            Some("logs"),
+            Path::new("/the/tree"),
+        );
+        let second = DatalogHook::resolve_log_dir(
+            Path::new("/personal/foo"),
+            Some("logs"),
+            Path::new("/the/tree"),
+        );
         assert!(first.starts_with("/work/foo/logs"));
         assert!(second.starts_with("/personal/foo/logs"));
         assert_ne!(first.file_name(), second.file_name());
@@ -930,40 +958,35 @@ mod tests {
 
         let working_dir = Path::new("/work/foo");
         assert_eq!(
-            DatalogHook::resolve_log_dir(working_dir, materialized.as_deref()),
-            DatalogHook::resolve_log_dir(working_dir, None),
+            DatalogHook::resolve_log_dir(
+                working_dir,
+                materialized.as_deref(),
+                Path::new("/the/tree")
+            ),
+            DatalogHook::resolve_log_dir(working_dir, None, Path::new("/the/tree")),
             "the string written to config.toml ({:?}) is no longer the one \
              `resolve_log_dir` treats as the default — the two crates have drifted",
             materialized
         );
     }
 
-    /// The default root is `$ATOMCODE_HOME`-relative, not `$HOME`-relative.
-    /// The harness `#[ctor]` points `$ATOMCODE_HOME` at a temp dir for the whole
-    /// binary, so this asserts against a location that is provably not the
-    /// built-in `~/.atomcode` — the case the `resolve_log_dir` special-case
-    /// exists for.
+    /// The default root is the user tree handed in, not `$HOME`-relative —
+    /// the case the `resolve_log_dir` special-case exists for.
     #[test]
-    fn the_default_root_follows_atomcode_home() {
-        let configured = Config::config_dir();
-        assert!(
-            !configured.ends_with(".atomcode"),
-            "precondition: the harness must have moved the config dir off the \
-             default, else this test cannot tell the two roots apart — got {}",
-            configured.display()
-        );
-
+    fn the_default_root_is_the_tree_handed_in() {
+        let tree = Path::new("/elsewhere/fork-tree");
         let resolved = DatalogHook::resolve_log_dir(
             Path::new("/work/foo"),
             DatalogConfig::default().dir.as_deref(),
+            tree,
         );
         assert!(
-            resolved.starts_with(configured.join("datalog")),
-            "datalogs must land under $ATOMCODE_HOME, got {}",
+            resolved.starts_with(tree.join("datalog")),
+            "datalogs must land under the user tree, got {}",
             resolved.display()
         );
         // The project slug is still appended, so two projects never share a bucket.
-        assert_ne!(resolved, configured.join("datalog"));
+        assert_ne!(resolved, tree.join("datalog"));
     }
 
     /// The special case is exact-match on purpose: any OTHER `~/…` value is a
@@ -975,7 +998,11 @@ mod tests {
         let Some(home) = atomcode_config::util::real_home_dir() else {
             return; // no resolvable home on this box; nothing to compare against
         };
-        let resolved = DatalogHook::resolve_log_dir(Path::new("/work/foo"), Some("~/elsewhere"));
+        let resolved = DatalogHook::resolve_log_dir(
+            Path::new("/work/foo"),
+            Some("~/elsewhere"),
+            Path::new("/the/tree"),
+        );
         assert!(
             resolved.starts_with(home.join("elsewhere")),
             "an explicit `~/…` must expand against $HOME, got {}",
@@ -983,10 +1010,14 @@ mod tests {
         );
 
         // Same string as the default but with a trailing space: NOT the sentinel.
-        let sloppy =
-            DatalogHook::resolve_log_dir(Path::new("/work/foo"), Some("~/.atomcode/datalog "));
+        let sloppy_value = format!("{} ", DatalogConfig::default().dir.unwrap());
+        let sloppy = DatalogHook::resolve_log_dir(
+            Path::new("/work/foo"),
+            Some(&sloppy_value),
+            Path::new("/the/tree"),
+        );
         assert!(
-            sloppy.starts_with(home.join(".atomcode")),
+            !sloppy.starts_with("/the/tree"),
             "only the exact literal is the sentinel, got {}",
             sloppy.display()
         );
@@ -1002,7 +1033,14 @@ mod tests {
             enabled: true,
             dir: Some(output.display().to_string()),
         };
-        let hook = DatalogHook::new(&project, &config, "test-model", 128_000).unwrap();
+        let hook = DatalogHook::new(
+            &project,
+            root.path().join("tree"),
+            &config,
+            "test-model",
+            128_000,
+        )
+        .unwrap();
 
         let mut prompt = "inspect this".to_string();
         hook.user_prompt_submit(&mut prompt).await.unwrap();
@@ -1166,8 +1204,10 @@ mod tests {
             enabled: true,
             dir: Some(output.display().to_string()),
         };
-        let first = DatalogHook::new(&project, &config, "model", 128_000).unwrap();
-        let second = DatalogHook::new(&project, &config, "model", 128_000).unwrap();
+        let first =
+            DatalogHook::new(&project, "/nonexistent/tree", &config, "model", 128_000).unwrap();
+        let second =
+            DatalogHook::new(&project, "/nonexistent/tree", &config, "model", 128_000).unwrap();
         let ctx = TurnCtx {
             session_id: Some(Arc::from("shared/session")),
             turn_id: 1,
@@ -1223,7 +1263,8 @@ mod tests {
             enabled: true,
             dir: Some(output.display().to_string()),
         };
-        let hook = DatalogHook::new(&project, &config, "model", 128_000).unwrap();
+        let hook =
+            DatalogHook::new(&project, "/nonexistent/tree", &config, "model", 128_000).unwrap();
         hook.user_prompt_submit(&mut "prompt".to_string())
             .await
             .unwrap();

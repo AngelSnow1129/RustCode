@@ -1535,13 +1535,17 @@ impl RuntimeControl {
         use atomcode_capabilities::session::SessionManager;
         // Which project's store it is in: sessions are kept per working
         // directory, and the one being deleted is usually not this session's.
-        let scan = SessionManager::scan_all();
+        let scan =
+            SessionManager::scan_all(atomcode_coding::config::product_dirs_from_env().user());
         let entry = scan
             .entries
             .into_iter()
             .find(|entry| entry.id == session)
             .ok_or(HostError::NotFound)?;
-        let manager = SessionManager::for_project(&entry.working_dir);
+        let manager = SessionManager::for_project(
+            &entry.working_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
         // The lease is the other runtime's answer to "is anyone using this?":
         // one held elsewhere fails here rather than deleting under it.
         let lease = manager
@@ -1556,7 +1560,8 @@ impl RuntimeControl {
 
     fn list(&self, working_dir: Option<String>) -> Vec<StoredSession> {
         use atomcode_capabilities::session::SessionManager;
-        let scan = SessionManager::scan_all();
+        let scan =
+            SessionManager::scan_all(atomcode_coding::config::product_dirs_from_env().user());
         // 不按 fork 谱系折叠(`collapse_fork_lineages`,daemon 的目录调了它)。那条
         // 规矩只留谱系里最新的一条,而被藏起来的那条分叉**可能带着独有内容**:两个
         // runtime 同时接着一段对话跑(自动分叉的成因就是这个)时,两条都往前走了,
@@ -1581,9 +1586,12 @@ impl RuntimeControl {
                 )
             })
             .collect();
-        let here_bucket = working_dir
-            .as_deref()
-            .map(|dir| SessionManager::project_hash(std::path::Path::new(dir)));
+        let here_bucket = working_dir.as_deref().map(|dir| {
+            SessionManager::project_hash(
+                std::path::Path::new(dir),
+                &atomcode_coding::config::product_dirs_from_env(),
+            )
+        });
         let mut sessions = scope_sessions(all, working_dir.as_deref(), here_bucket.as_deref());
         sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         sessions
@@ -1698,7 +1706,8 @@ fn typed_words(user: &str) -> String {
 
 fn typed_before(here: &std::path::Path, skip: &str, limit: usize) -> Vec<String> {
     use atomcode_capabilities::session::{events, SessionManager};
-    let manager = SessionManager::for_project(here);
+    let manager =
+        SessionManager::for_project(here, &atomcode_coding::config::product_dirs_from_env());
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut out: Vec<String> = Vec::new();
     // Newest session first, so the most recent thing typed is the first thing
@@ -1795,13 +1804,16 @@ fn preview_of(session: &str) -> Result<Vec<String>, HostError> {
     /// under it.
     const WIDE: usize = 160;
 
-    let scan = SessionManager::scan_all();
+    let scan = SessionManager::scan_all(atomcode_coding::config::product_dirs_from_env().user());
     let entry = scan
         .entries
         .into_iter()
         .find(|entry| entry.id == session)
         .ok_or(HostError::NotFound)?;
-    let manager = SessionManager::for_project(&entry.working_dir);
+    let manager = SessionManager::for_project(
+        &entry.working_dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let logged = manager
         .load_events(session)
         .map_err(|error| HostError::Failed {
@@ -1920,15 +1932,25 @@ fn source_groups(working_dir: &std::path::Path) -> Vec<atomcode_host_api::Source
             files: vec![
                 file(
                     &atomcode_config::i18n::t(atomcode_config::i18n::Msg::StatusMemoryScopeGlobal),
-                    MemoryStore::global().path().to_path_buf(),
+                    MemoryStore::global(atomcode_coding::config::product_dirs_from_env().user())
+                        .path()
+                        .to_path_buf(),
                 ),
                 file(
                     &atomcode_config::i18n::t(atomcode_config::i18n::Msg::StatusMemoryScopeProject),
-                    MemoryStore::project(working_dir).path().to_path_buf(),
+                    MemoryStore::project(
+                        &atomcode_coding::config::product_dirs_from_env().project(working_dir),
+                    )
+                    .path()
+                    .to_path_buf(),
                 ),
                 file(
                     &atomcode_config::i18n::t(atomcode_config::i18n::Msg::StatusMemoryScopeLocal),
-                    MemoryStore::local(working_dir).path().to_path_buf(),
+                    MemoryStore::local(
+                        &atomcode_coding::config::product_dirs_from_env().project(working_dir),
+                    )
+                    .path()
+                    .to_path_buf(),
                 ),
             ],
         },
@@ -1954,7 +1976,9 @@ impl HostControl for RuntimeControl {
                 // cross-bucket pin decision below — a resume walks every project's
                 // sessions once, not twice. `message_count > 0` matches what the
                 // picker offers (a 0-message phantom is not resumable).
-                let scan = SessionManager::scan_all();
+                let scan = SessionManager::scan_all(
+                    atomcode_coding::config::product_dirs_from_env().user(),
+                );
                 let Some(entry) = scan
                     .entries
                     .iter()
@@ -1983,9 +2007,16 @@ impl HostControl for RuntimeControl {
                     if let Some(bucket) = bucket_to_pin_on_resume(
                         &scan.entries,
                         &target,
-                        &SessionManager::project_hash(&here),
+                        &SessionManager::project_hash(
+                            &here,
+                            &atomcode_coding::config::product_dirs_from_env(),
+                        ),
                     ) {
-                        SessionManager::pin_project_bucket(&here, &bucket);
+                        SessionManager::pin_project_bucket(
+                            &here,
+                            &atomcode_coding::config::product_dirs_from_env(),
+                            &bucket,
+                        );
                     }
                 }
                 let changed = self.handle.resume_session(target).await.map_err(refused)?;
@@ -2387,7 +2418,10 @@ impl HostControl for RuntimeControl {
                     .expect("config poisoned")
                     .working_dir
                     .clone();
-                let manager = SessionManager::for_project(&working_dir);
+                let manager = SessionManager::for_project(
+                    &working_dir,
+                    &atomcode_coding::config::product_dirs_from_env(),
+                );
                 let report = manager
                     .read_meta(&session)
                     .map(|meta| aggregate_session_cost(&meta))
@@ -2531,9 +2565,10 @@ impl HostControl for RuntimeControl {
                 // Credentials, then the live provider — the same order
                 // the classic screen's logout uses: a failure below must not
                 // leave the identity file behind saying otherwise.
-                atomcode_auth::logout().map_err(|error| HostError::Failed {
-                    message: error.to_string(),
-                })?;
+                atomcode_auth::logout(atomcode_coding::config::product_dirs_from_env().user())
+                    .map_err(|error| HostError::Failed {
+                        message: error.to_string(),
+                    })?;
                 self.handle
                     .deactivate_provider(ProviderUnavailableReason::AuthenticationRequired)
                     .await

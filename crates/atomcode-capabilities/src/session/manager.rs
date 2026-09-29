@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Barrier;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use crate::ProductDirs;
 use atomcode_kernel::message::{Message, Role, SessionSnapshot, SNAPSHOT_VERSION};
 use serde::{de::IgnoredAny, Deserialize, Serialize};
 
@@ -1032,13 +1033,14 @@ impl SessionManager {
                 || (record.contains_key("event") && record.contains_key("seq")))
     }
 
-    pub fn sessions_root() -> PathBuf {
-        super::config_dir().join("sessions")
+    /// `<user tree>/sessions` — every project's buckets.
+    pub fn sessions_root(user_dir: &Path) -> PathBuf {
+        user_dir.join("sessions")
     }
 
     /// Copy the pre-v4.16 macOS session tree into the canonical sessions root.
     /// An initialized canonical root is never modified.
-    pub fn migrate_from_legacy() -> SessionResult<usize> {
+    pub fn migrate_from_legacy(user_dir: &Path) -> SessionResult<usize> {
         #[cfg(target_os = "macos")]
         {
             let Some(legacy_root) =
@@ -1046,19 +1048,20 @@ impl SessionManager {
             else {
                 return Ok(0);
             };
-            migrate_sessions_from(&legacy_root, &Self::sessions_root())
+            migrate_sessions_from(&legacy_root, &Self::sessions_root(user_dir))
         }
         #[cfg(not(target_os = "macos"))]
         {
+            let _ = user_dir;
             Ok(0)
         }
     }
 
-    /// The store for `working_dir`'s project — `$ATOMCODE_HOME/sessions/<project_hash>`,
+    /// The store for `working_dir`'s project — `<user tree>/sessions/<project_hash>`,
     /// the SAME bucket production uses (so old `<id>.json` and new `<id>.snapshot`
     /// sessions of the same project land together).
-    pub fn for_project(working_dir: &Path) -> Self {
-        let root = Self::sessions_root().join(Self::project_hash(working_dir));
+    pub fn for_project(working_dir: &Path, dirs: &ProductDirs) -> Self {
+        let root = Self::sessions_root(dirs.user()).join(Self::project_hash(working_dir, dirs));
         Self {
             root,
             #[cfg(test)]
@@ -1091,7 +1094,7 @@ impl SessionManager {
     /// The bucket a project's sessions live in.
     ///
     /// Prefers the persistent marker written by [`Self::ensure_project_marker`]
-    /// (`<working_dir>/.atomcode/local/id`), falling back to the path hash for a
+    /// (`<project dir>/local/id`), falling back to the path hash for a
     /// project that has no marker yet — the pre-marker default. The marker is
     /// what survives a folder RENAME: it travels with the folder and holds the
     /// bucket the sessions are actually in, whereas the path hash changes with
@@ -1099,8 +1102,8 @@ impl SessionManager {
     /// bucket id is ignored. (Project-scoped MCP trust keys on the path via its
     /// own `mcp::registry::project_trust_key`, deliberately NOT this — a renamed
     /// folder re-confirming trust is the safer boundary.)
-    pub fn project_hash(working_dir: &Path) -> String {
-        if let Ok(content) = fs::read_to_string(Self::project_marker_path(working_dir)) {
+    pub fn project_hash(working_dir: &Path, dirs: &ProductDirs) -> String {
+        if let Ok(content) = fs::read_to_string(Self::project_marker_path(working_dir, dirs)) {
             let id = content.trim();
             if valid_project_bucket(id) {
                 return id.to_string();
@@ -1109,11 +1112,11 @@ impl SessionManager {
         atomcode_config::util::stable_project_hash(working_dir)
     }
 
-    /// The pin file: `<working_dir>/.atomcode/local/id`. In the already
-    /// git-ignored machine-local dir (see `config::memory`), so it never reaches
+    /// The pin file: `<project dir>/local/id`. In the already git-ignored
+    /// machine-local dir (see `memory::MemoryStore::local`), so it never reaches
     /// version control and moves with the folder on a rename.
-    fn project_marker_path(working_dir: &Path) -> PathBuf {
-        working_dir.join(".atomcode").join("local").join("id")
+    fn project_marker_path(working_dir: &Path, dirs: &ProductDirs) -> PathBuf {
+        dirs.project(working_dir).join("local").join("id")
     }
 
     /// Pin this project to a stable session bucket, so a later folder rename
@@ -1126,9 +1129,10 @@ impl SessionManager {
     /// use anyway — only now frozen, so a rename cannot move it. Best-effort: a
     /// write failure leaves the plain path-hash behaviour unchanged rather than
     /// erroring a session start.
-    pub fn ensure_project_marker(working_dir: &Path) {
+    pub fn ensure_project_marker(working_dir: &Path, dirs: &ProductDirs) {
         Self::write_project_marker(
             working_dir,
+            dirs,
             &atomcode_config::util::stable_project_hash(working_dir),
             false,
         );
@@ -1156,29 +1160,29 @@ impl SessionManager {
     /// in the empty new bucket. Whether this folder owns real sessions under that
     /// bucket is the caller's check (`bucket_to_pin_on_resume` refuses to repin a
     /// folder that does). Best-effort, like `ensure_project_marker`.
-    pub fn pin_project_bucket(working_dir: &Path, bucket: &str) {
+    pub fn pin_project_bucket(working_dir: &Path, dirs: &ProductDirs, bucket: &str) {
         if !valid_project_bucket(bucket) {
             return;
         }
         let own = atomcode_config::util::stable_project_hash(working_dir);
-        let current = fs::read_to_string(Self::project_marker_path(working_dir))
+        let current = fs::read_to_string(Self::project_marker_path(working_dir, dirs))
             .ok()
             .map(|content| content.trim().to_string())
             .filter(|id| valid_project_bucket(id));
         // No marker, or one `project_hash` ignores anyway (junk), or the
         // startup-frozen own hash: write. Any other valid bucket: keep it.
         if current.is_none_or(|id| id == own) {
-            Self::write_project_marker(working_dir, bucket, true);
+            Self::write_project_marker(working_dir, dirs, bucket, true);
         }
     }
 
-    /// Write the pin marker `<working_dir>/.atomcode/local/id` = `bucket`.
+    /// Write the pin marker `<project dir>/local/id` = `bucket`.
     /// Without `replace`, a no-op if one is already there. Also drops a
     /// `.gitignore` sentinel so the marker never reaches version control.
     /// Best-effort: a write failure leaves the plain path-hash behaviour
     /// unchanged rather than erroring the caller.
-    fn write_project_marker(working_dir: &Path, bucket: &str, replace: bool) {
-        let marker = Self::project_marker_path(working_dir);
+    fn write_project_marker(working_dir: &Path, dirs: &ProductDirs, bucket: &str, replace: bool) {
+        let marker = Self::project_marker_path(working_dir, dirs);
         if marker.exists() && !replace {
             return;
         }
@@ -3093,8 +3097,8 @@ impl SessionManager {
         });
     }
 
-    pub fn scan_all() -> CatalogScan {
-        Self::scan_catalog(&Self::sessions_root())
+    pub fn scan_all(user_dir: &Path) -> CatalogScan {
+        Self::scan_catalog(&Self::sessions_root(user_dir))
     }
 
     /// List all sessions in this project bucket, NEWEST FIRST. Reads ONLY `*.meta`
@@ -4684,6 +4688,8 @@ mod tests {
         MAX_PRESENTATION_BYTES, PRESENTATION_VERSION,
     };
     use super::*;
+
+    use crate::product_dirs::test_dirs;
     use atomcode_kernel::message::Message;
     use std::collections::BTreeSet;
 
@@ -4757,15 +4763,15 @@ mod tests {
         let mut expected = DefaultHasher::new();
         PathBuf::from(p.to_string_lossy().to_string()).hash(&mut expected);
         assert_eq!(
-            SessionManager::project_hash(p),
+            SessionManager::project_hash(p, &test_dirs()),
             format!("{:016x}", expected.finish())
         );
     }
 
     #[test]
     fn project_hash_is_stable_and_normalizes_trailing_slash() {
-        let a = SessionManager::project_hash(Path::new("/work/proj"));
-        let b = SessionManager::project_hash(Path::new("/work/proj/"));
+        let a = SessionManager::project_hash(Path::new("/work/proj"), &test_dirs());
+        let b = SessionManager::project_hash(Path::new("/work/proj/"), &test_dirs());
         assert_eq!(a, b, "a trailing slash must not change the bucket");
         assert_eq!(a.len(), 16, "16 hex chars");
         assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
@@ -7824,14 +7830,14 @@ mod tests {
 
         // No marker yet: the bucket is the plain path hash (unchanged behaviour).
         assert_eq!(
-            SessionManager::project_hash(&old),
+            SessionManager::project_hash(&old, &test_dirs()),
             atomcode_config::util::stable_project_hash(&old),
         );
 
         // Starting a session pins the project — the marker freezes the CURRENT
         // path hash, so the resolved bucket does not change.
-        SessionManager::ensure_project_marker(&old);
-        let frozen = SessionManager::project_hash(&old);
+        SessionManager::ensure_project_marker(&old, &test_dirs());
+        let frozen = SessionManager::project_hash(&old, &test_dirs());
         assert_eq!(frozen, atomcode_config::util::stable_project_hash(&old));
 
         // Rename the folder (the marker travels inside it).
@@ -7841,7 +7847,7 @@ mod tests {
         // The bucket is STILL the old hash — the sessions are found — even though
         // the new path hashes to something else.
         assert_eq!(
-            SessionManager::project_hash(&renamed),
+            SessionManager::project_hash(&renamed, &test_dirs()),
             frozen,
             "rename keeps the frozen bucket"
         );
@@ -7853,14 +7859,10 @@ mod tests {
 
         // A junk marker is ignored (falls back to the path hash).
         let junk = tmp.path().join("junk");
-        std::fs::create_dir_all(junk.join(".atomcode").join("local")).unwrap();
-        std::fs::write(
-            junk.join(".atomcode").join("local").join("id"),
-            "not-a-bucket",
-        )
-        .unwrap();
+        std::fs::create_dir_all(junk.join(".ours").join("local")).unwrap();
+        std::fs::write(junk.join(".ours").join("local").join("id"), "not-a-bucket").unwrap();
         assert_eq!(
-            SessionManager::project_hash(&junk),
+            SessionManager::project_hash(&junk, &test_dirs()),
             atomcode_config::util::stable_project_hash(&junk),
         );
     }
@@ -7873,20 +7875,23 @@ mod tests {
         let renamed = tmp.path().join("proj-renamed");
         std::fs::create_dir_all(&renamed).unwrap();
         assert_eq!(
-            SessionManager::project_hash(&renamed),
+            SessionManager::project_hash(&renamed, &test_dirs()),
             atomcode_config::util::stable_project_hash(&renamed),
         );
 
         // Resuming a session whose files live under some other bucket pins the
         // folder to THAT bucket, so this and future resumes resolve to it.
         let session_bucket = "00112233445566ff".to_string();
-        SessionManager::pin_project_bucket(&renamed, &session_bucket);
-        assert_eq!(SessionManager::project_hash(&renamed), session_bucket);
+        SessionManager::pin_project_bucket(&renamed, &test_dirs(), &session_bucket);
+        assert_eq!(
+            SessionManager::project_hash(&renamed, &test_dirs()),
+            session_bucket
+        );
 
         // Pinning never hijacks a folder that already has a marker.
-        SessionManager::pin_project_bucket(&renamed, "ffffffffffffffff");
+        SessionManager::pin_project_bucket(&renamed, &test_dirs(), "ffffffffffffffff");
         assert_eq!(
-            SessionManager::project_hash(&renamed),
+            SessionManager::project_hash(&renamed, &test_dirs()),
             session_bucket,
             "a second pin does not overwrite the first"
         );
@@ -7894,9 +7899,9 @@ mod tests {
         // A junk bucket is refused outright, leaving the path-hash default.
         let fresh = tmp.path().join("fresh");
         std::fs::create_dir_all(&fresh).unwrap();
-        SessionManager::pin_project_bucket(&fresh, "not-a-bucket");
+        SessionManager::pin_project_bucket(&fresh, &test_dirs(), "not-a-bucket");
         assert_eq!(
-            SessionManager::project_hash(&fresh),
+            SessionManager::project_hash(&fresh, &test_dirs()),
             atomcode_config::util::stable_project_hash(&fresh),
             "an invalid bucket writes no marker"
         );
@@ -7912,20 +7917,26 @@ mod tests {
         std::fs::create_dir_all(&renamed).unwrap();
 
         // The TUI starts here: a fresh session freezes the path hash.
-        SessionManager::ensure_project_marker(&renamed);
+        SessionManager::ensure_project_marker(&renamed, &test_dirs());
         assert_eq!(
-            SessionManager::project_hash(&renamed),
+            SessionManager::project_hash(&renamed, &test_dirs()),
             atomcode_config::util::stable_project_hash(&renamed),
         );
 
         // `/resume` of a session under the old bucket repins the folder to it.
         let session_bucket = "00112233445566ff";
-        SessionManager::pin_project_bucket(&renamed, session_bucket);
-        assert_eq!(SessionManager::project_hash(&renamed), session_bucket);
+        SessionManager::pin_project_bucket(&renamed, &test_dirs(), session_bucket);
+        assert_eq!(
+            SessionManager::project_hash(&renamed, &test_dirs()),
+            session_bucket
+        );
 
         // …and that deliberate pin is then what a later pin must not overwrite.
-        SessionManager::pin_project_bucket(&renamed, "ffffffffffffffff");
-        assert_eq!(SessionManager::project_hash(&renamed), session_bucket);
+        SessionManager::pin_project_bucket(&renamed, &test_dirs(), "ffffffffffffffff");
+        assert_eq!(
+            SessionManager::project_hash(&renamed, &test_dirs()),
+            session_bucket
+        );
     }
 
     #[test]

@@ -73,8 +73,13 @@ fn add_install_reload_flow() {
         .unwrap();
 
     let url = format!("file://{}", repo.display());
-    atomcode_capabilities::plugin::marketplace::add_marketplace(&url).unwrap();
+    atomcode_capabilities::plugin::marketplace::add_marketplace(
+        &atomcode_coding::config::product_dirs_from_env(),
+        &url,
+    )
+    .unwrap();
     atomcode_capabilities::plugin::installer::install(
+        &atomcode_coding::config::product_dirs_from_env(),
         "e2e",
         "e2e",
         atomcode_capabilities::plugin::InstallScope::User,
@@ -85,7 +90,11 @@ fn add_install_reload_flow() {
     // skill dirs — the two layers the retired `core::skill::reload` combined.
     let working = tempfile::tempdir().unwrap();
     let mut reg = atomcode_capabilities::skills::SkillRegistry::new();
-    atomcode_capabilities::plugin::loader::reload_skill_registry(&mut reg, working.path());
+    atomcode_capabilities::plugin::loader::reload_skill_registry(
+        &mut reg,
+        &atomcode_coding::config::product_dirs_from_env(),
+        working.path(),
+    );
     assert!(reg.get("e2e:sk").is_some(), "missing skill e2e:sk");
 
     // Verify the TUI-owned CustomCommandRegistry sees `e2e:c`; plugin install
