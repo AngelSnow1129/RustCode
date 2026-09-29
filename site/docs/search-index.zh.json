@@ -591,7 +591,12 @@
       {
         "id": "流程控制",
         "heading": "流程控制",
-        "body": "按键 动作 F2 / Shift+F2 切换到下一个 / 上一个已配置模型;Mac 键盘通常按 Fn+F2 / Fn+Shift+F2 Ctrl+T 循环切换当前模型的 reasoning_effort Esc 取消当前正在进行的工具调用或流式输出 Ctrl+C 第一次:取消当前操作;连按第二次:退出程序"
+        "body": "按键 动作 F2 / Shift+F2 切换到下一个 / 上一个已配置模型;Mac 键盘通常按 Fn+F2 / Fn+Shift+F2 Ctrl+T 循环切换当前模型的 reasoning_effort Ctrl+O 显示 / 隐藏工具输出与思考过程(详细模式) Esc 取消当前正在进行的工具调用或流式输出 Ctrl+C 第一次:取消当前操作;连按第二次:退出程序"
+      },
+      {
+        "id": "新界面",
+        "heading": "新界面(atomcode --tui)",
+        "body": "新界面的按键大多与上面相同,以下几个不同;完整列表在会话里输入 /keys 查看。 按键 动作 Ctrl+O 思考过程:一行 / 全文 / 收起,循环(也可用 /reasoning ;终端把 Option 设成 Meta 时 Alt+R 同样可用) Ctrl+T 工具输出:全部 / 单个摘要 / 成组摘要,循环 Ctrl+G 把鼠标交还终端(改用终端自己的框选),再按收回(也可用 /mouse )"
       },
       {
         "id": "工具权限对话框",

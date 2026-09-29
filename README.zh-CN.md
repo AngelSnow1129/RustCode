@@ -407,6 +407,7 @@ atomcode --prompt-file task.md
 | `F2 / Shift+F2` | 切换下一个 / 上一个模型（Mac 通常按 `Fn+F2 / Fn+Shift+F2`） |
 | `Ctrl+R` | 反向搜索输入历史 |
 | `Ctrl+T` | 切换 `reasoning_effort` |
+| `Ctrl+O` | 显示 / 隐藏工具输出与思考过程（详细模式） |
 | `Ctrl+U` | 清空当前行 |
 | `Ctrl+W` | 删除一个单词 |
 | `Ctrl+K` | 删除到行尾 |
@@ -441,6 +442,16 @@ atomcode --prompt-file task.md
 | 空输入时 `Home/End` | 跳到对话顶部 / 底部          |
 | `Ctrl+Shift+C`      | 复制选中内容                 |
 | `Ctrl+C`            | 取消当前操作（连按两次退出） |
+
+### 新界面（`atomcode --tui`）
+
+新界面的按键大多与上面相同，以下几个不同，完整列表在会话里输入 `/keys` 查看：
+
+| 键位 | 动作 |
+|-----|--------|
+| `Ctrl+O` | 思考过程：一行 / 全文 / 收起，循环（也可用 `/reasoning`；终端把 Option 设成 Meta 时 `Alt+R` 同样可用） |
+| `Ctrl+T` | 工具输出：全部 / 单个摘要 / 成组摘要，循环 |
+| `Ctrl+G` | 把鼠标交还终端（改用终端自己的框选），再按收回（也可用 `/mouse`） |
 
 ### 斜杠命令
 
