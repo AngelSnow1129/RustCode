@@ -1764,13 +1764,21 @@ impl Content for ToolCallBlock {
                 .collect();
         }
         // The `●` head carries the call's outcome even folded (green done / red
-        // failed / muted running), the same as the unexplained `summary`; the
-        // reason text stays muted so the dot is the only lit thing on the row.
-        let mut rows: Vec<Line> = self
-            .opening_rows(w, &lead, self.mark().1, self.folded_style())
-            .into_iter()
-            .take(FOLDED_ROWS)
-            .collect();
+        // failed / muted running), the same as the unexplained `summary`.
+        //
+        // The reason is in the terminal's own ink and only the `⎿` row under it
+        // recedes (2026-09-29, the user's call). It used to be muted with the
+        // rest of the fold, "so the dot is the only lit thing on the row" — but
+        // the two rows are not worth the same: the reason is the sentence a
+        // person scans a run of steps by, the row under it is the command. Both
+        // grey left no order inside the block, and the longer, denser command
+        // row was the one the eye landed on. A running call keeps its colour
+        // either way (`folded_style`); done is the dot's to say.
+        let mut rows: Vec<Line> = self.head(w, &lead, self.mark().1, self.name_style());
+        if self.reason().is_some() {
+            rows.extend(self.subject_line(w, self.folded_style()));
+        }
+        let mut rows: Vec<Line> = rows.into_iter().take(FOLDED_ROWS).collect();
         if matches!(self.outcome, Outcome::Ok(_)) {
             return rows;
         }
@@ -2833,6 +2841,38 @@ impl Content for TurnEndBlock {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Folded, a call's reason is in the terminal's own ink and only the row
+    /// under it recedes: the reason is what a person scans a run of steps by,
+    /// the row under it is the command.
+    #[test]
+    fn a_folded_calls_reason_reads_and_its_command_recedes() {
+        let block = ToolCallBlock::pending(
+            "c",
+            "bash",
+            r#"{"intent":"看 e2e 测试的用例结构","command":"grep -n test crates/x/tests/e2e.rs"}"#,
+        )
+        .with(Outcome::Ok("3 lines".into()));
+        let rows = block.summary_lines(&crate::block::RenderCtx::bare(100));
+        // Wrapping lays a row out word by word; every word after the lead is judged.
+        let words = |row: &Line, lead: &str| -> Vec<Style> {
+            row.spans
+                .iter()
+                .filter(|s| !s.text.trim().is_empty() && !lead.contains(s.text.trim()))
+                .map(|s| s.style)
+                .collect()
+        };
+        let reason = words(&rows[0], "●");
+        assert!(
+            !reason.is_empty() && reason.iter().all(|s| *s == tool()),
+            "the reason reads: {rows:?}"
+        );
+        let command = words(&rows[1], "⎿");
+        assert!(
+            !command.is_empty() && command.iter().all(|s| *s == fold()),
+            "the command recedes: {rows:?}"
+        );
+    }
 
     /// A known tool called without its subject names nothing, rather than
     /// pouring its payload (a whole file, for a write) into the row; an unknown
