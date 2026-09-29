@@ -43,6 +43,31 @@ pub trait Shell: Send + Sync + 'static {
     ///
     /// 不会失败到「没有答案」这一步：跑不起来也是一种结果，写进 `output`。
     async fn run(&self, command: &str, within: Duration) -> Ran;
+
+    /// [`run`](Self::run), handing each complete line of output to `line` as it
+    /// arrives, so a command that takes a while is watched rather than waited
+    /// on. What comes back is the same `Ran` as `run`'s.
+    ///
+    /// A shell that cannot stream keeps this default: the lines arrive all at
+    /// once, when it has finished.
+    async fn run_streaming(
+        &self,
+        command: &str,
+        within: Duration,
+        line: &(dyn Fn(String) + Send + Sync),
+    ) -> Ran {
+        let ran = self.run(command, within).await;
+        for piece in ran.output.lines() {
+            line(piece.to_string());
+        }
+        ran
+    }
+}
+
+/// 输入行是不是在 shell 模式里:行首一个 `!`,和提交时 [`asks_for_shell`] 认的
+/// 是同一个位置。只打了一个 `!` 也算 —— 框先变样,人就知道接下来打的是命令。
+pub fn in_shell_mode(input: &str) -> bool {
+    input.starts_with('!')
 }
 
 /// 一条本地命令最多跑多久。
@@ -114,6 +139,17 @@ mod tests {
         }
         assert_eq!(asks_for_shell("!"), None, "打了半截,不是一条空命令");
         assert_eq!(asks_for_shell("!   "), None);
+    }
+
+    /// 框变样和提交认的是同一个位置:行首的 `!`,光一个 `!` 也算。
+    #[test]
+    fn shell_mode_is_armed_by_the_same_bang_that_runs() {
+        assert!(in_shell_mode("!"));
+        assert!(in_shell_mode("!git status"));
+        for not_one in ["", "git status", " !git status", "别删 !important"] {
+            assert!(!in_shell_mode(not_one), "{not_one:?}");
+            assert_eq!(asks_for_shell(not_one), None, "{not_one:?}");
+        }
     }
 
     /// 交给模型的那一段不会被自己的输出撬开。

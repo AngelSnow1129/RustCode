@@ -53,6 +53,9 @@ impl Plugin for ShellRow {
     }
 }
 
+/// What `run_shell` puts before every stderr chunk it hands the callback.
+const STDERR: &str = "[stderr] ";
+
 struct Here {
     working_dir: std::path::PathBuf,
 }
@@ -60,17 +63,55 @@ struct Here {
 #[async_trait]
 impl Shell for Here {
     async fn run(&self, command: &str, within: Duration) -> Ran {
+        self.run_streaming(command, within, &|_| {}).await
+    }
+
+    async fn run_streaming(
+        &self,
+        command: &str,
+        within: Duration,
+        line: &(dyn Fn(String) + Send + Sync),
+    ) -> Ran {
         use atomcode_capabilities::tools::{run_shell, ShellExit};
+        // 一次一整行地交出去:块的边界是一次读了多少,不是一行,按块画会把一行
+        // 劈成两截。stdout 和 stderr **各攒各的**:`run_shell` 把两路的块交给同
+        // 一个回调(stderr 的块前面带 `[stderr] `),攒在一处的话,stdout 半行没
+        // 换行时来一块 stderr 就会被粘成一行。`[stderr] ` 也按行加,而不是按块。
+        let pending = std::sync::Mutex::new((String::new(), String::new()));
+        let emit = |buf: &mut String, prefix: &str| {
+            while let Some(nl) = buf.find('\n') {
+                let whole: String = buf.drain(..=nl).collect();
+                line(format!("{prefix}{}", whole.trim_end_matches(['\n', '\r'])));
+            }
+        };
         let outcome = run_shell(
             &atomcode_capabilities::world::LocalShell,
             command,
             &self.working_dir,
             within.as_secs(),
-            // 不逐块回调：这一层答的是「跑完了，结果是这些」。边跑边画是另一件
-            // 事，要的话得先有一条把片段送上屏幕的缝，而现在没有。
-            |_| {},
+            |chunk| {
+                let mut held = pending.lock().expect("pending poisoned");
+                let (out, err) = &mut *held;
+                match chunk.strip_prefix(STDERR) {
+                    Some(rest) => {
+                        err.push_str(rest);
+                        emit(err, STDERR);
+                    }
+                    None => {
+                        out.push_str(chunk);
+                        emit(out, "");
+                    }
+                }
+            },
         )
         .await;
+        let (out, err) = std::mem::take(&mut *pending.lock().expect("pending poisoned"));
+        if !out.is_empty() {
+            line(out);
+        }
+        if !err.is_empty() {
+            line(format!("{STDERR}{err}"));
+        }
         // stdout 和 stderr 合起来，按它们本来的顺序读不出来——所以 stderr 排在
         // 后面并原样保留。人敲 `!` 多半正是想看报错。
         let mut output = outcome.stdout;
@@ -93,5 +134,40 @@ impl Shell for Here {
                 timed_out: true,
             },
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    /// stdout and stderr are kept apart while they stream: a stdout line still
+    /// being written when stderr speaks stays one line, and every stderr line —
+    /// not only the first of its chunk — is marked as stderr.
+    #[tokio::test]
+    async fn the_two_streams_are_not_glued_together() {
+        let here = Here {
+            working_dir: std::env::temp_dir(),
+        };
+        let seen = std::sync::Mutex::new(Vec::<String>::new());
+        let take = |line: String| seen.lock().expect("seen poisoned").push(line);
+        let ran = here
+            .run_streaming(
+                "printf 'half'; sleep 0.2; printf 'e1\\ne2\\n' >&2; sleep 0.2; printf ' done\\n'",
+                Duration::from_secs(10),
+                &take,
+            )
+            .await;
+        assert_eq!(ran.code, Some(0), "{ran:?}");
+        let seen = seen.into_inner().expect("seen poisoned");
+        assert!(seen.contains(&"half done".to_string()), "{seen:?}");
+        assert!(seen.contains(&"[stderr] e1".to_string()), "{seen:?}");
+        assert!(seen.contains(&"[stderr] e2".to_string()), "{seen:?}");
+        assert!(
+            !seen
+                .iter()
+                .any(|l| l.contains("half") && l.contains("stderr")),
+            "no row glues the two: {seen:?}"
+        );
     }
 }

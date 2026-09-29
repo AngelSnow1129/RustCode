@@ -380,14 +380,23 @@ impl View for Input {
         // Idle: the accent, ready. Working: the terminal's own foreground (white
         // on dark) — a running turn is not a warning, so it is no longer the
         // warning yellow. The spinner and live line still say "busy".
-        let arrow = theme::fg(if vp.moment.activity == Activity::Working {
+        // `!` shell mode: a leading `!` turns the box — both rules, the prompt and
+        // the `!` itself — to the product's own colour, so the whole field reads
+        // "this runs here, not in the agent" before Enter is pressed. Derived from
+        // the line each frame, so it arms and reverts with the `!`, as tuix's
+        // does. Never over a password: what is on the line then is not a draft.
+        let shell = vp.moment.secret.is_none() && crate::shell::in_shell_mode(&vp.moment.input);
+        let arrow = theme::fg(if shell {
+            Role::Brand
+        } else if vp.moment.activity == Activity::Working {
             Role::Secondary
         } else {
             Role::Accent
         })
         .bold();
+        let edge = theme::fg(if shell { Role::Brand } else { Role::Muted });
 
-        let rule = || El::text(crate::el::plain_rule(w as usize, theme::fg(Role::Muted)));
+        let rule = || El::text(crate::el::plain_rule(w as usize, edge));
         // The upper rule carries what is true about the field right now, laid on
         // its two shoulders the way `atomcode-tuix` does it: the history position
         // (while arrowing back) on the left, and the session's name on a pill on
@@ -425,7 +434,7 @@ impl View for Input {
                     history.as_deref(),
                     name,
                     w as usize,
-                    muted,
+                    edge,
                     muted,
                     theme::fg(Role::Border).reverse(),
                 ))
@@ -453,6 +462,15 @@ impl View for Input {
             // composing is the one thing on this screen you are actively working
             // on, so it reads at full strength, not dimmed.
             let mut row = vec![El::styled(lead, arrow)];
+            // In shell mode only the `!` takes the colour; the command after it
+            // stays the terminal's foreground, so it reads as what it is.
+            let piece: &str = match (shell && i + first == 0, piece.strip_prefix('!')) {
+                (true, Some(rest)) => {
+                    row.push(El::styled("!".to_string(), theme::fg(Role::Brand).bold()));
+                    rest
+                }
+                _ => piece,
+            };
             // An attached image reads as one coloured chip, not ten plain
             // characters — the codex effect, and the visual half of the "a marker
             // is one atomic unit" behaviour the editing keys already enforce.
@@ -754,6 +772,45 @@ mod tests {
             colour(&vp_busy),
             "a busy prompt must look different from an idle one"
         );
+    }
+
+    /// A leading `!` turns the box: the rules, the prompt and the `!` take the
+    /// product's colour, the command after it keeps the default ink, and the
+    /// line still reads exactly as typed. Without the `!`, none of it.
+    #[test]
+    fn a_leading_bang_turns_the_box_and_only_the_bang_is_coloured() {
+        let draw_it =
+            |m: &Moment| Input::render(&State::default(), &Viewport::new(Rect::sized(40, 3), m));
+        let brand = theme::fg(Role::Brand).fg;
+
+        let shell = Moment::default().typing("!git status");
+        let out = draw_it(&shell);
+        let row = &out[1];
+        let plain: String = row.spans.iter().map(|s| s.text.as_str()).collect();
+        assert!(plain.ends_with("!git status"), "reads as typed: {plain:?}");
+        assert_eq!(row.spans[0].style.fg, brand, "the prompt: {row:?}");
+        let bang = row
+            .spans
+            .iter()
+            .find(|s| s.text == "!")
+            .expect("the `!` on its own");
+        assert_eq!(bang.style.fg, brand, "{row:?}");
+        let command = row
+            .spans
+            .iter()
+            .find(|s| s.text.contains("git status"))
+            .expect("the command");
+        assert_eq!(
+            command.style.fg, None,
+            "the command keeps the default ink: {row:?}"
+        );
+        for rule in [&out[0], &out[2]] {
+            assert_eq!(rule.spans[0].style.fg, brand, "both rules: {rule:?}");
+        }
+
+        let plain_out = draw_it(&Moment::default().typing("git status"));
+        assert_ne!(plain_out[1].spans[0].style.fg, brand, "{plain_out:?}");
+        assert_ne!(plain_out[0].spans[0].style.fg, brand, "{plain_out:?}");
     }
 
     /// The typed text is the terminal's own foreground — full strength, not

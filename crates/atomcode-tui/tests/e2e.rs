@@ -6892,6 +6892,9 @@ async fn a_bang_runs_here_and_what_it_printed_goes_with_the_next_message() {
         "输出留在对话区里:\n{}",
         s.screen()
     );
+    // 画成人打的那一行,和上一代前端一样 —— 不是一条 `$ …` 提示。
+    assert!(seen.contains("!git status"), "回显的是打的那一行:\n{seen}");
+    assert!(!seen.contains("$ git status"), "不再是 `$ …`:\n{seen}");
 
     // 下一条消息带着它走。钉的是**发出去的那条命令**,不是屏上画了
     // 什么 —— 这一半的整个意义就在于模型收到了什么。
@@ -6919,6 +6922,128 @@ async fn a_bang_runs_here_and_what_it_printed_goes_with_the_next_message() {
 
     s.term.press(KeyPress::ctrl('d'));
     let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+}
+
+/// 一阵几行、然后安静下来的命令:那一阵要在它结束之前全部上屏。
+struct Burst;
+
+#[async_trait]
+impl atomcode_tui::shell::Shell for Burst {
+    async fn run(&self, _command: &str, _within: Duration) -> atomcode_tui::shell::Ran {
+        unreachable!("the screen streams")
+    }
+    async fn run_streaming(
+        &self,
+        _command: &str,
+        _within: Duration,
+        line: &(dyn Fn(String) + Send + Sync),
+    ) -> atomcode_tui::shell::Ran {
+        for piece in ["BURST-1", "BURST-2", "BURST-3"] {
+            line(piece.to_string());
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        atomcode_tui::shell::Ran {
+            code: Some(0),
+            output: "BURST-1\nBURST-2\nBURST-3".into(),
+            timed_out: false,
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_burst_then_silence_is_on_screen_before_the_command_ends() {
+    let dir = scratch("bang-burst");
+    let (s, _sent) = start_with_shell(
+        tree(&dir, &replay(r#"{ text = "ok" }"#), &[]),
+        Arc::new(Burst),
+    )
+    .await;
+    let task = s.open().await;
+    s.term.type_line("!npm run dev");
+    let mut seen = String::new();
+    for _ in 0..40 {
+        seen = transcript(&s);
+        if seen.contains("BURST-3") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(
+        seen.contains("BURST-1") && seen.contains("BURST-3"),
+        "the whole burst, within a second, while the command still runs:\n{seen}"
+    );
+    task.abort();
+}
+
+/// 命令根本没起来:什么都没流出来,原因只在结果里。它要上屏。
+struct NeverStarted;
+
+#[async_trait]
+impl atomcode_tui::shell::Shell for NeverStarted {
+    async fn run(&self, _command: &str, _within: Duration) -> atomcode_tui::shell::Ran {
+        unreachable!("the screen streams")
+    }
+    async fn run_streaming(
+        &self,
+        _command: &str,
+        _within: Duration,
+        _line: &(dyn Fn(String) + Send + Sync),
+    ) -> atomcode_tui::shell::Ran {
+        atomcode_tui::shell::Ran {
+            code: None,
+            output: "NO-SUCH-SHELL: cannot spawn".into(),
+            timed_out: false,
+        }
+    }
+}
+
+#[tokio::test]
+async fn why_a_command_could_not_start_is_on_screen() {
+    let dir = scratch("bang-never");
+    let (s, _sent) = start_with_shell(
+        tree(&dir, &replay(r#"{ text = "ok" }"#), &[]),
+        Arc::new(NeverStarted),
+    )
+    .await;
+    let task = s.open().await;
+    s.term.type_line("!anything");
+    until(&s, "NO-SUCH-SHELL").await;
+    task.abort();
+}
+
+/// 跑过的 `!` 那一行,↑ 能翻回来 —— 和其它发出去的话一样。它不进日志,所以
+/// 历史里只能是这一屏记下的那一笔。
+#[tokio::test]
+async fn a_bang_line_comes_back_with_up() {
+    let dir = scratch("bang-recall");
+    let shell = Arc::new(Ran::default());
+    let (s, _sent) = start_with_shell(
+        tree(&dir, &replay(r#"{ text = "ok" }"#), &[]),
+        shell.clone(),
+    )
+    .await;
+    let task = s.open().await;
+
+    s.term.type_line("!echo one");
+    until(&s, "OUT-OF[echo one]").await;
+    s.term.press(KeyPress::plain(Key::Up));
+    s.quiet().await;
+    let screen = s.screen();
+    let input = s
+        .term
+        .last()
+        .expect("a frame")
+        .part("input")
+        .map(|p| {
+            p.lines
+                .iter()
+                .map(|l| l.plain())
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
+    assert!(input.contains("!echo one"), "↑ 翻回来的是那一行:\n{screen}");
+    task.abort();
 }
 
 const REMOTE_ROW_LAYER: &str = "[[insert]]\nname = \"tui-remote\"\n";
