@@ -21,15 +21,17 @@ cd "$(dirname "$0")/.."
 ROOT=${PRODUCT_DIR_ROOT:-crates}
 BASE=${PRODUCT_DIR_BASELINE:-gates/product-dir.baseline}
 
-# 跳过 `#[cfg(test)]` 下的内联 `mod x { … }`（数花括号找它的结尾），之后接着读
-# —— 测试模块常夹在文件中间。`#[cfg(test)] mod x;` 只是声明，不跳。
+# 跳过 `#[cfg(test)]` 下的整个条目 —— 内联 `mod x { … }`、测试专用的 `fn` / `impl`
+# （数花括号找它的结尾），之后接着读：测试模块常夹在文件中间。
+# `#[cfg(test)] mod x;` 只是声明，不跳。
 AWK='
 function braces(s,   o, c) { o = gsub(/[{]/, "{", s); c = gsub(/[}]/, "}", s); return o - c }
 skip { depth += braces($0); if (depth <= 0) skip = 0; next }
 /^[[:space:]]*#\[cfg\(test\)\]/ { armed = 1; next }
-armed && /^[[:space:]]*(pub(\([a-z]+\))? )?mod [a-z_0-9]+ *[{]/ {
+armed && /[{]/ {
   armed = 0; depth = braces($0); if (depth > 0) skip = 1; next
 }
+armed && /;[[:space:]]*$/ { armed = 0; next }
 { armed = 0 }
 /^[[:space:]]*(\/\/|\*)/ { next }
 /\.atomcode([^.a-zA-Z0-9_-]|$)/ { print f ":" NR ":" $0 }

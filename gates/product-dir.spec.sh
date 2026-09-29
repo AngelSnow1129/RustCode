@@ -62,7 +62,21 @@ mod tests {
 fn after_the_tests(h: &std::path::Path) -> std::path::PathBuf { h.join(".atomcode") }'
 check 1 "夹在文件中间的测试模块之后，生产代码照样数"
 
+put dir.rs '#[cfg(test)]
+pub(crate) fn test_guard() -> Guard {
+    Guard::new("/home/u/.atomcode")
+}
+#[cfg(test)]
+impl Default for Tool {
+    fn default() -> Self { Self::at(".atomcode/x") }
+}
+fn after(h: &std::path::Path) -> std::path::PathBuf { h.join(".atomcode") }'
+check 1 "测试专用的 fn / impl 跳过，之后的生产代码照样数"
+echo 1 >"$tmp/base"
+check 0 "……而且只数那一处"
+
 put dir.rs 'const W: &str = "%USERPROFILE%\\.atomcode\\skills";'
+echo 0 >"$tmp/base"
 check 1 "Windows 写法 \\.atomcode\\ 判红"
 
 # ── 降了要自动抬低基线 ──
