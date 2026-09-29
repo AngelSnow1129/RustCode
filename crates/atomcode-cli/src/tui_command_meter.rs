@@ -104,7 +104,7 @@ impl atomcode_tui::command::CommandObserver for UseCommandMeter {
         let session = self
             .screen
             .as_ref()
-            .and_then(|s| session_uuid(&s.session()));
+            .and_then(|s| conversation_of(&s.session(), &s.root()));
         self.emit(use_command(run.name, run.found), session);
     }
 }
@@ -156,6 +156,16 @@ fn session_uuid(on_screen: &str) -> Option<uuid::Uuid> {
         return None;
     }
     uuid::Uuid::parse_str(on_screen).ok()
+}
+
+/// The conversation a command belongs to: the session on screen, or — when
+/// that is a team member's tab (`<lead>/<name>` on screen, `<lead>~<name>` on
+/// disk; neither a uuid) — the lead's,
+/// whose conversation the member is part of. Without the fallback a command
+/// run while looking at a member lost its scope and fell back to the process
+/// launch id, the one bucket per-session counting exists to split.
+fn conversation_of(on_screen: &str, lead: &str) -> Option<uuid::Uuid> {
+    session_uuid(on_screen).or_else(|| session_uuid(lead))
 }
 
 /// The record a run becomes.
@@ -473,5 +483,31 @@ mod tests {
         // The shape a team member's storage id has (`<lead>/<name>` with `/`
         // swapped for `~`) is not a uuid either, and must not be forced into one.
         assert_eq!(session_uuid("lead~scout"), None);
+    }
+
+    /// On a team member's tab a command is counted in the lead's conversation,
+    /// not dropped to the process-wide bucket; on the lead's own tab, its own.
+    #[test]
+    fn a_command_on_a_members_tab_counts_for_the_lead() {
+        let lead = uuid::Uuid::new_v4();
+        // As `AgentClient::look_at` names it, and as its storage id spells it.
+        for member in [format!("{lead}/scout"), format!("{lead}~scout")] {
+            assert_eq!(
+                conversation_of(&member, &lead.to_string()),
+                Some(lead),
+                "{member}"
+            );
+        }
+        assert_eq!(
+            conversation_of(&lead.to_string(), &lead.to_string()),
+            Some(lead)
+        );
+        let other = uuid::Uuid::new_v4();
+        assert_eq!(
+            conversation_of(&other.to_string(), &lead.to_string()),
+            Some(other),
+            "a session that is one keeps its own id"
+        );
+        assert_eq!(conversation_of("", ""), None, "nothing on screen yet");
     }
 }
