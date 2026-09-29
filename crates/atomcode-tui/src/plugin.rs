@@ -3570,35 +3570,50 @@ impl Tui {
         }
         tokio::spawn(async move {
             // 边跑边画,但不是每一行都重画一遍:一条打出几千行的命令,逐行把整块
-            // 复制一次就是几千次复制。攒着,最多每 50ms 交一次;收尾那一下补齐。
-            let shown = std::sync::Mutex::new((Vec::<String>::new(), None::<std::time::Instant>));
-            let ran = shell
-                .run_streaming(&command, crate::shell::WITHIN, &|piece| {
-                    let mut held = shown.lock().expect("shown poisoned");
-                    held.0.push(piece);
-                    let due = held
-                        .1
-                        .is_none_or(|at| at.elapsed() >= std::time::Duration::from_millis(50));
-                    if !due {
-                        return;
-                    }
-                    held.1 = Some(std::time::Instant::now());
-                    let content = Arc::new(ShellOutput {
-                        lines: held.0.clone(),
-                        ..ShellOutput::default()
-                    });
-                    drop(held);
-                    host.stream
-                        .write()
-                        .expect("stream poisoned")
-                        .writer("commands")
-                        .amend(output, content);
-                    if let Some(keys) = &keys {
-                        let _ = keys.send(Wake::Fact);
-                    }
-                })
-                .await;
-            let lines = std::mem::take(&mut shown.lock().expect("shown poisoned").0);
+            // 复制一次就是几千次复制。行先攒着,由一个 50ms 的钟去画 —— 而不是
+            // 等下一行来了才画:一阵几行、然后安静下来的命令(`npm run dev` 的
+            // 开场白),靠「来行才画」的话,那阵的后几行要等命令结束才出现。
+            let shown = std::sync::Mutex::new((Vec::<String>::new(), false));
+            let flush = || {
+                let mut held = shown.lock().expect("shown poisoned");
+                if !held.1 {
+                    return;
+                }
+                held.1 = false;
+                let content = Arc::new(ShellOutput {
+                    lines: held.0.clone(),
+                    ..ShellOutput::default()
+                });
+                drop(held);
+                host.stream
+                    .write()
+                    .expect("stream poisoned")
+                    .writer("commands")
+                    .amend(output, content);
+                if let Some(keys) = &keys {
+                    let _ = keys.send(Wake::Fact);
+                }
+            };
+            let take = |piece: String| {
+                let mut held = shown.lock().expect("shown poisoned");
+                held.0.push(piece);
+                held.1 = true;
+            };
+            let running = shell.run_streaming(&command, crate::shell::WITHIN, &take);
+            tokio::pin!(running);
+            let mut tick = tokio::time::interval(std::time::Duration::from_millis(50));
+            let ran = loop {
+                tokio::select! {
+                    ran = &mut running => break ran,
+                    _ = tick.tick() => flush(),
+                }
+            };
+            let mut lines = std::mem::take(&mut shown.lock().expect("shown poisoned").0);
+            // 什么都没流出来、却有输出:命令根本没起来(找不到 shell、目录不对),
+            // 那句原因只在 `ran.output` 里。不画它的话,人只看到一个「退出码 —」。
+            if lines.is_empty() && !ran.output.trim().is_empty() {
+                lines = ran.output.trim_end().lines().map(str::to_string).collect();
+            }
             let tail = match (ran.timed_out, ran.code) {
                 (true, _) => Some(
                     t(Msg::ShellTimedOut {
