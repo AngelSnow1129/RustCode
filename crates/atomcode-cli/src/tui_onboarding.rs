@@ -793,8 +793,10 @@ mod tests {
         match crate::host::readiness_for(Some(
             atomcode_coding::ProviderUnavailableReason::NotConfigured,
         )) {
+            // Not opened on its own: the wizard is typed, never started for
+            // the person because the machine has no provider.
             atomcode_host_api::HostReply::Readiness { fix, .. } => {
-                assert_eq!(fix.as_deref(), Some(COMMAND));
+                assert_eq!(fix, None);
             }
             other => panic!("{other:?}"),
         }

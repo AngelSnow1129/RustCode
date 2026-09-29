@@ -2810,13 +2810,15 @@ pub fn readiness_for(reason: Option<ProviderUnavailableReason>) -> HostReply {
             }
         }
         Some(ProviderUnavailableReason::NotConfigured) => {
-            // Signing in again cannot help a machine that has no provider at
-            // all; the wizard that can is `tui_onboarding`, and naming it is
-            // as far as this host's say goes.
-            (
-                tr(SMsg::NoProviderConfigured),
-                Some(crate::tui_onboarding::COMMAND),
-            )
+            // Nothing is run for the person: the sentence names `/login` and
+            // `/provider`, and they pick. It says "in the atomcode terminal"
+            // because the same sentence reaches ACP clients (a refused send,
+            // the runtime's `ProviderUnavailable`), which offer neither. This used to name the first-run
+            // wizard (`tui_onboarding`), which the screen then opened on its
+            // own at every start without a provider — a full-screen walkthrough
+            // over someone who only needed to sign in. `/onboarding` is still
+            // there to type.
+            (tr(SMsg::NoProviderConfigured), None)
         }
         Some(ProviderUnavailableReason::AuthenticationRequired) => {
             (tr(SMsg::LoginExpired), Some("login"))
