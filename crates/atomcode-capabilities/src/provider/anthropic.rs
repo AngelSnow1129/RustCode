@@ -358,12 +358,10 @@ impl LlmProvider for AnthropicProvider {
     }
 }
 
-/// Open one `/v1/messages` stream, retrying the OPEN (transient status /
-/// transport) per `policy`. Shared by the initial open and the mid-stream
-/// re-open so both paths behave identically.
 /// The session headers one request carries: `x-atomcode-session-id` (gateway
-/// prefix-cache affinity) and, on `opencode.ai`, the `x-opencode-session` OpenCode
-/// requires — both the one stable id, both omitted when it is empty. Shared with
+/// prefix-cache affinity), omitted when no session is bound, and on `opencode.ai`
+/// the `x-opencode-session` OpenCode requires — the same id, or a per-process one
+/// when none is bound, since OpenCode may refuse a request without it. Shared with
 /// the OpenAI-compatible adapter through `apply_opencode_session`, so the two
 /// formats cannot disagree about when OpenCode gets it.
 fn with_session_headers(
@@ -378,6 +376,9 @@ fn with_session_headers(
     super::openai_compat::apply_opencode_session(url, req, session_id)
 }
 
+/// Open one `/v1/messages` stream, retrying the OPEN (transient status /
+/// transport) per `policy`. Shared by the initial open and the mid-stream
+/// re-open so both paths behave identically.
 async fn open_stream(
     client: &reqwest::Client,
     url: &str,
