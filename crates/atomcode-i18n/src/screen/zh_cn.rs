@@ -215,7 +215,21 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::TranscriptDropped { through } => {
             format!("到 #{through} 为止的工具结果没有再发给模型").into()
         }
-        Msg::TranscriptRateLimited { until } => format!("被限速,等到 {until}").into(),
+        Msg::TranscriptRateLimitWaiting { secs } => format!("限流，{secs}s 后自动继续…").into(),
+        Msg::TranscriptWindowExhausted { until, left } => {
+            let left = left.map(|l| format!("（还有 {l}）")).unwrap_or_default();
+            let when = if until.is_empty() {
+                "稍后恢复".to_string()
+            } else {
+                format!("约 {until} 恢复")
+            };
+            format!("5小时窗口已用尽，{when}{left} · 已保留已完成内容 · 可换模型或稍后重试").into()
+        }
+        Msg::TranscriptRateLimitedElsewhere { reason, left } => {
+            let reason = reason.map(|r| format!("：{r}")).unwrap_or_default();
+            let left = left.map(|l| format!("（约 {l} 后可重试）")).unwrap_or_default();
+            format!("限流（HTTP 429）{reason}{left} · 已保留已完成内容 · 稍后重试或换模型").into()
+        }
         Msg::TranscriptMemberEnded => "这个成员已经结束,不会再说话了".into(),
 
         // ── what each command is for (`commands.rs`) ──

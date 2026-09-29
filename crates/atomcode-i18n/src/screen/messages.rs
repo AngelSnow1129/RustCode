@@ -356,8 +356,23 @@ pub enum Msg<'a> {
     TranscriptDropped {
         through: u64,
     },
-    TranscriptRateLimited {
+    /// A 429 the runtime is waiting out on its own; the turn goes on after it.
+    TranscriptRateLimitWaiting {
+        secs: u64,
+    },
+    /// The CodingPlan 5-hour window is used up and the turn stopped. `until` is
+    /// the reset time the server gave (may be empty); `left` how long until it,
+    /// already formatted (`2h11m`), when known.
+    TranscriptWindowExhausted {
         until: &'a str,
+        left: Option<&'a str>,
+    },
+    /// A 429 that is not the plan's window (a person's own model, or a gateway
+    /// 429 with no window data) and stopped the turn. `reason` is the provider's
+    /// own words when it gave any; `left` how long until a retry may work.
+    TranscriptRateLimitedElsewhere {
+        reason: Option<&'a str>,
+        left: Option<&'a str>,
     },
     TranscriptMemberEnded,
 

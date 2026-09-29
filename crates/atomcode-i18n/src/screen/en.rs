@@ -244,7 +244,23 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::TranscriptDropped { through } => {
             format!("tool results through #{through} are no longer sent to the model").into()
         }
-        Msg::TranscriptRateLimited { until } => format!("rate limited, waiting until {until}").into(),
+        Msg::TranscriptRateLimitWaiting { secs } => {
+            format!("rate limited; continuing on its own in {secs}s…").into()
+        }
+        Msg::TranscriptWindowExhausted { until, left } => {
+            let left = left.map(|l| format!(" ({l} left)")).unwrap_or_default();
+            let when = if until.is_empty() {
+                "it reopens later".to_string()
+            } else {
+                format!("it reopens around {until}")
+            };
+            format!("the 5-hour window is used up; {when}{left} · what was done is kept · switch model or try again later").into()
+        }
+        Msg::TranscriptRateLimitedElsewhere { reason, left } => {
+            let reason = reason.map(|r| format!(": {r}")).unwrap_or_default();
+            let left = left.map(|l| format!(" (retry in about {l})")).unwrap_or_default();
+            format!("rate limited (HTTP 429){reason}{left} · what was done is kept · try again later or switch model").into()
+        }
         Msg::TranscriptMemberEnded => "this member has finished and will not speak again".into(),
 
         // ── what each command is for (`commands.rs`) ──
