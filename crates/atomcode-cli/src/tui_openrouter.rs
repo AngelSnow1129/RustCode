@@ -178,11 +178,13 @@ impl CommandSet for OpenRouterCommands {
     }
 
     fn commands(&self) -> Vec<Command> {
+        // `/openrouter <key>`: the key is echoed as a mask, never as itself.
         vec![Command::said_taking(
             COMMAND,
             tr(SMsg::OpenRouterTakes),
             tr(SMsg::CmdAboutOpenRouter),
-        )]
+        )
+        .taking_a_secret()]
     }
 
     async fn run(&self, _name: &str, args: &str, _ctx: &Context) -> Outcome {

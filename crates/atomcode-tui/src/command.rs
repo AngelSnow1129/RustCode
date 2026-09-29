@@ -51,6 +51,10 @@ pub struct Command {
     /// too, but running them bare opens a picker, so they still dispatch. Only
     /// for commands with no closed [`options`], which open their values instead.
     pub require_arg: bool,
+    /// What it takes is a credential (`/openrouter <key>`), so the line is
+    /// never drawn with it: the conversation echoes only the name. A key on
+    /// screen stays in the scrollback, a screenshot and a shared screen.
+    pub secret_args: bool,
 }
 
 /// One value a command offers to pick inline in the slash menu.
@@ -102,6 +106,7 @@ impl Command {
             aliases: &[],
             options: Vec::new(),
             require_arg: false,
+            secret_args: false,
         }
     }
     pub const fn taking(name: &'static str, takes: &'static str, about: &'static str) -> Self {
@@ -112,6 +117,7 @@ impl Command {
             aliases: &[],
             options: Vec::new(),
             require_arg: false,
+            secret_args: false,
         }
     }
     /// The same, described by the language table.
@@ -130,6 +136,7 @@ impl Command {
             aliases: &[],
             options: Vec::new(),
             require_arg: false,
+            secret_args: false,
         }
     }
     /// [`said`](Self::said) for a command that takes something.
@@ -145,6 +152,7 @@ impl Command {
             aliases: &[],
             options: Vec::new(),
             require_arg: false,
+            secret_args: false,
         }
     }
 
@@ -159,6 +167,13 @@ impl Command {
     /// [`require_arg`](Self::require_arg).
     pub fn requiring(mut self) -> Self {
         self.require_arg = true;
+        self
+    }
+
+    /// The same command, taking a credential: its argument never reaches the
+    /// screen. See [`secret_args`](Self::secret_args).
+    pub fn taking_a_secret(mut self) -> Self {
+        self.secret_args = true;
         self
     }
 

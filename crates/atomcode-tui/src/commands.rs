@@ -2956,6 +2956,8 @@ impl CommandSet for AgentCatalogCommands {
                 // The agent owns what its own command does with no argument, so
                 // this screen dispatches it bare rather than deciding for it.
                 require_arg: false,
+                // The agent's commands are described, not typed with keys.
+                secret_args: false,
             })
             .collect()
     }

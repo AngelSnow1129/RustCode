@@ -5527,6 +5527,9 @@ impl Tui {
                 // is NOT a command: it reaches the model untouched instead of
                 // erroring with "没有 /Users/… 这条命令".
                 if crate::command::looks_like_command(&text) {
+                    // Echoed before anything is said about it, so what follows
+                    // (the refusal below, the command's answer) reads under it.
+                    self.host.echo_command(&text);
                     // A command carries no pictures — no command takes them —
                     // and `take_shown` above has already drained them off the
                     // composer. Until one does, **say so**: a screenshot
@@ -6832,7 +6835,7 @@ impl Tui {
         if name == "quit" || name == "exit" {
             return self.act(crate::keymap::Action::Quit, client);
         }
-        self.run_command(&format!("/{name}"));
+        self.run_typed_command(&format!("/{name}"));
         false
     }
 
@@ -7063,6 +7066,14 @@ impl Tui {
     /// the loop must keep painting and keep accepting keys while it does.
     fn run_command(&self, line: &str) {
         self.spawn_command(line, false);
+    }
+
+    /// [`Tui::run_command`] for a command the person typed (or picked from the
+    /// slash menu): the line goes into the conversation first, so what the
+    /// command says has the question it answers above it.
+    fn run_typed_command(&self, line: &str) {
+        self.host.echo_command(line);
+        self.run_command(line);
     }
 
     /// Run a slash command and put what it said on the screen, unless it

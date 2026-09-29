@@ -4932,6 +4932,40 @@ impl Host {
         );
     }
 
+    /// Put a command the person typed in the conversation, as the bar a sent
+    /// message gets — the way `atomcode-tuix` echoes it. Without it the answer
+    /// (`正在接 OpenRouter…`) stands under a question nobody can see.
+    ///
+    /// Only for what was typed or picked from the slash menu: a command a
+    /// launcher runs on its own (`UserInterface::run_slash`), a key's
+    /// (Shift+Tab) or a modal's pick was never words the person wrote.
+    ///
+    /// A command that takes a credential (`Command::secret_args`) is echoed
+    /// with its argument masked: the key was typed to be used, not shown.
+    pub fn echo_command(&self, line: &str) {
+        let line = line.trim();
+        if line.is_empty() {
+            return;
+        }
+        let shown = match line.split_once(char::is_whitespace) {
+            Some((name, args))
+                if !args.trim().is_empty()
+                    && self
+                        .commands
+                        .find(name.trim_start_matches('/'))
+                        .is_some_and(|c| c.secret_args) =>
+            {
+                format!("{name} ••••••")
+            }
+            _ => line.to_string(),
+        };
+        let mut stream = self.stream.write().expect("stream poisoned");
+        stream.writer("commands").emit(
+            crate::block::Coord::default(),
+            std::sync::Arc::new(crate::content::UserSaid(shown)),
+        );
+    }
+
     /// Run a key against the open menu, returning the step it produced. `None`
     /// when nothing is open, so the caller falls through to the ordinary keys —
     /// focus is arbitration, and this is where the menu is given it or not.
@@ -6527,6 +6561,52 @@ mod tests {
         mods.add_view(Arc::new(Mounted::<input::Input>::new()))
             .unwrap();
         Host::new(mods, default_layout())
+    }
+
+    /// A command that takes a key is echoed with the key masked; any other
+    /// command is echoed as typed. The key was typed to be used, and a line in
+    /// the conversation stays in the scrollback and every screenshot of it.
+    #[test]
+    fn an_echoed_command_never_shows_a_key() {
+        struct Keyed;
+        #[async_trait::async_trait]
+        impl crate::command::CommandSet for Keyed {
+            fn id(&self) -> &'static str {
+                "keyed"
+            }
+            fn commands(&self) -> Vec<crate::command::Command> {
+                vec![
+                    crate::command::Command::taking("connect", "[key]", "").taking_a_secret(),
+                    crate::command::Command::taking("rename", "<name>", ""),
+                ]
+            }
+            async fn run(
+                &self,
+                _: &str,
+                _: &str,
+                _: &atomcode_plexus::Context,
+            ) -> crate::command::Outcome {
+                crate::command::Outcome::Quiet
+            }
+        }
+        let h = host();
+        h.commands.add(Arc::new(Keyed)).unwrap();
+        h.echo_command("/connect sk-or-v1-SECRET");
+        h.echo_command("/rename my session");
+        use crate::block::Content as _;
+        let echoed: Vec<crate::ContentHash> = h
+            .stream
+            .read()
+            .unwrap()
+            .slots()
+            .iter()
+            .map(|slot| slot.block().content.content_hash())
+            .collect();
+        let bar = |text: &str| crate::content::UserSaid(text.into()).content_hash();
+        assert_eq!(
+            echoed,
+            vec![bar("/connect ••••••"), bar("/rename my session")]
+        );
     }
 
     /// One fold takes only the line it folded off the queue, so the lines still

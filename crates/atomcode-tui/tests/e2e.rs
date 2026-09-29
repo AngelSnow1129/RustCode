@@ -3270,8 +3270,16 @@ async fn enter_takes_the_lit_row_even_before_a_name_is_typed() {
         "enter was swallowed — the list is still up:\n{}",
         s.screen()
     );
+    // The input line, not the screen: the command that ran is echoed into the
+    // conversation as `❯ /name`, which is the command being taken, not left.
+    let line: String = s
+        .term
+        .last()
+        .and_then(|frame| frame.part("input").cloned())
+        .map(|part| part.lines.iter().map(|l| l.plain()).collect())
+        .unwrap_or_default();
     assert!(
-        !s.screen().contains("❯ /"),
+        !line.contains('/'),
         "the line still holds the slash, so nothing was taken:\n{}",
         s.screen()
     );
@@ -4388,6 +4396,29 @@ async fn a_command_answers_on_screen_and_never_reaches_the_model() {
     assert!(
         !screen.contains("the model spoke"),
         "a command must not start a turn:\n{screen}"
+    );
+
+    s.term.press(KeyPress::ctrl('d'));
+    let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+}
+
+/// What was typed stays above what it answered, the way a sent message does:
+/// an answer (`正在接 OpenRouter…`) under nothing reads as the screen talking
+/// to itself.
+#[tokio::test]
+async fn a_typed_command_is_echoed_above_its_answer() {
+    let dir = scratch("cmd-echo");
+    let s = start(tree(&dir, &replay(r#"{ text = "ok" }"#), &[])).await;
+    let task = s.open().await;
+
+    s.term.type_line("/context");
+    s.quiet().await;
+    let screen = s.screen();
+    let asked = screen.find("/context");
+    let answered = screen.find("条事实");
+    assert!(
+        matches!((asked, answered), (Some(a), Some(b)) if a < b),
+        "the command is on screen, above its answer:\n{screen}"
     );
 
     s.term.press(KeyPress::ctrl('d'));
