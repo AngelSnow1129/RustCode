@@ -6547,7 +6547,8 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
     atomcode_config::config::offline::seed_offline_from_config(startup_config.as_ref());
     // Step 2: Resolve telemetry state (R1.2, R2.1-R2.3, R2.5)
     let resolved = resolve(
-        &cfg_telemetry,
+        cfg_telemetry.enabled,
+        cfg_telemetry.endpoint.as_deref(),
         &cli_override,
         Config::config_dir(),
         &ProcessEnv,

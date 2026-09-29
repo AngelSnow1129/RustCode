@@ -12,8 +12,19 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::proxy::ProxyConfig;
-use atomcode_telemetry::TelemetryConfig;
 use provider::{ModelProfileConfig, ProviderAccountConfig, ProviderConfig, ResolvedModelConfig};
+
+/// The `[telemetry]` section of `config.toml`: what the person said about
+/// telemetry, `None` where they said nothing.
+///
+/// The schema is this crate's — it is a section of the file this crate reads.
+/// `atomcode-telemetry` takes the two answers (`atomcode_telemetry::config::resolve`)
+/// and knows nothing of the file, so neither crate depends on the other.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TelemetryConfig {
+    pub enabled: Option<bool>,
+    pub endpoint: Option<String>,
+}
 
 // DEFAULT_SYSTEM_PROMPT removed — single source of truth is now
 // config/prompt_sections.rs::UNIFIED_PROMPT (~500 tok).

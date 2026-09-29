@@ -13,7 +13,7 @@ pub mod runtime;
 pub mod scrub;
 pub mod sender;
 
-pub use config::{CliOverride, ResolvedConfig, TelemetryConfig, TelemetryState};
+pub use config::{CliOverride, ResolvedConfig, TelemetryState};
 pub use event::{
     CodingplanErrorKind, CodingplanResult, Envelope, Event, LlmErrorKind, McpErrorKind,
     McpTransport, Record, RepoHost, RepoOrigin, SessionMode, ToolErrorKind, UseCommandErrorKind,

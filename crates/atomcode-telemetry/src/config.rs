@@ -1,15 +1,8 @@
 //! Telemetry configuration and 4-level opt-out resolution.
 
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 pub const DEFAULT_ENDPOINT: &str = "https://acs.atomgit.com/api/v1/events";
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct TelemetryConfig {
-    pub enabled: Option<bool>,
-    pub endpoint: Option<String>,
-}
 
 #[derive(Debug, Clone, Default)]
 pub struct CliOverride {
@@ -47,8 +40,15 @@ impl TelemetryState {
 /// optimistic-online at telemetry-init time; a later network-failure flip does NOT
 /// re-resolve telemetry, so `auto` does NOT disable telemetry — only a forced `on` /
 /// `ATOMCODE_OFFLINE=on` does.
+///
+/// `configured_enabled` / `configured_endpoint` are what the person's config
+/// file says (`[telemetry] enabled` / `endpoint`), `None` where it says
+/// nothing. The file's schema belongs to `atomcode-config`; this crate takes
+/// only the two answers, so it does not depend on the config crate nor the
+/// config crate on it.
 pub fn resolve(
-    cfg: &TelemetryConfig,
+    configured_enabled: Option<bool>,
+    configured_endpoint: Option<&str>,
     cli: &CliOverride,
     atomcode_dir: PathBuf,
     env: &impl EnvLookup,
@@ -62,7 +62,7 @@ pub fn resolve(
         TelemetryState::Disabled("env:DO_NOT_TRACK=1")
     } else if cli.disabled {
         TelemetryState::Disabled("cli:--no-telemetry")
-    } else if matches!(cfg.enabled, Some(false)) {
+    } else if matches!(configured_enabled, Some(false)) {
         TelemetryState::Disabled("config")
     } else {
         TelemetryState::Enabled
@@ -70,7 +70,7 @@ pub fn resolve(
 
     let endpoint = env
         .var("ATOMCODE_TELEMETRY_ENDPOINT")
-        .or_else(|| cfg.endpoint.clone())
+        .or_else(|| configured_endpoint.map(str::to_string))
         .unwrap_or_else(|| DEFAULT_ENDPOINT.to_string());
 
     ResolvedConfig {
@@ -111,25 +111,16 @@ mod tests {
 
     #[test]
     fn default_is_enabled() {
-        let r = resolve(
-            &TelemetryConfig::default(),
-            &CliOverride::default(),
-            dir(),
-            &env(&[]),
-            false,
-        );
+        let r = resolve(None, None, &CliOverride::default(), dir(), &env(&[]), false);
         assert!(r.state.is_enabled());
         assert_eq!(r.endpoint, DEFAULT_ENDPOINT);
     }
 
     #[test]
     fn env_wins_over_config() {
-        let cfg = TelemetryConfig {
-            enabled: Some(true),
-            endpoint: None,
-        };
         let r = resolve(
-            &cfg,
+            Some(true),
+            None,
             &CliOverride::default(),
             dir(),
             &env(&[("ATOMCODE_TELEMETRY", "0")]),
@@ -141,7 +132,8 @@ mod tests {
     #[test]
     fn do_not_track_wins_over_cli() {
         let r = resolve(
-            &TelemetryConfig::default(),
+            None,
+            None,
             &CliOverride { disabled: true },
             dir(),
             &env(&[("DO_NOT_TRACK", "1")]),
@@ -152,12 +144,9 @@ mod tests {
 
     #[test]
     fn cli_wins_over_config() {
-        let cfg = TelemetryConfig {
-            enabled: Some(true),
-            endpoint: None,
-        };
         let r = resolve(
-            &cfg,
+            Some(true),
+            None,
             &CliOverride { disabled: true },
             dir(),
             &env(&[]),
@@ -168,18 +157,22 @@ mod tests {
 
     #[test]
     fn config_false_disables() {
-        let cfg = TelemetryConfig {
-            enabled: Some(false),
-            endpoint: None,
-        };
-        let r = resolve(&cfg, &CliOverride::default(), dir(), &env(&[]), false);
+        let r = resolve(
+            Some(false),
+            None,
+            &CliOverride::default(),
+            dir(),
+            &env(&[]),
+            false,
+        );
         assert_eq!(r.state.reason(), Some("config"));
     }
 
     #[test]
     fn endpoint_env_override() {
         let r = resolve(
-            &TelemetryConfig::default(),
+            None,
+            None,
             &CliOverride::default(),
             dir(),
             &env(&[("ATOMCODE_TELEMETRY_ENDPOINT", "https://test.example/v1")]),
@@ -191,10 +184,8 @@ mod tests {
     #[test]
     fn offline_disables_telemetry() {
         let r = resolve(
-            &TelemetryConfig {
-                enabled: Some(true),
-                endpoint: None,
-            },
+            Some(true),
+            None,
             &CliOverride::default(),
             dir(),
             &env(&[]),

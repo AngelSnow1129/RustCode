@@ -16,8 +16,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use atomcode_config::config::TelemetryConfig;
 use atomcode_kernel::provider::LlmProvider;
-use atomcode_telemetry::config::{resolve, CliOverride, ProcessEnv, TelemetryConfig};
+use atomcode_telemetry::config::{resolve, CliOverride, ProcessEnv};
 use atomcode_telemetry::Telemetry;
 use serde::Deserialize;
 
@@ -77,7 +78,8 @@ pub fn build_sink(config_override: Option<&Path>, no_telemetry: bool) -> Arc<Tel
     // clix does not participate in offline_mode (it never seeds the offline verdict),
     // so telemetry is not offline-gated here — pass false explicitly, not a bug.
     let resolved = resolve(
-        &cfg,
+        cfg.enabled,
+        cfg.endpoint.as_deref(),
         &CliOverride {
             disabled: no_telemetry,
         },

@@ -509,7 +509,6 @@ version = "5.1.0"
 dependencies = [
  "anyhow",
  "atomcode-i18n",
- "atomcode-telemetry",
  "dirs",
  "fs2",
  "libc",

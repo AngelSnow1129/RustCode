@@ -1693,7 +1693,8 @@ async fn run() -> Result<i32> {
         disabled: cli.no_telemetry,
     };
     let resolved = resolve(
-        &telemetry_cfg,
+        telemetry_cfg.enabled,
+        telemetry_cfg.endpoint.as_deref(),
         &cli_override,
         atomcode_dir.clone(),
         &ProcessEnv,

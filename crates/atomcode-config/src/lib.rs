@@ -1,6 +1,6 @@
 //! Atomcode disk/TOML config system.
 //!
-//! Leaf crate — depends only on `atomcode-telemetry` + serde/toml/anyhow, so every
+//! Depends only on `atomcode-i18n` (a leaf) + serde/toml/anyhow, so every
 //! stack layer can read `config.toml` without depending on a runtime/driver crate. See
 //! `docs/superpowers/plans/2026-07-11-extract-atomcode-config.md`.
 
