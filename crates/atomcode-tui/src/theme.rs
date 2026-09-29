@@ -568,8 +568,22 @@ pub fn resolve(role: Role, caps: Caps) -> Option<Color> {
             // the dim one on a dark ground and one of the loud ones on a light
             // ground. Contrast knows which way round the scheme is; a list of
             // slot numbers does not.
+            //
+            // And quieter than the terminal's own text, when it said what that
+            // is: a slot that clears the floor can still be *louder* than the
+            // prose. Solarized Dark is the case — its bright black (slot 8) is
+            // the background colour, so the quietest slot that reads is slot 7,
+            // a near-white well above its own body text (#839496). Taking it drew
+            // reasoning and metadata brighter than the answer they sit beside.
+            // The measured mix below is the right answer then.
             if let Some(n) = quietest(role, caps, true) {
-                return Some(Color::Ansi(n));
+                let bg = p.background();
+                let quieter_than_prose = p
+                    .foreground()
+                    .is_none_or(|fg| contrast(p.slot(n), bg) < contrast(fg, bg));
+                if quieter_than_prose {
+                    return Some(Color::Ansi(n));
+                }
             }
             // Otherwise the two measured ends: the terminal's own text colour,
             // moved toward its own background until the ink recedes. Truecolor
@@ -927,6 +941,35 @@ mod tests {
             muted,
             (0x80, 0x80, 0x80),
             "muted must take the scheme's dim grey (slot 8), not the louder slot 7"
+        );
+    }
+
+    /// Solarized Dark, as iTerm2 ships it: bright black (slot 8) *is* the
+    /// background, so the quietest slot that clears the floor is slot 7 — a
+    /// near-white louder than the scheme's own body text. Muted must not take it:
+    /// reasoning and metadata drawn brighter than the answer read as the answer.
+    #[test]
+    fn muted_is_never_louder_than_the_terminals_own_text() {
+        let bg = (0x00, 0x2b, 0x36);
+        let fg = (0x83, 0x94, 0x96);
+        let caps = Caps {
+            palette: Palette::assumed(Theme::Dark)
+                .with_background(bg)
+                .with_foreground(fg)
+                .with_slot(0, (0x07, 0x36, 0x42))
+                .with_slot(7, (0xee, 0xe8, 0xd5))
+                .with_slot(8, (0x00, 0x2b, 0x36))
+                .with_slot(15, (0xfd, 0xf6, 0xe3)),
+            colors: Colors::True,
+            ..Caps::default()
+        };
+        let muted = seen(Role::Muted, caps).unwrap();
+        assert_ne!(muted, (0xee, 0xe8, 0xd5), "not slot 7's near-white");
+        assert!(
+            contrast(muted, bg) < contrast(fg, bg),
+            "muted {muted:?} ({:.2}) is louder than the text it sits beside ({:.2})",
+            contrast(muted, bg),
+            contrast(fg, bg)
         );
     }
 

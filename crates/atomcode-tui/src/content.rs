@@ -792,9 +792,14 @@ impl Content for ModelThought {
     fn content_hash(&self) -> ContentHash {
         hash_of(&["reasoning", &self.0])
     }
+    /// Open, the lid stays on top: `⎿ thought, N lines`, then the thought. A
+    /// click is how a thought was opened, and without the lid there was nothing
+    /// left that looked like the thing to click to put it away again.
     fn lines(&self, ctx: &RenderCtx) -> Vec<Line> {
         let w = ctx.width;
-        wrapped(&self.0, w, muted(), "· ")
+        let mut out = vec![self.summary(ctx)];
+        out.extend(wrapped(&self.0, w, muted(), "· "));
+        out
     }
     fn summary(&self, ctx: &RenderCtx) -> Line {
         let w = ctx.width;
