@@ -211,7 +211,7 @@ impl Presentation {
     ///
     /// Reasoning and the environment's own injections both open off the screen,
     /// and both come back one step at a time: a one-row lid, then the whole
-    /// thing, then away again — `ctrl-r` for the first, `/showinject` for the
+    /// thing, then away again — `alt-r` for the first, `/showinject` for the
     /// second. The difference is the audience: a thought is the model working and
     /// a person may want to watch it arrive, while an injection is the harness
     /// talking to the model and nobody is reading `<system-reminder>` on purpose.
@@ -1778,6 +1778,36 @@ impl Host {
             self.moment.write().expect("moment poisoned").undone = turns;
         }
         changed
+    }
+
+    /// Whether the latest turn on screen thought something that is off the
+    /// screen right now.
+    ///
+    /// Reasoning opens hidden (`Presentation::default_folds`), and hidden means
+    /// no lid either — so nothing on screen says there was any, and a person has
+    /// no reason to look for the key that brings it back. This is the moment to
+    /// tell them: a turn just ended, it did think, and they cannot see it.
+    /// Only the latest turn, so an old session's reasoning does not raise it for
+    /// a turn that had none.
+    pub fn last_turn_reasoning_hidden(&self) -> bool {
+        if self
+            .presentation
+            .read()
+            .expect("presentation poisoned")
+            .showing("reasoning")
+            != Showing::Hidden
+        {
+            return false;
+        }
+        let stream = self.stream.read().expect("stream poisoned");
+        let Some(last) = stream.slots().iter().map(|s| s.block().at.turn).max() else {
+            return false;
+        };
+        last > 0
+            && stream
+                .slots()
+                .iter()
+                .any(|s| s.block().at.turn == last && s.block().kind() == "reasoning")
     }
 
     /// Deliver one committed fact to every module, with no sequence number of
@@ -12969,12 +12999,50 @@ mod tests {
         );
     }
 
+    /// Hidden reasoning in the turn that just ended is what the one-time
+    /// "alt-r shows it" line is said for — and only that: once reasoning is
+    /// on the screen, or the latest turn did not think, there is nothing to
+    /// point at.
+    #[test]
+    fn hidden_reasoning_in_the_last_turn_is_noticed_and_only_then() {
+        assert!(!host().last_turn_reasoning_hidden(), "an empty screen");
+
+        // The conformance log's first turn thinks; its second does not.
+        let first_turn = || {
+            let h = host();
+            for f in conformance::facts()
+                .into_iter()
+                .take_while(|f| !matches!(f, SessionEvent::TurnStart { turn: 2 }))
+            {
+                h.absorb(&f);
+            }
+            h
+        };
+
+        let h = first_turn();
+        assert!(
+            h.last_turn_reasoning_hidden(),
+            "turn 1 thought, off the screen"
+        );
+
+        h.presentation.write().unwrap().toggle("reasoning");
+        assert!(
+            !h.last_turn_reasoning_hidden(),
+            "a lid is on screen: the key has been found"
+        );
+
+        assert!(
+            !fed().last_turn_reasoning_hidden(),
+            "the latest turn did not think; turn 1's reasoning is old news"
+        );
+    }
+
     #[test]
     fn reasoning_is_off_the_screen_by_default_and_the_key_brings_it_back() {
         // The reasoning channel is the working, not the answer. A lid between
         // every call — `◐ 思考 7 行` — is a row spent telling someone who is not
         // reading the working how much working there is that they are not
-        // reading. So it opens off the screen, and ctrl-r (or `/reasoning`)
+        // reading. So it opens off the screen, and alt-r (or `/reasoning`)
         // brings it back: a lid, then the whole thought, then away again.
         let h = fed();
         let away = h.compose((80, 40)).rows().join("\n");

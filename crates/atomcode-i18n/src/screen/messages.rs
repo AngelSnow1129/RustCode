@@ -1328,6 +1328,9 @@ pub enum Msg<'a> {
     ImageCorrupt,
     MouseTaken,
     MouseHandedBack,
+    /// Said once, after a turn whose reasoning is off the screen: the key that
+    /// brings it back, since nothing on screen says there is any.
+    ReasoningHiddenHint,
     NoProviderPanel,
     NoPluginPanel,
     NoToolPanel,
