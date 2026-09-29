@@ -361,6 +361,23 @@ impl LlmProvider for AnthropicProvider {
 /// Open one `/v1/messages` stream, retrying the OPEN (transient status /
 /// transport) per `policy`. Shared by the initial open and the mid-stream
 /// re-open so both paths behave identically.
+/// The session headers one request carries: `x-atomcode-session-id` (gateway
+/// prefix-cache affinity) and, on `opencode.ai`, the `x-opencode-session` OpenCode
+/// requires — both the one stable id, both omitted when it is empty. Shared with
+/// the OpenAI-compatible adapter through `apply_opencode_session`, so the two
+/// formats cannot disagree about when OpenCode gets it.
+fn with_session_headers(
+    req: reqwest::RequestBuilder,
+    url: &str,
+    session_id: &str,
+) -> reqwest::RequestBuilder {
+    let mut req = req;
+    if !session_id.is_empty() {
+        req = req.header("x-atomcode-session-id", session_id);
+    }
+    super::openai_compat::apply_opencode_session(url, req, session_id)
+}
+
 async fn open_stream(
     client: &reqwest::Client,
     url: &str,
@@ -379,10 +396,7 @@ async fn open_stream(
             .header("x-api-key", api_key)
             .header("anthropic-version", anthropic_version)
             .json(body);
-        // Stable session id → gateway prefix-cache affinity. Empty ⇒ omitted.
-        if !session_id.is_empty() {
-            req = req.header("x-atomcode-session-id", session_id);
-        }
+        req = with_session_headers(req, url, session_id);
         // TTFB watchdog for THIS attempt (mirrors openai_compat): bounds only the
         // silent-gateway wait, never a slow streaming body.
         let send = match tokio::time::timeout(open_timeout, req.send()).await {
@@ -2216,6 +2230,49 @@ mod tests {
             drop(s);
         });
         (captured, handle)
+    }
+
+    /// OpenCode serves some models on its Anthropic-format `/messages`; those
+    /// requests carry `x-opencode-session` like the OpenAI-format ones, bound to a
+    /// session or not. Nowhere else: another Anthropic-compatible host never sees it.
+    #[test]
+    fn an_opencode_request_carries_its_session_header() {
+        let client = reqwest::Client::new();
+        let headers = |url: &str, sess: &str| {
+            with_session_headers(client.post(url), url, sess)
+                .build()
+                .expect("request must build")
+                .headers()
+                .clone()
+        };
+        let of = |h: &reqwest::header::HeaderMap, name: &str| {
+            h.get(name)
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string)
+        };
+
+        let opencode = headers("https://opencode.ai/zen/go/v1/messages", "sess-1");
+        assert_eq!(
+            of(&opencode, "x-opencode-session").as_deref(),
+            Some("sess-1")
+        );
+        assert_eq!(
+            of(&opencode, "x-atomcode-session-id").as_deref(),
+            Some("sess-1")
+        );
+
+        let other = headers("https://api.anthropic.com/v1/messages", "sess-1");
+        assert_eq!(of(&other, "x-opencode-session"), None);
+        assert_eq!(
+            of(&other, "x-atomcode-session-id").as_deref(),
+            Some("sess-1")
+        );
+
+        // No session bound: OpenCode still gets its header (a per-process id),
+        // but the gateway-affinity header stays off — nothing to pin to.
+        let unbound = headers("https://opencode.ai/zen/go/v1/messages", "");
+        assert!(of(&unbound, "x-opencode-session").is_some());
+        assert_eq!(of(&unbound, "x-atomcode-session-id"), None);
     }
 
     #[tokio::test]

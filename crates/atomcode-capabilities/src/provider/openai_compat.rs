@@ -94,20 +94,56 @@ fn is_opencode_zen_url(url: &str) -> bool {
     atomcode_config::endpoints::host_matches_domain(url_host(url), "opencode.ai")
 }
 
-/// Attach OpenCode Zen's required `x-opencode-session` header — one stable ID per
+/// Attach OpenCode's required `x-opencode-session` header — one stable ID per
 /// conversation — when `url` targets opencode.ai. We already carry exactly that stable id
 /// (sent as `x-atomcode-session-id`), so surface it under their header name too rather than
-/// mint a second one. Gated to their host; an empty session (session-less sub-agent /
-/// summary) is omitted, matching the `x-atomcode-session-id` behavior.
-fn apply_opencode_session(
+/// mint a second one. Gated to their host.
+///
+/// **Never omitted there**: OpenCode may refuse a request without it. A request with no
+/// session bound — `atomcode -p --ephemeral` runs with no session at all — carries
+/// [`unbound_opencode_session`] instead: one id for the process, which for a run that
+/// persists nothing is the one conversation it has. `x-atomcode-session-id` is not
+/// given it: that one steers gateway affinity, and a made-up id would pin unrelated
+/// calls together.
+///
+/// `pub(super)`: the Anthropic adapter calls it too — OpenCode serves some models
+/// on its Anthropic-format `/messages` endpoint, and those requests need the
+/// same header under the same gate.
+pub(super) fn apply_opencode_session(
     url: &str,
     req: reqwest::RequestBuilder,
     session_id: &str,
 ) -> reqwest::RequestBuilder {
-    if session_id.is_empty() || !is_opencode_zen_url(url) {
+    if !is_opencode_zen_url(url) {
         return req;
     }
-    req.header("x-opencode-session", session_id)
+    let session = if session_id.is_empty() {
+        unbound_opencode_session()
+    } else {
+        session_id
+    };
+    req.header("x-opencode-session", session)
+}
+
+/// The `x-opencode-session` of a request with no session bound: random, made once
+/// per process and then stable, so every call of a session-less run reads to
+/// OpenCode as the one conversation it is.
+fn unbound_opencode_session() -> &'static str {
+    static ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ID.get_or_init(|| {
+        let mut bytes = [0u8; 16];
+        // A failed draw still has to yield an id: a fixed one is a worse
+        // conversation key than a random one, but a missing header is refused.
+        if getrandom::getrandom(&mut bytes).is_err() {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default();
+            bytes = (nanos ^ u128::from(std::process::id())).to_le_bytes();
+        }
+        let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        format!("atomcode-{hex}")
+    })
 }
 
 /// Attach the OpenRouter app-attribution headers to `req` when `url` targets
@@ -5096,7 +5132,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_opencode_session_gated_to_opencode_and_nonempty() {
+    fn apply_opencode_session_gated_to_opencode_and_never_missing_there() {
         let client = reqwest::Client::new();
         let header_of = |url: &str, sess: &str| {
             apply_opencode_session(url, client.post(url), sess)
@@ -5123,9 +5159,19 @@ mod tests {
             ),
             None
         );
-        // Empty session (sub-agent / summary) → omitted even on opencode.
+        // No session bound (`--ephemeral`) → still sent on opencode, which may refuse
+        // a request without it: one id for the process, the same on every call.
+        let unbound = header_of("https://opencode.ai/zen/v1/chat/completions", "")
+            .expect("an unbound request to opencode still carries the header");
+        assert!(unbound.starts_with("atomcode-"), "{unbound}");
         assert_eq!(
-            header_of("https://opencode.ai/zen/v1/chat/completions", ""),
+            header_of("https://opencode.ai/zen/go/v1/chat/completions", ""),
+            Some(unbound),
+            "stable across calls of the one run"
+        );
+        // And nowhere else, bound or not.
+        assert_eq!(
+            header_of("https://api.deepseek.com/v1/chat/completions", ""),
             None
         );
     }
