@@ -634,7 +634,7 @@ webui 四个入口还是裸的。
       > **`panic_restore_terminal` 是无条件调用**，不在 classic arm 里：`restore_terminal_if_tui()`
       > （`main.rs:124`）被 3 处 panic hook 调用（`:1528` / `:1544` / `:4797`），只被 `HEADLESS_MODE` 挡。
       >
-      > **但好摘**：它只调 `panic_restore_sequence()`（`tuix/src/lib.rs:281`）——一个 8 字节常量
+      > **但好摘**：它只调 `panic_restore_sequence()`（`tuix/src/lib.rs:281`）——一个 53 字节的常量（8 段终端控制序列）
       > `b"\x1b[?1006l\x1b[?1002l\x1b[?1004l\x1b[<1u\x1b[?25h\x1b[?7h\x1b[r\x1b[?2004l\r\n"`
       > ——加两条判据（`:1037` / `:1055`）。把常量与判据搬进 cli，这条引用就断了，**不必等 classic arm 一起走**。
 
