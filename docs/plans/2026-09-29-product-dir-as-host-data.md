@@ -91,6 +91,11 @@ project_plugins_root(&layout.project(&working_dir), &scope)
 
 ## 形状
 
+> **实施时的改动**：`Layout` 没有落在 `atomcode-config`，落成了 `atomcode_capabilities::ProductDirs`
+> （无条件编译、零依赖），因为最底下要它的是 capabilities，而 capabilities 的多数 feature 够不着 config。
+> 宿主侧的解析函数是 `atomcode_coding::config::product_dirs_from_env()`。下面的草图保留作设计记录，
+> 以文末「实施结果」为准。
+
 ```rust
 // atomcode-config::distribution —— 全仓唯一写出 ".atomcode" 的地方
 pub const HOME_DIR_NAME: &str = ".atomcode";      // 已有
@@ -243,3 +248,50 @@ A、D、E 不需要做这个决定就能先做。B/C 有三条路：
   memory、session 标记、artifacts 全落在 `.forkcode` 下，`.atomcode` 目录一个都没被创建。
 - **行为不变**：默认 `Layout` 下既有测试不改期望值（只把期望里的 `".atomcode"` 换成从常量拼）。
 - **通知跟品牌走**：`set_brand("Forkcode", …)` 后通知标题为 `"Forkcode done"`。
+
+## 实施结果（2026-09-29）
+
+**形状**
+
+- `atomcode_capabilities::ProductDirs { user, project_dir_name, home_dir_name }`：`user()`、`project(root)`、
+  `project_dir_name()`、`home_dir_name()`。库只收它（或收从它取出的目录），不再拼 `.atomcode`、不再读 `ATOMCODE_HOME`。
+- 宿主解析一次：`atomcode_coding::config::product_dirs_from_env()`（cli、daemon、tuix 调它）；
+  `CodingAgentConfig` / `CodingRuntimeConfig` 带 `dirs`，`on_harness::mount*` 收 `&ProductDirs`。
+- harness 新增 Core 缝 `product-dirs`（`ProductDirsSvc`），由 `INFRA` 里第一行 `product-dirs` 提供；
+  `mount_hosted` 把宿主的 dirs patch 进这一行。用它的行在 `inject()` 里声明 `"product-dirs"`，
+  取不到就挂载失败（`crate::product_dirs(ctx)`），不自己猜。
+- 凭据守卫 `SensitivePaths::of(&dirs)`：用户树 + `/<home_dir_name>` 两个标记，下游改名后守的是它自己的名字。
+- 遍历跳过：`.atomcode` 从 `pathutil::SKIP_DIRS` 拿掉，改为 `pathutil::skip_dir_for(&dirs)` 按交进来的名字加。
+- i18n：`{user_dir}` / `{project_dir}` 占位，宿主调 `atomcode_coding::config::settle_dir_names(&dirs)`；
+  persona 用 `{home_dir}` / `{project_dir}`（填名字不填路径，differential golden 字节不变）。
+- 通知标题走 `{brand}`。
+
+**闸门**：`gates/product-dir.sh` 棘轮从 82 降到 **0**，此后库里出现任何一处 `.atomcode` 字面量即判红。
+
+**判据（均证伪过一次）**
+
+- `coding/tests/runtime_criteria.rs::a_runtime_under_another_name_keeps_to_its_own_dirs`：交进 `.forkcode`
+  的 dirs、同时把 `ATOMCODE_HOME` 指向另一个目录，跑一回合：会话落在 `.forkcode` 树里，环境里那个 home
+  一个文件都没有，项目里没有 `.atomcode`。首跑就抓到 `names_sessions_with_a_model` 还在读
+  `Config::default_path()`（在环境 home 下留了 `config.toml.lock`）。
+- `capabilities` 的 `setup::a_renamed_distribution_writes_only_under_its_own_names`、
+  `sensitive_path::a_renamed_distribution_guards_its_own_name_and_not_upstreams`、
+  `file_index::our_own_dir_is_the_one_handed_in`、`notify::titles_say_the_brand_the_host_settled`；
+  `i18n` 的 `directory_placeholders_render_the_hosts_dirs`；harness `product_dirs` 行的测试。
+
+**删掉的**
+
+- `capabilities/src/paths.rs`、`config/src/config/memory.rs`（daemon 改用 capabilities 的 `MemoryStore`）、
+  `telemetry::identity::default_atomcode_dir`、`skills::runtime_skill_dirs` / `runtime_skill_install_dirs`、
+  `mcp::util::config_dir`、`session::config_dir`、`McpTokenStore::default_path`、重复的 `is_project_trusted_local`、
+  死的 `McpRegistry::with_event_channel`。
+- 环境变量覆盖（**行为变化**）：`ATOMCODE_PROJECT_MEMORY_DIR`、`ATOMCODE_LOCAL_MEMORY_DIR`、
+  `ATOMCODE_MCP_TRUST_STORE` 不再生效——目录只由宿主交进来。
+
+**仍读环境的地方（都在宿主侧）**：`Config::config_dir()`（`product_dirs_from_env` 的来源）、
+harness 自己的启动器（`profile.rs`、`launch.rs` 与 `product-dirs` 行的缺省值，经 `model_source::atomcode_home`）、
+tuix 的几处本地命令（经 `product_dirs_from_env`）。
+
+**对 air 这类只导入 crate 的下游**：构造一份 `ProductDirs::new(~/.longcode-air, ".longcode-air")`
+交给 `CodingAgentConfig::new(…, dirs)` / `mount_hosted(…, &dirs, …)` 即可，不再需要在每个入口 `set_var("ATOMCODE_HOME")`。
+
