@@ -632,7 +632,7 @@ async fn background_command(
     // `tell` addressed to a session called "me".
     //
     // A target is a slot number, or a session id as the panel sends it
-    // (`/bg drop <id>` for ctrl+x) — an id is a UUID, which no task reads as.
+    // (`/bg drop <id>` for ctrl+d) — an id is a UUID, which no task reads as.
     let is_target = |word: &str| {
         let word = word.split_whitespace().next().unwrap_or("");
         word.parse::<usize>().is_ok()

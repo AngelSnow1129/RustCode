@@ -217,6 +217,9 @@ pub struct Panel {
     /// 刚才想就地回复一个在等你回答的会话:话不发,图例那一行换成「按 Enter 打开」。
     /// 下一次按键就收起。
     pub waiting_note: bool,
+    /// 按了一次 ctrl+d、等第二次的那个会话。跟着行走:按了别的键就没了 —— 丢掉
+    /// 一个后台会话会把它跑着的回合一起取消,所以要问两次。
+    pub armed: Option<String>,
 }
 
 impl Panel {
@@ -231,6 +234,7 @@ impl Panel {
     /// 点了第 `at` 行:没选中就选中它,已经选中的再点一次就打开。
     pub fn click(&mut self, view: &BgView, at: usize) -> Step {
         self.waiting_note = false;
+        self.armed = None;
         let Some(session) = view.at(at) else {
             return Step::Stay;
         };
@@ -253,6 +257,11 @@ impl Panel {
         };
         let moved = want != self.cursor;
         self.cursor = want;
+        // 移开了就不再等第二次 ctrl+d —— 和方向键、点击同一个规矩,不然那一行
+        // 还说着「再按一次」,光标却已经在别的行上。
+        if moved {
+            self.armed = None;
+        }
         moved
     }
 
@@ -299,6 +308,14 @@ pub enum Step {
 pub fn key(view: &BgView, panel: &mut Panel, press: KeyPress) -> Step {
     let selected = view.at(panel.cursor).map(|s| s.id.clone());
     panel.waiting_note = false;
+    // 除了 ctrl+d 自己,任何一次按键都解除待删:人已经去做别的事了。
+    let dropping = matches!((press.key, press.mods), (Key::Char('d'), Mods::CTRL));
+    let armed = if dropping {
+        panel.armed.take()
+    } else {
+        panel.armed = None;
+        None
+    };
     // 在等审批或提问的会话不收「回复」:它等的是那个问题的答案,一句话塞进去只会
     // 换回运行时的一个拒绝。要答,得把它打开。
     let waits = |id: &str| {
@@ -327,8 +344,15 @@ pub fn key(view: &BgView, panel: &mut Panel, press: KeyPress) -> Step {
         (Key::Left, Mods::NONE) if panel.input.is_empty() && panel.replying.is_none() => {
             Step::Close
         }
-        (Key::Char('x'), Mods::CTRL) => match selected {
-            Some(id) => Step::Drop { id },
+        // 丢掉选中的那个:ctrl+d 按两次 —— 和 `/resume`、`/provider`、`/plugin`、
+        // `/settings` 同一个手势。原来是 ctrl+x 按一下就丢,连它跑着的回合一起
+        // 取消,没有第二次机会。
+        _ if dropping => match selected {
+            Some(id) if armed.as_deref() == Some(id.as_str()) => Step::Drop { id },
+            Some(id) => {
+                panel.armed = Some(id);
+                Step::Stay
+            }
             None => Step::Stay,
         },
         (Key::Up, _) => {
@@ -562,10 +586,40 @@ mod tests {
         assert_eq!(key(&view, &mut panel, press(Key::Left)), Step::Stay);
     }
 
+    /// 滚轮挪开了,待删也作废:那一行不能还说着「再按一次」而光标已经在别处。
     #[test]
-    fn ctrl_x_drops_the_selected_one() {
+    fn the_wheel_moving_off_ends_an_armed_drop() {
         let view = view();
         let mut panel = Panel::new(None);
+        key(&view, &mut panel, KeyPress::ctrl('d'));
+        assert!(panel.armed.is_some());
+        assert!(panel.wheel(&view, 1));
+        assert!(panel.armed.is_none());
+    }
+
+    /// 丢掉一个后台会话要按两次 ctrl+d:第一次只是标上,第二次才丢;中间按了
+    /// 别的键(比如走到另一行),标记就没了,下一次 ctrl+d 标的是新的那一行。
+    #[test]
+    fn ctrl_d_twice_drops_the_selected_one() {
+        let view = view();
+        let mut panel = Panel::new(None);
+        assert_eq!(key(&view, &mut panel, KeyPress::ctrl('d')), Step::Stay);
+        assert_eq!(panel.armed.as_deref(), Some("asking"));
+        assert_eq!(
+            key(&view, &mut panel, KeyPress::ctrl('d')),
+            Step::Drop {
+                id: "asking".into()
+            }
+        );
+
+        key(&view, &mut panel, KeyPress::ctrl('d'));
+        key(&view, &mut panel, KeyPress::plain(Key::Down));
+        assert!(panel.armed.is_none(), "moving off ends it");
+        assert_eq!(
+            key(&view, &mut panel, KeyPress::ctrl('d')),
+            Step::Stay,
+            "so this arms the new row rather than dropping it"
+        );
         assert_eq!(
             key(
                 &view,
@@ -575,9 +629,8 @@ mod tests {
                     mods: Mods::CTRL
                 }
             ),
-            Step::Drop {
-                id: "asking".into()
-            }
+            Step::Stay,
+            "ctrl+x no longer drops anything"
         );
     }
 

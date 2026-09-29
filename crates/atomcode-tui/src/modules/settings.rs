@@ -1996,7 +1996,7 @@ fn legend(panel: &Panel) -> Vec<(String, String)> {
         // this state a person has to know — and it is the press that throws
         // something away.
         return vec![
-            ("del".into(), t(Msg::LegendPressAgainToReset).into_owned()),
+            ("^d".into(), t(Msg::LegendPressAgainToReset).into_owned()),
             (
                 t(Msg::LegendAnyOtherKey).into_owned(),
                 t(Msg::LegendCancel).into_owned(),
@@ -2006,7 +2006,7 @@ fn legend(panel: &Panel) -> Vec<(String, String)> {
     let mut out = vec![
         ("↑↓".into(), t(Msg::LegendSelect).into_owned()),
         ("⏎".into(), t(Msg::LegendEdit).into_owned()),
-        ("del".into(), t(Msg::LegendRestoreDefault).into_owned()),
+        ("^d".into(), t(Msg::LegendRestoreDefault).into_owned()),
     ];
     if !panel.query.is_empty() {
         out.push(("esc".into(), t(Msg::LegendClearSearch).into_owned()));

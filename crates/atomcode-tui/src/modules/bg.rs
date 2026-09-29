@@ -224,13 +224,19 @@ fn session_line(view: &BgView, panel: &Panel, at: usize, w: usize) -> Line {
         base.under(theme::fg(Role::PanelFg))
     };
     let replying = panel.replying.as_deref() == Some(session.id.as_str());
-    let mut last = session
-        .last
-        .clone()
-        .unwrap_or_else(|| t(Msg::BgNothingSaid).into_owned());
+    // 标了待删的那一行说的是「再按一次」:此刻人要读的就是这一句。
+    let armed = panel.armed.as_deref() == Some(session.id.as_str());
+    let mut last = if armed {
+        t(Msg::BgDropArmed).into_owned()
+    } else {
+        session
+            .last
+            .clone()
+            .unwrap_or_else(|| t(Msg::BgNothingSaid).into_owned())
+    };
     // 做完了就把这次活花掉的接在后面(`2 轮 · 2 工具 · 32.7s · …`):它已经是历史,
     // 而这一列本来就是给"这个会话眼下什么状况"看的。
-    if session.group == Group::Completed {
+    if session.group == Group::Completed && !armed {
         let figures = crate::bg::figures(session.stats);
         if !figures.is_empty() {
             last = format!("{last}  {figures}");
@@ -244,7 +250,9 @@ fn session_line(view: &BgView, panel: &Panel, at: usize, w: usize) -> Line {
         Span::styled("   ", base),
         Span::styled(
             last,
-            base.under(theme::fg(if replying {
+            base.under(theme::fg(if armed {
+                Role::Error
+            } else if replying {
                 Role::Warning
             } else {
                 Role::Muted

@@ -559,9 +559,16 @@ async fn bg_drop_cancels_a_running_one() {
     rig.term.type_line("/bg");
     rig.until_screen(&t(Msg::BgPanelMoved)).await;
 
-    // ctrl+x on the selected row is `/bg drop`.
+    // ctrl+d twice on the selected row is `/bg drop`: the first only marks it —
+    // dropping cancels its running turn, so it asks for the second.
     rig.term.press(KeyPress {
-        key: Key::Char('x'),
+        key: Key::Char('d'),
+        mods: Mods::CTRL,
+    });
+    rig.until_screen(&t(Msg::BgDropArmed)).await;
+    assert_eq!(rig.background().await.len(), 1, "one press drops nothing");
+    rig.term.press(KeyPress {
+        key: Key::Char('d'),
         mods: Mods::CTRL,
     });
     rig.until_background("the slot is gone", |list| list.is_empty())
@@ -1042,6 +1049,13 @@ async fn quitting_with_background_sessions_running_asks_first() {
     rig.until_screen(&t(Msg::BgPanelMoved)).await;
     rig.until_screen(&t(Msg::BgGroupWorking)).await;
 
+    // In the panel ctrl+d is the panel's own (two of them drop a session), so
+    // put it away first — ← on the empty box, which stays in this session.
+    rig.term.press(KeyPress::plain(Key::Left));
+    rig.until("the panel went away", |rig| {
+        !rig.term.text().contains(&*t(Msg::BgPanelMoved))
+    })
+    .await;
     let question = t(Msg::BgQuitQuestion { count: 1 }).into_owned();
     rig.term.press(KeyPress::ctrl('d'));
     rig.until_screen(&question).await;
@@ -1170,6 +1184,13 @@ async fn quitting_says_how_to_resume_the_background_sessions_it_stopped() {
     let fresh = rig.client.root();
     assert_ne!(fresh, first);
 
+    // In the panel ctrl+d is the panel's own (two of them drop a session), so
+    // put it away first — ← on the empty box, which stays in this session.
+    rig.term.press(KeyPress::plain(Key::Left));
+    rig.until("the panel went away", |rig| {
+        !rig.term.text().contains(&*t(Msg::BgPanelMoved))
+    })
+    .await;
     let question = t(Msg::BgQuitQuestion { count: 1 }).into_owned();
     rig.term.press(KeyPress::ctrl('d'));
     rig.until_screen(&question).await;

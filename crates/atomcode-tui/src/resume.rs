@@ -118,6 +118,8 @@ impl Panel {
             return false;
         }
         self.cursor = want;
+        // 滚轮、指针移开了,待删就作废 —— 和方向键同一个规矩。
+        self.armed = None;
         true
     }
 }
@@ -150,8 +152,13 @@ pub enum Step {
 /// 会话由 [`Step::Resume`] 说出来,交给宿主那一趟往返。
 pub fn key(view: &ResumeView, panel: &mut Panel, press: KeyPress) -> Step {
     let listed = view.listed(panel);
-    // 除了 Delete 自己,任何一次按键都解除待删状态:人已经去做别的事了。
-    let armed = if matches!(press.key, Key::Delete) {
+    // 删是 ctrl+d,按两次 —— 和 `/provider`、`/plugin`、`/settings`、`/bg` 同一个
+    // 手势。原来是 Delete:Mac 键盘上写着 delete 的键发的是退格(真正的 Delete
+    // 要按 fn+delete),于是在 Mac 上按那个键只是在删搜索框里的字,按经典界面的
+    // ctrl+d 又什么都不发生 —— 面板怎么都删不掉会话。
+    let deleting = matches!((press.key, press.mods), (Key::Char('d'), Mods::CTRL));
+    // 除了删的手势自己,任何一次按键都解除待删状态:人已经去做别的事了。
+    let armed = if deleting {
         panel.armed.take()
     } else {
         panel.armed = None;
@@ -159,7 +166,7 @@ pub fn key(view: &ResumeView, panel: &mut Panel, press: KeyPress) -> Step {
     };
     match (press.key, press.mods) {
         (Key::Esc, _) | (Key::Char('c'), Mods::CTRL) => Step::Close,
-        (Key::Delete, _) => {
+        _ if deleting => {
             let Some(session) = listed
                 .get(panel.cursor)
                 .and_then(|&index| view.sessions().get(index))
@@ -243,13 +250,10 @@ mod delete_tests {
     #[test]
     fn deleting_asks_twice() {
         let (view, mut panel) = (view(), Panel::new());
-        assert_eq!(
-            key(&view, &mut panel, KeyPress::plain(Key::Delete)),
-            Step::Stay
-        );
+        assert_eq!(key(&view, &mut panel, KeyPress::ctrl('d')), Step::Stay);
         assert_eq!(panel.armed.as_deref(), Some("aaa"), "先问一次");
         assert_eq!(
-            key(&view, &mut panel, KeyPress::plain(Key::Delete)),
+            key(&view, &mut panel, KeyPress::ctrl('d')),
             Step::Delete { id: "aaa".into() }
         );
     }
@@ -258,11 +262,11 @@ mod delete_tests {
     #[test]
     fn moving_off_the_row_takes_the_question_back() {
         let (view, mut panel) = (view(), Panel::new());
-        key(&view, &mut panel, KeyPress::plain(Key::Delete));
+        key(&view, &mut panel, KeyPress::ctrl('d'));
         key(&view, &mut panel, KeyPress::plain(Key::Down));
         assert!(panel.armed.is_none(), "挪开就作废");
         assert_eq!(
-            key(&view, &mut panel, KeyPress::plain(Key::Delete)),
+            key(&view, &mut panel, KeyPress::ctrl('d')),
             Step::Stay,
             "在新行上重新问一次"
         );
@@ -273,7 +277,7 @@ mod delete_tests {
     #[test]
     fn typing_takes_the_question_back() {
         let (view, mut panel) = (view(), Panel::new());
-        key(&view, &mut panel, KeyPress::plain(Key::Delete));
+        key(&view, &mut panel, KeyPress::ctrl('d'));
         key(&view, &mut panel, KeyPress::ch('b'));
         assert!(panel.armed.is_none());
     }
@@ -304,6 +308,15 @@ mod tests {
 
     fn press(key: Key) -> KeyPress {
         KeyPress::plain(key)
+    }
+
+    /// 滚轮、指针把光标带到别的行,待删就作废。
+    #[test]
+    fn pointing_elsewhere_ends_an_armed_delete() {
+        let mut panel = Panel::new();
+        panel.armed = Some("a".into());
+        assert!(panel.point_at(1, 3));
+        assert!(panel.armed.is_none());
     }
 
     #[test]
