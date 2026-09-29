@@ -1059,9 +1059,15 @@ impl ToolCallBlock {
     /// away and nothing here has to guess how much of it to keep.
     fn subject_line(&self, w: u16, name_style: Style) -> Vec<Line> {
         let subject = flatten(&self.subject());
-        if subject.is_empty() {
-            return Vec::new();
-        }
+        // No subject (a call that left out its path) still names the tool: under
+        // a reason, this row is the only place the call's name appears, and a
+        // block that said what the model meant but not which tool it used would
+        // leave the failure under it unexplained.
+        let called = if subject.is_empty() {
+            self.display_name()
+        } else {
+            format!("{}({subject})", self.display_name())
+        };
         let caps = Caps::default();
         // Indented under the tool mark, with the gutter glyph on the first row
         // only — the shape a result takes, so the two read as the same kind of
@@ -1069,15 +1075,7 @@ impl ToolCallBlock {
         // name keeps the volume the caller asked for, so a folded row is not
         // half-loud.
         let prefix = format!("{}{} ", " ".repeat(GUTTER), caps.g(Glyph::Gutter));
-        crate::markdown::wrap_spans(
-            &[Span::styled(
-                format!("{}({subject})", self.display_name()),
-                name_style,
-            )],
-            w,
-            &prefix,
-            muted(),
-        )
+        crate::markdown::wrap_spans(&[Span::styled(called, name_style)], w, &prefix, muted())
     }
 
     /// The rows that identify this call — the same ones in both shapes the
@@ -2852,6 +2850,21 @@ mod tests {
         assert!(width::str_width(&shown) <= RAW_SUBJECT_MAX, "{shown}");
         let short = subject_of_within("mcp__x__y", r#"{"regex":"a|b"}"#, None);
         assert!(short.contains("a|b") && !short.ends_with('…'), "{short}");
+
+        // Under a reason the call still says which tool it was.
+        let with_reason = serde_json::json!({ "intent": "写一个脚本", "content": "x" }).to_string();
+        let drawn: Vec<String> = ToolCallBlock::pending("c", "write_file", &with_reason)
+            .lines(&crate::block::RenderCtx::bare(80))
+            .iter()
+            .map(|l| l.plain())
+            .collect();
+        assert!(drawn.iter().any(|l| l.contains("写一个脚本")), "{drawn:?}");
+        assert!(
+            drawn
+                .iter()
+                .any(|l| l.contains(&display_tool_name("write_file"))),
+            "the tool is named: {drawn:?}"
+        );
 
         // And a subject that is there is still shown whole.
         assert_eq!(
