@@ -855,6 +855,13 @@ model = "vendor-b"
         spawn: Option<crate::background::Spawn>,
         review_home: Option<crate::background::ReviewHome>,
     ) -> Result<Option<Left>, String> {
+        // Here and not in `mount`: this is a person's launch, and `mount` is
+        // also every test's — a test must not spend the one-time notice, nor
+        // write its marker.
+        let keys_marker =
+            crate::tui_opening::keys_notice_marker(&atomcode_config::config::Config::config_dir());
+        let keys_due = !keys_marker.exists();
+        let opening_notice = crate::tui_opening::with_keys_notice(opening_notice, &keys_marker);
         let (mounted, background) = mount_with_background(
             runtime,
             front_end,
@@ -868,6 +875,10 @@ model = "vendor-b"
             review_home,
         )
         .await?;
+        // The screen is up and the notice is on it: only now is it spent.
+        if keys_due {
+            crate::tui_opening::remember_keys_notice(&keys_marker);
+        }
         let ctx = mounted.app.context();
         let result = mounted.ui.run(&ctx, None).await;
         // 屏幕没了,后台的会话也停下:取消跑着的回合(半截回复落进日志),放掉租约

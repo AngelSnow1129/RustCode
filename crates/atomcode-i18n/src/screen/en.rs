@@ -800,6 +800,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ImageCorrupt => "the image data is corrupt".into(),
         Msg::MouseTaken => "the mouse is taken: drag to select and copy, click a thought or a tool call to fold it, wheel to scroll, esc to drop the selection".into(),
         Msg::MouseHandedBack => "the mouse is the terminal's: use its own selection (which reaches into the scrollback). Fold with ctrl-t, reasoning with alt-r (hidden by default), scroll with pgup/pgdn, ctrl-o takes the mouse back".into(),
+        Msg::ReasoningHiddenHint => "this turn's reasoning is hidden · alt-r shows it (or /reasoning)".into(),
         Msg::NoProviderPanel => "this screen has no provider panel: the launcher provided no `tui-panel-providers`".into(),
         Msg::NoPluginPanel => "this screen has no plugin panel: the launcher provided no `tui-panel-plugins`".into(),
         Msg::NoToolPanel => "this screen has no tool panel: the launcher provided no `tui-panel-tools`".into(),

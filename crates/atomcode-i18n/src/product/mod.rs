@@ -478,6 +478,7 @@ mod tests {
             }};
         }
         check!(Msg::WelcomeTipsHeading);
+        check!(Msg::TuiKeysHint);
         check!(Msg::WelcomeTipLogin);
         check!(Msg::WelcomeTipGoal);
         check!(Msg::WelcomeTipLoop);

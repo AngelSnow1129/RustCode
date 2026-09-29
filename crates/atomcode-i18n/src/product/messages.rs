@@ -712,6 +712,10 @@ pub enum Msg<'a> {
     /// Complete plain-text version: "/webui  open a synced session in the browser"
     IdleHintWebuiFull,
 
+    /// Said once, on the first launch of the row-assembled screen (`--tui`):
+    /// the keys a person would not find on their own.
+    TuiKeysHint,
+
     // ── Welcome screen tips ──
     /// Heading above the tips list on the welcome screen.
     WelcomeTipsHeading,

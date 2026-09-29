@@ -25,6 +25,7 @@ use atomcode_plexus::{Context, Plugin};
 use atomcode_tui::content::OpeningNotices;
 use atomcode_tui::plugin::OpeningNoticesSvc;
 use serde_json::Value;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// The row's name.
@@ -57,6 +58,41 @@ pub fn notices(notice: Option<&str>) -> OpeningNotices {
             .map(str::to_string)
             .collect(),
     )
+}
+
+/// Where the first-launch keys notice records that it has been said.
+pub fn keys_notice_marker(config_dir: &Path) -> PathBuf {
+    config_dir.join("tui-keys-notice-shown")
+}
+
+/// This launch's notice, with a line of keys after it — on the first launch of
+/// this screen only.
+///
+/// Reasoning is hidden and tool output has its own key, and neither says so on
+/// screen (ctrl-o, which a person may reach for, is the mouse here). Said once,
+/// and last: what just happened to this launch is news first.
+///
+/// Only decides: the marker is written by [`remember_keys_notice`] once the
+/// screen is up, so a launch that fails before drawing anything has not spent
+/// the notice.
+pub fn with_keys_notice(notice: Option<String>, marker: &Path) -> Option<String> {
+    if marker.exists() {
+        return notice;
+    }
+    let keys = atomcode_config::i18n::t(atomcode_config::i18n::Msg::TuiKeysHint).into_owned();
+    Some(match notice {
+        Some(notice) => format!("{notice}\n{keys}"),
+        None => keys,
+    })
+}
+
+/// Record that the keys notice has been shown. If this cannot be written the
+/// notice comes back next launch, which is the better way to be wrong.
+pub fn remember_keys_notice(marker: &Path) {
+    if let Some(parent) = marker.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(marker, b"");
 }
 
 #[async_trait]
@@ -99,6 +135,39 @@ mod tests {
                 "forked from s-1",
             ]
         );
+    }
+
+    /// The keys notice is said on the first launch, after whatever else this
+    /// launch has to say, and never again.
+    #[test]
+    fn the_keys_notice_is_said_once_and_last() {
+        let dir = std::env::temp_dir().join(format!(
+            "atomcode-keys-notice-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+        ));
+        let marker = keys_notice_marker(&dir);
+
+        let first = with_keys_notice(Some("config.toml did not parse".into()), &marker)
+            .expect("the first launch has something to say");
+        let lines: Vec<&str> = first.lines().collect();
+        assert_eq!(lines.len(), 2, "{first}");
+        assert_eq!(lines[0], "config.toml did not parse", "news first");
+        assert!(lines[1].contains("alt-r"), "then the keys: {first}");
+        assert!(
+            with_keys_notice(None, &marker).is_some(),
+            "deciding does not spend it: a launch that never drew says it again"
+        );
+
+        remember_keys_notice(&marker);
+        assert!(marker.exists(), "remembered once the screen is up");
+
+        assert_eq!(with_keys_notice(None, &marker), None, "never again");
+        assert_eq!(
+            with_keys_notice(Some("forked from s-1".into()), &marker).as_deref(),
+            Some("forked from s-1")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// An ordinary launch says nothing, and says it as nothing rather than as an

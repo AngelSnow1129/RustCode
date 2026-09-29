@@ -599,6 +599,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
             "使用 /webui 在浏览器中同步会话".into(),
 
         // ── 欢迎屏幕提示 ──
+        Msg::TuiKeysHint => "按键提示:思考过程 alt-r(或 /reasoning) · 工具输出 ctrl-t · ctrl-o 交还/收回鼠标 · 全部按键见 /keys".into(),
         Msg::WelcomeTipsHeading => "上手提示".into(),
         Msg::WelcomeTipLogin => "领取免费额度".into(),
         Msg::WelcomeTipProvider => "添加自定义模型".into(),

@@ -961,6 +961,10 @@ pub struct Tui {
     /// Once per screen: the account stays out until the window turns over, and a
     /// line that came back every turn would be one more thing to read past.
     allowance_nudged: Arc<AtomicBool>,
+    /// Whether "this turn's reasoning is hidden — alt-r" has been said. Once
+    /// per screen, for the reason `allowance_nudged` is: it is news the first
+    /// time, and after that it is one more line to read past.
+    reasoning_hinted: AtomicBool,
     /// Whether this project's older sessions have been folded into the history
     /// yet. Once per screen.
     history_asked: Mutex<bool>,
@@ -4890,6 +4894,13 @@ impl Tui {
                     }
                     self.settle_withdrawn();
                     self.try_retract();
+                    // The turn thought, and it is off the screen with no lid to
+                    // say so: tell the person the key, once.
+                    if self.host.last_turn_reasoning_hidden()
+                        && !self.reasoning_hinted.swap(true, Ordering::Relaxed)
+                    {
+                        self.say(&t(Msg::ReasoningHiddenHint));
+                    }
                 }
                 // A turn just spent some of the allowance, so this is the
                 // moment the figure changed. Rate-limited inside.
@@ -7580,6 +7591,7 @@ pub fn assemble(surface: Arc<dyn Surface>) -> (Arc<Host>, Tui) {
             wake: Mutex::new(None),
             allowance_checked: Mutex::new(None),
             allowance_nudged: Arc::new(AtomicBool::new(false)),
+            reasoning_hinted: AtomicBool::new(false),
             history_asked: Mutex::new(false),
             files: Mutex::new(None),
             pressed_at: Mutex::new(None),
