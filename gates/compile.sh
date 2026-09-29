@@ -41,23 +41,24 @@ else
 fi
 rm -f /tmp/atomcode-compile-gate.$$
 
-# 同一种烂法的第三例,这次是 **feature 藏起来的那一半**:上面那条走默认 feature,而
-# 8 个测试文件整文件挂在非默认 feature 后面(`#![cfg(feature = "…")]`),于是它们
-# 压根没被编过。`e2e.rs` 就是这样烂掉的:`StreamEvent` 加了 `ResponseModel` /
-# `Malformed` 两个变体(`237fc25b3`、`dc456e732`),那个逐变体列举的 `match` 没跟着
-# 补,`--features e2e` 编译不过 —— 而默认 feature 下这个文件是空的,谁也看不见。
+# 同一种烂法的第三例,这次是 **feature 藏起来的那一半**:上面那条走的是 workspace 里
+# 各 crate 对 `atomcode-capabilities` 要求的 feature 的**并集**(resolver v2 在同一次
+# `cargo check --workspace` 里合并它们)——`coding`/`tuix` 开了 session、memory、mcp,
+# `cli` 开了 setup,所以挂在这几个 feature 后面的测试其实早就被编到了。编不到的,是
+# **没有任何成员会开**的那几个 feature 后面的测试:
 #
-# 与上面那处同形(判据跑不起来而没有人发现),所以要么一起堵,要么别假装有门。
-# 这五个 feature 门控着 5 个不同的测试 target:
+#   e2e      tests/e2e.rs(打真实 provider)
+#   lsp-e2e  src/codeintel/lsp/manager.rs 里的真实 typescript-language-server 判据
 #
-#   session  tests/session.rs            memory      tests/memory.rs
-#   setup    tests/setup_integration.rs  e2e         tests/e2e.rs
-#   mcp      tests/mcp.rs
+# `e2e.rs` 就是这样烂掉的:`StreamEvent` 加了 `ResponseModel` / `Malformed` 两个变体
+# (`237fc25b3`、`dc456e732`),那个逐变体列举的 `match` 没跟着补,`--features e2e`
+# 编译不过 —— 而任何一次 workspace 检查都看不见它。
 #
-# 一次全开比一条一条开便宜(resolver v2 不跨 target 统一,但同一 crate 的多个
-# `--features` 是并集,只编一遍)。**别改成 run** —— e2e 打真实 provider。
+# 列表里留着 session/memory/setup/mcp:它们今天被并集顺带编到,但那是别的 crate 的
+# 选择,哪天没人再开就又掉出去了;在这里显式开,比依赖别人碰巧开着稳。**别改成 run**
+# —— e2e 与 lsp-e2e 都要真实的外部服务。
 echo "→ feature 门控的测试也能编译"
-FEATURE_GATED='session,memory,setup,e2e,mcp'
+FEATURE_GATED='session,memory,setup,e2e,mcp,lsp-e2e'
 if cargo check -p atomcode-capabilities --all-targets \
      --features "$FEATURE_GATED" \
      >/tmp/atomcode-feature-gate.$$ 2>&1; then
@@ -100,30 +101,42 @@ trap - EXIT
 # 判据的形状反过来钉 —— 只钉「feature 门那条会红」的话,把两个 feature 写反
 # (用默认 feature 去编)也照样全绿。所以这里钉的是**两者的差**:
 # 同一份坏代码,旧门看不见、新门看得见。
+#
+# 坏代码放进一个**新建的、不入库的**文件,跑完删掉,和上面那个 canary 同一种做法。
+# 不往已入库的测试文件里追加:那样跑闸门的这一两分钟里它在 `git status` 里是改过
+# 的,别的会话一次 `git commit -a` 就会把坏代码提交进去;进程被强杀时它会一直坏在
+# 那儿,还没有任何标记说明是闸门留下的。
+#
+# 红还得是**它**红的:两边的输出都按文件名认一遍。feature 门后面的代码本来就坏着
+# 时,新门的红不能算作「判得出」;旧门因别的原因本来就红时,也不能说成「新门没盖住
+# 新地方」。
 echo "→ feature 门控的闸门自身会判红（旧门对它应当无感）"
-feature_canary="crates/atomcode-capabilities/tests/e2e.rs"
-feature_backup=$(mktemp)
-cp "$feature_canary" "$feature_backup"
-feature_cleanup() {
-  cp "$feature_backup" "$feature_canary"
-  rm -f "$feature_backup"
-}
+feature_canary="crates/atomcode-capabilities/tests/__feature_gate_canary.rs"
+feature_out=$(mktemp)
+feature_cleanup() { rm -f "$feature_canary" "$feature_out"; }
 trap feature_cleanup EXIT
-cat >>"$feature_canary" <<'RS'
-// 阴性对照用,由 gates/compile.sh 写入并立刻还原。
+cat > "$feature_canary" <<'RS'
+// 阴性对照用,由 gates/compile.sh 写入并立刻删除。留在树里说明上一次跑被打断了。
+#![cfg(feature = "e2e")]
 #[test]
 fn this_must_not_compile_under_a_feature() {
     let _: u32 = "feature gate canary";
 }
 RS
 if cargo check -p atomcode-capabilities --all-targets \
-     --features "$FEATURE_GATED" >/dev/null 2>&1; then
+     --features "$FEATURE_GATED" >"$feature_out" 2>&1; then
   printf '  \033[31mFAIL\033[0m feature 门控的闸门判不出编译错误\n'
   fail=1
-elif cargo check --workspace --all-targets >/dev/null 2>&1; then
+elif ! grep -q "__feature_gate_canary" "$feature_out"; then
+  printf '  \033[31mFAIL\033[0m feature 门报红,但不是阴性对照引起的 —— feature 门后面的代码本来就坏着,这一条判不了\n'
+  fail=1
+elif cargo check --workspace --all-targets >"$feature_out" 2>&1; then
   printf '  \033[32mok\033[0m   feature 门控的闸门自身会判红（旧门对它无感）\n'
+elif grep -q "__feature_gate_canary" "$feature_out"; then
+  printf '  \033[31mFAIL\033[0m 旧门也看见了阴性对照 —— 这条新门没盖住新地方\n'
+  fail=1
 else
-  printf '  \033[31mFAIL\033[0m 旧门也判红了 —— 这条新门没盖住新地方\n'
+  printf '  \033[31mFAIL\033[0m 旧门本身是红的(与阴性对照无关),两者的差判不了\n'
   fail=1
 fi
 feature_cleanup
