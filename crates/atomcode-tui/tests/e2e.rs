@@ -9389,6 +9389,11 @@ impl atomcode_host_api::HostControl for WorksIn {
 async fn the_wheel_as_arrows_scrolls_while_the_mouse_is_handed_back() {
     let dir = scratch("wheel-arrows");
     let s = start(tree(&dir, &replay(r#"{ text = "ok" }"#), &[])).await;
+    // Room on the status row: the marker is drawn only in what the model, the
+    // directory and the usage leave over (`status.rs`, by design), and the
+    // directory here is wherever the tests run — at 80 columns a long checkout
+    // path left none, and the marker was never drawn.
+    s.term.resize(200, 24);
     let task = s.open().await;
     s.term.type_line("REMEMBERED-PROMPT");
     until(&s, "ok").await;
