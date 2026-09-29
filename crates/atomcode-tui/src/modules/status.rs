@@ -216,6 +216,24 @@ impl View for Status {
         if let Some(text) = &unready {
             reserved += width::str_width(text) + sep_w;
         }
+        // `!` shell mode, said on the row while the line starts with `!` — the
+        // same words tuix puts in its footer: what the bare `!` did, then what
+        // Enter will do once there is a command after it. Reserved: it is about
+        // the very next key.
+        let shell_hint = (vp.moment.secret.is_none()
+            && crate::shell::in_shell_mode(&vp.moment.input))
+        .then(|| {
+            use crate::i18n::product::{t as pt, Msg as PMsg};
+            let msg = if crate::shell::asks_for_shell(&vp.moment.input).is_some() {
+                PMsg::BashInputHint
+            } else {
+                PMsg::ShellModeHint
+            };
+            pt(msg).into_owned()
+        });
+        if let Some(text) = &shell_hint {
+            reserved += width::str_width(text) + sep_w;
+        }
         let pointer = vp
             .moment
             .mouse_handed_back
@@ -320,6 +338,10 @@ impl View for Status {
         if let Some(text) = unready {
             row.push(El::styled(sep_text.clone(), dim));
             row.push(El::styled(text, theme::fg(Role::Warning)));
+        }
+        if let Some(text) = shell_hint {
+            row.push(El::styled(sep_text.clone(), dim));
+            row.push(El::styled(text, theme::fg(Role::Brand)));
         }
         if let Some(text) = autonomy {
             row.push(El::styled(sep_text.clone(), dim));
@@ -785,6 +807,33 @@ mod tests {
         let row = draw::<Status>(&State::default(), 160, &ready);
         assert!(!row.contains("provider"), "{row}");
         assert!(!row.contains(&not_configured), "{row}");
+    }
+
+    /// A line that starts with `!` says on the row what it is: the bare `!` that
+    /// it is shell mode, a command after it that Enter runs it. Anything else,
+    /// nothing — and never over a password.
+    #[test]
+    fn a_leading_bang_is_said_on_the_row() {
+        use crate::i18n::product::{t as pt, Msg as PMsg};
+        let armed = pt(PMsg::ShellModeHint).into_owned();
+        let runs = pt(PMsg::BashInputHint).into_owned();
+        let with = |input: &str| Moment {
+            cwd: "~/work/project".into(),
+            model: "glm-5".into(),
+            input: input.into(),
+            ..Moment::default()
+        };
+        let row = draw::<Status>(&State::default(), 160, &with("!"));
+        assert!(row.contains(&armed) && !row.contains(&runs), "{row}");
+        let row = draw::<Status>(&State::default(), 160, &with("!git status"));
+        assert!(row.contains(&runs) && !row.contains(&armed), "{row}");
+        for plain in ["", "git status", " !git status"] {
+            let row = draw::<Status>(&State::default(), 160, &with(plain));
+            assert!(
+                !row.contains(&armed) && !row.contains(&runs),
+                "{plain:?}: {row}"
+            );
+        }
     }
 
     /// The mouse handed back is said on the row — at the end, and only where it

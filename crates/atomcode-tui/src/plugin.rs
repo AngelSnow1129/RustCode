@@ -3532,50 +3532,102 @@ impl Tui {
         self.refresh_menu();
     }
 
-    /// 一段留在对话区里的话。
-    ///
-    /// 不走 `Host::say`:那是一条几秒后就没的提示条,而一条命令的输出
-    /// 可能是几十行,而且人要回头看。
-    fn put(host: &std::sync::Arc<crate::host::Host>, text: String) {
-        let mut stream = host.stream.write().expect("stream poisoned");
-        let mut writer = stream.writer("commands");
-        writer.emit(
-            crate::block::Coord::default(),
-            std::sync::Arc::new(crate::content::NoticeBlock { detail: text }),
-        );
-    }
-
     /// 跑一条本机命令,把结果画出来,并把它攒给模型。
     ///
     /// **攒着,不当场发。** 人跑一条 `!` 不是在对模型说话,不该因此开一个
     /// 回合;但接下来那句「按上面那个报错改一下」指的就是它 —— 模型没见过
     /// 的话,那句话就是空的。所以结果跟着**下一条消息**一起过去。
-    fn run_locally(&self, command: String, shell: std::sync::Arc<dyn crate::shell::Shell>) {
+    fn run_locally(
+        &self,
+        line: String,
+        command: String,
+        shell: std::sync::Arc<dyn crate::shell::Shell>,
+    ) {
+        use crate::content::{ShellOutput, UserSaid};
         let host = self.host.clone();
         let keys = self.wake.lock().expect("wake poisoned").clone();
-        // 先把人打的那一行画出来:一条跑了几秒的命令,期间屏上不该没有任何
-        // 关于它的痕迹。
-        Self::put(&host, format!("$ {command}"));
+        // 人打的那一行,画成人说的话 —— 和上一代前端一样,也和斜杠命令的回显一样;
+        // 底下紧跟着一块会长的输出。一条跑了几秒的命令,期间屏上不该没有它的痕迹。
+        let output = {
+            let mut stream = host.stream.write().expect("stream poisoned");
+            let mut w = stream.writer("commands");
+            w.emit(
+                crate::block::Coord::default(),
+                Arc::new(UserSaid(line.clone())),
+            );
+            w.open(
+                crate::block::Coord::default(),
+                Arc::new(ShellOutput::default()),
+            )
+        };
+        // ↑ 能把它翻回来。历史是从日志折出来的,而 `!` 这一行不进日志,所以只有
+        // 在这里记一笔;这一屏之内有效,resume 回来就没了。
+        {
+            let mut m = host.moment.write().expect("moment poisoned");
+            if m.history.last() != Some(&line) {
+                m.history.push(line);
+            }
+        }
         tokio::spawn(async move {
-            let ran = shell.run(&command, crate::shell::WITHIN).await;
-            let said = match (ran.timed_out, ran.code) {
-                (true, _) => t(Msg::ShellTimedOut {
-                    secs: crate::shell::WITHIN.as_secs(),
+            // 边跑边画,但不是每一行都重画一遍:一条打出几千行的命令,逐行把整块
+            // 复制一次就是几千次复制。攒着,最多每 50ms 交一次;收尾那一下补齐。
+            let shown = std::sync::Mutex::new((Vec::<String>::new(), None::<std::time::Instant>));
+            let ran = shell
+                .run_streaming(&command, crate::shell::WITHIN, &|piece| {
+                    let mut held = shown.lock().expect("shown poisoned");
+                    held.0.push(piece);
+                    let due = held
+                        .1
+                        .is_none_or(|at| at.elapsed() >= std::time::Duration::from_millis(50));
+                    if !due {
+                        return;
+                    }
+                    held.1 = Some(std::time::Instant::now());
+                    let content = Arc::new(ShellOutput {
+                        lines: held.0.clone(),
+                        ..ShellOutput::default()
+                    });
+                    drop(held);
+                    host.stream
+                        .write()
+                        .expect("stream poisoned")
+                        .writer("commands")
+                        .amend(output, content);
+                    if let Some(keys) = &keys {
+                        let _ = keys.send(Wake::Fact);
+                    }
                 })
-                .into_owned(),
-                (false, Some(0)) => String::new(),
-                (false, code) => t(Msg::ShellFailed {
-                    code: &code.map(|c| c.to_string()).unwrap_or_else(|| "—".into()),
-                })
-                .into_owned(),
+                .await;
+            let lines = std::mem::take(&mut shown.lock().expect("shown poisoned").0);
+            let tail = match (ran.timed_out, ran.code) {
+                (true, _) => Some(
+                    t(Msg::ShellTimedOut {
+                        secs: crate::shell::WITHIN.as_secs(),
+                    })
+                    .into_owned(),
+                ),
+                (false, Some(0)) if lines.is_empty() => Some(t(Msg::ShellSaidNothing).into_owned()),
+                (false, Some(0)) => None,
+                (false, code) => Some(
+                    t(Msg::ShellFailed {
+                        code: &code.map(|c| c.to_string()).unwrap_or_else(|| "—".into()),
+                    })
+                    .into_owned(),
+                ),
             };
-            let body = match (ran.output.trim().is_empty(), said.is_empty()) {
-                (true, true) => t(Msg::ShellSaidNothing).into_owned(),
-                (true, false) => said,
-                (false, true) => ran.output.trim_end().to_string(),
-                (false, false) => format!("{}\n{said}", ran.output.trim_end()),
-            };
-            Self::put(&host, body);
+            {
+                let mut stream = host.stream.write().expect("stream poisoned");
+                let mut w = stream.writer("commands");
+                w.amend(
+                    output,
+                    Arc::new(ShellOutput {
+                        lines,
+                        tail,
+                        failed: ran.failed(),
+                    }),
+                );
+                w.settle(output);
+            }
             // 模型那一份用原始输出,不带屏幕上那句评语。攒着,跟下一条
             // 消息一起过去。
             host.moment
@@ -5563,7 +5615,7 @@ impl Tui {
                         .as_ref()
                         .and_then(|ctx| ctx.service::<ShellSvc>())
                     {
-                        self.run_locally(command.to_string(), shell);
+                        self.run_locally(text.clone(), command.to_string(), shell);
                         return false;
                     }
                 }

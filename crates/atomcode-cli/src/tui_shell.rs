@@ -60,17 +60,38 @@ struct Here {
 #[async_trait]
 impl Shell for Here {
     async fn run(&self, command: &str, within: Duration) -> Ran {
+        self.run_streaming(command, within, &|_| {}).await
+    }
+
+    async fn run_streaming(
+        &self,
+        command: &str,
+        within: Duration,
+        line: &(dyn Fn(String) + Send + Sync),
+    ) -> Ran {
         use atomcode_capabilities::tools::{run_shell, ShellExit};
+        // 一次一整行地交出去:块的边界是一次读了多少,不是一行,按块画会把一行
+        // 劈成两截。和上一代前端同一个做法。
+        let pending = std::sync::Mutex::new(String::new());
         let outcome = run_shell(
             &atomcode_capabilities::world::LocalShell,
             command,
             &self.working_dir,
             within.as_secs(),
-            // 不逐块回调：这一层答的是「跑完了，结果是这些」。边跑边画是另一件
-            // 事，要的话得先有一条把片段送上屏幕的缝，而现在没有。
-            |_| {},
+            |chunk| {
+                let mut buf = pending.lock().expect("pending poisoned");
+                buf.push_str(chunk);
+                while let Some(nl) = buf.find('\n') {
+                    let whole: String = buf.drain(..=nl).collect();
+                    line(whole.trim_end_matches(['\n', '\r']).to_string());
+                }
+            },
         )
         .await;
+        let rest = std::mem::take(&mut *pending.lock().expect("pending poisoned"));
+        if !rest.is_empty() {
+            line(rest);
+        }
         // stdout 和 stderr 合起来，按它们本来的顺序读不出来——所以 stderr 排在
         // 后面并原样保留。人敲 `!` 多半正是想看报错。
         let mut output = outcome.stdout;

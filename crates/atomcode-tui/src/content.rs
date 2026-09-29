@@ -2274,6 +2274,48 @@ impl Content for CommandSaid {
     }
 }
 
+/// What a `!` command printed, under the line that ran it.
+///
+/// Grows while the command runs — a line at a time, because a person ran it to
+/// watch it — and gets its tail when it ends: how it ended when that is worth
+/// saying (a timeout, a non-zero exit, nothing printed). Output in the
+/// terminal's own colour, indented under the command; the tail dim, or red when
+/// the command failed. Not a notice: this is what was asked for, not news
+/// about the screen.
+#[derive(Debug, Default)]
+pub struct ShellOutput {
+    pub lines: Vec<String>,
+    pub tail: Option<String>,
+    pub failed: bool,
+}
+
+impl Content for ShellOutput {
+    fn kind(&self) -> &'static str {
+        "shell_output"
+    }
+    fn content_hash(&self) -> ContentHash {
+        let body = self.lines.join("\n");
+        hash_of(&[
+            "shell_output",
+            &body,
+            self.tail.as_deref().unwrap_or(""),
+            if self.failed { "failed" } else { "ok" },
+        ])
+    }
+    fn lines(&self, ctx: &RenderCtx) -> Vec<Line> {
+        let w = ctx.width;
+        let mut out = Vec::new();
+        for line in &self.lines {
+            out.extend(wrapped(line, w, Style::new(), "  "));
+        }
+        if let Some(tail) = &self.tail {
+            let style = if self.failed { bad() } else { muted() };
+            out.extend(wrapped(tail, w, style, "  "));
+        }
+        out
+    }
+}
+
 /// How a turn ended.
 ///
 /// The reason is the *typed* one, not a rendering of it. A block that took a
