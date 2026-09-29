@@ -153,10 +153,6 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::StatusMember { name } => format!("member {name}").into(),
         Msg::StatusStopping => "stopping".into(),
         Msg::StatusMouseHandedBack => "mouse: terminal ctrl+g".into(),
-        Msg::StatusBackground { running, waiting } => match waiting {
-            0 => format!("{running} in background").into(),
-            waiting => format!("{running} in background · {waiting} waiting on you").into(),
-        },
         Msg::StatusGoal => "goal".into(),
         Msg::StatusLoop => "loop".into(),
         Msg::StatusRoundsHeld { kind, rounds, why } => {

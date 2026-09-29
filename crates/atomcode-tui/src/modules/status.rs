@@ -177,27 +177,12 @@ impl View for Status {
         if let Some(text) = &autonomy {
             reserved += width::str_width(text) + sep_w;
         }
-        // Sessions still running in the background (`/background`), and how many
-        // of them are waiting on the person. Nothing when none are: the block
-        // is for "there is work going on that you cannot see", and a zero says
-        // nothing of the kind. Waiting turns it the warning colour — that one
-        // is stopped until somebody answers it.
-        let background = {
-            let running = vp.moment.bg.running();
-            (running > 0).then(|| {
-                let waiting = vp.moment.bg.waiting();
-                let text = t(Msg::StatusBackground { running, waiting }).into_owned();
-                let role = if waiting > 0 {
-                    Role::Warning
-                } else {
-                    Role::Accent
-                };
-                (text, theme::fg(role))
-            })
-        };
-        if let Some((text, _)) = &background {
-            reserved += width::str_width(text) + sep_w;
-        }
+        // No block for background sessions (2026-09-29, the user's call): the
+        // row is for this conversation. What runs out of view is said where it
+        // needs the person — a session waiting on an answer on the tip row
+        // (`bg.waiting_caption`), this conversation's own background work on
+        // the live line (`live::waiting_on_background`) — and the rest is one
+        // ← (or `/bg`) away in the panel.
         // The mouse handed back to the terminal (ctrl+g, `[ui] mouse = false`):
         // said for as long as it lasts, because it is the state the wheel's
         // oddities come from — the terminal turns the wheel into arrow keys —
@@ -346,10 +331,6 @@ impl View for Status {
         if let Some(text) = autonomy {
             row.push(El::styled(sep_text.clone(), dim));
             row.push(El::styled(text, theme::fg(Role::Accent)));
-        }
-        if let Some((text, style)) = background {
-            row.push(El::styled(sep_text.clone(), dim));
-            row.push(El::styled(text, style));
         }
 
         if let Some((text, percent)) = allowance {
@@ -895,11 +876,10 @@ mod tests {
         );
     }
 
-    /// Background sessions still running get a block of their own on the row,
-    /// with how many are waiting on the person; with none running there is no
-    /// block at all.
+    /// Background sessions add nothing to the row, running or waiting: the row
+    /// is this conversation's, and the tip row and the panel say the rest.
     #[test]
-    fn the_row_counts_the_sessions_running_in_the_background() {
+    fn background_sessions_leave_the_row_alone() {
         use crate::bg::{BgView, Group, Session};
         let session = |id: &str, group: Group, waiting: bool| Session {
             id: id.into(),
@@ -916,30 +896,8 @@ mod tests {
             bg: BgView::new(sessions),
             ..Default::default()
         };
-        let running = |running, waiting| {
-            crate::i18n::t(Msg::StatusBackground { running, waiting }).into_owned()
-        };
-
         let none = draw::<Status>(&State::default(), 120, &with(Vec::new()));
-        let finished = draw::<Status>(
-            &State::default(),
-            120,
-            &with(vec![session("a", Group::Completed, false)]),
-        );
-        assert_eq!(none, finished, "a finished one is not work going on");
-
-        let two = draw::<Status>(
-            &State::default(),
-            120,
-            &with(vec![
-                session("a", Group::Working, false),
-                session("b", Group::Working, false),
-                session("c", Group::Completed, false),
-            ]),
-        );
-        assert!(two.contains(&running(2, 0)), "{two:?}");
-
-        let asking = draw::<Status>(
+        let busy = draw::<Status>(
             &State::default(),
             120,
             &with(vec![
@@ -947,15 +905,7 @@ mod tests {
                 session("b", Group::NeedsInput, true),
             ]),
         );
-        assert!(asking.contains(&running(2, 1)), "{asking:?}");
-
-        // On a narrow row the block keeps its place and the fitted group gives.
-        let narrow = draw::<Status>(
-            &State::default(),
-            40,
-            &with(vec![session("a", Group::Working, false)]),
-        );
-        assert!(narrow.contains(&running(1, 0)), "{narrow:?}");
+        assert_eq!(none, busy);
     }
 
     /// The allowance is only spoken about once it is close to spent.

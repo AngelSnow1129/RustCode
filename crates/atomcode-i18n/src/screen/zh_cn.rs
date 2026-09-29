@@ -130,10 +130,6 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::StatusMember { name } => format!("成员 {name}").into(),
         Msg::StatusStopping => "停止中".into(),
         Msg::StatusMouseHandedBack => "鼠标:终端 ctrl+g".into(),
-        Msg::StatusBackground { running, waiting } => match waiting {
-            0 => format!("后台 {running}").into(),
-            waiting => format!("后台 {running} · {waiting} 等你").into(),
-        },
         Msg::StatusGoal => "目标".into(),
         Msg::StatusLoop => "循环".into(),
         Msg::StatusRoundsHeld { kind, rounds, why } => {

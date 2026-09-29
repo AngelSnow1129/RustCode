@@ -822,22 +822,17 @@ async fn a_finished_background_run_delivers_its_answer_home() {
     rig.quit().await;
 }
 
-/// **`/bg` and `/background` are one command, the row counts what runs out of
-/// view, and ← on an empty box opens it.** `/bg <task>` starts a background
-/// session like `/background <task>` does; while it runs the status row says so,
-/// and says nothing once it is done; with nothing typed, ← opens the panel —
-/// and with nothing in the background it opens nothing.
+/// **`/bg` and `/background` are one command, and ← on an empty box opens
+/// what runs out of view.** `/bg <task>` starts a background session like
+/// `/background <task>` does; with nothing typed, ← opens the panel — and with
+/// nothing in the background it opens nothing. (The status row no longer
+/// counts background sessions; see `modules::status`.)
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial(atomcode_home)]
-async fn bg_takes_a_task_the_row_counts_it_and_left_opens_the_panel() {
+async fn bg_takes_a_task_and_left_opens_the_panel() {
     let rig = Rig::new().await;
     let first = rig.client.root();
     let panel = t(Msg::BgPlaceholder).into_owned();
-    let counted = t(Msg::StatusBackground {
-        running: 1,
-        waiting: 0,
-    })
-    .into_owned();
 
     // Nothing in the background: ← is only a caret move.
     rig.term.press(KeyPress::plain(Key::Left));
@@ -847,7 +842,8 @@ async fn bg_takes_a_task_the_row_counts_it_and_left_opens_the_panel() {
     rig.term.type_line("/bg slow job");
     rig.until_screen(&t(Msg::BgStarted { slot: 1 })).await;
     assert_eq!(rig.client.root(), first, "the foreground did not move");
-    rig.until_screen(&counted).await;
+    rig.until_background("the task is in the background", |list| !list.is_empty())
+        .await;
 
     // → is not the gesture: on an empty box it takes a suggested line, and
     // with none it does nothing.
@@ -876,10 +872,6 @@ async fn bg_takes_a_task_the_row_counts_it_and_left_opens_the_panel() {
     rig.until_background("the task finished", |list| {
         list.first()
             .is_some_and(|s| s.state == BackgroundState::Done)
-    })
-    .await;
-    rig.until("the row stops counting a finished one", |rig| {
-        !rig.term.text().contains(&counted)
     })
     .await;
     rig.quit().await;
