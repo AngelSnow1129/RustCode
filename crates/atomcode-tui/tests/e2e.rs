@@ -2434,7 +2434,10 @@ async fn a_picture_attached_to_a_command_is_not_dropped_in_silence() {
 
     // The command first, then the picture: a marker in front of the slash would
     // make the line ordinary prose, which is a different thing entirely.
-    s.term.type_text("/keys ");
+    // A command with a short answer: what is judged is the line about the
+    // picture, and a long one (`/keys` prints the whole key table) scrolls it
+    // off the screen before it can be read.
+    s.term.type_text("/mouse ");
     s.term.set_clipboard_image(screenshot("for-a-command"));
     s.term.press(KeyPress::ctrl('v'));
     s.quiet().await;
