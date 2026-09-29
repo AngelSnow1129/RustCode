@@ -953,7 +953,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::NameCannotBeEmpty => "名字不能是空的".into(),
         Msg::SettingThinking => "思考".into(),
         Msg::RuntimeAlreadyStopped => "这个会话的运行时已经停了".into(),
-        Msg::NoProviderConfigured => "还没有可用的 provider——用 /login 登录,或 /provider 添加一个".into(),
+        Msg::NoProviderConfigured => "还没有可用的 provider——在 atomcode 终端里用 /login 登录,或用 /provider 添加一个".into(),
         Msg::LoginExpired => "登录已经失效，需要重新登录".into(),
         Msg::ProviderUnsupportedByBuild => "当前构建不支持 AtomGit 官方网关。请安装官方版本，或用 /model 切换到其他模型、/provider 换一个 provider".into(),
         Msg::ScreenNotConnectedAgent => "屏幕还没接上 agent".into(),

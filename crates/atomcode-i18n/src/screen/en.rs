@@ -1017,7 +1017,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::NameCannotBeEmpty => "a name cannot be empty".into(),
         Msg::SettingThinking => "thinking".into(),
         Msg::RuntimeAlreadyStopped => "this session's runtime has already stopped".into(),
-        Msg::NoProviderConfigured => "no provider is available — sign in with /login, or add one with /provider".into(),
+        Msg::NoProviderConfigured => "no provider is available — in the atomcode terminal, sign in with /login or add one with /provider".into(),
         Msg::LoginExpired => "the login has expired; sign in again".into(),
         Msg::ProviderUnsupportedByBuild => "this build cannot use the official AtomGit gateway — install an official build, or switch with /model or /provider".into(),
         Msg::ScreenNotConnectedAgent => "the screen is not connected to an agent".into(),
