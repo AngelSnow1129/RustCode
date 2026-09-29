@@ -2169,16 +2169,16 @@ impl UserInterface for Tui {
                 Wake::Input(Input::Key(press)) if self.host.sheet_open() => {
                     stale |= self.run_sheet_key(press);
                 }
-                // And the background panel — except ctrl+c and ctrl+d, which
-                // keep their meaning everywhere: the screen quits on them, which
-                // is what the panel's own top line promises.
+                // And the background panel — except ctrl+c, which keeps its
+                // meaning everywhere: the screen quits on it, which is what the
+                // panel's own top line promises. ctrl+d is the panel's: two of
+                // them drop the selected session, the gesture every panel takes
+                // something away with.
                 Wake::Input(Input::Key(press))
                     if self.host.bg_open()
                         && !self.host.asks.is_waiting()
-                        && !(matches!(
-                            press.key,
-                            crate::surface::Key::Char('c') | crate::surface::Key::Char('d')
-                        ) && press.mods == crate::surface::Mods::CTRL) =>
+                        && !(press.key == crate::surface::Key::Char('c')
+                            && press.mods == crate::surface::Mods::CTRL) =>
                 {
                     stale |= self.run_bg_key(press);
                 }

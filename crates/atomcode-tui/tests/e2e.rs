@@ -7101,9 +7101,7 @@ async fn a_session_is_deleted_from_the_panel_by_two_presses_and_not_by_one() {
     );
 
     // One press arms it and says so; it does not delete.
-    s.term.press(atomcode_tui::surface::KeyPress::plain(
-        atomcode_tui::surface::Key::Delete,
-    ));
+    s.term.press(atomcode_tui::surface::KeyPress::ctrl('d'));
     s.quiet().await;
     assert!(
         store.0.lock().expect("deleted poisoned").is_empty(),
@@ -7111,9 +7109,7 @@ async fn a_session_is_deleted_from_the_panel_by_two_presses_and_not_by_one() {
     );
 
     // The second one goes through to the store, and the row leaves the list.
-    s.term.press(atomcode_tui::surface::KeyPress::plain(
-        atomcode_tui::surface::Key::Delete,
-    ));
+    s.term.press(atomcode_tui::surface::KeyPress::ctrl('d'));
     for _ in 0..200 {
         if !store.0.lock().expect("deleted poisoned").is_empty() {
             break;

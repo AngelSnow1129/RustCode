@@ -641,6 +641,8 @@ pub enum Msg<'a> {
         title: &'a str,
     },
     BgLegend,
+    /// The row armed for dropping, waiting for the second ctrl+d.
+    BgDropArmed,
     BgKeys,
     BgNothingSaid,
     BgRefusedWhileSharing,

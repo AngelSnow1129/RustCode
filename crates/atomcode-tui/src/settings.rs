@@ -665,13 +665,17 @@ pub fn key(view: &SettingsView, panel: &mut Panel, press: crate::surface::KeyPre
     let shown = view.matching(&panel.query);
     let on_settings = panel.tab == Tab::Config;
     // Taken, not read: a confirmation is about the key that was just pressed,
-    // so anything other than a second Delete ends it. Leaving it standing is
-    // how a Delete pressed two rows later resets the wrong setting.
+    // so anything other than a second ctrl+d ends it. Leaving it standing is
+    // how a ctrl+d pressed two rows later resets the wrong setting.
     let armed = panel.pending_reset.take();
     match (press.key, press.mods) {
-        // Unset, on two presses. The first arms the row it is on; the second
-        // puts that setting back to what this build does when nobody has said.
-        (Key::Delete, _) if on_settings => {
+        // Unset, on two presses of ctrl+d — the one gesture every panel takes
+        // something away with (`/provider`, `/plugin`, `/resume`, `/bg`). It
+        // was Delete, which on a Mac keyboard is fn+delete: the key labelled
+        // delete sends a backspace, so the reset could not be reached. The first
+        // press arms the row it is on; the second puts that setting back to
+        // what this build does when nobody has said.
+        (Key::Char('d'), Mods::CTRL) if on_settings => {
             let Some(row) = shown.get(panel.cursor) else {
                 return Step::Stay;
             };
@@ -985,13 +989,13 @@ mod tests {
         let mut panel = Panel::new();
 
         assert_eq!(
-            key(&view, &mut panel, KeyPress::plain(Key::Delete)),
+            key(&view, &mut panel, KeyPress::ctrl('d')),
             Step::Stay,
             "the first press only arms it"
         );
         assert_eq!(panel.pending_reset.as_deref(), Some("a.first"));
         assert_eq!(
-            key(&view, &mut panel, KeyPress::plain(Key::Delete)),
+            key(&view, &mut panel, KeyPress::ctrl('d')),
             Step::Reset {
                 id: "a.first".into()
             },
@@ -1000,13 +1004,13 @@ mod tests {
         assert!(panel.pending_reset.is_none(), "and it is spent");
 
         // Armed, then the cursor moves: the confirmation is gone, and the next
-        // Delete arms the row that is now under it rather than resetting it.
-        key(&view, &mut panel, KeyPress::plain(Key::Delete));
+        // ctrl+d arms the row that is now under it rather than resetting it.
+        key(&view, &mut panel, KeyPress::ctrl('d'));
         assert_eq!(panel.pending_reset.as_deref(), Some("a.first"));
         key(&view, &mut panel, KeyPress::plain(Key::Down));
         assert!(panel.pending_reset.is_none(), "moving off ends it");
         assert_eq!(
-            key(&view, &mut panel, KeyPress::plain(Key::Delete)),
+            key(&view, &mut panel, KeyPress::ctrl('d')),
             Step::Stay,
             "so this arms the new row rather than unsetting it"
         );
