@@ -569,7 +569,17 @@ impl Presentation {
 /// and with nothing to point at it had no way onto the screen at all. The words
 /// behind it are the VL helper's about a picture, not words a person wrote, so
 /// opening it on a click is not the prose case above.
-const CLICKABLE: [&str; 3] = ["tool_call", "reasoning", "vl_caption"];
+///
+/// A background job's report (`injected:background`) is the same lid: folded
+/// by default to `● 后台「…」的结果回来了  点击展开`, with the conversation that
+/// started the job answering under it — and, left out of this list, a row that
+/// promised a click and answered none.
+const CLICKABLE: [&str; 4] = [
+    "tool_call",
+    "reasoning",
+    "vl_caption",
+    "injected:background",
+];
 
 /// How many rows the slash menu may take, margin aside.
 ///
@@ -12543,9 +12553,10 @@ mod tests {
             .collect();
         assert!(!kinds.is_empty(), "nothing is clickable at all");
         assert!(
-            kinds
-                .iter()
-                .all(|k| *k == "tool_call" || *k == "reasoning" || *k == "vl_caption"),
+            kinds.iter().all(|k| matches!(
+                *k,
+                "tool_call" | "reasoning" | "vl_caption" | "injected:background"
+            )),
             "these answer a click too: {kinds:?}"
         );
         assert!(
@@ -12651,6 +12662,48 @@ mod tests {
             h.compose(size).rows().join("\n"),
             folded,
             "clicking it again is the inverse"
+        );
+    }
+
+    /// A background job's report is folded to its one line, which says
+    /// `点击展开` — and a click has to do what it says: open the report, and a
+    /// second click fold it back. It was a row that answered nothing, the same
+    /// way the VL caption once was.
+    #[test]
+    fn clicking_a_background_result_opens_the_report() {
+        let h = host();
+        h.absorb(&SessionEvent::Injected {
+            turn: 1,
+            text: "后台「审查」的结果回来了:\n\nTHE-REPORT-ITSELF".into(),
+            origin: atomcode_kernel::session::InjectionOrigin::Peer {
+                from: "elsewhere".into(),
+                outside: true,
+            },
+        });
+
+        let size = (80, 40);
+        let folded = h.compose(size).rows().join("\n");
+        assert!(folded.contains("点击展开"), "folded to its line:\n{folded}");
+        assert!(!folded.contains("THE-REPORT-ITSELF"), "{folded}");
+
+        let rect = h.compose(size).part("stream").unwrap().rect;
+        let (id, kind) = (rect.y..rect.bottom())
+            .filter_map(|y| h.block_at(2, y))
+            .find(|(_, kind)| *kind == "injected:background")
+            .expect("the folded report answers a click");
+        h.toggle_block(id, kind);
+        let open = h.compose(size).rows().join("\n");
+        assert!(
+            open.contains("THE-REPORT-ITSELF"),
+            "the click opened it:\n{open}"
+        );
+        assert!(!open.contains("点击展开"), "{open}");
+
+        h.toggle_block(id, kind);
+        assert_eq!(
+            h.compose(size).rows().join("\n"),
+            folded,
+            "clicking it again folds it back"
         );
     }
 
