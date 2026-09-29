@@ -14428,6 +14428,14 @@ fn handle_input(
                     return Ok(());
                 }
             }
+            // Ctrl+O 在每个收键的阶段都切换详细模式,不只是流式输出时:回合刚结束
+            // (Idle)正是人想回头看刚才那段思考过程的时候。以前它只在
+            // `handle_streaming_key` 里被拦下,其余阶段都落进 `Buffer::apply`,
+            // 被吞成 NoOp,没有任何反馈。
+            if toggles_verbose(app.state.phase, code, modifiers) {
+                toggle_verbose_with_feedback(app, ctx, renderer);
+                return Ok(());
+            }
             match app.state.phase {
                 UiPhase::Idle => handle_idle_key(app, ctx, renderer, code, modifiers)?,
                 UiPhase::Streaming => handle_streaming_key(app, ctx, renderer, code, modifiers)?,
@@ -14442,6 +14450,78 @@ fn handle_input(
         InputEvent::Key(_) => {}
     }
     Ok(())
+}
+
+/// 这个键是不是切换详细模式的 Ctrl+O,且当前阶段收键。Suspended 不收任何键。
+fn toggles_verbose(
+    phase: UiPhase,
+    code: KeyCode,
+    modifiers: crossterm::event::KeyModifiers,
+) -> bool {
+    code == KeyCode::Char('o')
+        && modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+        && !matches!(phase, UiPhase::Suspended)
+}
+
+/// 详细模式切换后那一行反馈的文字(不含颜色),按界面语言给出。
+fn verbose_status_text(enabled: bool, locale: crate::i18n::Locale) -> &'static str {
+    match (locale, enabled) {
+        (crate::i18n::Locale::ZhCn, true) => {
+            "详细模式已开启（显示工具输出与思考过程）（Ctrl+O 隐藏）"
+        }
+        (crate::i18n::Locale::ZhCn, false) => "详细模式已关闭（Ctrl+O 显示工具输出与思考过程）",
+        (crate::i18n::Locale::En, true) => {
+            "Verbose mode enabled (tool output + reasoning visible) (Ctrl+O to hide)"
+        }
+        (crate::i18n::Locale::En, false) => {
+            "Verbose mode disabled (Ctrl+O to show tool output + reasoning)"
+        }
+    }
+}
+
+/// 切换详细模式(工具输出 + 思考过程),在滚动区写一行反馈,再按当前阶段重画下方。
+fn toggle_verbose_with_feedback(app: &mut App, ctx: &mut LoopCtx, renderer: &mut dyn Renderer) {
+    app.state.toggle_tool_output();
+    // 暗色样式,与 ToolResult 的 summary_style 一致:
+    // 浅色主题 → SGR 90(深灰),深色主题 → SGR 2(淡)
+    let reset = "\x1b[0m";
+    let mute = if crate::highlight::theme::is_light_for_render() {
+        "\x1b[90m"
+    } else {
+        "\x1b[2m"
+    };
+    let text = verbose_status_text(app.state.show_tool_output, crate::i18n::current_locale());
+    let status = format!("{mute}  ○ {text}{reset}\n");
+    renderer.render(UiLine::CommandOutput(status));
+    renderer.flush();
+    match app.state.phase {
+        UiPhase::Streaming => draw_spinner_now(
+            &mut app.state,
+            &app.buf,
+            ctx,
+            renderer,
+            app.message_queue.len(),
+            app.menu.selected,
+        ),
+        // Idle 下可能开着斜杠菜单:和编辑区重画一样把它留住。
+        UiPhase::Idle => match menu_for_display(&app.buf, ctx) {
+            Some(items) => {
+                if app.menu.selected >= items.len() {
+                    app.menu.selected = 0;
+                }
+                redraw_with_menu(
+                    &app.buf,
+                    &items,
+                    app.menu.selected,
+                    &app.state,
+                    ctx,
+                    renderer,
+                );
+            }
+            None => redraw_idle_plain(&app.buf, &app.state, ctx, renderer),
+        },
+        _ => redraw_idle_plain(&app.buf, &app.state, ctx, renderer),
+    }
 }
 
 fn provider_transition_allows_idle_commit(line: &str) -> bool {
@@ -15660,6 +15740,43 @@ mod provider_transition_input_tests {
                 "{command} must wait for the provider terminal"
             );
         }
+    }
+
+    #[test]
+    fn ctrl_o_toggles_verbose_in_every_phase_that_takes_keys() {
+        use crate::state::UiPhase;
+        use crossterm::event::{KeyCode, KeyModifiers};
+        for phase in [
+            UiPhase::Idle,
+            UiPhase::Streaming,
+            UiPhase::Approval,
+            UiPhase::UserInput,
+            UiPhase::RoundCap,
+        ] {
+            assert!(
+                super::toggles_verbose(phase, KeyCode::Char('o'), KeyModifiers::CONTROL),
+                "Ctrl+O must toggle verbose mode in {phase:?}"
+            );
+        }
+        assert!(!super::toggles_verbose(
+            UiPhase::Suspended,
+            KeyCode::Char('o'),
+            KeyModifiers::CONTROL
+        ));
+        assert!(!super::toggles_verbose(
+            UiPhase::Idle,
+            KeyCode::Char('o'),
+            KeyModifiers::NONE
+        ));
+    }
+
+    #[test]
+    fn verbose_feedback_follows_the_interface_language() {
+        use crate::i18n::Locale;
+        assert!(super::verbose_status_text(true, Locale::ZhCn).starts_with("详细模式已开启"));
+        assert!(super::verbose_status_text(false, Locale::ZhCn).starts_with("详细模式已关闭"));
+        assert!(super::verbose_status_text(true, Locale::En).starts_with("Verbose mode enabled"));
+        assert!(super::verbose_status_text(false, Locale::En).starts_with("Verbose mode disabled"));
     }
 }
 
@@ -19002,40 +19119,6 @@ fn handle_streaming_key(
     code: KeyCode,
     modifiers: crossterm::event::KeyModifiers,
 ) -> Result<()> {
-    // Ctrl+O toggles verbose mode (real-time tool output + reasoning visibility)
-    if code == KeyCode::Char('o') && modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
-        app.state.toggle_tool_output();
-        // Show feedback to the user about the current state
-        // Use muted style matching ToolResult's summary_style:
-        // light theme → SGR 90 (DarkGrey), dark theme → SGR 2 (faint)
-        let reset = "\x1b[0m";
-        let mute = if crate::highlight::theme::is_light_for_render() {
-            "\x1b[90m"
-        } else {
-            "\x1b[2m"
-        };
-        let status = if app.state.show_tool_output {
-            format!(
-                "{mute}  ○ Verbose mode enabled (tool output + reasoning visible) (Ctrl+o to hide){reset}\n"
-            )
-        } else {
-            format!(
-                "{mute}  ○ Verbose mode disabled (Ctrl+o to show tool output + reasoning){reset}\n"
-            )
-        };
-        renderer.render(UiLine::CommandOutput(status));
-        renderer.flush();
-        draw_spinner_now(
-            &mut app.state,
-            &app.buf,
-            ctx,
-            renderer,
-            app.message_queue.len(),
-            app.menu.selected,
-        );
-        return Ok(());
-    }
-
     // Ctrl+C always cancels the running turn — highest priority so
     // users have a reliable escape hatch even mid-edit. Also drops
     // the type-ahead queue: a user yanking the escape cord doesn't
