@@ -34,7 +34,7 @@ atomcode-telemetry = { path = "../atomcode-telemetry" }
 axum = { version = "0.7", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
-tower-http = { version = "0.5", features = ["cors"] }
+tower-http = { version = "0.6", features = ["cors"] }
 futures = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 
@@ -61,7 +61,6 @@ async-trait = "0.1"
 anyhow = "1"
 uuid = { version = "1", features = ["v4"] }
 tokio-util = "0.7"
-regex = "1"
 tracing = "0.1"
 sha2 = "0.10"
 # 远程访问二维码（/tunnel/status 的 SVG）

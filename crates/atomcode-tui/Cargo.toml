@@ -46,7 +46,7 @@ crossterm = { version = "0.29", features = ["event-stream"] }
 arboard = "3"
 # arboard hands back raw RGBA; every provider wants an encoded image, so the
 # encode happens once at this boundary rather than in each provider adapter.
-png = "0.17"
+png = "0.18"
 base64 = "0.22"
 qrcode = { version = "0.14", default-features = false }
 unicode-width = "0.2"

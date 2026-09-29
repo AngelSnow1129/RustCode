@@ -68,7 +68,6 @@ clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 crossterm = "0.29"
 tokio = { version = "1", features = ["full"] }
-url = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 # `/app` 的中继客户端:下载时读流、校验 sha256(随 relay.rs 从 tuix 搬来)。
 futures = "0.3"
@@ -76,8 +75,8 @@ sha2 = "0.10"
 # 手输配对用的那串「口令」是配对链接的 base64——App 认的是这个形状。
 base64 = "0.22"
 serde = { version = "1", features = ["derive"] }
-toml = "0.8"
-toml_edit = "0.22"
+toml = "1"
+toml_edit = "0.25"
 serde_json = "1"
 dirs = "6"
 uuid = { version = "1", features = ["v4"] }
