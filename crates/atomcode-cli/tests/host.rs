@@ -1855,6 +1855,97 @@ async fn a_reload_after_the_configuration_changed_runs_on_what_it_says_now() {
     );
 }
 
+/// A file-like source: its fingerprint is its content (the default model), and
+/// `/model` writes the selection into it, the way `ConfigFile` does.
+struct FileLike {
+    dir: std::path::PathBuf,
+    model: Mutex<String>,
+    /// Writing the selection fails — a read-only or locked file.
+    read_only: bool,
+}
+impl HostConfig for FileLike {
+    fn for_model(&self, model: &str) -> Result<CodingAgentConfig, String> {
+        let mut config = CodingAgentConfig::new(
+            "key",
+            "https://example.test/v1",
+            model,
+            &self.dir,
+            atomcode_coding::config::product_dirs_from_env(),
+        );
+        config.interactive = true;
+        Ok(config)
+    }
+    fn current(&self) -> Result<CodingAgentConfig, String> {
+        self.for_model(&self.model.lock().unwrap().clone())
+    }
+    fn fingerprint(&self) -> Option<String> {
+        Some(self.model.lock().unwrap().clone())
+    }
+    fn set_default_model(&self, model: &str) -> Result<(), String> {
+        if self.read_only {
+            return Err("read-only".into());
+        }
+        *self.model.lock().unwrap() = model.into();
+        Ok(())
+    }
+}
+
+/// `/model` to another model, then `/login` writes the server default back —
+/// a file that reads exactly as the one fingerprinted at start. The reload
+/// after it still has to put the session on what the file says: the switch
+/// already left the running model somewhere the fingerprint does not describe.
+/// It used to be a no-op, and the session stayed on the model it was switched to.
+#[tokio::test]
+async fn a_reload_after_a_model_switch_follows_the_file_even_when_it_reads_as_before() {
+    let env = env();
+    let config = Arc::new(FileLike {
+        dir: env.project.path().to_path_buf(),
+        model: Mutex::new("glm5.3-flash".into()),
+        read_only: false,
+    });
+    let (mut connection, _fe) =
+        connected_as(&env, SubagentPolicy::Disabled, Some(config.clone())).await;
+    let session = connection.session.clone();
+    let model_used = |env: &Env| -> String {
+        env.script
+            .requests
+            .lock()
+            .unwrap()
+            .last()
+            .unwrap()
+            .0
+            .clone()
+    };
+    connection
+        .control
+        .call(HostCommand::SwitchModel {
+            session: session.clone(),
+            model: "deepseek-flash".into(),
+        })
+        .await
+        .unwrap();
+    connection.commands.send(message("a")).unwrap();
+    through_turn(&mut connection).await;
+    assert_eq!(model_used(&env), "deepseek-flash");
+    // `/login` (AdoptServerDefault) writes the file back to the server default —
+    // the same content the host fingerprinted at startup.
+    *config.model.lock().unwrap() = "glm5.3-flash".into();
+    connection
+        .control
+        .call(HostCommand::Reload {
+            session: session.clone(),
+        })
+        .await
+        .unwrap();
+    connection.commands.send(message("b")).unwrap();
+    through_turn(&mut connection).await;
+    assert_eq!(
+        model_used(&env),
+        "glm5.3-flash",
+        "the reload after /login follows the file"
+    );
+}
+
 /// Resolves a model id to a configuration naming it, the way a host's config
 /// file would.
 struct Models(std::path::PathBuf);
@@ -3378,4 +3469,58 @@ async fn a_provider_back_by_a_reload_that_goes_again_is_said_again() {
         .unwrap();
     let said = errors(&quiet(&mut connection).await);
     assert_eq!(said.len(), 1, "going again is news: {said:?}");
+}
+
+/// `/model` switches, but the selection cannot be written down (the note says
+/// so: switched for this run). An unrelated reload afterwards — a plugin
+/// installed, MCP reloaded — must not pull the session back to the file's old
+/// model partway through the run: the file did not change, so nothing is
+/// re-read.
+#[tokio::test]
+async fn a_switch_that_could_not_be_written_down_survives_an_unrelated_reload() {
+    let env = env();
+    let config = Arc::new(FileLike {
+        dir: env.project.path().to_path_buf(),
+        model: Mutex::new("glm5.3-flash".into()),
+        read_only: true,
+    });
+    let (mut connection, _fe) =
+        connected_as(&env, SubagentPolicy::Disabled, Some(config.clone())).await;
+    let session = connection.session.clone();
+    let model_used = |env: &Env| -> String {
+        env.script
+            .requests
+            .lock()
+            .unwrap()
+            .last()
+            .unwrap()
+            .0
+            .clone()
+    };
+    let switched = connection
+        .control
+        .call(HostCommand::SwitchModel {
+            session: session.clone(),
+            model: "deepseek-flash".into(),
+        })
+        .await
+        .unwrap();
+    assert!(
+        matches!(switched, HostReply::DoneWithNote { .. }),
+        "the note says it was not kept: {switched:?}"
+    );
+    connection
+        .control
+        .call(HostCommand::Reload {
+            session: session.clone(),
+        })
+        .await
+        .unwrap();
+    connection.commands.send(message("a")).unwrap();
+    through_turn(&mut connection).await;
+    assert_eq!(
+        model_used(&env),
+        "deepseek-flash",
+        "still on the model it was switched to"
+    );
 }

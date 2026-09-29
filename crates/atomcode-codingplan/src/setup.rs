@@ -1003,8 +1003,7 @@ fn step_models_and_register(
     }
     // A non-CodingPlan custom provider is preserved under both policies (never clobbered
     // by a CodingPlan refresh); the report must mirror the persisted default exactly.
-    let previous_is_custom_provider = !is_codingplan_provider_name(&previous_default)
-        && config.providers.contains_key(&previous_default);
+    let previous_is_custom_provider = previous_is_custom_selection(config, &previous_default);
     let default_provider = match default_policy {
         // Interactive login resets to the server's primary (list-first) model.
         DefaultModelPolicy::AdoptServerDefault if !previous_is_custom_provider => provider_names
@@ -1074,6 +1073,14 @@ fn step_models_and_register(
     )
 }
 
+/// A selection the user configured themselves (legacy `[providers.*]` OR new-schema
+/// `[models.*]`) that is not CodingPlan-managed.
+fn previous_is_custom_selection(config: &Config, previous: &str) -> bool {
+    !previous.is_empty()
+        && !is_codingplan_provider_name(previous)
+        && config.selection_exists(previous)
+}
+
 fn refreshed_default_provider(
     config: &Config,
     previous_default: &str,
@@ -1081,9 +1088,10 @@ fn refreshed_default_provider(
     model_names: &[String],
     provider_names: &[String],
 ) -> String {
-    if !is_codingplan_provider_name(previous_default)
-        && config.providers.contains_key(previous_default)
-    {
+    // The person's own selection, legacy `[providers]` or new-schema `[models]`,
+    // stays theirs — the same test the policy branch used to route here, so the
+    // report names the model the merge actually keeps.
+    if previous_is_custom_selection(config, previous_default) {
         return previous_default.to_string();
     }
     if is_codingplan_provider_name(previous_default) {
@@ -1134,8 +1142,7 @@ pub fn merge_successful_config(
     // A non-CodingPlan provider the user configured themselves (their own API key)
     // is preserved under BOTH policies — `/login` refreshes CodingPlan models but must
     // never clobber a custom provider selection.
-    let previous_is_custom_provider = !is_codingplan_provider_name(&previous_default)
-        && latest.providers.contains_key(&previous_default);
+    let previous_is_custom_provider = previous_is_custom_selection(latest, &previous_default);
     match default_policy {
         DefaultModelPolicy::AdoptServerDefault if !previous_is_custom_provider => {
             // Interactive login: force the active selection to the server's primary
@@ -3988,5 +3995,152 @@ mod tests {
             locked_idx < avail_idx,
             "locked model must render BEFORE available providers (top-of-list upgrade prompt):\n{out}"
         );
+    }
+
+    // ---------- /login and the model the person is on ----------
+    //
+    // Driven through the real merge and a disk round-trip (`ConfigStore`), the
+    // way `/login` lands: the question is what the FILE says the active model is
+    // afterwards, because that is what every front end follows.
+
+    fn report_for(prepared: &mut Config, names: &[&str]) -> SetupReport {
+        let models = run_register(prepared, names.iter().map(|n| vl_model_entry(n)).collect());
+        SetupReport {
+            login: StepResult::Skipped("t".into()),
+            claim: StepResult::Skipped("t".into()),
+            claim_attempts: Vec::new(),
+            models: StepResult::Ok(models),
+            status: StepResult::Skipped("t".into()),
+            auth_expired: false,
+        }
+    }
+
+    /// What the server hands out, its default first.
+    const SERVER: [&str; 3] = ["glm5.3-flash", "deepseek-flash", "qwen-x"];
+
+    /// The disk after one earlier interactive login (new schema).
+    fn after_a_first_login() -> Config {
+        let mut latest = blank_config();
+        let mut prepared = blank_config();
+        let report = report_for(&mut prepared, &SERVER);
+        merge_successful_config(
+            &mut latest,
+            &prepared,
+            &report,
+            DefaultModelPolicy::AdoptServerDefault,
+        )
+        .unwrap();
+        latest
+    }
+
+    /// `/login` again, through disk, the way the TUIs save it.
+    fn log_in_again(latest: Config) -> Config {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        latest.save(&path).unwrap();
+        let latest = Config::load(&path).unwrap();
+        let mut prepared = latest.clone();
+        let report = report_for(&mut prepared, &SERVER);
+        atomcode_config::ConfigStore::new(path.clone())
+            .update(|l| {
+                merge_successful_config(
+                    l,
+                    &prepared,
+                    &report,
+                    DefaultModelPolicy::AdoptServerDefault,
+                )
+            })
+            .unwrap();
+        Config::load(&path).unwrap()
+    }
+
+    fn active(c: &Config) -> String {
+        c.resolve_model(None)
+            .map(|r| r.selection_id)
+            .unwrap_or_else(|e| format!("ERR {e}"))
+    }
+
+    /// On an AtomGit model the person switched to themselves, `/login` puts them
+    /// back on the server's default — whichever way the switch was written
+    /// (`default_model` only, as the new screen's `/model` does; or both fields,
+    /// as the classic screen's does).
+    #[test]
+    fn a_login_moves_an_atomgit_model_switch_back_to_the_server_default() {
+        let mut switched = after_a_first_login();
+        switched.default_model = Some(pxn("deepseek-flash"));
+        assert_eq!(active(&switched), pxn("deepseek-flash"));
+        assert_eq!(active(&log_in_again(switched)), pxn("glm5.3-flash"));
+
+        let mut both = after_a_first_login();
+        both.default_model = Some(pxn("deepseek-flash"));
+        both.default_provider = pxn("deepseek-flash");
+        assert_eq!(active(&log_in_again(both)), pxn("glm5.3-flash"));
+    }
+
+    /// The same, when the person's own model is named only by `default_provider`
+    /// (no `default_model`): it is still theirs after `/login`, and the login
+    /// report marks it — not an AtomGit model — as the default.
+    #[test]
+    fn a_login_keeps_an_own_model_named_only_by_default_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        after_a_first_login().save(&path).unwrap();
+        let mut text = std::fs::read_to_string(&path).unwrap();
+        text.push_str(
+            r#"
+[provider_accounts.mine]
+provider = "openai-compatible"
+base_url = "https://example.invalid/v1"
+api_key = "k"
+
+[models."mine/a"]
+account = "mine"
+model = "a"
+context_window = 128000
+"#,
+        );
+        std::fs::write(&path, text).unwrap();
+        let mut own = Config::load(&path).unwrap();
+        own.default_model = None;
+        own.default_provider = "mine/a".into();
+        assert_eq!(active(&own), "mine/a");
+
+        let mut prepared = own.clone();
+        let report = report_for(&mut prepared, &SERVER);
+        match &report.models {
+            StepResult::Ok(models) => assert_eq!(models.default_provider, "mine/a"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(active(&log_in_again(own)), "mine/a");
+    }
+
+    /// A model of the person's own, added the new way (`[provider_accounts]` +
+    /// `[models]`, what the `/provider` panel writes), is theirs: `/login` does
+    /// not move them off it. It used to — only the legacy `[providers]` table
+    /// was asked whether a selection was the person's own.
+    #[test]
+    fn a_login_keeps_a_model_of_the_persons_own_in_the_new_schema() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        after_a_first_login().save(&path).unwrap();
+        let mut text = std::fs::read_to_string(&path).unwrap();
+        text.push_str(
+            r#"
+[provider_accounts.mine]
+provider = "openai-compatible"
+base_url = "https://example.invalid/v1"
+api_key = "k"
+
+[models."mine/a"]
+account = "mine"
+model = "a"
+context_window = 128000
+"#,
+        );
+        std::fs::write(&path, text).unwrap();
+        let mut own = Config::load(&path).unwrap();
+        own.default_model = Some("mine/a".into());
+        assert_eq!(active(&own), "mine/a");
+        assert_eq!(active(&log_in_again(own)), "mine/a");
     }
 }

@@ -11240,6 +11240,76 @@ mod external_config_tests {
         .unwrap()
     }
 
+    /// The classic screen after `/model` to another AtomGit model, then `/login`
+    /// (which writes the server default and sets FollowGlobalDefault): the
+    /// session follows the file back to the default. Pinned, it would stay —
+    /// the reason `/login` unpins first.
+    #[test]
+    fn a_login_after_a_model_switch_follows_the_server_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+default_provider = "AtomGit-glm5.3-flash"
+default_model = "AtomGit-glm5.3-flash"
+
+[provider_accounts.AtomGit]
+provider = "openai-compatible"
+base_url = "https://api-ai.gitcode.com/v1"
+
+[models."AtomGit-glm5.3-flash"]
+account = "AtomGit"
+model = "glm5.3-flash"
+context_window = 200000
+
+[models."AtomGit-deepseek-flash"]
+account = "AtomGit"
+model = "deepseek-flash"
+context_window = 200000
+"#,
+        )
+        .unwrap();
+        let disk = Config::load(&path).unwrap();
+        // running session after `/model AtomGit-deepseek-flash` (runtime-only select)
+        let mut current = disk.clone();
+        current.default_model = Some("AtomGit-deepseek-flash".into());
+        current.default_provider = "AtomGit-deepseek-flash".into();
+        let desired = desired_config_from_snapshot_parts(
+            &current,
+            crate::ProviderSelectionMode::FollowGlobalDefault,
+            disk.clone(),
+            true,
+        );
+        assert_eq!(
+            desired.effective_model_selection().as_deref(),
+            Some("AtomGit-glm5.3-flash")
+        );
+        assert!(should_reload_provider(
+            crate::ProviderSelectionMode::FollowGlobalDefault,
+            &current,
+            &desired,
+            RuntimeUiAvailability::Available,
+            true
+        ));
+        let pinned = desired_config_from_snapshot_parts(
+            &current,
+            crate::ProviderSelectionMode::Pinned,
+            disk.clone(),
+            true,
+        );
+        assert!(
+            !should_reload_provider(
+                crate::ProviderSelectionMode::Pinned,
+                &current,
+                &pinned,
+                RuntimeUiAvailability::Available,
+                true
+            ),
+            "pinned, it stays — which is why /login unpins first"
+        );
+    }
+
     #[test]
     fn follow_global_detects_model_change_inside_same_provider() {
         assert!(should_reload_provider(

@@ -2211,6 +2211,15 @@ impl HostControl for RuntimeControl {
                         .into_owned(),
                     });
                 }
+                // The file now says what the session runs, so the fingerprint is
+                // of the file as it is now — not the one read at start. Left at
+                // the old one, a `/login` that writes the server default back
+                // (the start's own bytes, often) reads as "unchanged" and its
+                // reload keeps the session on the model it was switched to.
+                // Taken only after the write landed: had it failed, the file
+                // still says the old model, and an unrelated reload must not
+                // pull the session back to it in the middle of the run.
+                *self.fingerprint.lock().expect("fingerprint poisoned") = source.fingerprint();
                 Ok(reply)
             }
             HostCommand::McpStatus { session } => {
