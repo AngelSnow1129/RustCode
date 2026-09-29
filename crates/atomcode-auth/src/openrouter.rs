@@ -425,13 +425,17 @@ pub fn provision(
         }
     };
     let mut added = Vec::new();
-    for (selection, model) in wanted.iter().zip(models) {
+    // `models` arrives in the order to offer them (OpenRouter's own ranking,
+    // `select_top_free_models_ranked`); the map forgets it, so it is written down.
+    for (at, (selection, model)) in wanted.iter().zip(models).enumerate() {
+        let rank = Some(u32::try_from(at + 1).unwrap_or(u32::MAX));
         if let Some(existing) = config.models.get_mut(selection) {
             // Ours: refreshed. The person's own entry under the same id: theirs,
             // untouched.
             if managed(existing) {
                 existing.display_name = model.name.clone();
                 existing.context_window = window(model);
+                existing.rank = rank;
             }
             continue;
         }
@@ -460,6 +464,7 @@ pub fn provision(
                         thinking_budget: None,
                         retry_max_attempts: None,
                         origin: Some(OPENROUTER_FREE_ORIGIN.to_string()),
+                        rank,
                     },
                 );
                 added.push(selection.clone());
@@ -886,6 +891,7 @@ mod tests {
             let mut m = c.models.remove(&format!("openrouter/{model}")).unwrap();
             m.account = account.to_string();
             m.origin = None;
+            m.rank = None;
             m.context_window = 7;
             m
         }
@@ -913,6 +919,22 @@ mod tests {
                 Some(OPENROUTER_FREE_ORIGIN),
                 "marked as this command's"
             );
+        }
+
+        /// The order they came in — OpenRouter's own ranking — is written down,
+        /// because `[models.*]` is a map and would forget it. A second run with
+        /// the ranking changed moves the ones it keeps to their new place.
+        #[test]
+        fn the_ranking_is_kept_and_follows_a_rerun() {
+            let mut c = Config::default();
+            provision(&mut c, "k", &[free("z/top:free"), free("a/next:free")]);
+            let rank = |c: &Config, id: &str| c.models[id].rank;
+            assert_eq!(rank(&c, "openrouter/z/top:free"), Some(1));
+            assert_eq!(rank(&c, "openrouter/a/next:free"), Some(2));
+
+            provision(&mut c, "k", &[free("a/next:free"), free("z/top:free")]);
+            assert_eq!(rank(&c, "openrouter/a/next:free"), Some(1));
+            assert_eq!(rank(&c, "openrouter/z/top:free"), Some(2));
         }
 
         /// **Run again, the set is swapped.** What it added before and is no

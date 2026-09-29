@@ -1685,6 +1685,7 @@ fn project_legacy_model(account_id: &str, p: &ProviderConfig) -> ModelProfileCon
         thinking_budget: p.thinking_budget,
         retry_max_attempts: p.retry_max_attempts,
         origin: None,
+        rank: None,
     }
 }
 
@@ -4228,6 +4229,7 @@ capable_model = 5
                 note: None,
                 retry_max_attempts: None,
                 origin: None,
+                rank: None,
                 thinking_type: None,
                 thinking_keep: None,
                 reasoning_history: None,
@@ -4280,6 +4282,7 @@ capable_model = 5
                 note: None,
                 retry_max_attempts: None,
                 origin: None,
+                rank: None,
                 thinking_type: None,
                 thinking_keep: None,
                 reasoning_history: None,

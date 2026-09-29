@@ -114,6 +114,7 @@ pub fn put_model(document: &mut DocumentMut, id: &str, patch: &ModelPatch<'_>) -
     // own set (`/openrouter`'s free models, `ModelProfileConfig::origin`) must
     // not replace or remove an entry someone has since edited.
     table.remove("origin");
+    table.remove("rank");
     set_key(table, "account", value(patch.account));
     set_key(table, "model", value(patch.model));
     set_key(table, "context_window", value(patch.context_window as i64));

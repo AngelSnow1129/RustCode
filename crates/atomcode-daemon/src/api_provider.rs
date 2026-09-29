@@ -117,6 +117,7 @@ fn apply_patch_to_new_schema_model(
         // Edited by a person, so theirs: no managed set (`/openrouter`'s free
         // models) may replace or remove it any more.
         model.origin = None;
+        model.rank = None;
         if let Some(value) = req.model {
             model.model = value;
         }
@@ -564,6 +565,7 @@ fn insert_account_models(
                 thinking_budget: None,
                 retry_max_attempts: None,
                 origin: None,
+                rank: None,
             },
         );
         created.push(selection_id);

@@ -28,6 +28,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use atomcode_capabilities::provider::probe::{probe_chat_endpoint, ProbeTarget};
+use atomcode_config::config::provider::model_list_order;
 use atomcode_config::config::{provider_preset, Config};
 use atomcode_config::provider_edit::{self, AccountPatch, KeyWrite, ModelPatch};
 use atomcode_plexus::{Context, Plugin};
@@ -227,8 +228,8 @@ fn models(config: &Config) -> Vec<ModelRow> {
     ids.sort_by_key(|id| {
         logical
             .get(*id)
-            .map(|m| (m.account.clone(), m.model.clone()))
-            .unwrap_or_else(|| ((*id).clone(), String::new()))
+            .map(model_list_order)
+            .unwrap_or_else(|| ((*id).clone(), u32::MAX, String::new()))
     });
     let default = config.effective_model_selection();
     ids.into_iter()
@@ -793,6 +794,49 @@ context_window = 64000
     fn port(name: &str) -> (Arc<ConfigProviders>, PathBuf) {
         let path = scratch(name);
         (ConfigProviders::new(path.clone()), path)
+    }
+
+    /// `/openrouter`'s free models come in OpenRouter's ranking, and the list
+    /// shows them in it — not by name. The person's own models on the account
+    /// have no rank and follow, by name.
+    #[test]
+    fn ranked_models_are_listed_in_their_rank() {
+        let path = scratch("ranked");
+        let mut file = text(&path);
+        file.push_str(
+            r#"
+[provider_accounts.openrouter]
+provider = "openrouter"
+api_key = "sk-or"
+
+[models."openrouter/aaa-mine"]
+account = "openrouter"
+model = "aaa-mine"
+context_window = 8000
+
+[models."openrouter/zeta:free"]
+account = "openrouter"
+model = "zeta:free"
+context_window = 8000
+origin = "openrouter-free"
+rank = 1
+
+[models."openrouter/alpha:free"]
+account = "openrouter"
+model = "alpha:free"
+context_window = 8000
+origin = "openrouter-free"
+rank = 2
+"#,
+        );
+        std::fs::write(&path, file).expect("fixture");
+        let config = Config::load(&path).expect("loads");
+        let listed: Vec<String> = models(&config)
+            .into_iter()
+            .filter(|m| m.account == "openrouter")
+            .map(|m| m.model)
+            .collect();
+        assert_eq!(listed, vec!["zeta:free", "alpha:free", "aaa-mine"]);
     }
 
     fn text(path: &PathBuf) -> String {

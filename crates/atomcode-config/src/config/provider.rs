@@ -198,6 +198,27 @@ pub struct ModelProfileConfig {
     /// left in place, never removed by mistake.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
+    /// Where the command that set [`Self::origin`] placed this model, from 1:
+    /// `/openrouter` writes OpenRouter's own "Free models" ranking here, most
+    /// used first. `[models.*]` is a map, so without it the order the command
+    /// chose would be gone the moment the file is written.
+    ///
+    /// Lists order an account's models by it, unranked ones after by name
+    /// ([`model_list_order`]). Cleared together with `origin`: it is that
+    /// command's order, and an entry the person has made theirs is not in it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rank: Option<u32>,
+}
+
+/// The order a list of models is shown in: by account, then an account's
+/// ranked models first by [`ModelProfileConfig::rank`], then by model name.
+/// One key for every list, so `/provider` and `/model` never disagree.
+pub fn model_list_order(model: &ModelProfileConfig) -> (String, u32, String) {
+    (
+        model.account.clone(),
+        model.rank.unwrap_or(u32::MAX),
+        model.model.clone(),
+    )
 }
 
 /// [`ModelProfileConfig::origin`] of a free model `/openrouter` added.
