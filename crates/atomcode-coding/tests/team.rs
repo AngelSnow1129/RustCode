@@ -507,12 +507,34 @@ async fn skipping(dir: &std::path::Path) -> (App, Arc<Agent>) {
         .await
         .expect("a bad role file must not stop the mount");
     let lead = create_agent(&app).await.unwrap();
+    // The notice is told at the first turn of the launch, once the session
+    // can be written — so there is one to look at.
+    run_turn(&app, "hello").await.unwrap();
     (app, lead)
 }
 
-/// `role` is not on offer, delegating to it names every one of `why`, and a
-/// built-in role still takes work.
+/// `role` is not on offer, the person is told on the lead's screen (a notice in
+/// its log — not stderr, which a full-screen UI holds), delegating to it names
+/// every one of `why`, and a built-in role still takes work.
 async fn assert_skipped(app: &App, lead: &Arc<Agent>, role: &str, why: &[&str]) {
+    let told: Vec<String> = lead
+        .session()
+        .events()
+        .into_iter()
+        .filter_map(|e| match e.event {
+            SessionEvent::Notice {
+                notice: atomcode_harness::session::NoticeKind::ConfigSkipped,
+                detail,
+                ..
+            } => Some(detail),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        told.iter()
+            .any(|d| d.contains(&format!("`{role}`")) && why.iter().all(|w| d.contains(w))),
+        "the lead's screen is not told the role was left out, and why: {told:?}"
+    );
     let schema = app
         .context()
         .service::<ToolsSvc>()

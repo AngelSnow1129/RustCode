@@ -102,6 +102,10 @@ pub enum NoticeKind {
     /// A compaction did less than was asked — a summary that timed out fell
     /// back to folding tool output — and the person should know why.
     CompactionDegraded,
+    /// A configuration file the person wrote did not parse and was left out —
+    /// a team role file, say — rather than keeping the session from starting.
+    /// `detail` names the file and why.
+    ConfigSkipped,
 }
 
 /// One durable fact about a session.
@@ -518,10 +522,14 @@ impl SessionEvent {
 /// compaction line was on its own branch; both were 9, and a file is only ever
 /// read against one of these numbers, so the later one to land moves.
 ///
+/// **11** — added [`NoticeKind::ConfigSkipped`]: a configuration file that was
+/// left out at startup, told on the screen rather than written to a stderr a
+/// full-screen UI is holding.
+///
 /// A file's header records the version that created it; a later build may
 /// append facts of a kind added since. A reader that meets a kind it does not
 /// know treats the file as newer than itself, the same refusal.
-pub const SESSION_FORMAT_VERSION: u32 = 10;
+pub const SESSION_FORMAT_VERSION: u32 = 11;
 
 /// One replacement a [`SessionEvent::MessagesRewritten`] makes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

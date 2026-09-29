@@ -435,12 +435,13 @@ fn load_roles(dirs: &[PathBuf]) -> Result<(Vec<Role>, Vec<(String, String)>), St
         for file in files {
             // Role files under a user-writable directory are configuration:
             // one malformed file must not prevent the whole runtime from
-            // assembling. Skip it and tell the person; built-in roles still
+            // assembling. Skip it and tell the person — through the session
+            // log once an agent exists (see the row's `apply`), not stderr,
+            // which a full-screen front end is holding; built-in roles still
             // cover the session.
             let mut role = match parse_role_file(&file) {
                 Ok(role) => role,
                 Err(reason) => {
-                    eprintln!("team: skipping a role file: {reason}");
                     let id = file
                         .file_stem()
                         .and_then(|s| s.to_str())
@@ -1680,6 +1681,55 @@ impl Plugin for TeamPlugin {
         });
         mount(ctx, vec![team.clone() as Arc<dyn Tool>])?;
         crate::commands::register(ctx, Arc::new(StopMember { team: team.clone() }))?;
+
+        // Role files that were left out are told to the person on the screen
+        // of each front-end agent — a notice in its log, which the full-screen
+        // UI renders and a driver receives as a warning. Not stderr: a
+        // full-screen front end holds it, and what went there was either drawn
+        // over the screen or kept in a file nobody opens.
+        //
+        // At the agent's first turn of this launch, not when it is created: a
+        // runtime makes the session's file after the agent, and a fact
+        // committed before that has nowhere to be written — the store fails
+        // closed on it. Once per session per launch, so a resumed conversation
+        // is told again (the file is still bad) and a long one is told once.
+        if !team.skipped_roles.is_empty() {
+            let telling = ctx.clone();
+            let skipped = team.skipped_roles.clone();
+            let told = Arc::new(std::sync::Mutex::new(
+                std::collections::HashSet::<String>::new(),
+            ));
+            let _ =
+                ctx.on_emit::<crate::events::TurnStart>(move |_: &crate::events::TurnStarted| {
+                    let scoped = crate::agent::scoped(&telling);
+                    let Some(log) = scoped.service::<crate::seams::SessionSvc>() else {
+                        return;
+                    };
+                    let is_member = telling
+                        .service::<AgentsSvc>()
+                        .and_then(|agents| agents.by_session(log.id()))
+                        .is_some_and(|agent| agent.parent().is_some());
+                    if is_member
+                        || !told
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .insert(log.id().to_string())
+                    {
+                        return;
+                    }
+                    for (id, why) in &skipped {
+                        crate::session::commit(
+                            &scoped,
+                            &log,
+                            SessionEvent::Notice {
+                                turn: log.current_turn(),
+                                notice: crate::session::NoticeKind::ConfigSkipped,
+                                detail: format!("team role `{id}` was left out: {why}"),
+                            },
+                        );
+                    }
+                });
+        }
 
         // A lead resumed from its log brings back the members it had and did
         // not stop (`docs/adr/0024` §11): found by their headers naming it as

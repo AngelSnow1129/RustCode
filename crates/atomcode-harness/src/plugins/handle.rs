@@ -408,7 +408,8 @@ impl Projector {
                         self.compacting = Some(trigger.clone());
                         AgentEvent::CompactionStarted { trigger }
                     }
-                    crate::session::NoticeKind::CompactionDegraded => {
+                    crate::session::NoticeKind::CompactionDegraded
+                    | crate::session::NoticeKind::ConfigSkipped => {
                         AgentEvent::Warning(detail.clone())
                     }
                 }]

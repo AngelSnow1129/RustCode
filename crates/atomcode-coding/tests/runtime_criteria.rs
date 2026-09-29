@@ -5474,6 +5474,54 @@ async fn our_own_skills_lead_the_catalog() {
     );
 }
 
+/// A role file that did not parse is told to the person through the driver —
+/// an `AgentEvent::Warning` the classic screen, the daemon and headless all
+/// render — and not on stderr, which a full-screen front end is holding.
+async fn a_skipped_role_file_reaches_the_driver_as_a_warning() {
+    let env = env();
+    let agents = env
+        .project
+        .path()
+        .join(atomcode_config::distribution::PROJECT_DIR_NAME)
+        .join("agents");
+    std::fs::create_dir_all(&agents).unwrap();
+    std::fs::write(
+        agents.join("broken.md"),
+        "---\npermission: root\ndifficulty: simple\n---\nnope\n",
+    )
+    .unwrap();
+    let recorder = Arc::new(Recorder::default());
+    let mut started = start(env.project.path(), &recorder, SessionMode::Fresh);
+    started.prepare.subagents = SubagentPolicy::Enabled;
+    let mut runtime = CodingRuntime::start(started).await.unwrap();
+
+    runtime
+        .handle
+        .submit(UserInput::from("hello"))
+        .await
+        .unwrap();
+    let mut warnings = Vec::new();
+    loop {
+        let event = tokio::time::timeout(std::time::Duration::from_secs(10), runtime.events.recv())
+            .await
+            .expect("turn did not finish")
+            .expect("runtime event stream closed");
+        match event.event {
+            CodingRuntimeEvent::TurnFinished(_) => break,
+            CodingRuntimeEvent::Agent(atomcode_kernel::event::AgentEvent::Warning(text)) => {
+                warnings.push(text)
+            }
+            _ => {}
+        }
+    }
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("`broken`") && w.contains("permission must be explore or worker")),
+        "the driver was not told the role file was left out: {warnings:?}"
+    );
+}
+
 /// Each scenario as its own test. Serialized because they share the process's
 /// environment (`ATOMCODE_HOME`, the offline verdict), which is also why each is
 /// its own process under `cargo nextest`.
@@ -5578,5 +5626,6 @@ mod criteria {
         a_runtime_configured_from_a_file_describes_the_file,
         a_runtime_under_another_name_keeps_to_its_own_dirs,
         our_own_skills_lead_the_catalog,
+        a_skipped_role_file_reaches_the_driver_as_a_warning,
     );
 }
