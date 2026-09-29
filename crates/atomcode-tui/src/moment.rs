@@ -854,6 +854,10 @@ pub struct Moment {
     /// 标记:这时滚轮会被终端转成方向键,滚动要用 pgup/pgdn —— 滚轮出怪事时,
     /// 原因得就在眼前,而不是在很久以前滚上去的那一句提示里。
     pub mouse_handed_back: bool,
+    /// 开屏时问到的「现在发不出回合」的原因(没有可用 provider、登录过期……),
+    /// `None` 是能发。画在状态行里、常挂着,而不是写进对话流顶上:和 tuix 一样,
+    /// 页面照常打开(欢迎块照画),原因在底下。agent 起来(`Described`)时清掉。
+    pub unready: Option<String>,
     /// 底部那张单子(`/agents`、`/cd`、`/diff`、`/view`),`None` 是没升着。
     pub sheet: Option<crate::sheet::Sheet>,
     /// 一个多步的流程(引导、配对的向导),这一帧画出来的样子。宿主合成每一帧时

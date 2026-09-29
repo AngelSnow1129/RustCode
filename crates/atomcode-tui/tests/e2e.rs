@@ -7302,9 +7302,27 @@ async fn the_screen_says_before_anyone_types_that_a_turn_would_not_be_taken() {
     s.quiet().await;
 
     let screen = s.screen();
+    // On the status row, where it stays — not at the top of the conversation,
+    // where it used to sit in place of the welcome.
+    let status = s
+        .term
+        .last()
+        .expect("a frame")
+        .part("status")
+        .expect("the status line")
+        .lines
+        .iter()
+        .map(|l| l.plain())
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(
-        screen.contains("还没有配置任何 provider"),
-        "the host's own words, before a key was pressed:\n{screen}"
+        status.contains("还没有配置任何 provider"),
+        "the host's own words, on the status row, before a key was pressed:\n{screen}"
+    );
+    // And the page opens as it does anywhere else.
+    assert!(
+        screen.contains("上手提示"),
+        "the welcome is drawn:\n{screen}"
     );
     task.abort();
 }

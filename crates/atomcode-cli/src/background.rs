@@ -378,6 +378,8 @@ fn attach(
         spawned.config,
         host_config,
         Some(flag.clone()),
+        // Only the session the screen opens on is asked `Readiness` at start.
+        id == 0,
     )?;
     let HostConnection {
         commands, events, ..

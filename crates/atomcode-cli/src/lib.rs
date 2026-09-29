@@ -108,7 +108,7 @@ pub mod tui_front {
 
     use atomcode_coding::front_end::FrontEnd;
 
-    use crate::host::connect;
+    use crate::host::connect_screen;
     use atomcode_coding::{CodingAgentConfig, CodingRuntime};
     use atomcode_tui::launch::{self, Screen};
 
@@ -231,7 +231,10 @@ pub mod tui_front {
                 }
                 (connection, Some(background))
             }
-            None => (connect(runtime, front_end, config, host_config)?, None),
+            None => (
+                connect_screen(runtime, front_end, config, host_config)?,
+                None,
+            ),
         };
         let mut layers = vec![
             crate::tui_settings::row_layer(),

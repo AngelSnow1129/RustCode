@@ -154,9 +154,28 @@ pub fn connect(
     config: CodingAgentConfig,
     host_config: Option<Arc<dyn HostConfig>>,
 ) -> Result<HostConnection, String> {
-    let (connection, control) = attach(runtime, front_end, config, host_config, None)?;
+    let (connection, control) = attach(runtime, front_end, config, host_config, None, false)?;
     // 共享(`/webui` / `/sync` / `/app`)要的是这个 runtime 的句柄,而句柄不在
     // 宿主契约里——它是产品的东西。接上时交给那一层,它自己判断现在共享没有。
+    crate::tui_share::remember(control);
+    Ok(connection)
+}
+
+/// [`connect`], for the full-screen UI, which asks `Readiness` as it starts.
+///
+/// The one difference: a runtime that started without a provider has already
+/// queued its `ProviderUnavailable`, and that event would become a line at the
+/// top of an empty conversation. This screen shows the reason on its status row
+/// from the readiness answer instead, so the startup reason counts as said. A
+/// provider lost later is still news. ACP asks no such question and keeps the
+/// runtime's line, which is why this is not what [`connect`] does.
+pub fn connect_screen(
+    runtime: CodingRuntime,
+    front_end: Arc<FrontEnd>,
+    config: CodingAgentConfig,
+    host_config: Option<Arc<dyn HostConfig>>,
+) -> Result<HostConnection, String> {
+    let (connection, control) = attach(runtime, front_end, config, host_config, None, true)?;
     crate::tui_share::remember(control);
     Ok(connection)
 }
@@ -172,6 +191,8 @@ pub(crate) fn attach(
     config: CodingAgentConfig,
     host_config: Option<Arc<dyn HostConfig>>,
     shown: Option<Arc<std::sync::atomic::AtomicBool>>,
+    // The screen asks `Readiness` as it starts (see [`connect_screen`]).
+    asks_readiness: bool,
 ) -> Result<(HostConnection, Arc<RuntimeControl>), String> {
     let events = front_end
         .take_receiver()
@@ -190,7 +211,11 @@ pub(crate) fn attach(
         watchers: Mutex::new(Vec::new()),
         front_end: front_end.clone(),
         host_config,
-        unavailable_said: Mutex::new(None),
+        unavailable_said: Mutex::new(if asks_readiness {
+            handle.provider_unavailable_reason()
+        } else {
+            None
+        }),
     });
 
     // Runtime events, as the handle protocol says them.
@@ -2761,15 +2786,15 @@ impl HostControl for RuntimeControl {
                     });
                 }
                 let reason = self.handle.provider_unavailable_reason();
-                let mut answer = readiness_for(reason);
-                // Still not ready, and the fix is still named — only the
-                // sentence is left out when the runtime's event said it.
-                if let (Some(reason), HostReply::Readiness { why, .. }) = (reason, &mut answer) {
-                    if !self.tell_unavailable(reason) {
-                        *why = None;
-                    }
+                // Always with its sentence: this is a question about now, and
+                // the screen keeps the answer on its status row rather than
+                // adding it to the conversation, so saying it again is not a
+                // second line. It is recorded as said, so the runtime's own
+                // event for the same reason does not add one either.
+                if let Some(reason) = reason {
+                    self.tell_unavailable(reason);
                 }
-                Ok(answer)
+                Ok(readiness_for(reason))
             }
             _ => Err(HostError::Failed {
                 message: "this host does not do that yet".into(),

@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use atomcode::host::{connect, HostConfig};
+use atomcode::host::{connect, connect_screen, HostConfig};
 use atomcode_coding::front_end::FrontEnd;
 use atomcode_coding::{
     CodingAgentConfig, CodingProviderFactory, CodingRuntime, CodingRuntimeStart, PrepareOptions,
@@ -3145,6 +3145,15 @@ impl CodingProviderFactory for GatewayGap {
 async fn started_without_a_provider(
     env: &Env,
 ) -> (HostConnection, atomcode_coding::CodingRuntimeHandle) {
+    started_without_a_provider_on(env, false).await
+}
+
+/// [`started_without_a_provider`], connected the way the full-screen UI
+/// connects (`connect_screen`) when `screen`.
+async fn started_without_a_provider_on(
+    env: &Env,
+    screen: bool,
+) -> (HostConnection, atomcode_coding::CodingRuntimeHandle) {
     let front_end = FrontEnd::new();
     let mut agent = CodingAgentConfig::new(
         "key",
@@ -3186,10 +3195,12 @@ async fn started_without_a_provider(
     .await
     .expect("a runtime waiting for a provider still starts");
     let handle = runtime.handle.clone();
-    (
-        connect(runtime, front_end, agent, None).expect("connects once"),
-        handle,
-    )
+    let connection = if screen {
+        connect_screen(runtime, front_end, agent, None)
+    } else {
+        connect(runtime, front_end, agent, None)
+    };
+    (connection.expect("connects once"), handle)
 }
 
 fn errors(events: &[AgentEvent]) -> Vec<String> {
@@ -3240,13 +3251,12 @@ async fn a_screen_that_opened_before_any_provider_is_fed_once_one_serves() {
     );
 }
 
-/// Why no provider serves is said once — not by the runtime's event and again
-/// by the answer to `Readiness`, which the screen asks as it opens.
+/// Why no provider serves is said once in the conversation.
 ///
-/// Both were right and both reached the screen, so the person read the same
-/// sentence twice. The answer still says it is not ready: only the sentence is
-/// left out. A turn typed meanwhile is refused in the same words, not in the
-/// runtime's English.
+/// A connection that asks nothing (ACP) hears it as the runtime's line. Asking
+/// `Readiness` then is a question about now and is answered with the reason,
+/// but it adds no second line. A turn typed meanwhile is refused in the same
+/// words, not in the runtime's English.
 #[tokio::test]
 async fn why_no_provider_serves_is_said_once_and_a_refused_turn_says_the_same() {
     let env = env();
@@ -3261,21 +3271,54 @@ async fn why_no_provider_serves_is_said_once_and_a_refused_turn_says_the_same() 
         })
         .await
         .unwrap();
+    match readiness {
+        HostReply::Readiness {
+            ready: false,
+            why: Some(why),
+            ..
+        } => assert_eq!(vec![why], said, "the answer is the same sentence"),
+        other => panic!("not ready, with the reason: {other:?}"),
+    }
     assert!(
-        matches!(
-            readiness,
-            HostReply::Readiness {
-                ready: false,
-                why: None,
-                ..
-            }
-        ),
-        "not ready, and not said a second time: {readiness:?}"
+        errors(&quiet(&mut connection).await).is_empty(),
+        "and asking added no second line"
     );
 
     connection.commands.send(message("hello")).unwrap();
     let refused = errors(&quiet(&mut connection).await);
     assert_eq!(refused, said, "the refusal is the sentence already said");
+}
+
+/// The full-screen UI does not get the startup reason as a line at the top of
+/// an empty conversation: it asks `Readiness` and keeps the answer on its
+/// status row, so the runtime's startup event counts as said. The page opens
+/// as it does anywhere else, with the reason under it.
+#[tokio::test]
+async fn the_screen_hears_why_no_provider_serves_from_readiness_not_as_a_line() {
+    let env = env();
+    let (mut connection, _handle) = started_without_a_provider_on(&env, true).await;
+    let said = errors(&quiet(&mut connection).await);
+    assert!(said.is_empty(), "no line at the top: {said:?}");
+
+    match connection
+        .control
+        .call(HostCommand::Readiness {
+            session: connection.session.clone(),
+        })
+        .await
+        .unwrap()
+    {
+        HostReply::Readiness {
+            ready: false,
+            why: Some(why),
+            ..
+        } => assert!(!why.trim().is_empty()),
+        other => panic!("not ready, with the reason: {other:?}"),
+    }
+
+    // A turn typed meanwhile is still refused out loud.
+    connection.commands.send(message("hello")).unwrap();
+    assert_eq!(errors(&quiet(&mut connection).await).len(), 1);
 }
 
 /// A provider that comes back by a reload and then goes again is said again.
