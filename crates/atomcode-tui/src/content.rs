@@ -1085,12 +1085,35 @@ impl ToolCallBlock {
     /// the result left out: two copies of this pairing is how a fold comes to
     /// say something the open call never said. `lines` and `summary_lines` both
     /// come through here.
-    fn opening_rows(&self, w: u16, lead: &str, lead_style: Style, name_style: Style) -> Vec<Line> {
-        let mut out = self.head(w, lead, lead_style, name_style);
+    ///
+    /// `reason_style` is the first row's, `subject_style` the `⎿` row's under a
+    /// reason: the open form draws both at one volume, the folded forms (a folded
+    /// call and a live run's lid) draw the reason in the terminal's own ink and
+    /// let the command recede.
+    fn opening_rows(
+        &self,
+        w: u16,
+        lead: &str,
+        lead_style: Style,
+        reason_style: Style,
+        subject_style: Style,
+    ) -> Vec<Line> {
+        let mut out = self.head(w, lead, lead_style, reason_style);
         if self.reason().is_some() {
-            out.extend(self.subject_line(w, name_style));
+            out.extend(self.subject_line(w, subject_style));
         }
         out
+    }
+
+    /// The first row's style in a folded form: a reason reads in the terminal's
+    /// own ink (2026-09-29, the user's call — see `summary_lines`); a call with
+    /// no reason keeps the fold grey its one row has always had.
+    fn folded_reason_style(&self) -> Style {
+        if self.reason().is_some() {
+            self.name_style()
+        } else {
+            fold()
+        }
     }
 
     /// The opening line: whatever marks it, and what the call is about — whole.
@@ -1228,7 +1251,7 @@ impl ToolCallBlock {
             // accessor: a live lid and a folded call are the same two answers
             // about one call, and a second copy of the pairing is how they come
             // to disagree on screen.
-            let mut out = last.opening_rows(w, &lead, muted(), fold());
+            let mut out = last.opening_rows(w, &lead, muted(), last.folded_reason_style(), fold());
             out.push(last.note_line(w));
             return out;
         }
@@ -1660,7 +1683,13 @@ impl Content for ToolCallBlock {
         {
             return self.head(w, &lead, self.mark().1, self.name_style());
         }
-        let mut out = self.opening_rows(w, &lead, self.mark().1, self.name_style());
+        let mut out = self.opening_rows(
+            w,
+            &lead,
+            self.mark().1,
+            self.name_style(),
+            self.name_style(),
+        );
 
         let body = match &self.outcome {
             Outcome::Ok(s) | Outcome::Failed(s) => s.as_str(),
@@ -1726,7 +1755,8 @@ impl Content for ToolCallBlock {
     /// **Explained** (the model said why): the first two rows of the expanded
     /// form, and no result — the same rows, produced by the same
     /// [`opening_rows`], so folding changes how much you see rather than what you
-    /// are looking at. The result is what expanding is FOR, so a successful one is
+    /// are looking at. What changes is volume only: the reason stays in the
+    /// terminal's own ink and the `⎿` row recedes (a live run's lid, the same). The result is what expanding is FOR, so a successful one is
     /// not repeated; a call in flight, an interrupted one and a failed one still
     /// say so, appended to the second row rather than taking a third (the mark is
     /// the same muted `●` in every state, so that note is the only thing on a
@@ -1764,10 +1794,24 @@ impl Content for ToolCallBlock {
                 .collect();
         }
         // The `●` head carries the call's outcome even folded (green done / red
-        // failed / muted running), the same as the unexplained `summary`; the
-        // reason text stays muted so the dot is the only lit thing on the row.
+        // failed / muted running), the same as the unexplained `summary`.
+        //
+        // The reason is in the terminal's own ink and only the `⎿` row under it
+        // recedes (2026-09-29, the user's call). It used to be muted with the
+        // rest of the fold, "so the dot is the only lit thing on the row" — but
+        // the two rows are not worth the same: the reason is the sentence a
+        // person scans a run of steps by, the row under it is the command. Both
+        // grey left no order inside the block, and the longer, denser command
+        // row was the one the eye landed on. A running call keeps its colour
+        // either way (`folded_style`); done is the dot's to say.
         let mut rows: Vec<Line> = self
-            .opening_rows(w, &lead, self.mark().1, self.folded_style())
+            .opening_rows(
+                w,
+                &lead,
+                self.mark().1,
+                self.folded_reason_style(),
+                self.folded_style(),
+            )
             .into_iter()
             .take(FOLDED_ROWS)
             .collect();
@@ -2833,6 +2877,57 @@ impl Content for TurnEndBlock {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Folded, a call's reason is in the terminal's own ink and only the row
+    /// under it recedes: the reason is what a person scans a run of steps by,
+    /// the row under it is the command.
+    #[test]
+    fn a_folded_calls_reason_reads_and_its_command_recedes() {
+        let block = ToolCallBlock::pending(
+            "c",
+            "bash",
+            r#"{"intent":"看 e2e 测试的用例结构","command":"grep -n test crates/x/tests/e2e.rs"}"#,
+        )
+        .with(Outcome::Ok("3 lines".into()));
+        let rows = block.summary_lines(&crate::block::RenderCtx::bare(100));
+        // Wrapping lays a row out word by word; every word after the lead is judged.
+        let words = |row: &Line, lead: &str| -> Vec<Style> {
+            row.spans
+                .iter()
+                .filter(|s| !s.text.trim().is_empty() && !lead.contains(s.text.trim()))
+                .map(|s| s.style)
+                .collect()
+        };
+        let reason = words(&rows[0], "●");
+        assert!(
+            !reason.is_empty() && reason.iter().all(|s| *s == tool()),
+            "the reason reads: {rows:?}"
+        );
+        let command = words(&rows[1], "⎿");
+        assert!(
+            !command.is_empty() && command.iter().all(|s| *s == fold()),
+            "the command recedes: {rows:?}"
+        );
+
+        // A live run's lid is the same two answers about its last call, at the
+        // same volumes — two copies of the pairing are how they come to disagree.
+        let running = ToolCallBlock::pending(
+            "c",
+            "bash",
+            r#"{"intent":"看 e2e 测试的用例结构","command":"grep -n test crates/x/tests/e2e.rs"}"#,
+        );
+        let lid = ToolCallBlock::group_lines(&running, 3, 0, true, 100);
+        let reason = words(&lid[0], "⎿");
+        assert!(
+            !reason.is_empty() && reason.iter().all(|s| *s == tool()),
+            "the lid's reason reads: {lid:?}"
+        );
+        let command = words(&lid[1], "⎿");
+        assert!(
+            !command.is_empty() && command.iter().all(|s| *s == fold()),
+            "the lid's command recedes: {lid:?}"
+        );
+    }
 
     /// A known tool called without its subject names nothing, rather than
     /// pouring its payload (a whole file, for a write) into the row; an unknown
