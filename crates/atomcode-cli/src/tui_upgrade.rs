@@ -48,6 +48,11 @@ pub fn take_restart() -> Option<PathBuf> {
     RESTART.lock().ok()?.take()
 }
 
+/// Whether an upgrade already installed a binary that is waiting for a restart.
+fn restart_pending() -> bool {
+    RESTART.lock().map(|slot| slot.is_some()).unwrap_or(false)
+}
+
 /// This build's version as the updater writes versions.
 fn current() -> String {
     format!("v{}", env!("CARGO_PKG_VERSION"))
@@ -237,6 +242,14 @@ impl CommandSet for Upgrade {
         let Some(asked) = Asked::of(args) else {
             return Outcome::Refused(t(Msg::UpgradeUnknownArg { arg: args.trim() }).into_owned());
         };
+        // A new binary is already in place and only its restart is waiting —
+        // the person was asked about background sessions and chose to stay.
+        // Upgrading again would download the same release and move the new
+        // binary into `.bak`, over the only copy of the old one, so a rollback
+        // could no longer reach it. The restart still happens at the next quit.
+        if restart_pending() {
+            return Outcome::Said(t(Msg::UpgradeRestartPending).into_owned());
+        }
         if self.running.swap(true, Ordering::SeqCst) {
             return Outcome::Quiet;
         }
@@ -253,11 +266,14 @@ impl CommandSet for Upgrade {
                 };
                 running.store(false, Ordering::SeqCst);
                 let (said, restart) = said_for(event, &mut -1);
-                finish(ui.as_ref(), restart);
-                match said {
-                    Some(said) => Outcome::Said(said),
-                    None => Outcome::Quiet,
+                // Said before the screen is asked to close, as the upgrade does:
+                // returned as this command's answer instead, it raced the quit
+                // and could be lost with the screen.
+                if let Some(said) = said {
+                    ui.say(&said);
                 }
+                finish(ui.as_ref(), restart);
+                Outcome::Quiet
             }
             Asked::Upgrade { force } => {
                 tokio::spawn(async move {
@@ -388,6 +404,21 @@ mod tests {
             failed("disk full"),
             t(Msg::UpgradeFailed { error: "disk full" }).into_owned()
         );
+    }
+
+    /// Once a new binary waits for its restart, the pending state is seen — the
+    /// check `/upgrade` makes before it would download and replace again.
+    #[test]
+    fn a_waiting_restart_is_seen_until_it_is_taken() {
+        assert!(!restart_pending());
+        *RESTART.lock().expect("restart poisoned") =
+            Some(PathBuf::from("/opt/atomcode/bin/atomcode"));
+        assert!(restart_pending());
+        assert_eq!(
+            take_restart(),
+            Some(PathBuf::from("/opt/atomcode/bin/atomcode"))
+        );
+        assert!(!restart_pending());
     }
 
     /// A package-managed install is pointed at its package manager, not `/upgrade`.

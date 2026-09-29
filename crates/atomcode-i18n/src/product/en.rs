@@ -811,6 +811,8 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         // ── /upgrade ──
         Msg::UpgradePackageManaged =>
             "This build is managed by HarmonyBrew. Run `brew upgrade atomcode` to upgrade.".into(),
+        Msg::UpgradeRestartPending =>
+            "The new version is already installed; there is no need to upgrade again. Quit (/quit) and start atomcode again to use it.".into(),
         Msg::UpgradeUnknownArg { arg } =>
             format!("unknown /upgrade argument: {}\n  usage: /upgrade [rollback|--force]", arg).into(),
 
