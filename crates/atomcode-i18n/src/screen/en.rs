@@ -340,17 +340,42 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ClipboardHasNothing => "there is nothing on the clipboard to paste; `/paste <path>` takes a file instead — a picture attaches, anything else goes in as text".into(),
         Msg::FileIsEmpty { path } => format!("{path} is empty").into(),
         Msg::FileUnreadable { path, error } => format!("cannot read {path}: {error}").into(),
-        Msg::KeysHelp => "enter sends · shift+enter a new line (or ctrl-j) · ctrl-d quits · ctrl-w deletes a word\n\
-             during a turn: esc or ctrl-c stops it and hands what was queued back to the composer · ctrl-x stops it and sends what was queued right away\n\
-             idle: esc twice clears the composer, twice more on an empty one opens rewind · ctrl-c clears the composer, again to quit\n\
-             up/down move the caret, and page through history once at the end · click to put the caret where you clicked\n\
-             pgup/pgdn and the wheel scroll the conversation\n\
-             ctrl-o (or alt-r) reasoning (one line / in full / folded, cycles) · ctrl-t tool output (all / one summary each / summarised in groups, cycles) · ctrl-l redraws\n\
-             ctrl-r searches what you have typed in this project before; type to narrow, ctrl-r again for older, enter takes it, esc gives your draft back\n\
-             shift+tab steps to the next execution mode (plan/ask/edits/auto; with no completion menu up) · set ui.mode_switch_key=tab in /config to cycle with tab instead, leaving tab for completion\n\
-             /showinject [name] injected context (hidden by default; all of them with no name, `all` includes peers' reports)\n\
-             drag to select and copy · esc drops the selection · click a thought or a tool call to fold or open that one\n\
-             ctrl-g (or /mouse) hands the mouse back to the terminal (use its own selection instead)".into(),
+        Msg::KeysHelp => r#"
+  Keyboard shortcuts
+
+  ── Input ──
+    Enter                           send the message
+    Shift+Enter / Ctrl+J            insert a new line
+    Ctrl+W                          delete the previous word
+    Ctrl+D                          quit
+    Up / Down                       move the caret, and page through history once at the end
+    click the composer              put the caret where you clicked
+    Ctrl+R                          search what you have typed in this project before; type to narrow, ctrl-r again for older, enter takes it, esc gives your draft back
+
+  ── During a turn ──
+    Esc / Ctrl+C                    stop the turn and hand what was queued back to the composer
+    Ctrl+X                          stop the turn and send what was queued right away
+
+  ── Idle ──
+    Esc Esc                         clear the composer; twice more on an empty one opens rewind
+    Ctrl+C                          clear the composer, again to quit
+
+  ── Reading & display ──
+    PgUp / PgDn / wheel             scroll the conversation
+    drag                            select and copy
+    Esc                             drop the selection
+    click a fold                    open or fold that thought / tool call
+    Ctrl+O / Alt+R                  reasoning: one line / in full / folded, cycles
+    Ctrl+T                          tool output: all / one summary each / summarised in groups, cycles
+    Ctrl+L                          redraw the screen
+    Ctrl+G / /mouse                 hand the mouse back to the terminal (use its own selection instead)
+
+  ── Modes & injections ──
+    Shift+Tab                       step to the next execution mode (plan / ask / edits / auto; with no completion menu up; ui.mode_switch_key=tab in /config moves it to Tab, leaving Tab for completion)
+    /showinject [name]              injected context (hidden by default; all of them with no name, `all` includes peers' reports)
+
+  tip: type /help for the full slash-command list.
+"#.into(),
         Msg::ToolOutputUnknown { what } => format!("there is no `{what}` shape for tool output; it takes full (all of it) / head (20 lines each end) / each (one summary each) / group (summarised in groups)").into(),
         Msg::InjectionUnknown { what, names } => format!("there is no `{what}` injection; it takes {names} or all").into(),
         Msg::CopyWhichBlock { count } => format!("there are {count}; `/copy N` picks one, `/copy all` takes every one").into(),
@@ -572,12 +597,9 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
 
         // ── MCP servers, reloading and signing in (`commands.rs`) ──
         Msg::McpNoneConfigured => "no MCP server is configured".into(),
-        Msg::McpConnecting => "connecting".into(),
-        Msg::McpConnected => "connected".into(),
         Msg::McpUntrusted => "untrusted project — not started".into(),
         Msg::McpNeedsAuthentication => "needs authentication".into(),
         Msg::McpFailed { message } => format!("failed: {message}").into(),
-        Msg::McpDisconnected => "disconnected".into(),
         Msg::McpDisabled => "disabled in its config file".into(),
         Msg::McpUnknownState => "unknown".into(),
         Msg::McpWithdrawn => "every MCP tool was withdrawn".into(),

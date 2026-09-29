@@ -277,6 +277,17 @@ pub trait CommandSet: Send + Sync {
     fn hidden(&self) -> Vec<Command> {
         Vec::new()
     }
+    /// Whether this set's rows belong in `/help`.
+    ///
+    /// Yes for the sets that make up this build's own command surface. No for
+    /// the agent's catalog (`cmd-agent-catalog`): one row per user-invocable
+    /// skill, plus whatever the tree registered — typeable, listed in the slash
+    /// menu, and not in `/help`. The classic screen drew the line in the same
+    /// place: its `/help` was its own table, and skills were reached through
+    /// `/skills`.
+    fn in_help(&self) -> bool {
+        true
+    }
     /// Names this set takes over from whoever already has them.
     ///
     /// The one way a name may be claimed twice, and it has to be said out loud.
@@ -386,6 +397,31 @@ impl Commands {
             .read()
             .expect("commands poisoned")
             .iter()
+            .flat_map(|s| s.commands())
+        {
+            if !out.iter().any(|c| c.name == command.name) {
+                out.push(command);
+            }
+        }
+        out.sort_by(|a, b| a.name.cmp(&b.name));
+        out
+    }
+
+    /// What `/help` lists: the mounted sets that belong in it
+    /// ([`CommandSet::in_help`]), deduped and sorted the way [`all`](Self::all)
+    /// does.
+    ///
+    /// The menu and `/help` are not the same list. A skill is one command per
+    /// skill — typeable, in the menu, and how `/init` or anyone's own
+    /// `.atomcode/skills/…` gets run — while `/help` is this build's own table.
+    pub fn help_listed(&self) -> Vec<Command> {
+        let mut out: Vec<Command> = Vec::new();
+        for command in self
+            .sets
+            .read()
+            .expect("commands poisoned")
+            .iter()
+            .filter(|s| s.in_help())
             .flat_map(|s| s.commands())
         {
             if !out.iter().any(|c| c.name == command.name) {
@@ -587,6 +623,61 @@ mod tests {
         c.add(Arc::new(Fake("row-a", A))).unwrap();
         c.add(Arc::new(Fake("row-b", B))).unwrap();
         c
+    }
+
+    /// The menu and `/help` are not the same list: a set that says it is not
+    /// this build's own — the agent's catalog, one row per skill — rides in the
+    /// menu and stays out of `/help`.
+    #[test]
+    fn a_set_that_is_not_this_builds_own_rides_in_the_menu_and_not_in_help() {
+        struct Builtins;
+        #[async_trait]
+        impl CommandSet for Builtins {
+            fn id(&self) -> &'static str {
+                "row-a"
+            }
+            fn commands(&self) -> Vec<Command> {
+                vec![Command::said("help", "list every command".into())]
+            }
+            async fn run(&self, name: &str, _args: &str, _ctx: &Context) -> Outcome {
+                Outcome::Said(name.into())
+            }
+        }
+        struct Agentish;
+        #[async_trait]
+        impl CommandSet for Agentish {
+            fn id(&self) -> &'static str {
+                "cmd-agent-catalog"
+            }
+            fn in_help(&self) -> bool {
+                false
+            }
+            fn commands(&self) -> Vec<Command> {
+                vec![Command::said("playwright-best-practices", "a skill".into())]
+            }
+            async fn run(&self, name: &str, _args: &str, _ctx: &Context) -> Outcome {
+                Outcome::Said(name.into())
+            }
+        }
+
+        let c = Commands::new();
+        c.add(Arc::new(Builtins)).unwrap();
+        c.add(Arc::new(Agentish)).unwrap();
+
+        let listed: Vec<String> = c.help_listed().into_iter().map(|x| x.name.into()).collect();
+        assert_eq!(listed, vec!["help".to_string()], "只有内建进 /help");
+        let menu: Vec<String> = c.all().into_iter().map(|x| x.name.into()).collect();
+        assert_eq!(
+            menu,
+            vec!["help".to_string(), "playwright-best-practices".to_string()],
+            "菜单两行都在"
+        );
+        assert!(
+            c.matching("play")
+                .iter()
+                .any(|x| x.name == "playwright-best-practices"),
+            "技能仍能从菜单里搜到"
+        );
     }
 
     /// An alias shares its command's single row: it is searchable by its own

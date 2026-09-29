@@ -45,16 +45,18 @@ impl McpState {
     }
 
     pub fn about(&self) -> String {
+        // 连接态的三个词经典界面已经说过：读 product 的词表，不写第二份。
+        use crate::i18n::product::{t as pt, Msg as PMsg};
         match self {
-            Self::Connecting => t(Msg::McpConnecting),
-            Self::Connected => t(Msg::McpConnected),
+            Self::Connecting => pt(PMsg::McpStatusConnecting),
+            Self::Connected => pt(PMsg::McpStatusConnected),
             Self::NeedsAuthentication => t(Msg::McpNeedsAuthentication),
             Self::Disabled => t(Msg::McpDisabled),
             Self::Untrusted => t(Msg::McpUntrusted),
             Self::Failed(message) => t(Msg::McpFailed {
                 message: message.as_str(),
             }),
-            Self::Disconnected => t(Msg::McpDisconnected),
+            Self::Disconnected => pt(PMsg::McpStatusDisconnected),
         }
         .into_owned()
     }

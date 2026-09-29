@@ -2661,17 +2661,19 @@ async fn tools_of(
 
 /// A server's state in the words the MCP panel uses for it.
 fn mcp_state_words(state: &atomcode_host_api::McpServerState) -> String {
+    use crate::i18n::product::{t as pt, Msg as PMsg};
     use atomcode_host_api::McpServerState as S;
+    // 连接态的三个词经典界面已经说过：读 product 的词表，不写第二份。
     match state {
-        S::Connecting => t(Msg::McpConnecting),
-        S::Connected => t(Msg::McpConnected),
+        S::Connecting => pt(PMsg::McpStatusConnecting),
+        S::Connected => pt(PMsg::McpStatusConnected),
         S::Untrusted => t(Msg::McpUntrusted),
         S::NeedsAuthentication => t(Msg::McpNeedsAuthentication),
         S::Disabled => t(Msg::McpDisabled),
         S::Failed { message } => t(Msg::McpFailed {
             message: message.as_str(),
         }),
-        S::Disconnected => t(Msg::McpDisconnected),
+        S::Disconnected => pt(PMsg::McpStatusDisconnected),
         // The contract is `non_exhaustive`: a state this build does not know.
         _ => t(Msg::McpUnknownState),
     }
@@ -2794,29 +2796,31 @@ impl CommandSet for HelpCommands {
         help_catalogue()
     }
     async fn run(&self, _name: &str, _args: &str, _ctx: &Context) -> Outcome {
-        let width = self
-            .all
-            .all()
+        // 经典界面 /help 的同一款式：表头一行，命令名列对齐，描述跟在同一列上。
+        // 参数占位不进这一列——那是斜杠菜单的活；别名括号保留，`/help` 与
+        // 斜杠菜单仍以同一方式称呼一条命令（`/session (new)`）。
+        let listed = self.all.help_listed();
+        let width = listed
             .iter()
-            .map(|c| c.display_name().len() + c.takes.as_ref().map(|t| t.len() + 1).unwrap_or(0))
+            .map(|c| c.display_name().len())
             .max()
             .unwrap_or(8);
-        Outcome::Said(
-            self.all
-                .all()
-                .iter()
-                .map(|c| {
-                    // Aliases are shown here too (`/session (new)`), so `/help`
-                    // and the slash menu name a command the same way.
-                    let head = match &c.takes {
-                        Some(t) => format!("/{} {t}", c.display_name()),
-                        None => format!("/{}", c.display_name()),
-                    };
-                    format!("{head:<w$}  {}", c.about, w = width + 2)
-                })
-                .collect::<Vec<_>>()
-                .join("\n"),
-        )
+        let rows: Vec<String> = listed
+            .iter()
+            .map(|c| {
+                format!(
+                    "    /{:<width$}  {}",
+                    c.display_name(),
+                    c.about,
+                    width = width
+                )
+            })
+            .collect();
+        // 表头是经典界面已说过的一句话：读 product 的词表，不写第二份。
+        let mut out =
+            crate::i18n::product::t(crate::i18n::product::Msg::HelpAvailableCommands).into_owned();
+        out.push_str(&rows.join("\n"));
+        Outcome::Said(out)
     }
 }
 
@@ -2938,6 +2942,11 @@ pub struct AgentCatalogCommands {
 impl CommandSet for AgentCatalogCommands {
     fn id(&self) -> &'static str {
         "cmd-agent-catalog"
+    }
+    /// The agent's rows are the menu's, not `/help`'s: one row per
+    /// user-invocable skill, and `/help` is this build's own table.
+    fn in_help(&self) -> bool {
+        false
     }
     fn commands(&self) -> Vec<Command> {
         self.client
@@ -3120,6 +3129,150 @@ mod tests {
         let said = refusal(HostError::Stale { current: 94956 });
         assert_eq!(said, t(Msg::HostStale));
         assert!(!said.contains("Stale") && !said.contains("94956"), "{said}");
+    }
+
+    /// `/help` speaks the classic layout: a header line, then every command on
+    /// a `    /name  about` row whose description starts at one shared column.
+    /// Takes placeholders stay in the slash menu; hidden commands stay out.
+    /// The wording is whichever locale the process runs under — the assertion
+    /// reads it back through the same `t`, so it holds under either.
+    #[tokio::test]
+    async fn help_reads_like_the_classic_list() {
+        let all = builtin_for_test();
+        let app = bare();
+        let width = all
+            .all()
+            .iter()
+            .map(|c| c.display_name().len())
+            .max()
+            .unwrap_or(8);
+        let said = match all.dispatch("/help", &app.context()).await {
+            Outcome::Said(said) => said,
+            other => panic!("{other:?}"),
+        };
+        let mut lines = said.lines();
+        let header = lines.next().expect("the header line");
+        let expected_header =
+            crate::i18n::product::t(crate::i18n::product::Msg::HelpAvailableCommands);
+        assert_eq!(
+            header,
+            expected_header.trim_end(),
+            "the list opens with the header"
+        );
+        let rows: Vec<&str> = lines.collect();
+        assert!(!rows.is_empty(), "commands follow the header");
+        for row in &rows {
+            assert!(
+                row.starts_with("    /"),
+                "rows are indented and slash-prefixed: {row:?}"
+            );
+            assert!(
+                row.is_char_boundary(width + 7),
+                "the name column ends inside a char: {row:?}"
+            );
+            assert!(
+                row[..width + 7].is_ascii(),
+                "the name column is ASCII-aligned: {row:?}"
+            );
+            assert_eq!(
+                &row[width + 5..width + 7],
+                "  ",
+                "the description starts two spaces right of the widest name: {row:?}"
+            );
+        }
+        assert!(
+            rows.iter().all(|r| !r.starts_with("    /look")),
+            "hidden commands are not listed"
+        );
+        assert!(
+            rows.iter().all(|r| !r.contains("[reload|tools")),
+            "takes placeholders stay in the slash menu, not here"
+        );
+    }
+
+    /// `/keys` speaks the classic two-column table — tuix's layout, with THIS
+    /// screen's real keys. The per-locale wording is pinned in the i18n crate's
+    /// own tests: flipping the locale here would race every other test in this
+    /// binary, because `set_locale` is process-global.
+    #[test]
+    fn keys_help_is_the_classic_two_column_table() {
+        let body = t(Msg::KeysHelp).into_owned();
+        let first = body
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .expect("a header line");
+        assert!(
+            first.starts_with("  ") && !first.trim().is_empty(),
+            "header: {body}"
+        );
+        let sections = body
+            .lines()
+            .filter(|l| l.starts_with("  ── ") && l.ends_with(" ──"))
+            .count();
+        assert!(
+            sections >= 5,
+            "five sections expected, got {sections}:\n{body}"
+        );
+        for key in [
+            "Ctrl+O / Alt+R",
+            "Ctrl+T",
+            "Ctrl+L",
+            "Ctrl+G / /mouse",
+            "Ctrl+R",
+            "Shift+Tab",
+            "Esc Esc",
+        ] {
+            assert!(body.contains(key), "missing {key}:\n{body}");
+        }
+        // 旧散文形态的行内分隔（` · `）不再出现：现在是逐行两列。
+        assert!(
+            !body.contains(" · "),
+            "the prose form is gone, rows are two-column:\n{body}"
+        );
+    }
+
+    /// `/help` is this build's own table: the agent's catalog — one row per
+    /// user-invocable skill — rides in the menu and stays out of `/help`.
+    #[tokio::test]
+    async fn help_leaves_the_agents_catalog_to_the_menu() {
+        // 真实那一组自己声明不进 /help。
+        let real = AgentCatalogCommands {
+            client: Arc::new(crate::plugin::AgentClient::default()),
+        };
+        assert!(!real.in_help(), "agent 的命令目录不进 /help");
+
+        // ……/help 端到端不列技能,菜单照旧给得出。
+        struct Catalog;
+        #[async_trait]
+        impl CommandSet for Catalog {
+            fn id(&self) -> &'static str {
+                "cmd-agent-catalog"
+            }
+            fn in_help(&self) -> bool {
+                false
+            }
+            fn commands(&self) -> Vec<Command> {
+                vec![Command::said("playwright-best-practices", "a skill".into())]
+            }
+            async fn run(&self, _name: &str, _args: &str, _ctx: &Context) -> Outcome {
+                Outcome::Quiet
+            }
+        }
+        let c = Arc::new(Commands::new());
+        c.add(Arc::new(ScreenCommands)).unwrap();
+        c.add(Arc::new(Catalog)).unwrap();
+        c.add(Arc::new(HelpCommands { all: c.clone() })).unwrap();
+        let app = bare();
+        let Outcome::Said(help) = c.dispatch("/help", &app.context()).await else {
+            panic!("no /help");
+        };
+        assert!(!help.contains("playwright-best-practices"), "{help}");
+        assert!(
+            c.matching("play")
+                .iter()
+                .any(|x| x.name == "playwright-best-practices"),
+            "菜单仍然给得出技能"
+        );
     }
 
     /// A screen following session `lead`, whose last fact it saw is number 7.
@@ -3727,7 +3880,10 @@ mod tests {
         };
         assert!(said.starts_with(&*t(Msg::Reloaded)), "{said}");
         assert!(
-            said.contains(&format!("fs  {}", t(Msg::McpConnecting))),
+            said.contains(&format!(
+                "fs  {}",
+                crate::i18n::product::t(crate::i18n::product::Msg::McpStatusConnecting)
+            )),
             "{said}"
         );
         assert!(
@@ -5625,11 +5781,17 @@ mod tests {
         match c.dispatch("/help", &app.context()).await {
             Outcome::Said(text) => {
                 assert!(text.contains("/help"));
+                // 参数占位留在斜杠菜单；/help 一行一条命令本身（`/resume`，
+                // 不带 `[会话 id]`），表头之外一行一条。
                 assert!(
-                    text.contains("/resume [会话 id]"),
-                    "argument hints show:\n{text}"
+                    text.contains("    /resume"),
+                    "command rows are listed:\n{text}"
                 );
-                assert_eq!(text.lines().count(), c.all().len());
+                assert_eq!(
+                    text.lines().count(),
+                    c.all().len() + 1,
+                    "header + one row per command"
+                );
             }
             other => panic!("{other:?}"),
         }

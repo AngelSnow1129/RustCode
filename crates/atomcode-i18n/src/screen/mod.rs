@@ -49,3 +49,72 @@ pub fn t_with(locale: Locale, msg: Msg<'_>) -> Cow<'static, str> {
     };
     crate::runtime::substitute_placeholders(raw)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `/keys` 的两列表格（经典界面同款式）：两种语言各自成立，英文表里不许
+    /// 混入中文。翻 locale 的测试必须持 `test_lock` —— `set_locale` 是进程
+    /// 全局的，不锁会毒到并行的其他判据。
+    #[test]
+    fn keys_table_and_help_header_in_both_locales() {
+        let _g = test_lock();
+
+        set_locale(Locale::ZhCn);
+        let keys = t(Msg::KeysHelp);
+        let zh_header = keys
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .expect("zh header line");
+        assert_eq!(zh_header.trim_end(), "  键盘快捷键", "zh header: {keys}");
+        for section in [
+            "── 输入 ──",
+            "── 回合进行中 ──",
+            "── 空闲时 ──",
+            "── 翻看与显示 ──",
+            "── 模式与注入 ──",
+        ] {
+            assert!(keys.contains(section), "zh 缺分节 {section}:{keys}");
+        }
+        for key in [
+            "Ctrl+O / Alt+R",
+            "Ctrl+T",
+            "Ctrl+L",
+            "Ctrl+G / /mouse",
+            "Ctrl+R",
+            "Shift+Tab",
+            "/showinject [名字]",
+        ] {
+            assert!(keys.contains(key), "zh 缺键位 {key}:{keys}");
+        }
+
+        set_locale(Locale::En);
+        let keys = t(Msg::KeysHelp);
+        let en_header = keys
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .expect("en header line");
+        assert_eq!(
+            en_header.trim_end(),
+            "  Keyboard shortcuts",
+            "en header: {keys}"
+        );
+        for section in [
+            "── Input ──",
+            "── During a turn ──",
+            "── Idle ──",
+            "── Reading & display ──",
+            "── Modes & injections ──",
+        ] {
+            assert!(
+                keys.contains(section),
+                "en missing section {section}: {keys}"
+            );
+        }
+        assert!(
+            !keys.chars().any(|c| ('\u{4E00}'..='\u{9FFF}').contains(&c)),
+            "the English table must stay English: {keys}"
+        );
+    }
+}

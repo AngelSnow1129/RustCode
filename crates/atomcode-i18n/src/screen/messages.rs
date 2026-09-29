@@ -895,14 +895,11 @@ pub enum Msg<'a> {
 
     // ── MCP servers, reloading and signing in (`commands.rs`) ──
     McpNoneConfigured,
-    McpConnecting,
-    McpConnected,
     McpUntrusted,
     McpNeedsAuthentication,
     McpFailed {
         message: &'a str,
     },
-    McpDisconnected,
     McpDisabled,
     McpUnknownState,
     McpWithdrawn,

@@ -309,17 +309,42 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ClipboardHasNothing => "剪贴板里没有能贴的东西;`/paste 路径` 可以贴一个文件 —— 是图就当附件,别的当文字".into(),
         Msg::FileIsEmpty { path } => format!("{path} 是空的").into(),
         Msg::FileUnreadable { path, error } => format!("读不了 {path}:{error}").into(),
-        Msg::KeysHelp => "enter 发送 · shift+enter 换行(或 ctrl-j) · ctrl-d 退出 · ctrl-w 删词\n\
-             当轮进行中:esc 或 ctrl-c 停止当轮,排队的话退回输入框 · ctrl-x 停止当轮,排队的话立刻发出\n\
-             空闲时:esc 连按两下清空输入,输入已空再连按两下打开回退 · ctrl-c 清空输入,再按一次退出\n\
-             上/下 在输入里移动游标,到头则翻历史 · 点击输入框定位游标\n\
-             pgup/pgdn 与滚轮滚动对话\n\
-             ctrl-o(或 alt-r)思考(一行/全文/收起,循环) · ctrl-t 工具输出(全部/单个摘要/成组摘要,循环) · ctrl-l 重画屏幕\n\
-             ctrl-r 搜索这个项目里以前打过的东西;继续打字缩小范围,再按 ctrl-r 往更老翻,enter 接受,esc 还回草稿\n\
-             shift+tab 切下一个执行模式(plan/ask/edits/auto;没有补全菜单时) · /config 里 ui.mode_switch_key=tab 可改用 tab 切、tab 则只用于补全\n\
-             /showinject [名字] 环境注入(默认不显示;不带名字则全部,all 含同伴报告)\n\
-             拖动选中并复制 · esc 取消选中 · 点击思考或工具调用折叠展开那一个\n\
-             ctrl-g(或 /mouse)把鼠标交还终端(改用终端自己的框选)".into(),
+        Msg::KeysHelp => r#"
+  键盘快捷键
+
+  ── 输入 ──
+    Enter                           发送消息
+    Shift+Enter / Ctrl+J            插入换行
+    Ctrl+W                          删除前一个单词
+    Ctrl+D                          退出
+    Up / Down                       在输入里移动游标，到头则翻历史
+    点击输入框                      定位游标
+    Ctrl+R                          搜索这个项目里以前打过的东西；继续打字缩小范围，再按往更老翻，Enter 接受，Esc 还回草稿
+
+  ── 回合进行中 ──
+    Esc / Ctrl+C                    停止当轮；排队的话退回输入框
+    Ctrl+X                          停止当轮；排队的话立刻发出
+
+  ── 空闲时 ──
+    Esc Esc                         清空输入；输入已空再连按两下打开回退
+    Ctrl+C                          清空输入；再按一次退出
+
+  ── 翻看与显示 ──
+    PgUp / PgDn / 滚轮              滚动对话
+    拖动选中                        选中并复制
+    Esc                             取消选中
+    点击折叠行                      展开或收起思考 / 工具调用那一条
+    Ctrl+O / Alt+R                  思考：一行 / 全文 / 收起，循环
+    Ctrl+T                          工具输出：全部 / 单个摘要 / 成组摘要，循环
+    Ctrl+L                          重画屏幕
+    Ctrl+G / /mouse                 把鼠标交还终端（改用终端自己的框选）
+
+  ── 模式与注入 ──
+    Shift+Tab                       切下一个执行模式（plan / ask / edits / auto；没有补全菜单时；/config 里 ui.mode_switch_key=tab 可改用 tab 切）
+    /showinject [名字]              环境注入（默认不显示；不带名字则全部，all 含同伴报告）
+
+  提示：输入 /help 查看完整斜杠命令列表。
+"#.into(),
         Msg::ToolOutputUnknown { what } => format!("没有 `{what}` 这种工具输出形态;可以写 full(全部)/head(前后各20行)/each(单个摘要)/group(成组摘要)").into(),
         Msg::InjectionUnknown { what, names } => format!("没有 `{what}` 这种注入;可以写 {names} 或 all").into(),
         Msg::CopyWhichBlock { count } => format!("有 {count} 块;`/copy N` 指定哪一块,`/copy all` 全要").into(),
@@ -521,12 +546,9 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
 
         // ── MCP servers, reloading and signing in (`commands.rs`) ──
         Msg::McpNoneConfigured => "没有配置 MCP 服务器".into(),
-        Msg::McpConnecting => "连接中".into(),
-        Msg::McpConnected => "已连接".into(),
         Msg::McpUntrusted => "未信任项目,未启动".into(),
         Msg::McpNeedsAuthentication => "需要认证".into(),
         Msg::McpFailed { message } => format!("失败:{message}").into(),
-        Msg::McpDisconnected => "已断开".into(),
         Msg::McpDisabled => "配置里已停用".into(),
         Msg::McpUnknownState => "未知".into(),
         Msg::McpWithdrawn => "已撤下全部 MCP 工具".into(),
