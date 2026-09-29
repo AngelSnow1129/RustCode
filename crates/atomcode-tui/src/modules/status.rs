@@ -209,6 +209,13 @@ impl View for Status {
         // state, not news, and it must never squeeze the model, the directory
         // or the context usage off the row. Placed after everything else, it
         // is drawn only in the room left over.
+        // Why no turn can be taken, when that is so: reserved like the badges,
+        // because it is the one thing on this row a person must act on before
+        // anything else here matters.
+        let unready = vp.moment.unready.clone();
+        if let Some(text) = &unready {
+            reserved += width::str_width(text) + sep_w;
+        }
         let pointer = vp
             .moment
             .mouse_handed_back
@@ -245,6 +252,11 @@ impl View for Status {
             vp.moment.model.clone()
         } else if !state.model.is_empty() {
             state.model.clone()
+        } else if vp.moment.unready.is_some() {
+            // No model because no turn can be taken: say so where the model
+            // goes, as tuix does, rather than a name that reads as a model.
+            crate::i18n::product::t(crate::i18n::product::Msg::StatusModelNotConfigured)
+                .into_owned()
         } else {
             "atomcode".to_string()
         };
@@ -305,6 +317,10 @@ impl View for Status {
             row.push(El::styled(text.clone(), style_for(*seg)));
         }
 
+        if let Some(text) = unready {
+            row.push(El::styled(sep_text.clone(), dim));
+            row.push(El::styled(text, theme::fg(Role::Warning)));
+        }
         if let Some(text) = autonomy {
             row.push(El::styled(sep_text.clone(), dim));
             row.push(El::styled(text, theme::fg(Role::Accent)));
@@ -737,6 +753,38 @@ mod tests {
             .first()
             .map(|l| l.plain())
             .unwrap_or_default()
+    }
+
+    /// Why no turn can be taken stands on the row, and the model slot says
+    /// "not configured" rather than a name that reads as a model — the page
+    /// above it opens as usual. Nothing of it shows once a turn can be taken.
+    #[test]
+    fn why_no_turn_can_be_taken_stands_on_the_row() {
+        let why = "还没有可用的 provider——在 atomcode 终端里用 /login 登录,或用 /provider 添加一个";
+        let unready = Moment {
+            cwd: "~/work/project".into(),
+            unready: Some(why.into()),
+            ..Moment::default()
+        };
+        let row = draw::<Status>(&State::default(), 160, &unready);
+        assert!(row.contains(why), "{row}");
+        let not_configured =
+            crate::i18n::product::t(crate::i18n::product::Msg::StatusModelNotConfigured)
+                .into_owned();
+        assert!(row.contains(&not_configured), "{row}");
+        assert!(
+            !row.contains("atomcode │"),
+            "no name standing in for a model: {row}"
+        );
+
+        let ready = Moment {
+            cwd: "~/work/project".into(),
+            model: "glm-5".into(),
+            ..Moment::default()
+        };
+        let row = draw::<Status>(&State::default(), 160, &ready);
+        assert!(!row.contains("provider"), "{row}");
+        assert!(!row.contains(&not_configured), "{row}");
     }
 
     /// The mouse handed back is said on the row — at the end, and only where it

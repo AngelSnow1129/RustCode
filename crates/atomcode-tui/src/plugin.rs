@@ -1261,14 +1261,12 @@ impl UserInterface for Tui {
                 else {
                     return;
                 };
+                // On the status row, not at the top of the conversation: the
+                // page opens as it always does (the welcome is drawn — see
+                // `owes_opening`) and the reason stands under it, the way tuix
+                // shows "no provider" in its footer.
                 if let Some(why) = why {
-                    let mut stream = host.stream.write().expect("stream poisoned");
-                    let mut w = stream.writer("commands");
-                    w.emit(
-                        crate::block::Coord::default(),
-                        Arc::new(crate::content::NoticeBlock { detail: why }),
-                    );
-                    drop(stream);
+                    host.moment.write().expect("moment poisoned").unready = Some(why);
                     let _ = keys.send(Wake::Fact);
                 }
                 // Dispatched the way a modal's pick is: the host names one of
@@ -1382,8 +1380,20 @@ impl UserInterface for Tui {
             // `follow` and re-answered per session, so a resume waits for the
             // resumed session's own description rather than the outgoing one's.
             {
+                // The welcome waits for the agent's description, which never
+                // comes while no turn can be taken (no provider, no agent). The
+                // readiness answer stands in for it then, so the page opens as
+                // it does anywhere else instead of staying blank.
+                let unready = self
+                    .host
+                    .moment
+                    .read()
+                    .expect("moment poisoned")
+                    .unready
+                    .is_some();
                 if owes_opening {
-                    if let Some(described) = client.described() {
+                    let described = client.described();
+                    if described.is_some() || unready {
                         let cwd = self
                             .host
                             .moment
@@ -1402,7 +1412,7 @@ impl UserInterface for Tui {
                                 // is what `tests/guards.rs`
                                 // (`the_screen_reads_no_service_of_the_agents`)
                                 // forbids.
-                                model: described.model.clone(),
+                                model: described.as_ref().and_then(|d| d.model.clone()),
                                 version: env!("CARGO_PKG_VERSION"),
                                 commands: self.host.commands.all(),
                                 // Resolved **here**, not when the welcome producer
@@ -2877,6 +2887,34 @@ impl Tui {
             }
             if let Some(keys) = keys {
                 let _ = keys.send(Wake::Fact);
+            }
+        });
+    }
+
+    /// Ask the host again whether a turn would be taken, and put its answer on
+    /// the status row (`Moment::unready`): the reason while it still holds,
+    /// nothing once it does not.
+    fn recheck_readiness(&self, session: String) {
+        let Some(control) = self.client.control() else {
+            return;
+        };
+        let host = self.host.clone();
+        let keys = self.wake.lock().expect("wake poisoned").clone();
+        tokio::spawn(async move {
+            let unready = match control.call(HostCommand::Readiness { session }).await {
+                Ok(HostReply::Readiness {
+                    ready: false, why, ..
+                }) => why,
+                Ok(HostReply::Readiness { ready: true, .. }) => None,
+                _ => return,
+            };
+            let mut moment = host.moment.write().expect("moment poisoned");
+            if moment.unready != unready {
+                moment.unready = unready;
+                drop(moment);
+                if let Some(keys) = keys {
+                    let _ = keys.send(Wake::Fact);
+                }
             }
         });
     }
@@ -4785,6 +4823,14 @@ impl Tui {
                 // model the way tuix does (`glm-5 [high]`).
                 let effort = described.as_ref().and_then(|d| d.reasoning_effort);
                 let mut moment = self.host.moment.write().expect("moment poisoned");
+                // An agent describing itself is what a `/login` or `/provider`
+                // that brought a provider back looks like from here. Whether a
+                // turn would now be taken is the host's to say, so it is asked
+                // again rather than assumed: a session whose sign-in expired
+                // still has an agent that describes itself.
+                if moment.unready.is_some() {
+                    self.recheck_readiness(moment.lead.clone());
+                }
                 let changed =
                     moment.ctx_window != window || moment.model != model || moment.effort != effort;
                 moment.ctx_window = window;
