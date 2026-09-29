@@ -474,26 +474,78 @@ async fn a_role_comes_from_a_markdown_file_and_can_replace_a_built_in() {
     assert!(prompt.contains("rewritten"), "{prompt}");
 }
 
+/// A role file that does not parse is skipped, not fatal: one malformed file
+/// in a user-writable directory must not keep the runtime from assembling.
+/// The role is not offered, a delegation to it is told why, and the built-in
+/// roles still work.
 #[tokio::test]
-async fn a_bad_role_file_refuses_to_mount() {
+async fn a_bad_role_file_is_skipped_and_says_why() {
     let dir = scratch("bad-role");
     write_role(
         &dir,
         "broken",
         "---\npermission: root\ndifficulty: simple\n---\nnope\n",
     );
+    let (app, lead) = skipping(&dir).await;
+    assert_skipped(
+        &app,
+        &lead,
+        "broken",
+        &["permission must be explore or worker"],
+    )
+    .await;
+}
+
+/// Mount a team tree over `dir`, which holds a role file that must be skipped,
+/// and take the lead.
+async fn skipping(dir: &std::path::Path) -> (App, Arc<Agent>) {
     let mut app = App::new(
         atomcode_coding::on_harness::catalog(),
-        tree(&dir, r#"{ text = "ok" }"#, r#"{ text = "ok" }"#),
+        tree(dir, r#"{ text = "ok" }"#, r#"{ text = "ok" }"#),
     );
-    let err = app
-        .start()
+    app.start()
         .await
-        .expect_err("a role that names a permission that does not exist");
+        .expect("a bad role file must not stop the mount");
+    let lead = create_agent(&app).await.unwrap();
+    (app, lead)
+}
+
+/// `role` is not on offer, delegating to it names every one of `why`, and a
+/// built-in role still takes work.
+async fn assert_skipped(app: &App, lead: &Arc<Agent>, role: &str, why: &[&str]) {
+    let schema = app
+        .context()
+        .service::<ToolsSvc>()
+        .unwrap()
+        .get("team")
+        .unwrap()
+        .parameters_schema();
+    let offered = schema["properties"]["role"]["enum"].to_string();
     assert!(
-        format!("{err:?}").contains("permission must be explore or worker"),
-        "{err:?}"
+        !offered.contains(&format!("\"{role}\"")),
+        "a skipped role is still offered: {offered}"
     );
+    let told = as_lead(
+        app,
+        lead,
+        &format!(r#"{{"action":"delegate","name":"x","role":"{role}","task":"t"}}"#),
+    )
+    .await;
+    assert!(told.is_error, "{}", told.content);
+    for word in why {
+        assert!(
+            told.content.contains(word),
+            "the refusal must say why the role is missing ({word}): {}",
+            told.content
+        );
+    }
+    let built_in = as_lead(
+        app,
+        lead,
+        r#"{"action":"delegate","name":"y","role":"explorer","task":"t"}"#,
+    )
+    .await;
+    assert!(!built_in.is_error, "{}", built_in.content);
 }
 
 // ---- a writing member gets a checkout of its own ---------------------------
@@ -733,35 +785,20 @@ async fn a_role_without_an_effort_line_inherits_the_session_setting() {
     );
 }
 
-/// A misspelled tier must be an error, not a silent fallback to the default: a
-/// role file that says `effort: hihg` and a member that quietly thinks at the
-/// session's rate is the kind of bug nobody notices until the bill.
-///
-/// It fails at MOUNT, not at the first turn — the roles are read when the row
-/// applies, so a bad file is caught before any work can be delegated under it.
+/// A misspelled tier must not be a silent fallback to the default: a role
+/// file that says `effort: hihg` and a member that quietly thinks at the
+/// session's rate is the kind of bug nobody notices until the bill. The role is
+/// skipped instead, and a delegation to it names the file's key and value.
 #[tokio::test]
-async fn a_typo_in_a_roles_effort_is_refused_at_mount() {
+async fn a_typo_in_a_roles_effort_skips_the_role() {
     let dir = scratch("role-effort-typo");
     write_role(
         &dir,
         "librarian",
         "---\npermission: explore\ndifficulty: simple\neffort: hihg\n---\nYou catalogue.\n",
     );
-    let tree = tree(
-        &dir,
-        r#"{ text = "delegating", calls = [ { name = "team", args = { action = "delegate", name = "lib", role = "librarian", task = "list the docs" } } ] }"#,
-        r#"{ text = "catalogued" }"#,
-    );
-    let mut app = App::new(atomcode_coding::on_harness::catalog(), tree);
-    let err = app
-        .start()
-        .await
-        .expect_err("a bad role file must stop the mount");
-    let rendered = err.to_string();
-    assert!(
-        rendered.contains("hihg") && rendered.contains("effort"),
-        "the finding must name the file, the key and the value: {rendered}"
-    );
+    let (app, lead) = skipping(&dir).await;
+    assert_skipped(&app, &lead, "librarian", &["effort", "hihg"]).await;
 }
 
 /// A member is driven by a pump of its own, like the agent a front end holds
@@ -2149,7 +2186,8 @@ async fn writers_sharing_the_workspace_need_scopes_of_their_own() {
 }
 
 /// A role file chooses a member's tools from what its permission allows: a
-/// file in a cloned repository cannot hand a member a shell.
+/// file in a cloned repository cannot hand a member a shell. Such a file is
+/// skipped — no member is ever made from it.
 #[tokio::test]
 async fn a_role_file_cannot_hand_a_member_a_shell() {
     let dir = scratch("shell-role");
@@ -2158,15 +2196,8 @@ async fn a_role_file_cannot_hand_a_member_a_shell() {
         "operator",
         "---\npermission: worker\ndifficulty: simple\ntools: read_file, bash\n---\nYou run things.\n",
     );
-    let mut app = App::new(
-        atomcode_coding::on_harness::catalog(),
-        tree(&dir, r#"{ text = "ok" }"#, r#"{ text = "ok" }"#),
-    );
-    let err = app.start().await.expect_err("a role listing `bash`");
-    assert!(
-        format!("{err:?}").contains("may not have `bash`"),
-        "{err:?}"
-    );
+    let (app, lead) = skipping(&dir).await;
+    assert_skipped(&app, &lead, "operator", &["may not have `bash`"]).await;
 }
 
 /// Only putting a writer to work is a decision to ask about: looking at the

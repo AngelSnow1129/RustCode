@@ -415,8 +415,13 @@ fn parse_role_file(path: &Path) -> Result<Role, String> {
 
 /// Built-in roles, then each directory in order; a file with a built-in's
 /// name replaces it. A directory that does not exist is simply empty.
-fn load_roles(dirs: &[PathBuf]) -> Result<Vec<Role>, String> {
+///
+/// A file that does not parse is skipped, not fatal, and comes back in the
+/// second list as `(role id, why)` — so a delegation to it can say why the role
+/// is not there instead of calling it unknown.
+fn load_roles(dirs: &[PathBuf]) -> Result<(Vec<Role>, Vec<(String, String)>), String> {
     let mut roles = built_in_roles();
+    let mut skipped = Vec::new();
     for (index, dir) in dirs.iter().enumerate() {
         let Ok(entries) = std::fs::read_dir(dir) else {
             continue;
@@ -436,6 +441,12 @@ fn load_roles(dirs: &[PathBuf]) -> Result<Vec<Role>, String> {
                 Ok(role) => role,
                 Err(reason) => {
                     eprintln!("team: skipping a role file: {reason}");
+                    let id = file
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    skipped.push((id, reason));
                     continue;
                 }
             };
@@ -447,7 +458,7 @@ fn load_roles(dirs: &[PathBuf]) -> Result<Vec<Role>, String> {
             }
         }
     }
-    Ok(roles)
+    Ok((roles, skipped))
 }
 
 /// What "look, do not touch" means for a delegated child.
@@ -689,6 +700,9 @@ struct TeamTool {
     ctx: Context,
     members: Arc<Members>,
     roles: Vec<Role>,
+    /// Role files that did not parse, as `(role id, why)` — skipped at mount,
+    /// named when someone delegates to one.
+    skipped_roles: Vec<(String, String)>,
     max_members: usize,
     max_rounds: u32,
     /// Give every writing member a git worktree of its own. Two members
@@ -771,6 +785,11 @@ impl TeamTool {
             .find(|r| r.id == role_id)
             .cloned()
             .ok_or_else(|| {
+                if let Some((_, why)) = self.skipped_roles.iter().find(|(id, _)| *id == role_id) {
+                    return format!(
+                        "role `{role_id}` was skipped because its file is invalid: {why}"
+                    );
+                }
                 format!(
                     "unknown role `{role_id}`; roles: {}",
                     self.roles
@@ -1642,7 +1661,7 @@ impl Plugin for TeamPlugin {
             home.join("agents"),
         ];
         dirs.extend(row.roles_dirs.iter().map(PathBuf::from));
-        let roles = load_roles(&dirs)?;
+        let (roles, skipped_roles) = load_roles(&dirs)?;
         let role_list = roles
             .iter()
             .map(|r| format!("{} — {}", r.id, r.when))
@@ -1652,6 +1671,7 @@ impl Plugin for TeamPlugin {
             ctx: ctx.clone(),
             members: members.clone(),
             roles,
+            skipped_roles,
             max_members: row.max_members,
             max_rounds: row.max_rounds,
             worktrees: row.worktrees,
