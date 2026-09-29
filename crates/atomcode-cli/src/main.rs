@@ -2495,8 +2495,9 @@ async fn run() -> Result<i32> {
     telemetry.set_default_mode(Some(session_mode));
     // Bind telemetry to the continued session's id (if any). A fresh run needs
     // nothing here: the agent bootstraps telemetry + header + datalog from its
-    // own session id. The TUI manages its own binding via
-    // `bind_telemetry_to_session`.
+    // own session id. Events the screen itself reports — `use_command` — are
+    // scoped per dispatch by `tui_command_meter`, which reads the session off
+    // the screen's own seam and so follows `/new` and `/resume` on its own.
     if let Some(ref s) = session_to_continue {
         if let Ok(uuid) = uuid::Uuid::parse_str(s.id.as_str()) {
             telemetry.set_session_id(uuid);
