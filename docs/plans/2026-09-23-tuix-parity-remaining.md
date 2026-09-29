@@ -613,22 +613,54 @@ webui 四个入口还是裸的。
 
 ### P3 — 删与收口（P0+P1 落地并 soak 之后）
 
-- [ ] **F1 删 tuix**。前置已补齐（`CLASSIC_ONLY` 空了）。**卡点重新盘过一遍，
-      比 remaining-gaps 里记的轻**——那句「`main.rs` 的 26 处 `--classic` 分支
-      （唯一真卡点）」是旧账：`screen_for` 把判定收成一处之后，`main.rs` 里
-      带 `classic` 字样的只剩 4 行（`:865-869` 的 flag 定义、`:2248` 的调用），
-      全 cli 13 处。真正要动的是 cli 里 27 处 `atomcode_tuix`，分两类：
-      - **7 处是 `atomcode_tuix::i18n`**，而那个模块只有两行：
-        `pub use atomcode_config::i18n::*`（`tuix/src/i18n/mod.rs`）。
-        指回 `atomcode_config::i18n` 即可，**与删 tuix 无关，随时可先做**；
-      - 其余是 `run` / `SpawnedRuntime` / `RuntimeControl` / `RuntimeEndpoint` /
-        `RuntimeEventPayload` / `ProviderSelectionMode` / `session::Session` /
-        `panic_restore_terminal`——**它们只为喂 `atomcode_tuix::run` 而存在**，
-        经典屏幕一走，这套 spawn 胶水跟着走。
-      `acp/commands.rs:5` 那处只是注释，不是卡点。
-      另要动：workspace member(`Cargo.toml:17`)、`cli/Cargo.toml:21,38` 的
-      `distro-pm` 转发与 path 依赖。顺带：`atomcode-i18n` 的 `product` 表里
-      25 条 `Bg*` 文案随之成为死码。
+- [ ] **F1 删 tuix**。前置已补齐（`CLASSIC_ONLY` 空了）。**卡点重新盘过两遍，
+      2026-09-29 又盘一次**——下面这版是实测的，**与上一版有五处不符，照上一版找会找不到东西**。
+
+      翻默认已经落地：`screen_for`（`cli/src/lib.rs:349`）把 `Screen::Default => Screen::Rows`
+      收在一处，`main.rs` 里 `Screen::Classic` 一次都不出现，只剩 `--classic` 的 flag 定义
+      （`:867-871`）。所以这一节量的不是「还差什么功能」，是「删谁」。
+
+      **cli 侧真实引用 17 处**（`grep -rn atomcode_tuix crates/atomcode-cli/src` 命中 20 行，
+      其中 3 行是注释；全仓含 `tests/` 21 行）：
+
+      | 处 | 位置 | 性质 |
+      |---|---|---|
+      | `run` | `main.rs:2727` | 真卡点。**classic arm 只有 2712–2746 共 35 行** |
+      | `spawn_deferred_tui_runtime` 等 3 个胶水函数 | `main.rs:2771` / `:2812` 定义 | 只为喂 `run`，跟着走 |
+      | `into_tui_native_runtime` | `main.rs:2368` 起 | 同上 |
+      | `session::Session` ×3 | `main.rs:2368` / `2419` / `2772` | 同上 |
+      | **`panic_restore_terminal`** | `main.rs:128` | ⚠️ **上一版漏了这条，见下** |
+
+      > **`panic_restore_terminal` 是无条件调用**，不在 classic arm 里：`restore_terminal_if_tui()`
+      > （`main.rs:124`）被 3 处 panic hook 调用（`:1528` / `:1544` / `:4797`），只被 `HEADLESS_MODE` 挡。
+      >
+      > **但好摘**：它只调 `panic_restore_sequence()`（`tuix/src/lib.rs:281`）——一个 8 字节常量
+      > `b"\x1b[?1006l\x1b[?1002l\x1b[?1004l\x1b[<1u\x1b[?25h\x1b[?7h\x1b[r\x1b[?2004l\r\n"`
+      > ——加两条判据（`:1037` / `:1055`）。把常量与判据搬进 cli，这条引用就断了，**不必等 classic arm 一起走**。
+
+      **上一版记的「7 处是 `atomcode_tuix::i18n`，随时可先做」——那 7 处不存在。**
+      `grep -rn 'atomcode_tuix::i18n' crates/` → **0 处**。那 7 处（cli 侧 `atomcode_i18n::screen`
+      实测 25 处，如 `host.rs:15`、`tui_onboarding.rs:16`、`tui_openrouter.rs:17`）走的是
+      `atomcode-i18n` crate，与 tuix 无关。`tuix/src/i18n/mod.rs` 确实只有两行
+      `pub use atomcode_config::i18n::*`，但**没有人通过它拿 i18n**。
+
+      另要动三处，上一版写错或漏写：
+
+      - **`default-members`（根 `Cargo.toml:17`）而不是 workspace member。**
+        `members = ["crates/*"]` 是 glob，删目录自动收；`default-members` 里显式列了
+        `crates/atomcode-tuix`，**这一行必须手改**；
+      - **`cli/Cargo.toml:21` 的 `distro-pm` 转发已经是死的**：`grep -rn 'distro-pm'
+        crates/atomcode-tuix/src/` → **0 处**。tuix 声明了这个 feature 却没有任何代码用它，
+        真正用 `distro-pm` 的是 `atomcode-updater`（`cli/Cargo.toml:21` 同时转发给两者）。
+        删 tuix 时直接去掉转发的那一半；
+      - `cli/Cargo.toml:38` 的 path 依赖。
+
+      `acp/commands.rs:5` 那处只是注释，不是卡点（上一版已对）。
+
+      > **上一版结尾那句「`atomcode-i18n` 的 `product` 表里 25 条 `Bg*` 文案随之成为死码」，
+      > 现在是错的**（2026-09-29 核）。25 个 `Bg*` 变体（`product/messages.rs`）都还在，
+      > 但**已经被新栈接管**——非 tuix 侧 82 处引用（如 `tui_bg.rs`），tuix 侧只剩 21 处。
+      > `/bg` 迁移时文案跟着走了，删 tuix **不会**让它们成为死码。
 - [ ] **F2 摘 `coding/src/team/`**（1466 行，决策 8）。半活半死：`stop_all` 还绑在
       `runtime.rs` 三处 `quiesce_current_agent`/`stop_current_agent` 上，单独砍会断。
 - [ ] **F3 daemon 迁两份契约**。先读未合的 `feat/daemon-on-contracts`

@@ -41,6 +41,34 @@ else
 fi
 rm -f /tmp/atomcode-compile-gate.$$
 
+# 同一种烂法的第三例,这次是 **feature 藏起来的那一半**:上面那条走默认 feature,而
+# 8 个测试文件整文件挂在非默认 feature 后面(`#![cfg(feature = "…")]`),于是它们
+# 压根没被编过。`e2e.rs` 就是这样烂掉的:`StreamEvent` 加了 `ResponseModel` /
+# `Malformed` 两个变体(`237fc25b3`、`dc456e732`),那个逐变体列举的 `match` 没跟着
+# 补,`--features e2e` 编译不过 —— 而默认 feature 下这个文件是空的,谁也看不见。
+#
+# 与上面那处同形(判据跑不起来而没有人发现),所以要么一起堵,要么别假装有门。
+# 这五个 feature 门控着 5 个不同的测试 target:
+#
+#   session  tests/session.rs            memory      tests/memory.rs
+#   setup    tests/setup_integration.rs  e2e         tests/e2e.rs
+#   mcp      tests/mcp.rs
+#
+# 一次全开比一条一条开便宜(resolver v2 不跨 target 统一,但同一 crate 的多个
+# `--features` 是并集,只编一遍)。**别改成 run** —— e2e 打真实 provider。
+echo "→ feature 门控的测试也能编译"
+FEATURE_GATED='session,memory,setup,e2e,mcp'
+if cargo check -p atomcode-capabilities --all-targets \
+     --features "$FEATURE_GATED" \
+     >/tmp/atomcode-feature-gate.$$ 2>&1; then
+  printf '  \033[32mok\033[0m   feature 门控的测试也能编译（%s）\n' "$FEATURE_GATED"
+else
+  printf '  \033[31mFAIL\033[0m feature 门控的测试编译不过（%s）:\n' "$FEATURE_GATED"
+  grep -E '^error' -A 6 /tmp/atomcode-feature-gate.$$ | head -40
+  fail=1
+fi
+rm -f /tmp/atomcode-feature-gate.$$
+
 # 量具自身要能判红。没有这一步,一个永远 `exit 0` 的脚本和这个脚本看起来一模一样。
 #
 # 办法是喂给它一个**一定编译不过**的测试文件,然后要求它说不。放在一个真 crate 的
@@ -64,6 +92,41 @@ else
   printf '  \033[32mok\033[0m   闸门自身会判红\n'
 fi
 cleanup
+trap - EXIT
+
+# 上面那个 canary 只证了默认 feature 那条会判红。这一条证**新门**判红,而且要证
+# 的正是它存在的理由:烂代码放在 feature 门后面时,旧门必须仍然绿。
+#
+# 判据的形状反过来钉 —— 只钉「feature 门那条会红」的话,把两个 feature 写反
+# (用默认 feature 去编)也照样全绿。所以这里钉的是**两者的差**:
+# 同一份坏代码,旧门看不见、新门看得见。
+echo "→ feature 门控的闸门自身会判红（旧门对它应当无感）"
+feature_canary="crates/atomcode-capabilities/tests/e2e.rs"
+feature_backup=$(mktemp)
+cp "$feature_canary" "$feature_backup"
+feature_cleanup() {
+  cp "$feature_backup" "$feature_canary"
+  rm -f "$feature_backup"
+}
+trap feature_cleanup EXIT
+cat >>"$feature_canary" <<'RS'
+// 阴性对照用,由 gates/compile.sh 写入并立刻还原。
+#[test]
+fn this_must_not_compile_under_a_feature() {
+    let _: u32 = "feature gate canary";
+}
+RS
+if cargo check -p atomcode-capabilities --all-targets \
+     --features "$FEATURE_GATED" >/dev/null 2>&1; then
+  printf '  \033[31mFAIL\033[0m feature 门控的闸门判不出编译错误\n'
+  fail=1
+elif cargo check --workspace --all-targets >/dev/null 2>&1; then
+  printf '  \033[32mok\033[0m   feature 门控的闸门自身会判红（旧门对它无感）\n'
+else
+  printf '  \033[31mFAIL\033[0m 旧门也判红了 —— 这条新门没盖住新地方\n'
+  fail=1
+fi
+feature_cleanup
 trap - EXIT
 
 if [ $fail = 0 ]; then
