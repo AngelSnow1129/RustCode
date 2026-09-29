@@ -216,6 +216,9 @@ pub enum Msg<'a> {
         name: &'a str,
     },
     StatusStopping,
+    /// On the status row while the mouse is handed back to the terminal: the
+    /// state the wheel's oddities come from, and the key that ends it.
+    StatusMouseHandedBack,
     /// The status row's background block: how many background sessions are
     /// still running, and how many of those are waiting for the person.
     StatusBackground {

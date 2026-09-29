@@ -1224,7 +1224,10 @@ impl UserInterface for Tui {
                     }
                 }
             }),
-            None => tokio::spawn(async move { read_input(keys_tx).await }),
+            None => {
+                let surface = self.surface.clone();
+                tokio::spawn(async move { read_input(keys_tx, move || !surface.mouse()).await })
+            }
         };
 
         // Before anything is typed: would a turn be taken at all?
@@ -1314,6 +1317,11 @@ impl UserInterface for Tui {
         // changed nothing must not cost one. The first is owed — nothing has
         // been drawn yet.
         let mut stale = true;
+        // Keys to be taken again before anything else is read: a burst of
+        // arrows that turned out not to be a wheel for the composer
+        // (`Input::ArrowBurst`) goes back through the ordinary routing, in the
+        // order it came and ahead of whatever arrived after it.
+        let mut replay: std::collections::VecDeque<Wake> = std::collections::VecDeque::new();
         // Wakes answered since that frame. See [`COALESCE_LIMIT`].
         let mut coalesced = 0usize;
         // Whether the screen could take a background question at the last frame,
@@ -1437,13 +1445,16 @@ impl UserInterface for Tui {
                 coalesced = 0;
             }
             let timer = self.host.modules.tick();
-            let woke = match timer {
-                Some(every) => match tokio::time::timeout(every, wake.recv()).await {
-                    Ok(Some(w)) => w,
-                    Ok(None) => Wake::Closed,
-                    Err(_) => Wake::Tick,
+            let woke = match replay.pop_front() {
+                Some(again) => again,
+                None => match timer {
+                    Some(every) => match tokio::time::timeout(every, wake.recv()).await {
+                        Ok(Some(w)) => w,
+                        Ok(None) => Wake::Closed,
+                        Err(_) => Wake::Tick,
+                    },
+                    None => wake.recv().await.unwrap_or(Wake::Closed),
                 },
-                None => wake.recv().await.unwrap_or(Wake::Closed),
             };
             coalesced += 1;
             // The pointer's own vocabulary, needed in the patterns below rather
@@ -1637,6 +1648,26 @@ impl UserInterface for Tui {
                 }
                 // Acted on above; a change of focus draws nothing by itself.
                 Wake::Input(Input::Focus(_)) => {}
+                // The wheel, as the terminal's arrow keys (see `pump_input`).
+                // Where those arrows would have reached the composer — and
+                // recalled old prompts into it, one per notch — they scroll the
+                // conversation, which is what the wheel was turned for. Anywhere
+                // else (a panel, a menu, a question: things whose list the
+                // arrows walk) they are the keys they were, taken again in order.
+                Wake::Input(Input::ArrowBurst { up, n }) => {
+                    if !self.surface.mouse() && self.arrows_reach_the_composer() {
+                        let lines = n.min(i32::MAX as usize) as i32;
+                        quit = self.act(Action::Scroll(if up { -lines } else { lines }), &client);
+                    } else {
+                        let key = crate::surface::KeyPress::plain(if up {
+                            crate::surface::Key::Up
+                        } else {
+                            crate::surface::Key::Down
+                        });
+                        replay.extend((0..n).map(|_| Wake::Input(Input::Key(key))));
+                    }
+                    stale = true;
+                }
                 Wake::Input(Input::Resize(..)) => {
                     // A resize is the terminal reflowing its own screen under
                     // us, and the repaint diff skips a row whose bytes did not
@@ -2358,8 +2389,42 @@ impl UserInterface for Tui {
 }
 
 impl Tui {
+    /// Whether an arrow key pressed now would reach the composer — nothing
+    /// ahead of it in the key routing below would take it first. The same
+    /// order as the routing, arm for arm; a new owner of the keyboard added
+    /// there belongs here too, or the wheel scrolls under it.
+    fn arrows_reach_the_composer(&self) -> bool {
+        let up = crate::surface::KeyPress::plain(crate::surface::Key::Up);
+        !(self.host.secret_waiting()
+            || self.host.overlays.is_open()
+            || self.host.context_menu_open()
+            || self.host.settings_open()
+            || self.host.providers_open()
+            || self.host.plugins_open()
+            || self.host.tools_open()
+            || self.host.mcp_open()
+            || self.host.rewind_open()
+            || self.host.resume_open()
+            || self.host.sheet_open()
+            || self.host.bg_open()
+            || self.host.asks.is_waiting()
+            || self.host.searching()
+            || (self.host.menu_open() && crate::menu::Slash::owns(up))
+            || self.host.team_focused())
+    }
+
     fn paint(&self) {
         self.name_the_window();
+        // Where the pointer is, for the status row's marker: the surface is the
+        // one that knows, and every way it changes (ctrl+o, `[ui] mouse`, the
+        // terminal taking it back and it being taken again) ends in a paint.
+        {
+            let back = !self.surface.mouse();
+            let mut m = self.host.moment.write().expect("moment poisoned");
+            if m.mouse_handed_back != back {
+                m.mouse_handed_back = back;
+            }
+        }
         let frame = self.host.compose(self.surface.size());
         self.surface.present(&frame);
     }
@@ -7488,11 +7553,14 @@ fn sanitize_paste(text: &str) -> String {
 /// unchanged when the run turns out not to be a paste. Rebuilding a key event
 /// from its character would be a second answer to what a keystroke is, sitting
 /// next to `from_crossterm` and free to disagree with it.
-async fn read_input(wake: mpsc::UnboundedSender<Wake>) {
+async fn read_input(
+    wake: mpsc::UnboundedSender<Wake>,
+    handed_back: impl Fn() -> bool + Send + 'static,
+) {
     use futures::StreamExt;
     let events = crossterm::event::EventStream::new().filter_map(|read| async { read.ok() });
     futures::pin_mut!(events);
-    pump_input(events, wake).await;
+    pump_input(events, wake, handed_back).await;
 }
 
 /// [`read_input`] over any stream of terminal events.
@@ -7501,8 +7569,11 @@ async fn read_input(wake: mpsc::UnboundedSender<Wake>) {
 /// stream needs a tty, and what is worth judging here is not that crossterm
 /// reads — it is the timing decision, and a judgement that cannot supply the
 /// timing judges nothing. Everything above is one line of plumbing.
-async fn pump_input<S>(mut events: S, wake: mpsc::UnboundedSender<Wake>)
-where
+async fn pump_input<S>(
+    mut events: S,
+    wake: mpsc::UnboundedSender<Wake>,
+    handed_back: impl Fn() -> bool,
+) where
     S: futures::Stream<Item = crossterm::event::Event> + Unpin,
 {
     use futures::StreamExt;
@@ -7513,7 +7584,53 @@ where
             None => true,
         }
     };
-    while let Some(event) = events.next().await {
+    // The event that ended a run (the key after a burst of arrows, the one
+    // after a replayed paste) goes round again, through every check above —
+    // forwarded straight on, a reversed wheel's first arrow was one ↑ into the
+    // composer, and a paste's first character was a keystroke.
+    let mut next_up: Option<crossterm::event::Event> = None;
+    loop {
+        let event = match next_up.take() {
+            Some(event) => event,
+            None => match events.next().await {
+                Some(event) => event,
+                None => break,
+            },
+        };
+        // **The wheel, turned into arrow keys by the terminal.** With the
+        // pointer handed back, iTerm2 ("scroll wheel sends arrow keys when in
+        // alternate screen mode", on by default) and Terminal.app send the
+        // wheel as ↑/↓ — and ↑ at the top of the composer is history recall,
+        // so every notch put an old prompt in the box. The bytes are a real
+        // key's; what tells them apart is the timing: a notch is several of the
+        // same arrow in one write, where a person's key repeat is 30ms apart at
+        // its fastest. Gathered only while the pointer is the terminal's —
+        // with it ours the wheel is a mouse event, and an arrow is a key and
+        // pays no wait.
+        if let Some(up) = crate::surface::bare_arrow(&event).filter(|_| handed_back()) {
+            let mut n = 1usize;
+            let mut after: Option<crossterm::event::Event> = None;
+            loop {
+                match tokio::time::timeout(crate::surface::BURST_PENDING, events.next()).await {
+                    Ok(Some(next)) if crate::surface::bare_arrow(&next) == Some(up) => n += 1,
+                    Ok(Some(next)) => {
+                        after = Some(next);
+                        break;
+                    }
+                    _ => break,
+                }
+            }
+            let sent = if n >= 2 {
+                wake.send(Wake::Input(Input::ArrowBurst { up, n })).is_ok()
+            } else {
+                forward(event)
+            };
+            if !sent {
+                break;
+            }
+            next_up = after;
+            continue;
+        }
         let Some(first) = crate::surface::burst_char(&event) else {
             if !forward(event) {
                 break;
@@ -7557,11 +7674,7 @@ where
         if !sent {
             break;
         }
-        if let Some(event) = after {
-            if !forward(event) {
-                break;
-            }
-        }
+        next_up = after;
     }
 }
 
@@ -9093,6 +9206,11 @@ mod paste_burst_tests {
     /// of assertion is the one not to convert). The whole file below costs
     /// under a fifth of a second.
     async fn pumped(script: Vec<(u64, Event)>) -> Vec<Input> {
+        pumped_with(script, false).await
+    }
+
+    /// [`pumped`], with the pointer handed back to the terminal (`true`) or ours.
+    async fn pumped_with(script: Vec<(u64, Event)>, handed_back: bool) -> Vec<Input> {
         let events = futures::stream::unfold(script.into_iter(), |mut rest| async move {
             let (gap_ms, event) = rest.next()?;
             tokio::time::sleep(std::time::Duration::from_millis(gap_ms)).await;
@@ -9101,12 +9219,75 @@ mod paste_burst_tests {
         .fuse();
         futures::pin_mut!(events);
         let (tx, mut rx) = mpsc::unbounded_channel();
-        super::pump_input(events, tx).await;
+        super::pump_input(events, tx, move || handed_back).await;
         let mut seen = Vec::new();
         while let Ok(Wake::Input(input)) = rx.try_recv() {
             seen.push(input);
         }
         seen
+    }
+
+    fn arrow(up: bool) -> Event {
+        Event::Key(KeyEvent::new(
+            if up { KeyCode::Up } else { KeyCode::Down },
+            KeyModifiers::NONE,
+        ))
+    }
+
+    /// **The wheel, turned into arrows by the terminal.** With the pointer
+    /// handed back, a notch is the same arrow several times in one write —
+    /// gathered into one burst, so the screen can scroll instead of stepping
+    /// the input history once per arrow. And only then: with the pointer ours
+    /// an arrow is a key and nothing waits for a second one.
+    #[tokio::test]
+    async fn arrows_the_wheel_sent_are_one_burst_only_while_the_pointer_is_handed_back() {
+        let notch = || vec![(0, arrow(true)), (0, arrow(true)), (0, arrow(true))];
+        assert_eq!(
+            pumped_with(notch(), true).await,
+            vec![Input::ArrowBurst { up: true, n: 3 }]
+        );
+        assert_eq!(
+            pumped_with(notch(), false).await,
+            vec![Input::Key(KeyPress::plain(Key::Up)); 3],
+            "the pointer is ours: the wheel is a mouse event, and these are keys"
+        );
+        // A person holding ↓: key repeat is tens of milliseconds apart at its
+        // fastest — keys, not a wheel.
+        assert_eq!(
+            pumped_with(vec![(0, arrow(false)), (35, arrow(false))], true).await,
+            vec![Input::Key(KeyPress::plain(Key::Down)); 2]
+        );
+        // The wheel reversed: the first arrow of the other way ends the burst,
+        // and is itself looked at again — the start of the next burst, not one
+        // lone ↑ let through to the composer.
+        assert_eq!(
+            pumped_with(
+                vec![
+                    (0, arrow(false)),
+                    (0, arrow(false)),
+                    (0, arrow(true)),
+                    (0, arrow(true))
+                ],
+                true
+            )
+            .await,
+            vec![
+                Input::ArrowBurst { up: false, n: 2 },
+                Input::ArrowBurst { up: true, n: 2 }
+            ]
+        );
+        // What follows a burst keeps its place behind it.
+        assert_eq!(
+            pumped_with(
+                vec![(0, arrow(false)), (0, arrow(false)), (0, press('x'))],
+                true
+            )
+            .await,
+            vec![
+                Input::ArrowBurst { up: false, n: 2 },
+                Input::Key(KeyPress::ch('x'))
+            ]
+        );
     }
 
     /// **The bug this exists for.** A terminal with no bracketed paste replays

@@ -129,6 +129,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         // ── 状态栏 ──
         Msg::StatusMember { name } => format!("成员 {name}").into(),
         Msg::StatusStopping => "停止中".into(),
+        Msg::StatusMouseHandedBack => "鼠标:终端 ctrl+o".into(),
         Msg::StatusBackground { running, waiting } => match waiting {
             0 => format!("后台 {running}").into(),
             waiting => format!("后台 {running} · {waiting} 等你").into(),
@@ -744,7 +745,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ImageGone => "这张图已经找不到了".into(),
         Msg::ImageCorrupt => "图片数据损坏".into(),
         Msg::MouseTaken => "鼠标已收回:拖动选中并复制,点击思考或工具调用折叠展开那一个,滚轮滚动,esc 取消选中".into(),
-        Msg::MouseHandedBack => "鼠标已交还终端:改用终端自己的框选(可跨 scrollback)。折叠用 ctrl-t,思考用 alt-r(默认不显示),滚动用 pgup/pgdn,ctrl-o 收回鼠标".into(),
+        Msg::MouseHandedBack => "鼠标已交还终端:改用终端自己的框选(可跨 scrollback)。这时滚轮可能被终端转成方向键、在输入框里切换历史 —— 滚动请用 pgup/pgdn。折叠用 ctrl-t,思考用 alt-r(默认不显示),ctrl-o 收回鼠标".into(),
         Msg::ReasoningHiddenHint => "这一轮的思考过程没有显示 · alt-r 查看(或 /reasoning)".into(),
         Msg::NoProviderPanel => "这个屏幕没有 provider 面板:启动器没有提供 `tui-panel-providers`".into(),
         Msg::NoPluginPanel => "这个屏幕没有插件面板:启动器没有提供 `tui-panel-plugins`".into(),

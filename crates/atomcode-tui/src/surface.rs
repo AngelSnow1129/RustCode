@@ -141,6 +141,16 @@ pub enum Input {
     /// terminal is when a person has just been somewhere else — taking a
     /// screenshot, most often.
     Focus(bool),
+    /// The same arrow key `n` times (`n >= 2`), arriving too fast to have been
+    /// pressed: what a terminal sends for the wheel when the pointer is handed
+    /// back — iTerm2's "scroll wheel sends arrow keys when in alternate screen
+    /// mode", Terminal.app's own. Only gathered while the pointer is the
+    /// terminal's (`pump_input`); with it ours, the wheel is a mouse event and
+    /// an arrow is only ever a key.
+    ArrowBurst {
+        up: bool,
+        n: usize,
+    },
 }
 
 /// The terminal, as a seam.
@@ -455,6 +465,14 @@ impl Headless {
     /// The window gains or loses focus, the way the terminal would say so.
     pub fn focus(&self, gained: bool) {
         let _ = self.keys.send(Input::Focus(gained));
+    }
+
+    /// The wheel, as a terminal with the pointer handed back sends it — the
+    /// same arrow `n` times, which the reader gathers into one
+    /// [`Input::ArrowBurst`] (`pump_input`). Scripted at that level because the
+    /// gathering is judged on its own, against real timing.
+    pub fn arrows(&self, up: bool, n: usize) {
+        let _ = self.keys.send(Input::ArrowBurst { up, n });
     }
 
     /// Press a key.
@@ -1811,6 +1829,21 @@ pub const BURST_ACTIVE: std::time::Duration = std::time::Duration::from_millis(4
 
 /// The most characters gathered into one synthesised paste.
 pub const BURST_CAP: usize = 8192;
+
+/// `Some(true)` for a bare ↑ press, `Some(false)` for a bare ↓, `None` for
+/// anything else — the keys a terminal turns the wheel into (`pump_input`).
+pub fn bare_arrow(event: &crossterm::event::Event) -> Option<bool> {
+    use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
+    let Event::Key(k) = event else { return None };
+    if k.kind != KeyEventKind::Press || k.modifiers != KeyModifiers::NONE {
+        return None;
+    }
+    match k.code {
+        KeyCode::Up => Some(true),
+        KeyCode::Down => Some(false),
+        _ => None,
+    }
+}
 
 /// The character a key event would contribute to a paste, if it could be part
 /// of one.

@@ -152,6 +152,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         // ── the status bar ──
         Msg::StatusMember { name } => format!("member {name}").into(),
         Msg::StatusStopping => "stopping".into(),
+        Msg::StatusMouseHandedBack => "mouse: terminal ctrl+o".into(),
         Msg::StatusBackground { running, waiting } => match waiting {
             0 => format!("{running} in background").into(),
             waiting => format!("{running} in background · {waiting} waiting on you").into(),
@@ -799,7 +800,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ImageGone => "that image is no longer available".into(),
         Msg::ImageCorrupt => "the image data is corrupt".into(),
         Msg::MouseTaken => "the mouse is taken: drag to select and copy, click a thought or a tool call to fold it, wheel to scroll, esc to drop the selection".into(),
-        Msg::MouseHandedBack => "the mouse is the terminal's: use its own selection (which reaches into the scrollback). Fold with ctrl-t, reasoning with alt-r (hidden by default), scroll with pgup/pgdn, ctrl-o takes the mouse back".into(),
+        Msg::MouseHandedBack => "the mouse is the terminal's: use its own selection (which reaches into the scrollback). The terminal may now turn the wheel into arrow keys, which step through the input history — scroll with pgup/pgdn. Fold with ctrl-t, reasoning with alt-r (hidden by default), ctrl-o takes the mouse back".into(),
         Msg::ReasoningHiddenHint => "this turn's reasoning is hidden · alt-r shows it (or /reasoning)".into(),
         Msg::NoProviderPanel => "this screen has no provider panel: the launcher provided no `tui-panel-providers`".into(),
         Msg::NoPluginPanel => "this screen has no plugin panel: the launcher provided no `tui-panel-plugins`".into(),

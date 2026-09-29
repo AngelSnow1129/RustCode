@@ -198,6 +198,21 @@ impl View for Status {
         if let Some((text, _)) = &background {
             reserved += width::str_width(text) + sep_w;
         }
+        // The mouse handed back to the terminal (ctrl+o, `[ui] mouse = false`):
+        // said for as long as it lasts, because it is the state the wheel's
+        // oddities come from — the terminal turns the wheel into arrow keys —
+        // and the one-off line said when it was handed back has scrolled away
+        // by the time the wheel is reached for.
+        //
+        // **Last, and only where it fits.** Not reserved: for someone who set
+        // `mouse = false` on purpose (a phone, a narrow pane) it is a standing
+        // state, not news, and it must never squeeze the model, the directory
+        // or the context usage off the row. Placed after everything else, it
+        // is drawn only in the room left over.
+        let pointer = vp
+            .moment
+            .mouse_handed_back
+            .then(|| t(Msg::StatusMouseHandedBack).into_owned());
         // How much allowance is left, but only once it is close enough to
         // change what a person does. Below that it is a number nobody acts on,
         // and a row that always carries one has that much less room for the
@@ -259,6 +274,14 @@ impl View for Status {
         let segs = fit_status_segments(
             &model_str, &cwd_full, &cwd_base, &ctx_str, &cache_str, budget, sep_w,
         );
+        // What the row takes before the pointer marker, to know whether the
+        // marker fits after it.
+        let taken = reserved
+            + segs
+                .iter()
+                .map(|(_, text)| width::str_width(text))
+                .sum::<usize>()
+            + sep_w * segs.len().saturating_sub(1);
 
         // Each part carries its own colour: the model in the theme accent, the cwd
         // muted grey, the cache ratio gold, and the context usage green — shifting
@@ -290,6 +313,7 @@ impl View for Status {
             row.push(El::styled(sep_text.clone(), dim));
             row.push(El::styled(text, style));
         }
+
         if let Some((text, percent)) = allowance {
             row.push(El::styled(sep_text.clone(), dim));
             // Warning while there is still room to change course; error once
@@ -305,6 +329,12 @@ impl View for Status {
         if let Some((text, style)) = activity {
             row.push(El::styled(sep_text.clone(), dim));
             row.push(El::styled(text, style));
+        }
+        if let Some(text) = pointer {
+            if taken + sep_w + width::str_width(&text) <= w as usize {
+                row.push(El::styled(sep_text.clone(), dim));
+                row.push(El::styled(text, dim));
+            }
         }
         El::row(row).lay(w)
     }
@@ -707,6 +737,36 @@ mod tests {
             .first()
             .map(|l| l.plain())
             .unwrap_or_default()
+    }
+
+    /// The mouse handed back is said on the row — at the end, and only where it
+    /// fits: for someone who chose `mouse = false` it is a standing state, and
+    /// it must never push the model or the directory off a narrow row.
+    #[test]
+    fn a_mouse_handed_back_is_said_only_in_the_room_left_over() {
+        let marker = t(Msg::StatusMouseHandedBack).into_owned();
+        let moment = |back: bool| Moment {
+            cwd: "~/work/project".into(),
+            model: "glm-5".into(),
+            mouse_handed_back: back,
+            ..Moment::default()
+        };
+        let wide = draw::<Status>(&State::default(), 120, &moment(true));
+        assert!(wide.contains(&marker), "{wide}");
+        assert!(
+            wide.trim_end().ends_with(&marker),
+            "last on the row: {wide}"
+        );
+        assert!(
+            !draw::<Status>(&State::default(), 120, &moment(false)).contains(&marker),
+            "ours: nothing to say"
+        );
+        let narrow = draw::<Status>(&State::default(), 24, &moment(true));
+        assert!(!narrow.contains(&marker), "no room: {narrow}");
+        assert!(
+            narrow.contains("glm-5"),
+            "and the model keeps its place: {narrow}"
+        );
     }
 
     /// Background sessions still running get a block of their own on the row,

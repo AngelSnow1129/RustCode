@@ -9152,3 +9152,57 @@ impl atomcode_host_api::HostControl for WorksIn {
         self.inner.subscribe()
     }
 }
+
+/// **The wheel with the mouse handed back scrolls, it does not step the input
+/// history.** With the pointer the terminal's (ctrl+o), iTerm2 and Terminal.app
+/// send the wheel as arrow keys, and ↑ in an empty composer recalls the last
+/// prompt — every notch put an old line in the box. The reader gathers a notch
+/// into one burst (`Input::ArrowBurst`); where it would have reached the
+/// composer it scrolls instead, and the status row says the mouse is handed
+/// back for as long as it is. With the mouse ours, the same burst is the keys
+/// it was, and ↑ recalls as it always did.
+#[tokio::test]
+async fn the_wheel_as_arrows_scrolls_while_the_mouse_is_handed_back() {
+    let dir = scratch("wheel-arrows");
+    let s = start(tree(&dir, &replay(r#"{ text = "ok" }"#), &[])).await;
+    let task = s.open().await;
+    s.term.type_line("REMEMBERED-PROMPT");
+    until(&s, "ok").await;
+    s.quiet().await;
+    let marker =
+        atomcode_i18n::screen::t(atomcode_i18n::screen::Msg::StatusMouseHandedBack).into_owned();
+    let composer = |s: &Session| {
+        s.term
+            .text()
+            .lines()
+            .filter(|line| line.contains("REMEMBERED-PROMPT"))
+            .count()
+    };
+    let before = composer(&s);
+
+    // Handed back: the notch scrolls, the box stays empty, the row says why.
+    s.term.press(KeyPress::ctrl('o'));
+    until(&s, &marker).await;
+    s.term.arrows(true, 3);
+    s.quiet().await;
+    assert_eq!(
+        composer(&s),
+        before,
+        "no old prompt was recalled into the box:\n{}",
+        s.screen()
+    );
+
+    // Ours again: the marker goes, and the same burst is ↑ three times.
+    s.term.press(KeyPress::ctrl('o'));
+    until_gone(&s, &marker).await;
+    s.term.arrows(true, 3);
+    s.quiet().await;
+    assert!(
+        composer(&s) > before,
+        "with the mouse ours an arrow is a key, and ↑ recalls:\n{}",
+        s.screen()
+    );
+
+    s.term.press(KeyPress::ctrl('d'));
+    let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+}
