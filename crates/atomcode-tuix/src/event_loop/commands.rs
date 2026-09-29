@@ -3073,7 +3073,7 @@ fn execute_slash_command_impl(
                 Some(McpSub::Login) => {
                     // Exactly one token is the server key; missing or a stray extra
                     // arg (`/mcp login rvs new-file`) → usage, not a bogus key.
-                    let args = sub.strip_prefix("login").map(str::trim).unwrap_or("");
+                    let args = mcp_subcommand_arg(sub);
                     let Some(server) = mcp_single_server_arg(args) else {
                         renderer.render(UiLine::CommandOutput(
                             t(Msg::McpOAuthLoginUsage).into_owned(),
@@ -3180,7 +3180,7 @@ fn execute_slash_command_impl(
                 Some(McpSub::Logout) => {
                     // Exactly one token is the server key; missing or a stray extra
                     // arg (`/mcp logout rvs new-file`) → usage, not a bogus key.
-                    let args = sub.strip_prefix("logout").map(str::trim).unwrap_or("");
+                    let args = mcp_subcommand_arg(sub);
                     let Some(server) = mcp_single_server_arg(args) else {
                         renderer.render(UiLine::CommandOutput(
                             t(Msg::McpOAuthLogoutUsage).into_owned(),
@@ -3383,7 +3383,7 @@ fn execute_slash_command_impl(
                 Some(McpSub::Tools) => {
                     // `/mcp tools <server>`: list remote tool names for a connected server.
                     // This is intentionally separate from a global `/tools` so we keep the surface minimal.
-                    let args = sub.strip_prefix("tools").map(str::trim).unwrap_or("");
+                    let args = mcp_subcommand_arg(sub);
                     let Some(server) = mcp_single_server_arg(args) else {
                         // Zero, or a stray extra arg (e.g. `/mcp tools rvs new-file`) →
                         // arg-count error; reuse the usage hint.
@@ -3410,7 +3410,17 @@ fn execute_slash_command_impl(
                     return Ok(());
                 }
 
-                None => { /* fall through to default status display below */ }
+                // Bare `/mcp` shows the status below. Anything else that is
+                // not a subcommand is said to be one, rather than answered with
+                // the status list: `/mcp relaod` looked like it had worked.
+                None if !sub.is_empty() => {
+                    renderer.render(UiLine::CommandOutput(
+                        t(Msg::McpUnknownSubcommand { what: sub }).into_owned(),
+                    ));
+                    renderer.flush();
+                    return Ok(());
+                }
+                None => { /* bare `/mcp`: the status display below */ }
             }
 
             // Default: show status.
@@ -3427,7 +3437,11 @@ fn execute_slash_command_impl(
                     let mut txt = t(Msg::McpServersHeader).into_owned();
                     let blocked = count_blocked_untrusted(&status.servers);
                     for (name, server_status) in &status.servers {
-                        txt.push_str(&format!("    {}  {}\n", name, server_status));
+                        txt.push_str(&format!(
+                            "    {}  {}\n",
+                            name,
+                            mcp_status_words(server_status)
+                        ));
                     }
                     // When any project-source server is withheld, surface how to
                     // unblock it — the raw `blocked: untrusted project` lines never
@@ -6666,40 +6680,61 @@ pub(crate) fn format_mcp_tools_snapshot(
     available: &[String],
 ) -> String {
     if !tools.is_empty() {
-        let mut message = String::from("tools:\n");
+        let mut message = t(Msg::McpToolsOf { server }).into_owned();
         for tool in tools {
-            message.push_str(&format!("  - {tool}\n"));
+            message.push_str(&format!("    - {tool}\n"));
         }
         return message.trim_end().to_string();
     }
     match status {
-        Some(status) => format!("tools:\n  (none — {status})"),
+        Some(status) => t(Msg::McpServerNoTools {
+            server,
+            status: &mcp_status_words(status),
+        })
+        .trim_end()
+        .to_string(),
         None => format_unknown_server(server, available),
     }
 }
 
-pub(crate) fn parse_mcp_subcommand(sub: &str) -> Option<McpSub> {
-    let s = sub.trim();
-    if s.eq_ignore_ascii_case("reload") {
-        Some(McpSub::Reload)
-    } else if s.eq_ignore_ascii_case("trust") {
-        Some(McpSub::Trust)
-    } else if s.eq_ignore_ascii_case("untrust") {
-        Some(McpSub::Untrust)
-    } else if s.eq_ignore_ascii_case("help")
-        || s.eq_ignore_ascii_case("--help")
-        || s.eq_ignore_ascii_case("-h")
-    {
-        Some(McpSub::Help)
-    } else if s.starts_with("tools") {
-        Some(McpSub::Tools)
-    } else if s.starts_with("login") {
-        Some(McpSub::Login)
-    } else if s.starts_with("logout") {
-        Some(McpSub::Logout)
-    } else {
-        None
+/// A server's state in the screen's language — the status list printed the
+/// capability's English `Display` (`blocked: untrusted project`) in the middle
+/// of a Chinese screen.
+pub(crate) fn mcp_status_words(status: &atomcode_capabilities::mcp::ServerStatus) -> String {
+    use atomcode_capabilities::mcp::ServerStatus as S;
+    match status {
+        S::Connecting => t(Msg::McpStatusConnecting),
+        S::Connected => t(Msg::McpStatusConnected),
+        S::BlockedUntrusted => t(Msg::McpStatusBlockedUntrusted),
+        S::Failed(error) => t(Msg::McpStatusFailed { error }),
+        S::Disconnected => t(Msg::McpStatusDisconnected),
     }
+    .into_owned()
+}
+
+/// The subcommand is the first word, in any case; what follows is its argument
+/// ([`mcp_subcommand_arg`]). The same reading as the rows screen's `/mcp`, so a
+/// line gets the same answer on both — `/mcp Tools fs`, `/mcp reload now` —
+/// and `/mcp toolsx` is not taken for `tools`.
+pub(crate) fn parse_mcp_subcommand(sub: &str) -> Option<McpSub> {
+    let word = sub.split_whitespace().next()?.to_ascii_lowercase();
+    match word.as_str() {
+        "reload" => Some(McpSub::Reload),
+        "trust" => Some(McpSub::Trust),
+        "untrust" => Some(McpSub::Untrust),
+        "help" | "--help" | "-h" => Some(McpSub::Help),
+        "tools" => Some(McpSub::Tools),
+        "login" => Some(McpSub::Login),
+        "logout" => Some(McpSub::Logout),
+        _ => None,
+    }
+}
+
+/// What follows the subcommand's word.
+pub(crate) fn mcp_subcommand_arg(sub: &str) -> &str {
+    let sub = sub.trim_start();
+    sub.split_once(char::is_whitespace)
+        .map_or("", |(_, rest)| rest.trim())
 }
 
 #[cfg(test)]
@@ -9410,6 +9445,7 @@ mod todo_command_tests {
 #[cfg(test)]
 mod mcp_subcommand_tests {
     use super::{count_blocked_untrusted, parse_mcp_subcommand, McpSub};
+    use crate::i18n::{t, Msg};
     use atomcode_capabilities::mcp::ServerStatus;
 
     #[test]
@@ -9572,13 +9608,84 @@ mod mcp_subcommand_tests {
         // NOT misreport it as an unknown key.
         let out =
             format_mcp_tools_snapshot("rvs", &[], Some(&ServerStatus::Connected), &["rvs".into()]);
-        assert!(
-            out.contains("none"),
-            "shows the (none — status) form: {out:?}"
+        assert_eq!(
+            out,
+            t(Msg::McpServerNoTools {
+                server: "rvs",
+                status: &t(Msg::McpStatusConnected),
+            })
+            .trim_end(),
+            "says it has none, and its state, in the screen's language"
         );
         assert!(
             !out.contains("未找到") && !out.contains("named"),
             "not an unknown-key message: {out:?}"
+        );
+    }
+
+    /// The status list is in the screen's language: no `blocked: untrusted
+    /// project` from the capability's English `Display`.
+    #[test]
+    fn mcp_status_is_said_in_the_screens_words() {
+        use atomcode_capabilities::mcp::ServerStatus as S;
+        for status in [
+            S::Connecting,
+            S::Connected,
+            S::BlockedUntrusted,
+            S::Failed("exit 1".into()),
+            S::Disconnected,
+        ] {
+            assert!(!super::mcp_status_words(&status).is_empty());
+        }
+        let held = super::mcp_status_words(&S::BlockedUntrusted);
+        assert_ne!(
+            held,
+            S::BlockedUntrusted.to_string(),
+            "not the capability's Display"
+        );
+        // And `/mcp tools` says it in the same words.
+        let out =
+            super::format_mcp_tools_snapshot("p", &[], Some(&S::BlockedUntrusted), &["p".into()]);
+        assert!(out.contains(&held), "{out}");
+        assert!(!out.contains(&S::BlockedUntrusted.to_string()), "{out}");
+        assert!(super::mcp_status_words(&S::Failed("exit 1".into())).contains("exit 1"));
+    }
+
+    /// The same line reads the same on both screens: the first word, in any
+    /// case, is the subcommand, and what follows it is its argument.
+    #[test]
+    fn a_subcommand_is_its_first_word_in_any_case() {
+        use super::mcp_subcommand_arg;
+        assert!(matches!(
+            parse_mcp_subcommand("Tools fs"),
+            Some(McpSub::Tools)
+        ));
+        assert_eq!(mcp_subcommand_arg("Tools fs"), "fs");
+        assert!(matches!(
+            parse_mcp_subcommand("reload now"),
+            Some(McpSub::Reload)
+        ));
+        assert!(matches!(
+            parse_mcp_subcommand("LOGIN github"),
+            Some(McpSub::Login)
+        ));
+        assert_eq!(mcp_subcommand_arg("  login   github  "), "github");
+        assert!(
+            parse_mcp_subcommand("toolsx").is_none(),
+            "not a prefix match"
+        );
+        assert!(parse_mcp_subcommand("").is_none());
+    }
+
+    /// A word that is not a subcommand is said to be one: `/mcp relaod`
+    /// answered with the status list, which read as if it had reloaded.
+    #[test]
+    fn an_unknown_mcp_subcommand_is_not_taken_for_the_status() {
+        assert!(super::parse_mcp_subcommand("relaod").is_none());
+        let said = t(Msg::McpUnknownSubcommand { what: "relaod" });
+        assert!(
+            said.contains("relaod") && said.contains("/mcp help"),
+            "{said}"
         );
     }
 

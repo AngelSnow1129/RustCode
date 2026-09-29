@@ -834,9 +834,19 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::McpNoServersConfigured =>
             "  No MCP servers configured.\n".into(),
         Msg::McpClearedReconnecting =>
-            "  MCP reload requested. Old MCP tools are withdrawn before reconnecting in the background.\n".into(),
+            "  MCP reloaded: the old tools are off and the servers are connecting in the background; /mcp shows where each stands.\n".into(),
         Msg::McpClearedNoServers =>
-            "  MCP reload requested. Old MCP tools are withdrawn; no servers are configured.\n".into(),
+            "  MCP reloaded: the old tools are off; no servers are configured.\n".into(),
+        Msg::McpUnknownSubcommand { what } =>
+            format!("  `/mcp {what}` is not one of them; /mcp help lists them all.\n").into(),
+        Msg::McpToolsOf { server } => format!("  {server}'s tools:\n").into(),
+        Msg::McpServerNoTools { server, status } =>
+            format!("  {server} mounted no tools (state: {status})\n").into(),
+        Msg::McpStatusConnecting => "connecting".into(),
+        Msg::McpStatusConnected => "connected".into(),
+        Msg::McpStatusBlockedUntrusted => "held back: this project is not trusted".into(),
+        Msg::McpStatusFailed { error } => format!("failed: {error}").into(),
+        Msg::McpStatusDisconnected => "disconnected".into(),
         Msg::McpToolsUsage =>
             "  Usage: /mcp tools <server>\n  Example: /mcp tools filesystem\n".into(),
         Msg::McpServersHeader =>

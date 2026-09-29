@@ -1233,6 +1233,12 @@ async fn apply_mcp_action(
                 .map_err(|e| format!("{e:#}"))
         }
         McpAction::Untrust => {
+            // Nothing to withdraw from a project that was never trusted: said so,
+            // before the tools come off and every server is reconnected for
+            // nothing.
+            if !atomcode_capabilities::mcp::trust::is_project_trusted(&runtime.config.working_dir) {
+                return Err(atomcode_capabilities::mcp::trust::PROJECT_NOT_TRUSTED.to_string());
+            }
             // Fail-closed, in this order: the tools come off
             // BEFORE the trust that lets them connect is
             // withdrawn (`parts.rs:1312-1321`).

@@ -2817,6 +2817,44 @@ impl Tui {
         });
     }
 
+    /// [`refresh_mcp`](Self::refresh_mcp), then `server`'s page — in that
+    /// order, because putting the list in replaces the whole view, page and all:
+    /// fetched the other way round, the page could land first and be wiped.
+    fn refresh_mcp_on(&self, server: String) {
+        let Some(ctx) = self.ctx.lock().expect("ctx poisoned").clone() else {
+            self.host
+                .mcp_note(Some(t(Msg::ScreenNotConnectedAgent).into_owned()));
+            return;
+        };
+        let Some(port) = ctx.service::<crate::plugin::McpSvc>() else {
+            self.host.mcp_note(Some(t(Msg::NoMcpPort).into_owned()));
+            return;
+        };
+        let host = self.host.clone();
+        let keys = self.wake.lock().expect("wake poisoned").clone();
+        tokio::spawn(async move {
+            match port.list().await {
+                Ok(view) => {
+                    host.show_mcp(view);
+                }
+                Err(why) => {
+                    host.mcp_note(Some(why));
+                }
+            }
+            match port.detail(&server).await {
+                Ok(detail) => {
+                    host.mcp_detail(detail);
+                }
+                Err(why) => {
+                    host.mcp_note(Some(why));
+                }
+            }
+            if let Some(keys) = keys {
+                let _ = keys.send(Wake::Fact);
+            }
+        });
+    }
+
     /// Ask the host which turns this session can go back to, and put the answer
     /// on the panel.
     ///
@@ -6161,6 +6199,15 @@ impl Tui {
                 if self.host.mcp_open() {
                     self.refresh_mcp();
                 }
+                return false;
+            }
+            Action::OpenMcpServer(server) => {
+                drop(m);
+                if !self.host.open_mcp_on(&server) {
+                    self.say(&t(Msg::McpPanelUnavailable));
+                    return false;
+                }
+                self.refresh_mcp_on(server);
                 return false;
             }
             Action::ToggleRewind => {

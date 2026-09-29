@@ -4507,6 +4507,27 @@ impl Host {
         }
     }
 
+    /// The MCP panel, up (it is raised if it was down) and standing on
+    /// `server`'s page, waiting for that page. False when there is nothing to
+    /// draw it with. The page itself is fetched by the caller, as a press of
+    /// Enter on that row would have it fetched.
+    pub fn open_mcp_on(&self, server: &str) -> bool {
+        if !self.mcp_open() && !self.toggle_mcp() {
+            return false;
+        }
+        let mut m = self.moment.write().expect("moment poisoned");
+        let Some(panel) = m.mcp_panel.as_mut() else {
+            return false;
+        };
+        panel.note = None;
+        panel.level = crate::mcp::Level::Detail;
+        panel.detail_for = Some(server.to_string());
+        panel.list_at = 0;
+        panel.cursor = 0;
+        panel.clicked = None;
+        true
+    }
+
     /// Put the MCP panel away. True when it was up.
     pub fn close_mcp(&self) -> bool {
         self.moment
@@ -4520,6 +4541,18 @@ impl Host {
     /// Put what the port answered into the moment. True when it changed.
     pub fn show_mcp(&self, view: crate::mcp::McpView) -> bool {
         let mut m = self.moment.write().expect("moment poisoned");
+        // A list carries no page. While the panel stands on a server's page, that
+        // server's page stays: a list read before the page was asked for, landing
+        // after it, would otherwise blank a page that had arrived.
+        let on = m
+            .mcp_panel
+            .as_ref()
+            .filter(|p| p.level == crate::mcp::Level::Detail)
+            .and_then(|p| p.detail_for.clone());
+        let view = match (view.detail(), m.mcp.detail_for(on.as_deref())) {
+            (None, Some(kept)) => view.with_detail(kept.clone()),
+            _ => view,
+        };
         if m.mcp == view {
             return false;
         }
@@ -7862,6 +7895,49 @@ mod tests {
             frame.cursor.is_none(),
             "no caret in a field that is not there"
         );
+    }
+
+    /// `/mcp login <server>` puts the MCP panel up on that server's page,
+    /// waiting for it — whether the panel was down or up on another page —
+    /// so the page that arrives is the one that is drawn.
+    #[test]
+    fn the_mcp_panel_can_be_put_up_on_one_servers_page() {
+        let h = host_with_mcp();
+        assert!(h.open_mcp_on("github"), "raised from down");
+        let on = |h: &Host| {
+            let m = h.moment.read().unwrap();
+            let panel = m.mcp_panel.as_ref().expect("up");
+            (panel.level, panel.detail_for.clone())
+        };
+        assert_eq!(on(&h), (crate::mcp::Level::Detail, Some("github".into())));
+        assert!(h.open_mcp_on("figma"), "moved while up");
+        assert_eq!(on(&h), (crate::mcp::Level::Detail, Some("figma".into())));
+        assert!(h.mcp_open(), "and still up, not toggled away");
+        // With nothing to draw it with, it is refused, not faked.
+        assert!(!host().open_mcp_on("github"));
+    }
+
+    /// A list that lands after a server's page does not blank it: the page the
+    /// panel stands on stays, whichever of the two reads came back last.
+    #[test]
+    fn a_list_landing_after_the_page_keeps_the_page() {
+        let h = host_with_mcp();
+        assert!(h.open_mcp_on("github"));
+        let detail = crate::mcp::McpDetail {
+            name: "github".into(),
+            state: crate::mcp::McpState::Connected,
+            source: "global".into(),
+            transport: crate::mcp::Transport::Http {
+                url: "https://example.test/mcp".into(),
+            },
+            auth: crate::mcp::Auth::None,
+            tool_count: 1,
+            config_path: None,
+        };
+        assert!(h.mcp_detail(detail.clone()));
+        h.show_mcp(crate::mcp::McpView::new(Vec::new()));
+        let m = h.moment.read().unwrap();
+        assert_eq!(m.mcp.detail_for(Some("github")), Some(&detail));
     }
 
     /// Every panel a person works in takes the status line's row while it is

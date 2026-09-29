@@ -66,6 +66,10 @@ fn save_store(store: &TrustStore) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// What untrusting a project that was never trusted answers with. A constant
+/// so a front end can recognise it and say it in its own words.
+pub const PROJECT_NOT_TRUSTED: &str = "this project is not trusted";
+
 /// True iff `project_dir` is recorded as trusted.
 pub fn is_project_trusted(project_dir: &Path) -> bool {
     load_store()

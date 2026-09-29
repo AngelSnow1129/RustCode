@@ -287,7 +287,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::CmdAboutStatus => "where this session stands: model, mode, directory, which turn it is on".into(),
         Msg::CmdAboutCost => "how many tokens this session has used (same as /context)".into(),
         Msg::CmdAboutUsage => "what is left on the account: which window is spent and when it comes back".into(),
-        Msg::CmdAboutMcp => "the MCP servers and their state; tools lists what one server mounted; withdraw takes every MCP tool away at once".into(),
+        Msg::CmdAboutMcp => "the MCP server panel; reload, tools, trust/untrust, login/logout, withdraw — /mcp help lists them".into(),
         Msg::CmdAboutLanguage => "which language the screen and the model answer in; with no argument it says which one is set and what it takes".into(),
         Msg::CmdAboutReload => "read the skills, the MCP servers and the config again; the session stays".into(),
         Msg::CmdAboutLogout => "take the credentials out of the process; the session stays".into(),
@@ -308,7 +308,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::CmdTakesModelId => "[model id]".into(),
         Msg::CmdTakesName => "<name>".into(),
         Msg::CmdTakesDirectory => "<directory | pin | unpin>".into(),
-        Msg::CmdTakesMcp => "[tools <server>|withdraw]".into(),
+        Msg::CmdTakesMcp => "[reload|tools <server>|trust|untrust|login <server>|logout <server>|withdraw|help]".into(),
         Msg::CmdTakesLanguage => "[language]".into(),
 
         // ── when the host refuses (`commands.rs`) ──
@@ -581,9 +581,39 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::McpDisabled => "disabled in its config file".into(),
         Msg::McpUnknownState => "unknown".into(),
         Msg::McpWithdrawn => "every MCP tool was withdrawn".into(),
-        Msg::McpNeedsServerName => "it needs a server name: /mcp tools <server>".into(),
-        Msg::McpServerHasNoTools { server } => format!("{server} mounted no tools").into(),
-        Msg::McpUnknownSubcommand { what } => format!("`/mcp {what}` is not one of them; there is /mcp, /mcp tools <server>, /mcp withdraw").into(),
+        Msg::McpNeedsServerName => "Usage: /mcp tools <server>\nExample: /mcp tools filesystem".into(),
+        Msg::McpServerHasNoTools { server, state } => {
+            format!("{server} mounted no tools (state: {state})").into()
+        }
+        Msg::McpUnknownSubcommand { what } => format!("`/mcp {what}` is not one of them; /mcp help lists them all").into(),
+        Msg::McpHelp => "/mcp usage:\n  \
+             /mcp                     the MCP server panel (state, enable/disable, sign in)\n  \
+             /mcp reload              read the MCP configuration again and reconnect\n  \
+             /mcp tools <server>      the tools one server mounted\n  \
+             /mcp trust               trust this project's MCP servers\n  \
+             /mcp untrust             stop trusting this project's MCP servers\n  \
+             /mcp login <server>      that server's page, to sign in with OAuth in the browser\n  \
+             /mcp logout <server>     sign out of OAuth\n  \
+             /mcp withdraw            take every MCP tool away at once\n  \
+             /mcp help                this help".into(),
+        Msg::McpServersHeader => "MCP servers:".into(),
+        Msg::McpBlockedTrustHint { count } => format!(
+            "{count} server(s) held back because this project is not trusted. Run /mcp trust to load this project's MCP servers."
+        )
+        .into(),
+        Msg::McpToolsHeader { server } => format!("{server}'s tools:").into(),
+        Msg::McpUnknownServer { name, available } => {
+            format!("No MCP server called '{name}' — there is: {available}").into()
+        }
+        Msg::McpProjectTrusted => "This project is trusted — reconnecting MCP.".into(),
+        Msg::McpProjectUntrusted => "This project is no longer trusted; its MCP tools were taken off.".into(),
+        Msg::McpProjectNotTrusted => "This project is not trusted; there is nothing to revoke.".into(),
+        Msg::McpLoginUsage => "Usage: /mcp login <server>\nExample: /mcp login github".into(),
+        Msg::McpLogoutUsage => "Usage: /mcp logout <server>\nExample: /mcp logout github".into(),
+        Msg::McpLoggedOut { server } => format!(
+            "Signed out of MCP server '{server}': its stored OAuth token was removed (if there was one); reloading MCP."
+        )
+        .into(),
         Msg::Reloaded => "the skills, the MCP servers and the config were read again".into(),
         Msg::SignedOut => "signed out; /login signs in again".into(),
         Msg::SignedIn => "signed in".into(),

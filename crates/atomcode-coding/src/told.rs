@@ -119,14 +119,14 @@ pub(crate) fn mode_changed(from: RuntimeMode, to: RuntimeMode) -> Option<String>
 
 pub(crate) fn mcp_acted(server: &str, action: McpAction) -> String {
     reminder(&match action {
-        McpAction::Trust => format!(
-            "The person trusted the MCP server `{server}`; its tools are offered once it \
-             connects."
-        ),
-        McpAction::Untrust => format!(
-            "The person revoked trust in the MCP server `{server}`; its tools are no longer \
-             available."
-        ),
+        // Trust is the project's, not one server's: `/mcp trust` names none, and
+        // a trust given from one server's page lets in all of the project's.
+        McpAction::Trust => "The person trusted this project's MCP servers; their tools are \
+             offered once they connect."
+            .to_string(),
+        McpAction::Untrust => "The person revoked trust in this project's MCP servers; their \
+             tools are no longer available."
+            .to_string(),
         McpAction::Logout => format!(
             "The person signed out of the MCP server `{server}`; its tools are no longer \
              available."

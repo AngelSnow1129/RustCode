@@ -964,6 +964,29 @@ pub enum Msg<'a> {
     },
     /// `/mcp help` — the full list of `/mcp` subcommands.
     McpHelp,
+    /// A `/mcp` subcommand that is none of them. Said instead of showing the
+    /// status list, which made a typo (`/mcp relaod`) look like it had worked.
+    McpUnknownSubcommand {
+        what: &'a str,
+    },
+    /// Over the list `/mcp tools <server>` answers with.
+    McpToolsOf {
+        server: &'a str,
+    },
+    /// `/mcp tools <server>` for a configured server with no tools: its state,
+    /// so "connected, offers nothing" reads apart from "failed".
+    McpServerNoTools {
+        server: &'a str,
+        status: &'a str,
+    },
+    /// A server's state in the status list and in `McpServerNoTools`.
+    McpStatusConnecting,
+    McpStatusConnected,
+    McpStatusBlockedUntrusted,
+    McpStatusFailed {
+        error: &'a str,
+    },
+    McpStatusDisconnected,
     /// Discoverability hint appended to `/mcp` status when one or more
     /// project-source servers are withheld because the project is untrusted.
     McpBlockedTrustHint {

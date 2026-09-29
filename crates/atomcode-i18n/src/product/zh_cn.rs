@@ -806,9 +806,19 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::McpNoServersConfigured =>
             "  未配置 MCP 服务器。\n".into(),
         Msg::McpClearedReconnecting =>
-            "  已请求重载 MCP；旧 MCP 工具会先撤下，再在后台重新连接。\n".into(),
+            "  MCP 已重载：旧工具已撤下，服务器正在后台连接；/mcp 查看各服务器状态。\n".into(),
         Msg::McpClearedNoServers =>
-            "  已请求重载 MCP；旧 MCP 工具会先撤下，当前没有已配置的服务器。\n".into(),
+            "  MCP 已重载：旧工具已撤下，当前没有已配置的服务器。\n".into(),
+        Msg::McpUnknownSubcommand { what } =>
+            format!("  `/mcp {what}` 不认识；/mcp help 看全部用法。\n").into(),
+        Msg::McpToolsOf { server } => format!("  {server} 的工具：\n").into(),
+        Msg::McpServerNoTools { server, status } =>
+            format!("  {server} 没有挂上任何工具（状态：{status}）\n").into(),
+        Msg::McpStatusConnecting => "连接中".into(),
+        Msg::McpStatusConnected => "已连接".into(),
+        Msg::McpStatusBlockedUntrusted => "项目未被信任，已拦截".into(),
+        Msg::McpStatusFailed { error } => format!("失败：{error}").into(),
+        Msg::McpStatusDisconnected => "已断开".into(),
         Msg::McpToolsUsage =>
             "  用法：/mcp tools <服务器名>\n  示例：/mcp tools filesystem\n".into(),
         Msg::McpServersHeader =>

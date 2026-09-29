@@ -907,11 +907,39 @@ pub enum Msg<'a> {
     McpUnknownState,
     McpWithdrawn,
     McpNeedsServerName,
+    /// `/mcp tools <server>` found none: with the server's state, so "connected
+    /// and offers nothing" reads apart from "failed" or "still connecting".
     McpServerHasNoTools {
         server: &'a str,
+        state: &'a str,
     },
     McpUnknownSubcommand {
         what: &'a str,
+    },
+    /// `/mcp help`: every subcommand, one line each.
+    McpHelp,
+    /// Over the per-server lines `/mcp reload` ends with.
+    McpServersHeader,
+    /// Servers held back because the project is not trusted, and the way out.
+    McpBlockedTrustHint {
+        count: usize,
+    },
+    /// Over the list `/mcp tools <server>` answers with.
+    McpToolsHeader {
+        server: &'a str,
+    },
+    /// `/mcp tools <server>` named no configured server.
+    McpUnknownServer {
+        name: &'a str,
+        available: &'a str,
+    },
+    McpProjectTrusted,
+    McpProjectUntrusted,
+    McpProjectNotTrusted,
+    McpLoginUsage,
+    McpLogoutUsage,
+    McpLoggedOut {
+        server: &'a str,
     },
     Reloaded,
     SignedOut,

@@ -256,7 +256,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::CmdAboutStatus => "这次会话现在是什么状况:模型、模式、在哪、跑到第几回合".into(),
         Msg::CmdAboutCost => "这次会话用掉多少 token(等于 /context)".into(),
         Msg::CmdAboutUsage => "账号还剩多少额度,哪个窗口用完了、什么时候回来".into(),
-        Msg::CmdAboutMcp => "MCP 服务器的状态;tools 列某个服务器挂上来的工具;withdraw 立刻撤下全部 MCP 工具".into(),
+        Msg::CmdAboutMcp => "MCP 服务器面板;reload 重连、tools 看工具、trust/untrust 信任、login/logout 登录、withdraw 撤下,/mcp help 看全部".into(),
         Msg::CmdAboutLanguage => "模型用哪种语言回答;不带参数则说现在是哪个,以及可选哪些".into(),
         Msg::CmdAboutReload => "重新读取 skills、MCP 与配置,会话不变".into(),
         Msg::CmdAboutLogout => "把凭据拿出进程;会话留着".into(),
@@ -277,7 +277,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::CmdTakesModelId => "[模型 id]".into(),
         Msg::CmdTakesName => "<名字>".into(),
         Msg::CmdTakesDirectory => "<目录 | pin | unpin>".into(),
-        Msg::CmdTakesMcp => "[tools <服务器>|withdraw]".into(),
+        Msg::CmdTakesMcp => "[reload|tools <服务器>|trust|untrust|login <服务器>|logout <服务器>|withdraw|help]".into(),
         Msg::CmdTakesLanguage => "[语言]".into(),
 
         // ── when the host refuses (`commands.rs`) ──
@@ -530,9 +530,39 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::McpDisabled => "配置里已停用".into(),
         Msg::McpUnknownState => "未知".into(),
         Msg::McpWithdrawn => "已撤下全部 MCP 工具".into(),
-        Msg::McpNeedsServerName => "要一个服务器名:/mcp tools <服务器>".into(),
-        Msg::McpServerHasNoTools { server } => format!("{server} 没有挂上任何工具").into(),
-        Msg::McpUnknownSubcommand { what } => format!("`/mcp {what}` 不认识;可用:/mcp、/mcp tools <服务器>、/mcp withdraw").into(),
+        Msg::McpNeedsServerName => "用法:/mcp tools <服务器名>\n示例:/mcp tools filesystem".into(),
+        Msg::McpServerHasNoTools { server, state } => {
+            format!("{server} 没有挂上任何工具(状态:{state})").into()
+        }
+        Msg::McpUnknownSubcommand { what } => format!("`/mcp {what}` 不认识;/mcp help 看全部用法").into(),
+        Msg::McpHelp => "/mcp 用法:\n  \
+             /mcp                     打开 MCP 服务器面板(状态、启用/停用、登录)\n  \
+             /mcp reload              重新读取 MCP 配置并重连\n  \
+             /mcp tools <服务器名>     列出某个服务器挂上来的工具\n  \
+             /mcp trust               信任本项目的 MCP 服务器\n  \
+             /mcp untrust             取消信任本项目的 MCP 服务器\n  \
+             /mcp login <服务器名>     打开该服务器的页面,在浏览器里完成 OAuth 登录\n  \
+             /mcp logout <服务器名>    注销 OAuth 登录\n  \
+             /mcp withdraw            立刻撤下全部 MCP 工具\n  \
+             /mcp help                显示本帮助".into(),
+        Msg::McpServersHeader => "MCP 服务器:".into(),
+        Msg::McpBlockedTrustHint { count } => format!(
+            "有 {count} 个服务器因本项目未被信任而被拦截。运行 /mcp trust 可加载本项目的 MCP 服务器。"
+        )
+        .into(),
+        Msg::McpToolsHeader { server } => format!("{server} 的工具:").into(),
+        Msg::McpUnknownServer { name, available } => {
+            format!("未找到名为 '{name}' 的 MCP 服务器 —— 可用:{available}").into()
+        }
+        Msg::McpProjectTrusted => "已信任本项目 — 正在重连 MCP。".into(),
+        Msg::McpProjectUntrusted => "已撤销本项目信任,本项目的 MCP 工具已撤下。".into(),
+        Msg::McpProjectNotTrusted => "本项目未被信任,没有要撤销的。".into(),
+        Msg::McpLoginUsage => "用法:/mcp login <服务器名>\n示例:/mcp login github".into(),
+        Msg::McpLogoutUsage => "用法:/mcp logout <服务器名>\n示例:/mcp logout github".into(),
+        Msg::McpLoggedOut { server } => format!(
+            "已注销 MCP 服务 '{server}':保存的 OAuth Token 已移除(如有),正在重载 MCP。"
+        )
+        .into(),
         Msg::Reloaded => "已重新读取 skills、MCP 与配置".into(),
         Msg::SignedOut => "已登出;/login 重新登录".into(),
         Msg::SignedIn => "已登录".into(),

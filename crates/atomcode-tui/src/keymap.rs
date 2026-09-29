@@ -206,6 +206,10 @@ pub enum Action {
     /// Its own action for the same reason: its port is its own, and a build may
     /// mount it without the others.
     ToggleMcp,
+    /// The MCP panel, up on this server's page — `/mcp login <server>`: signing
+    /// in is an action on that page, and the browser flow it starts belongs to
+    /// the panel's port, not to a command.
+    OpenMcpServer(String),
     /// Pull the rewind panel up, or put it away.
     ///
     /// Its own action for the same reason the other five are: its port is its

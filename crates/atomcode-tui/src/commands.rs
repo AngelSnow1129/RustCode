@@ -2360,50 +2360,29 @@ impl CommandSet for SessionCommands {
             "mcp" => {
                 // 无参要的是那块面板,不是一列文本(设计 §5.1):它读的端口是面板自己的,
                 // 而命令这一层连不上宿主——所以举起动作,由插件那一侧升起它(`/toolbox`
-                // 同形)。有参的那几支照旧,面板是给无参调用的人的。
+                // 同形)。有参的那几支见 [`mcp`]。
                 let rest = args.trim();
                 if rest.is_empty() {
                     return Outcome::Do(Action::ToggleMcp);
+                }
+                // Help and the two that only point somewhere need no host.
+                let (sub, arg) = rest
+                    .split_once(char::is_whitespace)
+                    .map_or((rest, ""), |(sub, arg)| (sub, arg.trim()));
+                match sub.to_ascii_lowercase().as_str() {
+                    "help" | "--help" | "-h" => {
+                        return Outcome::Said(t(Msg::McpHelp).into_owned());
+                    }
+                    "login" if single_arg(arg).is_none() => {
+                        return Outcome::Refused(t(Msg::McpLoginUsage).into_owned());
+                    }
+                    _ => {}
                 }
                 let control = match host(control) {
                     Ok(control) => control,
                     Err(refused) => return refused,
                 };
-                match rest {
-                    "withdraw" => match control
-                        .call(HostCommand::WithdrawMcpTools { session: root })
-                        .await
-                    {
-                        Ok(_) => Outcome::Said(t(Msg::McpWithdrawn).into_owned()),
-                        Err(error) => Outcome::Refused(refusal(error)),
-                    },
-                    // `tools <server>`: which tools that server actually put on
-                    // the model. The status line says a server is connected;
-                    // this says what came of it.
-                    rest if rest.starts_with("tools") => {
-                        let server = rest.trim_start_matches("tools").trim();
-                        if server.is_empty() {
-                            return Outcome::Refused(t(Msg::McpNeedsServerName).into_owned());
-                        }
-                        match control
-                            .call(HostCommand::McpTools {
-                                session: root,
-                                server: server.to_string(),
-                            })
-                            .await
-                        {
-                            Ok(HostReply::McpTools { tools }) if tools.is_empty() => {
-                                Outcome::Said(t(Msg::McpServerHasNoTools { server }).into_owned())
-                            }
-                            Ok(HostReply::McpTools { tools }) => Outcome::Said(tools.join("\n")),
-                            Ok(other) => Outcome::Refused(format!("{other:?}")),
-                            Err(error) => Outcome::Refused(refusal(error)),
-                        }
-                    }
-                    other => {
-                        Outcome::Refused(t(Msg::McpUnknownSubcommand { what: other }).into_owned())
-                    }
-                }
+                mcp(control, root, sub, arg).await
             }
             "reload" | "logout" | "login" => {
                 let control = match host(control) {
@@ -2423,6 +2402,280 @@ impl CommandSet for SessionCommands {
             _ => Outcome::Quiet,
         }
     }
+}
+
+/// `/mcp <sub> [arg]`, the subcommands that ask the host. The same set, and
+/// the same answers, as the classic screen's `/mcp` — a person moving between
+/// the two front ends types the same words and reads the same replies — plus
+/// `withdraw`, which only this one has.
+async fn mcp(
+    control: std::sync::Arc<dyn atomcode_host_api::HostControl>,
+    root: String,
+    sub: &str,
+    arg: &str,
+) -> Outcome {
+    use atomcode_host_api::McpAction;
+    match sub.to_ascii_lowercase().as_str() {
+        "withdraw" => match control
+            .call(HostCommand::WithdrawMcpTools { session: root })
+            .await
+        {
+            Ok(_) => Outcome::Said(t(Msg::McpWithdrawn).into_owned()),
+            Err(error) => Outcome::Refused(refusal(error)),
+        },
+        // The classic screen's `/mcp reload`, and the words a person reaches
+        // for. It is `/reload` — skills, MCP and the configuration are read
+        // again together — and then says where each server stands, the way the
+        // classic screen lists what it is connecting to: a reload that answers
+        // only "done" leaves "reconnected" and "failed again" looking the same.
+        "reload" => match control
+            .call(HostCommand::Reload {
+                session: root.clone(),
+            })
+            .await
+        {
+            Ok(_) => {
+                let mut said = t(Msg::Reloaded).into_owned();
+                let servers = servers_now(&control, root).await;
+                if !servers.is_empty() {
+                    said.push('\n');
+                    said.push_str(&servers);
+                }
+                Outcome::Said(said)
+            }
+            Err(error) => Outcome::Refused(refusal(error)),
+        },
+        "tools" => {
+            let Some(server) = single_arg(arg) else {
+                return Outcome::Refused(t(Msg::McpNeedsServerName).into_owned());
+            };
+            tools_of(&control, root, server).await
+        }
+        // Signing in is the panel's — the browser flow belongs to its port —
+        // so this puts the panel up on that server's page. A name that is no
+        // server would open on a page that never loads.
+        "login" => {
+            let Some(server) = single_arg(arg) else {
+                return Outcome::Refused(t(Msg::McpLoginUsage).into_owned());
+            };
+            match unknown_server(&control, root, server).await {
+                Some(refused) => refused,
+                None => Outcome::Do(Action::OpenMcpServer(server.to_string())),
+            }
+        }
+        "trust" | "untrust" => {
+            let (action, done) = match sub.eq_ignore_ascii_case("trust") {
+                true => (McpAction::Trust, Msg::McpProjectTrusted),
+                false => (McpAction::Untrust, Msg::McpProjectUntrusted),
+            };
+            // Trust is the project's, not a server's: no name is needed, and
+            // the host reconnects what the change lets in or keeps out.
+            match control
+                .call(HostCommand::McpAct {
+                    session: root,
+                    server: String::new(),
+                    action,
+                })
+                .await
+            {
+                Ok(_) => Outcome::Said(t(done).into_owned()),
+                // Untrusting a project that never was is said as such, the way
+                // the classic screen says it — not as a failure to reconfigure.
+                Err(HostError::Failed { message })
+                    if message.contains(atomcode_capabilities::mcp::trust::PROJECT_NOT_TRUSTED) =>
+                {
+                    Outcome::Said(t(Msg::McpProjectNotTrusted).into_owned())
+                }
+                Err(error) => Outcome::Refused(refusal(error)),
+            }
+        }
+        "logout" => {
+            let Some(server) = single_arg(arg) else {
+                return Outcome::Refused(t(Msg::McpLogoutUsage).into_owned());
+            };
+            // Signing out takes every MCP tool off and reconnects: not for a
+            // name that is no server.
+            if let Some(refused) = unknown_server(&control, root.clone(), server).await {
+                return refused;
+            }
+            match control
+                .call(HostCommand::McpAct {
+                    session: root,
+                    server: server.to_string(),
+                    action: McpAction::Logout,
+                })
+                .await
+            {
+                Ok(_) => Outcome::Said(t(Msg::McpLoggedOut { server }).into_owned()),
+                Err(error) => Outcome::Refused(refusal(error)),
+            }
+        }
+        _ => Outcome::Refused(
+            t(Msg::McpUnknownSubcommand {
+                what: &format!("{sub} {arg}").trim_end().to_string(),
+            })
+            .into_owned(),
+        ),
+    }
+}
+
+/// `None` when `server` is a configured one (disabled ones count: they can be
+/// signed in to or out of). Otherwise the refusal to give: there are none, or
+/// here is which there are. Unanswered, it lets the action go on and the host
+/// answer for it.
+async fn unknown_server(
+    control: &std::sync::Arc<dyn atomcode_host_api::HostControl>,
+    root: String,
+    server: &str,
+) -> Option<Outcome> {
+    let rows = match control.call(HostCommand::McpManage { session: root }).await {
+        Ok(HostReply::McpRows { rows }) => rows,
+        _ => return None,
+    };
+    if rows.iter().any(|row| row.name == server) {
+        return None;
+    }
+    if rows.is_empty() {
+        return Some(Outcome::Refused(t(Msg::McpNoneConfigured).into_owned()));
+    }
+    Some(Outcome::Refused(
+        t(Msg::McpUnknownServer {
+            name: server,
+            available: &rows
+                .iter()
+                .map(|row| row.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+        })
+        .into_owned(),
+    ))
+}
+
+/// Exactly one word, or nothing — `/mcp tools a b` is a slip, not a server
+/// called "a b", and the usage says so rather than a "not found" for "a".
+fn single_arg(arg: &str) -> Option<&str> {
+    let mut words = arg.split_whitespace();
+    let first = words.next()?;
+    words.next().is_none().then_some(first)
+}
+
+/// Every configured server and its state, one line each, with the way out
+/// when the project's own servers are held back for want of trust.
+async fn servers_now(
+    control: &std::sync::Arc<dyn atomcode_host_api::HostControl>,
+    root: String,
+) -> String {
+    use atomcode_host_api::McpServerState;
+    // Not read: the reload is still said, just without the list.
+    let servers = match control.call(HostCommand::McpStatus { session: root }).await {
+        Ok(HostReply::McpServers { servers }) => servers,
+        _ => return String::new(),
+    };
+    if servers.is_empty() {
+        return t(Msg::McpNoneConfigured).into_owned();
+    }
+    let mut out = t(Msg::McpServersHeader).into_owned();
+    for server in &servers {
+        out.push_str(&format!(
+            "\n  {}  {}",
+            server.name,
+            mcp_state_words(&server.state)
+        ));
+    }
+    let blocked = servers
+        .iter()
+        .filter(|s| matches!(s.state, McpServerState::Untrusted))
+        .count();
+    if blocked > 0 {
+        out.push('\n');
+        out.push_str(&t(Msg::McpBlockedTrustHint { count: blocked }));
+    }
+    out
+}
+
+/// `/mcp tools <server>`: its tools; or, when it has none, why — its state,
+/// or that there is no such server and which there are.
+async fn tools_of(
+    control: &std::sync::Arc<dyn atomcode_host_api::HostControl>,
+    root: String,
+    server: &str,
+) -> Outcome {
+    match control
+        .call(HostCommand::McpTools {
+            session: root.clone(),
+            server: server.to_string(),
+        })
+        .await
+    {
+        Ok(HostReply::McpTools { tools }) if !tools.is_empty() => {
+            let mut said = t(Msg::McpToolsHeader { server }).into_owned();
+            for tool in &tools {
+                said.push_str(&format!("\n  - {tool}"));
+            }
+            Outcome::Said(said)
+        }
+        // None: why, from the server's state — "connected and offers nothing"
+        // and "failed" were one sentence — or that it is not a server at all.
+        Ok(HostReply::McpTools { .. }) => {
+            let servers = match control.call(HostCommand::McpStatus { session: root }).await {
+                Ok(HostReply::McpServers { servers }) => Some(servers),
+                _ => None,
+            };
+            let Some(servers) = servers else {
+                return Outcome::Said(
+                    t(Msg::McpServerHasNoTools {
+                        server,
+                        state: &t(Msg::McpUnknownState),
+                    })
+                    .into_owned(),
+                );
+            };
+            match servers.iter().find(|s| s.name == server) {
+                Some(found) => Outcome::Said(
+                    t(Msg::McpServerHasNoTools {
+                        server,
+                        state: &mcp_state_words(&found.state),
+                    })
+                    .into_owned(),
+                ),
+                None if servers.is_empty() => {
+                    Outcome::Refused(t(Msg::McpNoneConfigured).into_owned())
+                }
+                None => Outcome::Refused(
+                    t(Msg::McpUnknownServer {
+                        name: server,
+                        available: &servers
+                            .iter()
+                            .map(|s| s.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    })
+                    .into_owned(),
+                ),
+            }
+        }
+        Ok(other) => Outcome::Refused(format!("{other:?}")),
+        Err(error) => Outcome::Refused(refusal(error)),
+    }
+}
+
+/// A server's state in the words the MCP panel uses for it.
+fn mcp_state_words(state: &atomcode_host_api::McpServerState) -> String {
+    use atomcode_host_api::McpServerState as S;
+    match state {
+        S::Connecting => t(Msg::McpConnecting),
+        S::Connected => t(Msg::McpConnected),
+        S::Untrusted => t(Msg::McpUntrusted),
+        S::NeedsAuthentication => t(Msg::McpNeedsAuthentication),
+        S::Disabled => t(Msg::McpDisabled),
+        S::Failed { message } => t(Msg::McpFailed {
+            message: message.as_str(),
+        }),
+        S::Disconnected => t(Msg::McpDisconnected),
+        // The contract is `non_exhaustive`: a state this build does not know.
+        _ => t(Msg::McpUnknownState),
+    }
+    .into_owned()
 }
 
 /// 这个会话现在在哪个目录里干活。
@@ -3244,6 +3497,7 @@ mod tests {
             "/model glm-5",
             "/mcp withdraw",
             "/reload",
+            "/mcp reload",
             "/logout",
             "/login",
         ] {
@@ -3265,9 +3519,272 @@ mod tests {
                 },
                 HostCommand::WithdrawMcpTools { session: lead() },
                 HostCommand::Reload { session: lead() },
+                // `/mcp reload` — the classic screen's words — is `/reload`,
+                // not an unknown subcommand, and then says where each server is.
+                HostCommand::Reload { session: lead() },
+                HostCommand::McpStatus { session: lead() },
                 HostCommand::SignOut { session: lead() },
                 HostCommand::SignIn { session: lead() },
             ]
+        );
+    }
+
+    /// A server with no tools says why, from its state: "connected and offers
+    /// nothing" and "failed" were one sentence, and a person could not tell a
+    /// server to fix from one with nothing to give.
+    #[tokio::test]
+    async fn a_server_with_no_tools_says_what_state_it_is_in() {
+        let host = Arc::new(Recording::default());
+        let (app, _client, all) = following(&host);
+        host.replies.lock().unwrap().extend([
+            Ok(HostReply::McpTools { tools: Vec::new() }),
+            Ok(HostReply::McpServers {
+                servers: vec![atomcode_host_api::McpServer {
+                    name: "zouwu".into(),
+                    state: atomcode_host_api::McpServerState::Failed {
+                        message: "exit status 1".into(),
+                    },
+                }],
+            }),
+        ]);
+        let said = match all.dispatch("/mcp tools zouwu", &app.context()).await {
+            Outcome::Said(said) => said,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            said,
+            t(Msg::McpServerHasNoTools {
+                server: "zouwu",
+                state: &t(Msg::McpFailed {
+                    message: "exit status 1"
+                }),
+            })
+        );
+    }
+
+    fn rows(names: &[&str]) -> HostReply {
+        HostReply::McpRows {
+            rows: names
+                .iter()
+                .map(|name| atomcode_host_api::McpRow {
+                    name: (*name).into(),
+                    state: atomcode_host_api::McpServerState::Connected,
+                    source: "global".into(),
+                    tool_count: 0,
+                    config_path: None,
+                })
+                .collect(),
+        }
+    }
+
+    /// A name that is no server is not acted on: signing out takes every MCP
+    /// tool off and reconnects, and a page that never loads is no sign-in. The
+    /// servers there are are named instead, as the classic screen names them.
+    #[tokio::test]
+    async fn mcp_login_and_logout_want_a_server_that_exists() {
+        for line in ["/mcp logout gthub", "/mcp login gthub"] {
+            let (said, asked) = said_by(line, vec![Ok(rows(&["github", "figma"]))]).await;
+            assert_eq!(
+                said,
+                Outcome::Refused(
+                    t(Msg::McpUnknownServer {
+                        name: "gthub",
+                        available: "github, figma"
+                    })
+                    .into_owned()
+                ),
+                "{line}"
+            );
+            assert!(
+                !asked
+                    .iter()
+                    .any(|c| matches!(c, HostCommand::McpAct { .. })),
+                "{line}: {asked:?}"
+            );
+        }
+    }
+
+    /// Untrusting a project that never was is said as such, as on the classic
+    /// screen — not as a failure to reconfigure.
+    #[tokio::test]
+    async fn untrusting_an_untrusted_project_says_so() {
+        let (said, _) = said_by(
+            "/mcp untrust",
+            vec![Err(HostError::Failed {
+                message: format!(
+                    "reconfigure failed: {}",
+                    atomcode_capabilities::mcp::trust::PROJECT_NOT_TRUSTED
+                ),
+            })],
+        )
+        .await;
+        assert_eq!(
+            said,
+            Outcome::Said(t(Msg::McpProjectNotTrusted).into_owned())
+        );
+    }
+
+    fn server(
+        name: &str,
+        state: atomcode_host_api::McpServerState,
+    ) -> atomcode_host_api::McpServer {
+        atomcode_host_api::McpServer {
+            name: name.into(),
+            state,
+        }
+    }
+
+    async fn said_by(
+        line: &str,
+        replies: Vec<Result<HostReply, HostError>>,
+    ) -> (Outcome, Vec<HostCommand>) {
+        let host = Arc::new(Recording::default());
+        let (app, _client, all) = following(&host);
+        host.replies.lock().unwrap().extend(replies);
+        let outcome = all.dispatch(line, &app.context()).await;
+        let asked = host.asked.lock().unwrap().clone();
+        (outcome, asked)
+    }
+
+    /// `/mcp` answers the classic screen's subcommands with the classic
+    /// screen's answers: help, trust and untrust, logout, login. Help and the
+    /// usages ask the host nothing.
+    #[tokio::test]
+    async fn mcp_answers_the_classic_screens_subcommands() {
+        for line in ["/mcp help", "/mcp --help", "/mcp -h"] {
+            let (said, asked) = said_by(line, vec![]).await;
+            assert_eq!(said, Outcome::Said(t(Msg::McpHelp).into_owned()), "{line}");
+            assert!(asked.is_empty(), "{line}");
+        }
+        let help = t(Msg::McpHelp);
+        for sub in [
+            "reload", "tools", "trust", "untrust", "login", "logout", "withdraw",
+        ] {
+            assert!(help.contains(&format!("/mcp {sub}")), "help names {sub}");
+        }
+
+        let (said, asked) = said_by("/mcp trust", vec![]).await;
+        assert_eq!(said, Outcome::Said(t(Msg::McpProjectTrusted).into_owned()));
+        assert!(matches!(
+            asked.as_slice(),
+            [HostCommand::McpAct {
+                action: atomcode_host_api::McpAction::Trust,
+                ..
+            }]
+        ));
+        let (said, asked) = said_by("/mcp untrust", vec![]).await;
+        assert_eq!(
+            said,
+            Outcome::Said(t(Msg::McpProjectUntrusted).into_owned())
+        );
+        assert!(matches!(
+            asked.as_slice(),
+            [HostCommand::McpAct {
+                action: atomcode_host_api::McpAction::Untrust,
+                ..
+            }]
+        ));
+
+        let (said, asked) = said_by("/mcp logout github", vec![Ok(rows(&["github"]))]).await;
+        assert_eq!(
+            said,
+            Outcome::Said(t(Msg::McpLoggedOut { server: "github" }).into_owned())
+        );
+        assert!(matches!(
+            asked.as_slice(),
+            [HostCommand::McpManage { .. }, HostCommand::McpAct { server, action: atomcode_host_api::McpAction::Logout, .. }] if server == "github"
+        ));
+        let (said, asked) = said_by("/mcp logout", vec![]).await;
+        assert_eq!(said, Outcome::Refused(t(Msg::McpLogoutUsage).into_owned()));
+        assert!(asked.is_empty());
+
+        // Signing in is the panel's: up on that server's page.
+        let (said, _) = said_by("/mcp login github", vec![Ok(rows(&["github"]))]).await;
+        assert_eq!(said, Outcome::Do(Action::OpenMcpServer("github".into())));
+        let (said, _) = said_by("/mcp login", vec![]).await;
+        assert_eq!(said, Outcome::Refused(t(Msg::McpLoginUsage).into_owned()));
+    }
+
+    /// `/mcp reload` says where each server stands afterwards, and how to let
+    /// in the project's own servers when they are held back.
+    #[tokio::test]
+    async fn mcp_reload_lists_each_server_and_the_way_past_trust() {
+        use atomcode_host_api::McpServerState as S;
+        let (said, _) = said_by(
+            "/mcp reload",
+            vec![
+                Ok(HostReply::Done),
+                Ok(HostReply::McpServers {
+                    servers: vec![server("fs", S::Connecting), server("proj", S::Untrusted)],
+                }),
+            ],
+        )
+        .await;
+        let Outcome::Said(said) = said else {
+            panic!("{said:?}");
+        };
+        assert!(said.starts_with(&*t(Msg::Reloaded)), "{said}");
+        assert!(
+            said.contains(&format!("fs  {}", t(Msg::McpConnecting))),
+            "{said}"
+        );
+        assert!(
+            said.contains(&format!("proj  {}", t(Msg::McpUntrusted))),
+            "{said}"
+        );
+        assert!(
+            said.contains(&*t(Msg::McpBlockedTrustHint { count: 1 })),
+            "{said}"
+        );
+    }
+
+    /// `/mcp tools`: the list; a usage for no name or two; the servers there
+    /// are for a name that is none of them.
+    #[tokio::test]
+    async fn mcp_tools_lists_or_says_which_servers_there_are() {
+        use atomcode_host_api::McpServerState as S;
+        let (said, _) = said_by(
+            "/mcp tools fs",
+            vec![Ok(HostReply::McpTools {
+                tools: vec!["read".into(), "write".into()],
+            })],
+        )
+        .await;
+        assert_eq!(
+            said,
+            Outcome::Said(format!(
+                "{}\n  - read\n  - write",
+                t(Msg::McpToolsHeader { server: "fs" })
+            ))
+        );
+        for line in ["/mcp tools", "/mcp tools a b"] {
+            let (said, asked) = said_by(line, vec![]).await;
+            assert_eq!(
+                said,
+                Outcome::Refused(t(Msg::McpNeedsServerName).into_owned()),
+                "{line}"
+            );
+            assert!(asked.is_empty(), "{line}");
+        }
+        let (said, _) = said_by(
+            "/mcp tools nope",
+            vec![
+                Ok(HostReply::McpTools { tools: vec![] }),
+                Ok(HostReply::McpServers {
+                    servers: vec![server("a", S::Connected), server("b", S::Connected)],
+                }),
+            ],
+        )
+        .await;
+        assert_eq!(
+            said,
+            Outcome::Refused(
+                t(Msg::McpUnknownServer {
+                    name: "nope",
+                    available: "a, b"
+                })
+                .into_owned()
+            )
         );
     }
 
