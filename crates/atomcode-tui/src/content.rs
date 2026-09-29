@@ -1059,9 +1059,15 @@ impl ToolCallBlock {
     /// away and nothing here has to guess how much of it to keep.
     fn subject_line(&self, w: u16, name_style: Style) -> Vec<Line> {
         let subject = flatten(&self.subject());
-        if subject.is_empty() {
-            return Vec::new();
-        }
+        // No subject (a call that left out its path) still names the tool: under
+        // a reason, this row is the only place the call's name appears, and a
+        // block that said what the model meant but not which tool it used would
+        // leave the failure under it unexplained.
+        let called = if subject.is_empty() {
+            self.display_name()
+        } else {
+            format!("{}({subject})", self.display_name())
+        };
         let caps = Caps::default();
         // Indented under the tool mark, with the gutter glyph on the first row
         // only — the shape a result takes, so the two read as the same kind of
@@ -1069,15 +1075,7 @@ impl ToolCallBlock {
         // name keeps the volume the caller asked for, so a folded row is not
         // half-loud.
         let prefix = format!("{}{} ", " ".repeat(GUTTER), caps.g(Glyph::Gutter));
-        crate::markdown::wrap_spans(
-            &[Span::styled(
-                format!("{}({subject})", self.display_name()),
-                name_style,
-            )],
-            w,
-            &prefix,
-            muted(),
-        )
+        crate::markdown::wrap_spans(&[Span::styled(called, name_style)], w, &prefix, muted())
     }
 
     /// The rows that identify this call — the same ones in both shapes the
@@ -1484,10 +1482,32 @@ pub fn subject_of_within(tool: &str, args: &str, home: Option<&std::path::Path>)
         if obj.is_empty() {
             return String::new();
         }
+        // A tool this screen knows by its subject, called without it (a model
+        // that left `file_path` out of a `write_file`): nothing to name. The
+        // raw arguments are not a subject — for a write they are the whole
+        // file, and they used to pour across the transcript as one escaped
+        // block. The classic screen shows the bare tool name here; so does
+        // this one, and the failed result underneath says what was missing.
+        // A question with no words is the exception: its arguments are small
+        // and are all it has to say (see `asked_question`).
+        if look.subject != GENERIC.subject && tool != REQUEST_USER_INPUT_KIND {
+            return String::new();
+        }
     }
+    // A tool this screen does not know (an MCP tool, a plugin's): the arguments
+    // are the only clue to what it is about, so they stay — capped, as the
+    // classic screen caps them, so a long payload is a hint and not a page.
     let flat = flatten(args);
-    flat.trim_matches(|c| c == '{' || c == '}').to_string()
+    let flat = flat.trim_matches(|c| c == '{' || c == '}');
+    if width::str_width(flat) > RAW_SUBJECT_MAX {
+        format!("{}…", width::take_width(flat, RAW_SUBJECT_MAX - 1))
+    } else {
+        flat.to_string()
+    }
 }
+
+/// How much of an unknown tool's raw arguments its row shows, in columns.
+const RAW_SUBJECT_MAX: usize = 100;
 
 /// The question a `request_user_input` call puts, when its arguments read as one.
 ///
@@ -2813,6 +2833,45 @@ impl Content for TurnEndBlock {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A known tool called without its subject names nothing, rather than
+    /// pouring its payload (a whole file, for a write) into the row; an unknown
+    /// tool keeps its arguments as the only clue, capped.
+    #[test]
+    fn a_missing_subject_is_not_replaced_by_the_payload() {
+        let content = "x\n".repeat(400);
+        let args = serde_json::json!({ "content": content }).to_string();
+        assert_eq!(subject_of_within("write_file", &args, None), "");
+        assert_eq!(subject_of_within("bash", r#"{"timeout":5}"#, None), "");
+
+        let unknown = serde_json::json!({ "code": "y".repeat(300) }).to_string();
+        let shown = subject_of_within("mcp__playwright__browser_run_code", &unknown, None);
+        assert!(shown.ends_with('…'), "{shown}");
+        assert!(width::str_width(&shown) <= RAW_SUBJECT_MAX, "{shown}");
+        let short = subject_of_within("mcp__x__y", r#"{"regex":"a|b"}"#, None);
+        assert!(short.contains("a|b") && !short.ends_with('…'), "{short}");
+
+        // Under a reason the call still says which tool it was.
+        let with_reason = serde_json::json!({ "intent": "写一个脚本", "content": "x" }).to_string();
+        let drawn: Vec<String> = ToolCallBlock::pending("c", "write_file", &with_reason)
+            .lines(&crate::block::RenderCtx::bare(80))
+            .iter()
+            .map(|l| l.plain())
+            .collect();
+        assert!(drawn.iter().any(|l| l.contains("写一个脚本")), "{drawn:?}");
+        assert!(
+            drawn
+                .iter()
+                .any(|l| l.contains(&display_tool_name("write_file"))),
+            "the tool is named: {drawn:?}"
+        );
+
+        // And a subject that is there is still shown whole.
+        assert_eq!(
+            subject_of_within("write_file", r#"{"file_path":"a.rs","content":"x"}"#, None),
+            "a.rs"
+        );
+    }
 
     fn ended(stop: StopReason, open_items: usize) -> String {
         TurnEndBlock {
