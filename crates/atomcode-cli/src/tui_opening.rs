@@ -115,6 +115,31 @@ pub fn remember_keys_notice(marker: &Path) {
     let _ = std::fs::write(marker, b"");
 }
 
+/// Set by the launcher when it re-executes into a newly installed binary; the
+/// version it came from.
+pub const UPGRADED_FROM_ENV: &str = "ATOMCODE_UPGRADED_FROM";
+
+/// This launch's notice, with "upgraded from vA to vB" added when the launch is
+/// the restart an upgrade made. Last, like any standing news about the launch.
+pub fn with_upgrade_notice(
+    notice: Option<String>,
+    upgraded_from: Option<String>,
+) -> Option<String> {
+    let Some(from) = upgraded_from.filter(|v| !v.trim().is_empty()) else {
+        return notice;
+    };
+    let to = format!("v{}", env!("CARGO_PKG_VERSION"));
+    let said = atomcode_config::i18n::t(atomcode_config::i18n::Msg::UpgradeSuccess {
+        from: &from,
+        to: &to,
+    })
+    .into_owned();
+    Some(match notice {
+        Some(notice) => format!("{notice}\n{said}"),
+        None => said,
+    })
+}
+
 #[async_trait]
 impl Plugin for OpeningRow {
     fn name(&self) -> &'static str {
@@ -202,6 +227,23 @@ mod tests {
         assert!(marker.exists(), "remembered once it was drawn");
         assert!(keys_note(&marker).is_none(), "never again");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A launch that is the restart an upgrade made says so, after whatever
+    /// else it has to say; an ordinary launch adds nothing.
+    #[test]
+    fn a_launch_after_an_upgrade_says_where_it_came_from() {
+        assert_eq!(with_upgrade_notice(None, None), None);
+        assert_eq!(
+            with_upgrade_notice(Some("forked from s-1".into()), Some(" ".into())).as_deref(),
+            Some("forked from s-1")
+        );
+        let said = with_upgrade_notice(Some("forked from s-1".into()), Some("v5.1.0".into()))
+            .expect("something to say");
+        let lines: Vec<&str> = said.lines().collect();
+        assert_eq!(lines.len(), 2, "{said}");
+        assert_eq!(lines[0], "forked from s-1");
+        assert!(lines[1].contains("v5.1.0"), "{said}");
     }
 
     /// An ordinary launch says nothing, and says it as nothing rather than as an

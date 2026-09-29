@@ -1268,7 +1268,7 @@ pub enum TelemetryAction {
 /// a one-time "✓ Upgraded to vX.Y.Z" banner on the welcome screen.
 /// The child clears this env var after reading it so grandchildren
 /// (spawned tools, subprocesses) don't inherit a stale hint.
-const UPGRADED_FROM_ENV: &str = "ATOMCODE_UPGRADED_FROM";
+const UPGRADED_FROM_ENV: &str = atomcode::tui_opening::UPGRADED_FROM_ENV;
 
 /// Env var the parent sets when spawning a detached upgrade-prep worker.
 /// The child detects it at the very top of `main` and runs one
@@ -2724,6 +2724,20 @@ async fn run() -> Result<i32> {
                 telemetry
                     .shutdown(std::time::Duration::from_millis(500))
                     .await;
+                // `/upgrade` (or `/upgrade rollback`) replaced the binary and
+                // closed the screen: start the new one now that the terminal is
+                // back, the way the classic screen does. The version we leave
+                // rides along so the new process can say it was upgraded.
+                if let Some(exe) = atomcode::tui_upgrade::take_restart() {
+                    std::env::set_var(UPGRADED_FROM_ENV, format!("v{}", env!("CARGO_PKG_VERSION")));
+                    if let Err(e) = atomcode_updater::re_exec_self(Some(&exe)) {
+                        eprintln!(
+                            "Upgrade applied but re-exec failed ({}). The new version will be used on the next launch.",
+                            e
+                        );
+                        std::env::remove_var(UPGRADED_FROM_ENV);
+                    }
+                }
                 return result;
             }
             let provider_selection = coding_cfg.provider_name.clone();

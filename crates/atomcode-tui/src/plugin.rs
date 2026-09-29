@@ -63,6 +63,8 @@ plexus_service!(WelcomeNoteSeenSvc => dyn crate::content::WelcomeNoteSeen, "tui-
 // 跑一条本机命令。手势(`!`)归屏幕,开一个进程归启动器 —— 这块屏幕
 // 碰不到操作系统。没填就没有这个功能,`!git status` 还是一句发给模型的话。
 plexus_service!(ShellSvc => dyn crate::shell::Shell, "tui-shell", Seam, "Running a command on this machine, for the `!` gesture");
+// 有没有更新的版本。联网、以及这个二进制是怎么装的,都归启动器;屏幕只画它说的话。
+plexus_service!(UpdateCheckSvc => dyn crate::update::UpdateCheck, "tui-update-check", Seam, "Whether a newer build is out, in the words the status row shows");
 // 共享出去之后,手机或浏览器请这块屏幕跑一条命令。跑什么、准不准跑归屏幕
 // (`crate::remote`),线路归启动器——这块屏幕不认识 daemon。没填就没有这条路。
 plexus_service!(RemoteSvc => dyn crate::remote::Remote, "tui-remote", Seam, "Commands the phone or the browser asks this screen to run, and where their answers go");
@@ -1283,6 +1285,20 @@ impl UserInterface for Tui {
                 // say goes.
                 if let Some(fix) = fix {
                     let _ = keys.send(Wake::Chose(Some(fix)));
+                }
+            });
+        }
+
+        // Whether a newer build is out: asked once, off the loop, and only said
+        // if there is one. The launcher decides the words (a package manager
+        // upgrades some installs, not `/upgrade`); the row draws them.
+        if let Some(check) = ctx.service::<UpdateCheckSvc>() {
+            let host = self.host.clone();
+            let keys = wake_tx.clone();
+            tokio::spawn(async move {
+                if let Some(hint) = check.available().await {
+                    host.moment.write().expect("moment poisoned").update = Some(hint);
+                    let _ = keys.send(Wake::Fact);
                 }
             });
         }

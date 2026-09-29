@@ -730,6 +730,25 @@ pub const ALREADY_LATEST: &str = "ALREADY_LATEST";
 /// generic failure — mirrors the `ALREADY_LATEST` pattern.
 pub const PACKAGE_MANAGED: &str = "PACKAGE_MANAGED";
 
+/// The two versions an [`ALREADY_LATEST`] error names, `(current, latest)`.
+///
+/// Takes the error as displayed, with or without its `ALREADY_LATEST: ` tag.
+/// The body's shape is fixed by [`run_upgrade`]:
+/// `already on {current} (latest is {latest}). Pass --force to reinstall.`
+/// `None` if the shape ever drifts, so a caller can still say the sentence with
+/// placeholders. One parser for both front ends, rather than a copy in each.
+pub fn already_latest_versions(message: &str) -> Option<(&str, &str)> {
+    let body = message
+        .strip_prefix(ALREADY_LATEST)
+        .map(|rest| rest.trim_start_matches(':').trim_start())
+        .unwrap_or(message);
+    let after_on = body.strip_prefix("already on ")?;
+    let (current, rest) = after_on.split_once(" (latest is ")?;
+    let latest = rest.strip_suffix(". Pass --force to reinstall.")?;
+    let latest = latest.strip_suffix(')')?;
+    Some((current, latest))
+}
+
 /// True when this binary was compiled for package-manager distribution
 /// (the `distro-pm` feature, set by the HarmonyBrew formula). Such builds
 /// must never self-modify the binary — upgrades are the package manager's
@@ -1173,6 +1192,19 @@ pub fn run_rollback() -> Result<RollbackSummary> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Both front ends read the versions out of the same error, with or without
+    /// its tag, and get `None` rather than garbage if the shape drifts.
+    #[test]
+    fn the_versions_an_already_latest_error_names() {
+        let body = "already on v5.2.0 (latest is v5.2.0). Pass --force to reinstall.";
+        assert_eq!(already_latest_versions(body), Some(("v5.2.0", "v5.2.0")));
+        assert_eq!(
+            already_latest_versions(&format!("{ALREADY_LATEST}: {body}")),
+            Some(("v5.2.0", "v5.2.0"))
+        );
+        assert_eq!(already_latest_versions("something else"), None);
+    }
 
     /// The three claims `binary_filename` actually makes, minus the vendor name: it is built
     /// from `ASSET_PREFIX` (which `distribution` owns and a rebuild is meant to change), and it

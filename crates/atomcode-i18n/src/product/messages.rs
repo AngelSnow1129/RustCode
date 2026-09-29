@@ -928,6 +928,10 @@ pub enum Msg<'a> {
     /// Shown when `/upgrade` (or rollback) is invoked in a HarmonyBrew-managed
     /// build: self-update is disabled, point the user at `brew upgrade`.
     UpgradePackageManaged,
+    /// `/upgrade` again after one already installed a new binary whose restart
+    /// was put off (the person chose to stay when asked about background
+    /// sessions): nothing to download, only to restart.
+    UpgradeRestartPending,
     UpgradeUnknownArg {
         arg: &'a str,
     },

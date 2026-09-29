@@ -783,6 +783,8 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         // ── /upgrade ──
         Msg::UpgradePackageManaged =>
             "本版本由 HarmonyBrew 管理，请运行 `brew upgrade atomcode` 升级".into(),
+        Msg::UpgradeRestartPending =>
+            "新版本已经装好了，不用再升级一次：退出（/quit）后重新打开 atomcode 就会用上。".into(),
         Msg::UpgradeUnknownArg { arg } =>
             format!("未知的 /upgrade 参数：{}\n  用法：/upgrade [rollback|--force]", arg).into(),
 

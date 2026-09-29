@@ -566,6 +566,24 @@ async fn a_command_only_the_classic_screen_has_says_where_it_lives() {
         );
     }
 
+    // `/upgrade` is answered on this screen now (`tui_upgrade`), not pointed at
+    // the CLI. An argument it does not take is refused in the classic screen's
+    // words — which reaches the row without touching the network.
+    term.type_line("/upgrade bogus");
+    let expected = "未知的 /upgrade 参数";
+    let mut screen_text = String::new();
+    for _ in 0..200 {
+        screen_text = term.text();
+        if screen_text.contains(expected) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(
+        screen_text.contains(expected) && !screen_text.contains("/upgrade 归命令行"),
+        "/upgrade is this screen's own:\n{screen_text}"
+    );
+
     term.press(atomcode_tui::surface::KeyPress::ctrl('d'));
     let _ = tokio::time::timeout(Duration::from_secs(5), running).await;
 }

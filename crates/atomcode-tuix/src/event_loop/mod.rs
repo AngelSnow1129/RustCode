@@ -17807,11 +17807,7 @@ mod onboarding_provider_tests {
 /// Returns None if the format ever drifts — caller falls back to "?"
 /// placeholders so the localized sentence still renders cleanly.
 fn parse_already_latest_versions(s: &str) -> Option<(&str, &str)> {
-    let after_on = s.strip_prefix("already on ")?;
-    let (current, rest) = after_on.split_once(" (latest is ")?;
-    let latest = rest.strip_suffix(". Pass --force to reinstall.")?;
-    let latest = latest.strip_suffix(')')?;
-    Some((current, latest))
+    atomcode_updater::already_latest_versions(s)
 }
 
 #[cfg(test)]

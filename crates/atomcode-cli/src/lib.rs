@@ -49,6 +49,7 @@ pub mod tui_setup;
 pub mod tui_share;
 pub mod tui_shell;
 pub mod tui_tools;
+pub mod tui_upgrade;
 pub mod tui_welcome_words;
 pub mod uninstall;
 
@@ -251,6 +252,7 @@ pub mod tui_front {
             crate::tui_welcome_words::row_layer(),
             crate::tui_opening::row_layer(),
             crate::tui_shell::row_layer(),
+            crate::tui_upgrade::row_layer(),
             crate::tui_elsewhere::row_layer(),
             crate::tui_proxy::row_layer(),
             crate::tui_schedule::row_layer(),
@@ -282,6 +284,7 @@ pub mod tui_front {
                 notice: opening_notice,
                 keys: keys_note,
             }),
+            Arc::new(crate::tui_upgrade::UpgradeRow),
             Arc::new(crate::tui_shell::ShellRow {
                 working_dir: working_dir.clone(),
             }),
@@ -909,6 +912,15 @@ model = "vendor-b"
         let keys_marker =
             crate::tui_opening::keys_notice_marker(&atomcode_config::config::Config::config_dir());
         let keys_note = crate::tui_opening::keys_note(&keys_marker);
+        // Started again by an upgrade: say so once, among this launch's notices,
+        // and take the variable out of the environment at once — every process
+        // this one starts (a `!` command, a tool's shell) would inherit it, and
+        // another atomcode among them would claim an upgrade it never had.
+        let opening_notice = crate::tui_opening::with_upgrade_notice(
+            opening_notice,
+            std::env::var(crate::tui_opening::UPGRADED_FROM_ENV).ok(),
+        );
+        std::env::remove_var(crate::tui_opening::UPGRADED_FROM_ENV);
         let (mounted, background) = mount_noted(
             runtime,
             front_end,
