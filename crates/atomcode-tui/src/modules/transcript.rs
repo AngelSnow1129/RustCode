@@ -436,13 +436,18 @@ impl Producer for Transcript {
                 }
             }
 
-            SessionEvent::Notice { detail, .. } => {
-                out.emit(
-                    at,
-                    Arc::new(NoticeBlock {
-                        detail: detail.clone(),
-                    }),
-                );
+            SessionEvent::Notice { notice, detail, .. } => {
+                // The runtime writes its rate-limit wait as an English sentence
+                // (`host_rows::RateLimitCoding`); said here in the person's
+                // language, as the classic screen says it. Anything else is
+                // shown as it was written.
+                let detail = match notice {
+                    atomcode_harness::session::NoticeKind::RateLimited => {
+                        rate_limit_wait(detail).unwrap_or_else(|| detail.clone())
+                    }
+                    _ => detail.clone(),
+                };
+                out.emit(at, Arc::new(NoticeBlock { detail }));
             }
 
             // ---- things the harness did that change what the model sees -----
@@ -479,14 +484,12 @@ impl Producer for Transcript {
                 );
             }
             SessionEvent::RateLimitPaused { pause, .. } => {
-                let mut detail = t(Msg::TranscriptRateLimited {
-                    until: &pause.reset_at_display,
-                })
-                .into_owned();
-                if let Some(message) = &pause.server_message {
-                    detail.push_str(&format!(" · {message}"));
-                }
-                out.emit(at, Arc::new(NoticeBlock { detail }));
+                out.emit(
+                    at,
+                    Arc::new(NoticeBlock {
+                        detail: rate_limit_pause(pause),
+                    }),
+                );
             }
             // A member of this session's team stopped for good
             // (`docs/adr/0024` §13). The team panel says so while it is
@@ -698,9 +701,151 @@ impl Producer for Transcript {
     }
 }
 
+/// The runtime's rate-limit wait (`rate limited; retrying in 95s`), in the
+/// person's language. `None` for any other wording, which is then shown as it
+/// was written rather than guessed at.
+fn rate_limit_wait(detail: &str) -> Option<String> {
+    let secs = detail
+        .strip_prefix("rate limited; retrying in ")?
+        .strip_suffix('s')?
+        .parse::<u64>()
+        .ok()?;
+    Some(t(Msg::TranscriptRateLimitWaiting { secs }).into_owned())
+}
+
+/// Why a rate-limited turn stopped, as the classic screen says it.
+///
+/// A CodingPlan window carries window data (a reset time and/or a label); a 429
+/// from anywhere else carries neither and must not be dressed up as the plan's
+/// quota — it gets the provider's own reason instead. Either way the time left
+/// is said when known, and never a dangling "until" with nothing after it.
+fn rate_limit_pause(pause: &atomcode_harness::events::RateLimitPause) -> String {
+    let left = pause.secs_until_reset.map(wait_left);
+    let plan = !pause.reset_at_display.is_empty() || !pause.reset_label.is_empty();
+    if plan {
+        let mut said = t(Msg::TranscriptWindowExhausted {
+            until: &pause.reset_at_display,
+            left: left.as_deref(),
+        })
+        .into_owned();
+        // What the other end said about it, when it said anything: kept from
+        // before, though the classic screen leaves it out for a plan window.
+        if let Some(message) = pause.server_message.as_deref().map(str::trim) {
+            if !message.is_empty() {
+                said.push_str(&format!(" · {message}"));
+            }
+        }
+        said
+    } else {
+        t(Msg::TranscriptRateLimitedElsewhere {
+            reason: pause
+                .server_message
+                .as_deref()
+                .map(str::trim)
+                .filter(|m| !m.is_empty()),
+            left: left.as_deref(),
+        })
+        .into_owned()
+    }
+}
+
+/// How long until a window reopens, the way the classic screen writes it:
+/// `2h11m`, `45m`, `30s`.
+fn wait_left(secs: u64) -> String {
+    if secs >= 3600 {
+        format!("{}h{}m", secs / 3600, (secs % 3600) / 60)
+    } else if secs >= 60 {
+        format!("{}m", secs / 60)
+    } else {
+        format!("{secs}s")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The runtime's English wait sentence is said in the person's language;
+    /// any other wording is left alone rather than guessed at.
+    #[test]
+    fn a_rate_limit_wait_is_said_in_the_persons_language() {
+        assert_eq!(
+            rate_limit_wait("rate limited; retrying in 95s"),
+            Some(t(Msg::TranscriptRateLimitWaiting { secs: 95 }).into_owned())
+        );
+        assert_eq!(rate_limit_wait("something else happened"), None);
+        assert_eq!(rate_limit_wait("rate limited; retrying in soon"), None);
+    }
+
+    /// A plan window says when it reopens and how long is left; a 429 from
+    /// anywhere else says the provider's reason and is never dressed up as the
+    /// plan's quota; neither leaves a dangling "until" when the time is missing.
+    #[test]
+    fn a_rate_limit_pause_says_what_it_is_and_how_long() {
+        use atomcode_harness::events::RateLimitPause;
+        let plan = RateLimitPause {
+            reset_at_display: "18:09".into(),
+            reset_label: "5h".into(),
+            secs_until_reset: Some(2 * 3600 + 11 * 60),
+            server_message: None,
+        };
+        assert_eq!(
+            rate_limit_pause(&plan),
+            t(Msg::TranscriptWindowExhausted {
+                until: "18:09",
+                left: Some("2h11m")
+            })
+            .into_owned()
+        );
+
+        let plan_no_time = RateLimitPause {
+            reset_label: "5h".into(),
+            ..RateLimitPause::default()
+        };
+        assert_eq!(
+            rate_limit_pause(&plan_no_time),
+            t(Msg::TranscriptWindowExhausted {
+                until: "",
+                left: None
+            })
+            .into_owned()
+        );
+
+        let elsewhere = RateLimitPause {
+            secs_until_reset: Some(90),
+            server_message: Some("  余额不足，请充值  ".into()),
+            ..RateLimitPause::default()
+        };
+        assert_eq!(
+            rate_limit_pause(&elsewhere),
+            t(Msg::TranscriptRateLimitedElsewhere {
+                reason: Some("余额不足，请充值"),
+                left: Some("1m")
+            })
+            .into_owned()
+        );
+
+        let bare = rate_limit_pause(&RateLimitPause::default());
+        assert_eq!(
+            bare,
+            t(Msg::TranscriptRateLimitedElsewhere {
+                reason: None,
+                left: None
+            })
+            .into_owned()
+        );
+        assert!(
+            !bare.trim_end().ends_with("等到") && !bare.trim_end().ends_with("until"),
+            "{bare}"
+        );
+    }
+
+    #[test]
+    fn the_time_left_reads_as_the_classic_screen_writes_it() {
+        assert_eq!(wait_left(2 * 3600 + 11 * 60 + 5), "2h11m");
+        assert_eq!(wait_left(45 * 60), "45m");
+        assert_eq!(wait_left(30), "30s");
+    }
     use crate::block::{Slot, Stream};
     use crate::conformance;
 
@@ -798,9 +943,17 @@ mod tests {
             },
         ]);
         let drawn = said(&s);
+        let window = t(Msg::TranscriptWindowExhausted {
+            until: "14:30",
+            left: Some("10m"),
+        })
+        .into_owned();
+        // The head of the sentence — what happened, until when, how long is
+        // left — fits one row; the rest wraps.
+        let head = window.split(" · ").next().expect("a head");
         assert!(
-            drawn.contains("被限速") && drawn.contains("14:30"),
-            "it says what happened and until when:\n{drawn}"
+            drawn.contains(head),
+            "it says what happened, until when and how long is left:\n{drawn}"
         );
         assert!(
             drawn.contains("配额用完了"),
