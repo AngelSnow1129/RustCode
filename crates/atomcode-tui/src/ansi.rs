@@ -152,7 +152,8 @@ impl Pointer {
     /// exclusive settings cannot be moved by saying what you no longer want:
     /// `1003l` to stop the hover took button reporting with it, so the
     /// composer's menu closing handed the pointer back for the rest of the
-    /// session — and `ctrl-o` then needed two presses to return it, the first
+    /// session — and the mouse key (`ctrl-o` then, `ctrl-g` now) needed two
+    /// presses to return it, the first
     /// having turned off what was already off.
     pub const fn escape(self) -> &'static str {
         match self {
@@ -995,7 +996,7 @@ mod tests {
         );
         // Leaving the hover while the pointer is still ours asks for the
         // buttons back. Sending `1003l` here is the bug that cost two presses of
-        // `ctrl-o`, and this is where it would come back.
+        // the mouse key (`ctrl-g` now), and this is where it would come back.
         assert_eq!(
             Pointer::Buttons.escape_from(Pointer::ButtonsAndHover),
             Some(MOUSE_ON)

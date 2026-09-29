@@ -129,7 +129,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         // ── 状态栏 ──
         Msg::StatusMember { name } => format!("成员 {name}").into(),
         Msg::StatusStopping => "停止中".into(),
-        Msg::StatusMouseHandedBack => "鼠标:终端 ctrl+o".into(),
+        Msg::StatusMouseHandedBack => "鼠标:终端 ctrl+g".into(),
         Msg::StatusBackground { running, waiting } => match waiting {
             0 => format!("后台 {running}").into(),
             waiting => format!("后台 {running} · {waiting} 等你").into(),
@@ -314,12 +314,12 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
              空闲时:esc 连按两下清空输入,输入已空再连按两下打开回退 · ctrl-c 清空输入,再按一次退出\n\
              上/下 在输入里移动游标,到头则翻历史 · 点击输入框定位游标\n\
              pgup/pgdn 与滚轮滚动对话\n\
-             alt-r 思考(一行/全文/收起,循环) · ctrl-t 工具输出(全部/单个摘要/成组摘要,循环) · ctrl-l 重画屏幕\n\
+             ctrl-o(或 alt-r)思考(一行/全文/收起,循环) · ctrl-t 工具输出(全部/单个摘要/成组摘要,循环) · ctrl-l 重画屏幕\n\
              ctrl-r 搜索这个项目里以前打过的东西;继续打字缩小范围,再按 ctrl-r 往更老翻,enter 接受,esc 还回草稿\n\
              shift+tab 切下一个执行模式(plan/ask/edits/auto;没有补全菜单时) · /config 里 ui.mode_switch_key=tab 可改用 tab 切、tab 则只用于补全\n\
              /showinject [名字] 环境注入(默认不显示;不带名字则全部,all 含同伴报告)\n\
              拖动选中并复制 · esc 取消选中 · 点击思考或工具调用折叠展开那一个\n\
-             ctrl-o 把鼠标交还终端(改用终端自己的框选)".into(),
+             ctrl-g(或 /mouse)把鼠标交还终端(改用终端自己的框选)".into(),
         Msg::ToolOutputUnknown { what } => format!("没有 `{what}` 这种工具输出形态;可以写 full(全部)/head(前后各20行)/each(单个摘要)/group(成组摘要)").into(),
         Msg::InjectionUnknown { what, names } => format!("没有 `{what}` 这种注入;可以写 {names} 或 all").into(),
         Msg::CopyWhichBlock { count } => format!("有 {count} 块;`/copy N` 指定哪一块,`/copy all` 全要").into(),
@@ -736,7 +736,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         }
         Msg::McpSignInAsking { host } => format!("正在连接 {host}…").into(),
         Msg::McpSignInWaiting => "等待浏览器授权…".into(),
-        Msg::MouseTakenBackAuto => "鼠标被终端收回了,已自动要回;若再次发生,ctrl-o 可手动切换".into(),
+        Msg::MouseTakenBackAuto => "鼠标被终端收回了,已自动要回;若再次发生,ctrl-g 可手动切换".into(),
         Msg::ScreenNotConnectedProviders => "屏幕还没接上,改不了 provider".into(),
         Msg::NoProviderPort => "这个屏幕没有接 provider:启动器没有提供 `tui-providers`".into(),
         Msg::ProviderEdited { id } => format!("改好了 {id}").into(),
@@ -775,8 +775,8 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ImageGone => "这张图已经找不到了".into(),
         Msg::ImageCorrupt => "图片数据损坏".into(),
         Msg::MouseTaken => "鼠标已收回:拖动选中并复制,点击思考或工具调用折叠展开那一个,滚轮滚动,esc 取消选中".into(),
-        Msg::MouseHandedBack => "鼠标已交还终端:改用终端自己的框选(可跨 scrollback)。这时滚轮可能被终端转成方向键、在输入框里切换历史 —— 滚动请用 pgup/pgdn。折叠用 ctrl-t,思考用 alt-r(默认不显示),ctrl-o 收回鼠标".into(),
-        Msg::ReasoningHiddenHint => "这一轮的思考过程没有显示 · alt-r 查看(或 /reasoning)".into(),
+        Msg::MouseHandedBack => "鼠标已交还终端:改用终端自己的框选(可跨 scrollback)。这时滚轮可能被终端转成方向键、在输入框里切换历史 —— 滚动请用 pgup/pgdn。折叠用 ctrl-t,思考用 ctrl-o(默认不显示),ctrl-g 收回鼠标".into(),
+        Msg::ReasoningHiddenHint => "这一轮的思考过程没有显示 · ctrl-o 查看(或 /reasoning)".into(),
         Msg::NoProviderPanel => "这个屏幕没有 provider 面板:启动器没有提供 `tui-panel-providers`".into(),
         Msg::NoPluginPanel => "这个屏幕没有插件面板:启动器没有提供 `tui-panel-plugins`".into(),
         Msg::NoToolPanel => "这个屏幕没有工具面板:启动器没有提供 `tui-panel-tools`".into(),

@@ -4295,7 +4295,7 @@ async fn the_menu_asks_the_terminal_for_the_pointer_only_while_it_is_open() {
     // button reporting. Asserted as the state rather than as the bytes, because
     // the bug was that the two were thought to be the same thing — the old pair
     // of flags said "no hover" and could not say "and still no buttons", so the
-    // pointer was gone for the rest of the session and `ctrl-o` needed two
+    // pointer was gone for the rest of the session and the mouse key needed two
     // presses to return it: the first turned off what was already off.
     assert_eq!(
         s.term.pointer_mode(),
@@ -9154,7 +9154,7 @@ impl atomcode_host_api::HostControl for WorksIn {
 }
 
 /// **The wheel with the mouse handed back scrolls, it does not step the input
-/// history.** With the pointer the terminal's (ctrl+o), iTerm2 and Terminal.app
+/// history.** With the pointer the terminal's (ctrl+g), iTerm2 and Terminal.app
 /// send the wheel as arrow keys, and ↑ in an empty composer recalls the last
 /// prompt — every notch put an old line in the box. The reader gathers a notch
 /// into one burst (`Input::ArrowBurst`); where it would have reached the
@@ -9181,7 +9181,7 @@ async fn the_wheel_as_arrows_scrolls_while_the_mouse_is_handed_back() {
     let before = composer(&s);
 
     // Handed back: the notch scrolls, the box stays empty, the row says why.
-    s.term.press(KeyPress::ctrl('o'));
+    s.term.press(KeyPress::ctrl('g'));
     until(&s, &marker).await;
     s.term.arrows(true, 3);
     s.quiet().await;
@@ -9193,7 +9193,7 @@ async fn the_wheel_as_arrows_scrolls_while_the_mouse_is_handed_back() {
     );
 
     // Ours again: the marker goes, and the same burst is ↑ three times.
-    s.term.press(KeyPress::ctrl('o'));
+    s.term.press(KeyPress::ctrl('g'));
     until_gone(&s, &marker).await;
     s.term.arrows(true, 3);
     s.quiet().await;

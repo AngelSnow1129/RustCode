@@ -428,6 +428,7 @@ Then just type what you want:
 | `F2 / Shift+F2` | Switch to next / previous model (usually `Fn+F2 / Fn+Shift+F2` on Mac) |
 | `Ctrl+R` | Reverse-search input history |
 | `Ctrl+T` | Cycle `reasoning_effort` |
+| `Ctrl+O` | Show / hide tool output and reasoning (verbose mode) |
 | `Ctrl+U` | Clear line |
 | `Ctrl+W` | Delete word |
 | `Ctrl+K` | Delete to end of line |
@@ -462,6 +463,16 @@ Then just type what you want:
 | Empty input + `Home/End` | Jump to top / bottom of conversation  |
 | `Ctrl+Shift+C`           | Copy selection                        |
 | `Ctrl+C`                 | Cancel operation (double-tap to exit) |
+
+### New screen (`atomcode --tui`)
+
+Most keys are the same as above; these differ. Type `/keys` in a session for the full list:
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+O` | Reasoning: one line / in full / folded, cycles (also `/reasoning`; `Alt+R` works too when the terminal sends Option as Meta) |
+| `Ctrl+T` | Tool output: all / one summary each / summarised in groups, cycles |
+| `Ctrl+G` | Hand the mouse to the terminal (use its own selection), again to take it back (also `/mouse`) |
 
 ### Slash Commands
 

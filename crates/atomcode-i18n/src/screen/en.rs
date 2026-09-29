@@ -152,7 +152,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         // ── the status bar ──
         Msg::StatusMember { name } => format!("member {name}").into(),
         Msg::StatusStopping => "stopping".into(),
-        Msg::StatusMouseHandedBack => "mouse: terminal ctrl+o".into(),
+        Msg::StatusMouseHandedBack => "mouse: terminal ctrl+g".into(),
         Msg::StatusBackground { running, waiting } => match waiting {
             0 => format!("{running} in background").into(),
             waiting => format!("{running} in background · {waiting} waiting on you").into(),
@@ -345,12 +345,12 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
              idle: esc twice clears the composer, twice more on an empty one opens rewind · ctrl-c clears the composer, again to quit\n\
              up/down move the caret, and page through history once at the end · click to put the caret where you clicked\n\
              pgup/pgdn and the wheel scroll the conversation\n\
-             alt-r reasoning (one line / in full / folded, cycles) · ctrl-t tool output (all / one summary each / summarised in groups, cycles) · ctrl-l redraws\n\
+             ctrl-o (or alt-r) reasoning (one line / in full / folded, cycles) · ctrl-t tool output (all / one summary each / summarised in groups, cycles) · ctrl-l redraws\n\
              ctrl-r searches what you have typed in this project before; type to narrow, ctrl-r again for older, enter takes it, esc gives your draft back\n\
              shift+tab steps to the next execution mode (plan/ask/edits/auto; with no completion menu up) · set ui.mode_switch_key=tab in /config to cycle with tab instead, leaving tab for completion\n\
              /showinject [name] injected context (hidden by default; all of them with no name, `all` includes peers' reports)\n\
              drag to select and copy · esc drops the selection · click a thought or a tool call to fold or open that one\n\
-             ctrl-o hands the mouse back to the terminal (use its own selection instead)".into(),
+             ctrl-g (or /mouse) hands the mouse back to the terminal (use its own selection instead)".into(),
         Msg::ToolOutputUnknown { what } => format!("there is no `{what}` shape for tool output; it takes full (all of it) / head (20 lines each end) / each (one summary each) / group (summarised in groups)").into(),
         Msg::InjectionUnknown { what, names } => format!("there is no `{what}` injection; it takes {names} or all").into(),
         Msg::CopyWhichBlock { count } => format!("there are {count}; `/copy N` picks one, `/copy all` takes every one").into(),
@@ -789,7 +789,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         }
         Msg::McpSignInAsking { host } => format!("connecting to {host}…").into(),
         Msg::McpSignInWaiting => "waiting for the browser…".into(),
-        Msg::MouseTakenBackAuto => "the terminal took the mouse back; it has been asked for again. If it happens again, ctrl-o switches by hand".into(),
+        Msg::MouseTakenBackAuto => "the terminal took the mouse back; it has been asked for again. If it happens again, ctrl-g switches by hand".into(),
         Msg::ScreenNotConnectedProviders => "the screen is not connected; providers cannot be changed".into(),
         Msg::NoProviderPort => "this screen has no providers: the launcher provided no `tui-providers`".into(),
         Msg::ProviderEdited { id } => format!("{id} changed").into(),
@@ -830,8 +830,8 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ImageGone => "that image is no longer available".into(),
         Msg::ImageCorrupt => "the image data is corrupt".into(),
         Msg::MouseTaken => "the mouse is taken: drag to select and copy, click a thought or a tool call to fold it, wheel to scroll, esc to drop the selection".into(),
-        Msg::MouseHandedBack => "the mouse is the terminal's: use its own selection (which reaches into the scrollback). The terminal may now turn the wheel into arrow keys, which step through the input history — scroll with pgup/pgdn. Fold with ctrl-t, reasoning with alt-r (hidden by default), ctrl-o takes the mouse back".into(),
-        Msg::ReasoningHiddenHint => "this turn's reasoning is hidden · alt-r shows it (or /reasoning)".into(),
+        Msg::MouseHandedBack => "the mouse is the terminal's: use its own selection (which reaches into the scrollback). The terminal may now turn the wheel into arrow keys, which step through the input history — scroll with pgup/pgdn. Fold with ctrl-t, reasoning with ctrl-o (hidden by default), ctrl-g takes the mouse back".into(),
+        Msg::ReasoningHiddenHint => "this turn's reasoning is hidden · ctrl-o shows it (or /reasoning)".into(),
         Msg::NoProviderPanel => "this screen has no provider panel: the launcher provided no `tui-panel-providers`".into(),
         Msg::NoPluginPanel => "this screen has no plugin panel: the launcher provided no `tui-panel-plugins`".into(),
         Msg::NoToolPanel => "this screen has no tool panel: the launcher provided no `tui-panel-tools`".into(),

@@ -141,8 +141,22 @@
         <tbody>
           <tr><td><code>F2 / Shift+F2</code></td><td>切换到下一个 / 上一个已配置模型;Mac 键盘通常按 <code>Fn+F2 / Fn+Shift+F2</code></td></tr>
           <tr><td><code>Ctrl+T</code></td><td>循环切换当前模型的 <code>reasoning_effort</code></td></tr>
+          <tr><td><code>Ctrl+O</code></td><td>显示 / 隐藏工具输出与思考过程(详细模式)</td></tr>
           <tr><td><code>Esc</code></td><td>取消当前正在进行的工具调用或流式输出</td></tr>
           <tr><td><code>Ctrl+C</code></td><td>第一次:取消当前操作;连按第二次:退出程序</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="新界面">新界面(atomcode --tui)</h2>
+      <p>新界面的按键大多与上面相同,以下几个不同;完整列表在会话里输入 <code>/keys</code> 查看。</p>
+      <table>
+        <thead>
+          <tr><th>按键</th><th>动作</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>Ctrl+O</code></td><td>思考过程:一行 / 全文 / 收起,循环(也可用 <code>/reasoning</code>;终端把 Option 设成 Meta 时 <code>Alt+R</code> 同样可用)</td></tr>
+          <tr><td><code>Ctrl+T</code></td><td>工具输出:全部 / 单个摘要 / 成组摘要,循环</td></tr>
+          <tr><td><code>Ctrl+G</code></td><td>把鼠标交还终端(改用终端自己的框选),再按收回(也可用 <code>/mouse</code>)</td></tr>
         </tbody>
       </table>
 

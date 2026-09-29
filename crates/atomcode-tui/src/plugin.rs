@@ -961,7 +961,7 @@ pub struct Tui {
     /// Once per screen: the account stays out until the window turns over, and a
     /// line that came back every turn would be one more thing to read past.
     allowance_nudged: Arc<AtomicBool>,
-    /// Whether "this turn's reasoning is hidden — alt-r" has been said. Once
+    /// Whether "this turn's reasoning is hidden — ctrl-o" has been said. Once
     /// per screen, for the reason `allowance_nudged` is: it is news the first
     /// time, and after that it is one more line to read past.
     reasoning_hinted: AtomicBool,
@@ -2416,7 +2416,7 @@ impl Tui {
     fn paint(&self) {
         self.name_the_window();
         // Where the pointer is, for the status row's marker: the surface is the
-        // one that knows, and every way it changes (ctrl+o, `[ui] mouse`, the
+        // one that knows, and every way it changes (ctrl+g, `[ui] mouse`, the
         // terminal taking it back and it being taken again) ends in a paint.
         {
             let back = !self.surface.mouse();

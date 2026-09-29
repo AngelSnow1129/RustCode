@@ -850,7 +850,7 @@ pub struct Moment {
     /// 取的路上有一次列表变化被 `bg_question_wanted` 挡掉了（正在取，不要第二次）。
     /// 这一趟没提上来就得替它再取一次，否则那次变化就丢了。
     pub bg_repull: bool,
-    /// 鼠标交还给终端了(ctrl+o,或 `[ui] mouse = false`)。状态行为它常挂一个
+    /// 鼠标交还给终端了(ctrl+g,或 `[ui] mouse = false`)。状态行为它常挂一个
     /// 标记:这时滚轮会被终端转成方向键,滚动要用 pgup/pgdn —— 滚轮出怪事时,
     /// 原因得就在眼前,而不是在很久以前滚上去的那一句提示里。
     pub mouse_handed_back: bool,

@@ -198,7 +198,7 @@ impl View for Status {
         if let Some((text, _)) = &background {
             reserved += width::str_width(text) + sep_w;
         }
-        // The mouse handed back to the terminal (ctrl+o, `[ui] mouse = false`):
+        // The mouse handed back to the terminal (ctrl+g, `[ui] mouse = false`):
         // said for as long as it lasts, because it is the state the wheel's
         // oddities come from — the terminal turns the wheel into arrow keys —
         // and the one-off line said when it was handed back has scrolled away
