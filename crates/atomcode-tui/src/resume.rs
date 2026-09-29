@@ -118,6 +118,8 @@ impl Panel {
             return false;
         }
         self.cursor = want;
+        // 滚轮、指针移开了,待删就作废 —— 和方向键同一个规矩。
+        self.armed = None;
         true
     }
 }
@@ -306,6 +308,15 @@ mod tests {
 
     fn press(key: Key) -> KeyPress {
         KeyPress::plain(key)
+    }
+
+    /// 滚轮、指针把光标带到别的行,待删就作废。
+    #[test]
+    fn pointing_elsewhere_ends_an_armed_delete() {
+        let mut panel = Panel::new();
+        panel.armed = Some("a".into());
+        assert!(panel.point_at(1, 3));
+        assert!(panel.armed.is_none());
     }
 
     #[test]

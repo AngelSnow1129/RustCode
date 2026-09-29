@@ -431,6 +431,9 @@ impl Panel {
             return false;
         }
         self.cursor = next;
+        // The pointer moved off: a reset armed on the row it left is over, the
+        // same as when the arrows move off it.
+        self.pending_reset = None;
         true
     }
 
@@ -972,6 +975,15 @@ mod tests {
                 SettingKind::Choice(vec!["auto".into(), "dark".into()]),
             ),
         ])
+    }
+
+    /// The pointer moving off a row ends a reset armed on it, as the arrows do.
+    #[test]
+    fn pointing_elsewhere_ends_an_armed_reset() {
+        let mut panel = Panel::new();
+        panel.pending_reset = Some("a.first".into());
+        assert!(panel.point_at(1, 3));
+        assert!(panel.pending_reset.is_none());
     }
 
     /// Unsetting takes two presses, and the confirmation does not outlive the

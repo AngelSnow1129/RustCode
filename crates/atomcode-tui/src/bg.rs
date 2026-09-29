@@ -257,6 +257,11 @@ impl Panel {
         };
         let moved = want != self.cursor;
         self.cursor = want;
+        // 移开了就不再等第二次 ctrl+d —— 和方向键、点击同一个规矩,不然那一行
+        // 还说着「再按一次」,光标却已经在别的行上。
+        if moved {
+            self.armed = None;
+        }
         moved
     }
 
@@ -579,6 +584,17 @@ mod tests {
         assert_eq!(key(&view, &mut panel, press(Key::Left)), Step::Close);
         typed(&mut panel, &view, "a");
         assert_eq!(key(&view, &mut panel, press(Key::Left)), Step::Stay);
+    }
+
+    /// 滚轮挪开了,待删也作废:那一行不能还说着「再按一次」而光标已经在别处。
+    #[test]
+    fn the_wheel_moving_off_ends_an_armed_drop() {
+        let view = view();
+        let mut panel = Panel::new(None);
+        key(&view, &mut panel, KeyPress::ctrl('d'));
+        assert!(panel.armed.is_some());
+        assert!(panel.wheel(&view, 1));
+        assert!(panel.armed.is_none());
     }
 
     /// 丢掉一个后台会话要按两次 ctrl+d:第一次只是标上,第二次才丢;中间按了
