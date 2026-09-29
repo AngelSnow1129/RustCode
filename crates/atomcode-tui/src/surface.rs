@@ -868,7 +868,11 @@ static SCREEN_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBoo
 static STDERR_ORIGINAL: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
 
 /// Arm the emergency restore, and install the hook the first time.
-fn arm_panic_restore(#[allow(unused_variables)] original: Option<std::os::fd::RawFd>) {
+///
+/// The descriptor travels as a plain `i32` (`RawFd` is a transparent alias for
+/// `i32` on Unix) so the signature compiles on non-Unix targets too — only the
+/// `#[cfg(unix)]` body actually uses it.
+fn arm_panic_restore(#[allow(unused_variables)] original: Option<i32>) {
     use std::sync::atomic::Ordering;
     #[cfg(unix)]
     STDERR_ORIGINAL.store(original.unwrap_or(-1), Ordering::SeqCst);
