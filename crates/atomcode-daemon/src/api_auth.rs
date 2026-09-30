@@ -129,10 +129,10 @@ fn default_true() -> bool {
 
 /// GET /auth/status - Returns whether the user is signed in.
 pub(crate) async fn auth_status() -> impl IntoResponse {
-    let auth_path = auth::auth_file_path();
+    let auth_path = auth::auth_file_path(atomcode_coding::config::product_dirs_from_env().user());
     let auth_path_str = auth_path.to_string_lossy().to_string();
 
-    match auth::get_stored_auth() {
+    match auth::get_stored_auth(atomcode_coding::config::product_dirs_from_env().user()) {
         Some(info) => {
             let has_refresh = info.refresh_token.is_some();
             // Presence of auth.toml is not the same as a usable session: an
@@ -143,9 +143,12 @@ pub(crate) async fn auth_status() -> impl IntoResponse {
             // can't be made valid. It's disk-only in the common case and
             // network-bounded (5s connect / 10s total) only when a refresh is
             // actually attempted; run it off the async runtime.
-            let token_usable = tokio::task::spawn_blocking(|| auth::get_valid_token().is_ok())
-                .await
-                .unwrap_or(false);
+            let token_usable = tokio::task::spawn_blocking(|| {
+                auth::get_valid_token(atomcode_coding::config::product_dirs_from_env().user())
+                    .is_ok()
+            })
+            .await
+            .unwrap_or(false);
             let (logged_in, expired) = classify_auth_status(true, token_usable);
             Json(AuthStatusResponse {
                 logged_in,
@@ -331,11 +334,12 @@ pub(crate) async fn auth_logout(
 ) -> impl IntoResponse {
     let state_inner = state.clone();
     crate::telemetry_scope::daemon_scope(&state, None, client_mode, || async move {
-        match auth::logout() {
+        match auth::logout(atomcode_coding::config::product_dirs_from_env().user()) {
             Ok(()) => {
                 state_inner.telemetry.set_account_id(None);
                 // Return auth status after logout
-                let auth_path = auth::auth_file_path();
+                let auth_path =
+                    auth::auth_file_path(atomcode_coding::config::product_dirs_from_env().user());
                 Json(AuthStatusResponse {
                     logged_in: false,
                     expired: false,
@@ -403,7 +407,10 @@ pub(crate) async fn poll_login_session(
                         message: "Login service is temporarily unavailable".to_string(),
                     }
                 }
-                Ok(auth::PollOutcome::Authorized) => match session.finish(None) {
+                Ok(auth::PollOutcome::Authorized) => match session.finish(
+                    atomcode_coding::config::product_dirs_from_env().user(),
+                    None,
+                ) {
                     Err(error) => {
                         tracing::warn!(error = ?error, "OAuth token exchange failed");
                         PollCompletion::Failed {
@@ -426,14 +433,19 @@ pub(crate) async fn poll_login_session(
             apply_poll_completion(&record, generation, completion).await
         }
         BeginPoll::Persist { generation, auth } => {
-            let completion = tokio::task::spawn_blocking(move || match auth::save_auth(&auth) {
-                Ok(()) => PollCompletion::Authorized(auth.user),
-                Err(error) => {
-                    tracing::warn!(error = ?error, "failed to persist OAuth credentials");
-                    PollCompletion::PersistFailed {
-                        auth,
-                        code: "auth_persist_failed".to_string(),
-                        message: "Failed to save login credentials".to_string(),
+            let completion = tokio::task::spawn_blocking(move || {
+                match auth::save_auth(
+                    atomcode_coding::config::product_dirs_from_env().user(),
+                    &auth,
+                ) {
+                    Ok(()) => PollCompletion::Authorized(auth.user),
+                    Err(error) => {
+                        tracing::warn!(error = ?error, "failed to persist OAuth credentials");
+                        PollCompletion::PersistFailed {
+                            auth,
+                            code: "auth_persist_failed".to_string(),
+                            message: "Failed to save login credentials".to_string(),
+                        }
                     }
                 }
             })

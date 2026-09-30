@@ -112,7 +112,10 @@ pub use edit::EditFileTool;
 pub use glob::GlobTool;
 pub use grep::GrepTool;
 pub use list::ListDirTool;
-pub use open_file::{open_local_path, OpenFileTool, OpenFileWorkspaceGate};
+pub use open_file::{
+    open_local_path, open_local_url, LocalOpener, OpenFileTool, OpenFileWorkspaceGate, OpenTarget,
+    Opener,
+};
 pub use output_artifact::{
     artifact_id, ArtifactMiddleware, ArtifactStore, FetchOutputTool,
     ARTIFACT_TRUNCATION_MARKER_PREFIX, THRESHOLD_BYTES,
@@ -123,11 +126,13 @@ pub use read::ReadFileTool;
 pub use repair::{repair_tool_args, RepairToolArgsMiddleware};
 pub use report_finding::{Finding, ReportFindingTool};
 pub use search_replace::SearchReplaceTool;
-pub use sensitive_path::{path_is_sensitive, references_sensitive_path, SensitivePathGate};
-pub use task::{
-    subagent_child_middlewares, subagent_child_middlewares_for_policy, team_child_middlewares,
-    team_child_middlewares_for_policy, TaskTool,
-};
+pub use sensitive_path::{SensitivePathGate, SensitivePaths};
+// What is left of `task`: the scope gate the harness's `DelegationBoundsPlugin`
+// puts around a delegated child, and nothing else. The tool itself, its child
+// runner and its middlewares had no production caller — the agent that runs
+// today mounts the harness's own `subagent-in-process` row, which carries its
+// own `task` tool (`harness/src/plugins/subagent.rs`).
+pub use task::delegated_write_violation;
 pub use todo::TodoTool;
 #[cfg(feature = "web")]
 pub use web_fetch::WebFetchTool;
@@ -189,8 +194,11 @@ pub fn coding_tool_names() -> &'static [&'static str] {
 /// Register the full neutral coding toolset into `reg` (then `mount` the subset a
 /// given specialization should expose to the model). Vision support OFF — `read_file`
 /// reports images as binary (use [`register_coding_tools_with_vision`] for a VL model).
-pub fn register_coding_tools(reg: &mut ToolRegistry) {
-    register_coding_tools_with_vision(reg, false);
+///
+/// `dirs` is where the product keeps its data — the tools that persist or guard
+/// it (`memory`, the credential-path checks) take it from here.
+pub fn register_coding_tools(reg: &mut ToolRegistry, dirs: &crate::ProductDirs) {
+    register_coding_tools_with_vision(reg, false, dirs);
 }
 
 /// Like [`register_coding_tools`], but `vision` gates whether `read_file` hands an
@@ -198,21 +206,26 @@ pub fn register_coding_tools(reg: &mut ToolRegistry) {
 /// of the "binary, cannot display" text. The caller decides the flag from the model
 /// using [`crate::provider::model_suggests_vision`], the same detector used by the
 /// provider image encoder.
-pub fn register_coding_tools_with_vision(reg: &mut ToolRegistry, vision: bool) {
+pub fn register_coding_tools_with_vision(
+    reg: &mut ToolRegistry,
+    vision: bool,
+    dirs: &crate::ProductDirs,
+) {
     reg.register(Arc::new(ReadFileTool::new(vision)));
-    reg.register(Arc::new(WriteFileTool));
-    reg.register(Arc::new(EditFileTool));
-    reg.register(Arc::new(ListDirTool));
-    reg.register(Arc::new(OpenFileTool));
-    reg.register(Arc::new(BashTool));
+    reg.register(Arc::new(WriteFileTool::default()));
+    reg.register(Arc::new(EditFileTool::default()));
+    reg.register(Arc::new(ListDirTool::new(dirs.clone())));
+    reg.register(Arc::new(OpenFileTool::default()));
+    let sensitive = sensitive_path::SensitivePaths::of(dirs);
+    reg.register(Arc::new(BashTool::new(sensitive.clone())));
     // Background job path for long-running commands (start/poll/kill) — the reference-
     // informed alternative to an ever-larger `timeout` (see tools::bash::background).
-    reg.register(Arc::new(bash::BashStartTool));
+    reg.register(Arc::new(bash::BashStartTool::new(sensitive)));
     reg.register(Arc::new(bash::BashPollTool));
     reg.register(Arc::new(bash::BashKillTool));
-    reg.register(Arc::new(GrepTool));
-    reg.register(Arc::new(GlobTool));
-    reg.register(Arc::new(SearchReplaceTool));
+    reg.register(Arc::new(GrepTool::new(dirs.clone())));
+    reg.register(Arc::new(GlobTool::new(dirs.clone())));
+    reg.register(Arc::new(SearchReplaceTool::new(dirs.clone())));
     reg.register(Arc::new(AstGrepTool));
     // Gate on ATOMCODE_TODO env var (0/false/off → skip; anything else or absent → register).
     // Mirrors atomcode_core::config::todo_enabled_from_env but inlined here because
@@ -271,7 +284,7 @@ pub fn register_coding_tools_with_vision(reg: &mut ToolRegistry, vision: bool) {
             })
             .unwrap_or(false);
         if !memory_off {
-            reg.register(Arc::new(MemoryTool));
+            reg.register(Arc::new(MemoryTool::new(dirs.clone())));
         }
     }
 }
@@ -532,6 +545,11 @@ where
 
 #[cfg(test)]
 mod tests {
+    /// Nothing these registration tests do reaches the user tree.
+    fn test_dirs() -> crate::ProductDirs {
+        crate::ProductDirs::new("/nonexistent/tree", ".ours")
+    }
+
     use super::*;
     use atomcode_kernel::tool::ToolRegistry;
 
@@ -761,7 +779,7 @@ mod tests {
     #[test]
     fn register_coding_tools_has_no_extra_or_missing_tools() {
         let mut reg = ToolRegistry::new();
-        register_coding_tools(&mut reg);
+        register_coding_tools(&mut reg, &test_dirs());
 
         // Mount all names from the expected list.
         let mounted = reg.mount(EXPECTED_TOOL_NAMES);
@@ -789,7 +807,7 @@ mod tests {
     #[test]
     fn register_coding_tools_all_tools_have_valid_defs() {
         let mut reg = ToolRegistry::new();
-        register_coding_tools(&mut reg);
+        register_coding_tools(&mut reg, &test_dirs());
         let mounted = reg.mount(EXPECTED_TOOL_NAMES);
 
         for def in mounted.defs() {
@@ -810,7 +828,7 @@ mod tests {
     #[test]
     fn unmounted_tools_are_not_resolvable() {
         let mut reg = ToolRegistry::new();
-        register_coding_tools(&mut reg);
+        register_coding_tools(&mut reg, &test_dirs());
 
         // Mount only a subset; tools not in this list must not resolve.
         let subset = &["read_file", "bash", "grep"];
@@ -833,7 +851,7 @@ mod tests {
         );
     }
 
-    /// A `/model` swap re-registers `read_file` (see `coding::parts::assemble`) to refresh
+    /// A `/model` swap re-mounts the row that offers `read_file`, to refresh
     /// its vision flag. This guards the mechanism that fix relies on: re-registering with a
     /// new `vision` value OVERWRITES the prior `read_file`, so a model swap from text→vision
     /// (or vision→text) actually changes how it treats an image — it does not go stale.
@@ -852,7 +870,7 @@ mod tests {
 
         // First mount: text-only model → read of an image stays the binary-text dead-end.
         let mut reg = ToolRegistry::new();
-        register_coding_tools_with_vision(&mut reg, false);
+        register_coding_tools_with_vision(&mut reg, false, &test_dirs());
         let r = reg
             .mount(&["read_file"])
             .get("read_file")
@@ -867,7 +885,7 @@ mod tests {
 
         // Re-register on the SAME registry as if the model swapped to a VL model → the read
         // tool must now hand over the image, proving the swap takes effect (no stale flag).
-        register_coding_tools_with_vision(&mut reg, true);
+        register_coding_tools_with_vision(&mut reg, true, &test_dirs());
         let r = reg
             .mount(&["read_file"])
             .get("read_file")
@@ -885,7 +903,7 @@ mod tests {
     #[test]
     fn todowrite_registered_under_new_name() {
         let mut reg = ToolRegistry::new();
-        register_coding_tools(&mut reg);
+        register_coding_tools(&mut reg, &test_dirs());
         let mounted = reg.mount(coding_tool_names());
         let names: Vec<String> = mounted.defs().into_iter().map(|d| d.name).collect();
         assert!(
@@ -900,7 +918,7 @@ mod tests {
         // default (unset) → registered (default ON)
         std::env::remove_var("ATOMCODE_REQUEST_USER_INPUT");
         let mut reg = ToolRegistry::new();
-        register_coding_tools_with_vision(&mut reg, false);
+        register_coding_tools_with_vision(&mut reg, false, &test_dirs());
         let names_on: Vec<String> = reg
             .mount(&["request_user_input"])
             .defs()
@@ -915,7 +933,7 @@ mod tests {
         // explicit opt-out → NOT registered
         std::env::set_var("ATOMCODE_REQUEST_USER_INPUT", "0");
         let mut reg2 = ToolRegistry::new();
-        register_coding_tools_with_vision(&mut reg2, false);
+        register_coding_tools_with_vision(&mut reg2, false, &test_dirs());
         let names_off: Vec<String> = reg2
             .mount(&["request_user_input"])
             .defs()
@@ -937,7 +955,7 @@ mod tests {
     fn memory_tool_registered_unless_env_off() {
         std::env::remove_var("ATOMCODE_MEMORY_TOOL");
         let mut reg = ToolRegistry::new();
-        register_coding_tools_with_vision(&mut reg, false);
+        register_coding_tools_with_vision(&mut reg, false, &test_dirs());
         assert!(
             reg.mount(&["memory"]).defs().len() == 1,
             "memory mounts when env unset"
@@ -945,7 +963,7 @@ mod tests {
 
         std::env::set_var("ATOMCODE_MEMORY_TOOL", "0");
         let mut reg_off = ToolRegistry::new();
-        register_coding_tools_with_vision(&mut reg_off, false);
+        register_coding_tools_with_vision(&mut reg_off, false, &test_dirs());
         assert!(
             reg_off.mount(&["memory"]).defs().is_empty(),
             "memory absent when env=0"
@@ -968,7 +986,7 @@ mod tests {
     fn request_user_input_default_on_reaches_mounted_defs() {
         std::env::remove_var("ATOMCODE_REQUEST_USER_INPUT");
         let mut reg = ToolRegistry::new();
-        register_coding_tools(&mut reg);
+        register_coding_tools(&mut reg, &test_dirs());
         let mounted = reg.mount(coding_tool_names());
         let has = mounted
             .defs()
@@ -985,7 +1003,7 @@ mod tests {
     fn request_user_input_absent_from_defs_when_opt_out() {
         std::env::set_var("ATOMCODE_REQUEST_USER_INPUT", "0");
         let mut reg = ToolRegistry::new();
-        register_coding_tools(&mut reg);
+        register_coding_tools(&mut reg, &test_dirs());
         let mounted = reg.mount(coding_tool_names());
         std::env::remove_var("ATOMCODE_REQUEST_USER_INPUT");
         assert!(

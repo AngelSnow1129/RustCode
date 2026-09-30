@@ -16,6 +16,9 @@ pub struct ReviewAgentConfig {
     /// Repo root the review tools (read/grep/glob/codeintel) are scoped to — PINNED via
     /// the kernel `working_dir` seam, not the process cwd.
     pub working_dir: PathBuf,
+    /// Where the product keeps its data — the tools the reviewer is built with
+    /// (walk skips, the credential guard) take it from here.
+    pub dirs: atomcode_capabilities::ProductDirs,
     /// Model context window in tokens (forwarded to the provider). Default 128k.
     pub context_window: u32,
     /// Liveness: max byte-idle wait for the next stream event AFTER the first content
@@ -73,6 +76,12 @@ pub struct ReviewAgentConfig {
     /// Engineering callers (e.g. the service, which reviews huge repos on NFS) set a bound
     /// like `8000` so a kernel-scale repo degrades automatically. `0` ⇒ never mount.
     pub graph_max_indexed_files: usize,
+    /// Write a one-line trace to stderr when the round budget forces the
+    /// reviewer to land (`[budget] round N/M: …`). For the `atomcode review`
+    /// command, which owns its terminal; off by default, because the same agent
+    /// runs inside the `code_review` tool while a full-screen front end holds
+    /// the terminal.
+    pub trace_budget_to_stderr: bool,
     /// Skill directories to load `use_skill` / `list_skills` tools from. Empty (default)
     /// ⇒ NO skill tools mounted, matching bare-CLI behavior: only some deployments / repos
     /// opt into skills via `--skill-dir`. Each dir is scanned for `SKILL.md` (directory
@@ -103,12 +112,14 @@ impl ReviewAgentConfig {
         base_url: impl Into<String>,
         model: impl Into<String>,
         working_dir: impl Into<PathBuf>,
+        dirs: atomcode_capabilities::ProductDirs,
     ) -> Self {
         Self {
             api_key: api_key.into(),
             base_url: base_url.into(),
             model: model.into(),
             working_dir: working_dir.into(),
+            dirs,
             context_window: 128_000,
             stream_timeout: Duration::from_secs(120),
             first_token_timeout: Duration::from_secs(120),
@@ -122,8 +133,9 @@ impl ReviewAgentConfig {
             progress_label: None,
             no_web: false,
             graph_max_indexed_files: usize::MAX, // no degrade by default (bare-CLI behavior)
-            skill_dirs: Vec::new(),              // no skills by default (bare-CLI behavior)
-            review_paths: Vec::new(),            // no file allowlist by default (root-only confine)
+            trace_budget_to_stderr: false,
+            skill_dirs: Vec::new(), // no skills by default (bare-CLI behavior)
+            review_paths: Vec::new(), // no file allowlist by default (root-only confine)
         }
     }
 
@@ -159,8 +171,13 @@ pub(crate) fn resolve_tool_loop_policy(
     if requested_stop == Some(0) {
         return None;
     }
-    let stop = requested_stop.filter(|value| *value >= 3).unwrap_or(4);
-    let fallback_warning = 3.min(stop - 1).max(2);
+    // Unset or invalid ⇒ the kernel's own default, read rather than restated:
+    // a copy of the number here stayed at 4 when the kernel moved to 5.
+    let default = ToolLoopPolicy::default();
+    let stop = requested_stop
+        .filter(|value| *value >= 3)
+        .unwrap_or(default.stop_threshold());
+    let fallback_warning = default.warning_threshold().min(stop - 1).max(2);
     let warning = warning_env
         .and_then(|value| value.trim().parse::<u32>().ok())
         .filter(|value| *value >= 2 && *value < stop)
@@ -182,7 +199,16 @@ mod tests {
         assert_eq!(custom.stop_threshold(), 12);
         assert!(resolve_tool_loop_policy(Some("10"), Some("0")).is_none());
 
+        // Unset is the kernel's own default — whatever it is now; a copy of the
+        // number here once stayed at 4 after the kernel moved to 5.
+        assert_eq!(
+            resolve_tool_loop_policy(None, None).unwrap(),
+            ToolLoopPolicy::default()
+        );
+
+        // A warning that cannot sit below the stop falls back; the stop the
+        // person asked for is kept.
         let fallback = resolve_tool_loop_policy(Some("99"), Some("4")).unwrap();
-        assert_eq!(fallback, ToolLoopPolicy::default());
+        assert_eq!(fallback, ToolLoopPolicy::new(3, 4).unwrap());
     }
 }

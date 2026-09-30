@@ -16,7 +16,7 @@
     <img src="https://cdn-news.gitcode.com/news/atomcode-icon1.png" alt="AtomCode">
     <span>AtomCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
-    <span class="dhdr-ver">v5.1.0</span>
+    <span class="dhdr-ver">v5.2.0</span>
   </a>
   <div class="dhdr-right">
     <button class="search-trigger" data-open-search data-i18n-aria="aria.search" aria-label="搜索文档">
@@ -141,8 +141,25 @@
         <tbody>
           <tr><td><code>F2 / Shift+F2</code></td><td>Switch to the next / previous configured model; Mac keyboards usually require <code>Fn+F2 / Fn+Shift+F2</code></td></tr>
           <tr><td><code>Ctrl+T</code></td><td>Cycle the active model's <code>reasoning_effort</code></td></tr>
+          <tr><td><code>Ctrl+O</code></td><td>Show / hide tool output and reasoning (verbose mode)</td></tr>
           <tr><td><code>Esc</code></td><td>Cancel the in-progress tool call or streaming output</td></tr>
           <tr><td><code>Ctrl+C</code></td><td>First press cancels the current action; second consecutive press exits</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="new-screen">New screen (atomcode --tui)</h2>
+      <p>Most keys are the same as above; these differ. Type <code>/keys</code> in a session for the full list.</p>
+      <table>
+        <thead>
+          <tr><th>Key</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>Ctrl+O</code></td><td>Reasoning: one line / in full / folded, cycles (also <code>/reasoning</code>; <code>Alt+R</code> works too when the terminal sends Option as Meta)</td></tr>
+          <tr><td><code>Ctrl+T</code></td><td>Tool output: all / one summary each / summarised in groups, cycles; the opening step opens answered approvals too (the way to them while the mouse is handed back and a click cannot reach them)</td></tr>
+          <tr><td><code>Ctrl+G</code></td><td>Hand the mouse to the terminal (use its own selection), again to take it back (also <code>/mouse</code>). While it is handed back the wheel, the trackpad and <code>↑ ↓</code> scroll the conversation; with <code>[ui] mouse = false</code> it starts that way</td></tr>
+          <tr><td><code>Ctrl+P / Ctrl+N</code></td><td>Step through the input history (always; with the mouse handed back <code>↑ ↓</code> scroll, so these are the way to the history)</td></tr>
+          <tr><td><code>Ctrl+X</code></td><td>Interrupt the current turn and immediately send the queued messages, one per turn (each with its image); with nothing queued it is a plain interrupt</td></tr>
+          <tr><td><code>Double-tap Esc</code></td><td>Open the rewind panel (same as <code>/rewind</code>) to pick an earlier prompt to roll back</td></tr>
         </tbody>
       </table>
 

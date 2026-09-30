@@ -163,11 +163,11 @@ const BUILTIN_COMMANDS: &[Command] = &[
     Command { name: "whoami",  desc: "Show current logged-in user", needs_args: false, hidden: false, acp: false },
     Command { name: "model",   desc: "Switch provider / model", needs_args: false, hidden: false, acp: true },
     Command { name: "provider", desc: "Manage providers (add / edit / delete)", needs_args: false, hidden: false, acp: false },
-    Command { name: "openrouter", desc: "接入 OpenRouter 免费模型(/openrouter 或 /openrouter <key>)", needs_args: false, hidden: false, acp: false },
+    Command { name: "openrouter", desc: "Connect to OpenRouter free models (/openrouter for OAuth, /openrouter <key> with existing key)", needs_args: false, hidden: false, acp: false },
     Command { name: "proxy",   desc: "Switch outbound proxy mode", needs_args: false, hidden: false, acp: false },
     Command { name: "status",  desc: "Show session status", needs_args: false, hidden: false, acp: true },
     Command { name: "config",  desc: "Show config path", needs_args: false, hidden: false, acp: true },
-    Command { name: "reload",  desc: "Reload ~/.atomcode/config.toml from disk", needs_args: false, hidden: false, acp: false },
+    Command { name: "reload",  desc: "Reload config.toml from disk", needs_args: false, hidden: false, acp: false },
     Command { name: "cd",      desc: "Change working directory and start a new session", needs_args: false, hidden: false, acp: false },
     Command { name: "init",    desc: "Analyze the project and generate AGENTS.md", needs_args: false, hidden: false, acp: false },
     Command { name: "bg",      desc: "Background sessions: /bg, /bg list, /bg <N>, /bg drop <N>", needs_args: false, hidden: false, acp: false },
@@ -192,7 +192,9 @@ const BUILTIN_COMMANDS: &[Command] = &[
     // selection happens in the modal, not on the command line.
     Command { name: "rewind",  desc: "Restore the conversation to an earlier checkpoint", needs_args: false, hidden: false, acp: false },
     Command { name: "worktree", desc: "Git worktree isolation (create/list/done/cleanup)", needs_args: true, hidden: false, acp: false },
-    Command { name: "upgrade", desc: "Upgrade atomcode to latest (subcommand: rollback)", needs_args: false, hidden: false, acp: false },
+    // needs_args=true: picked from the menu, `/upgrade` opens its sub-menu
+    // (latest / --force / rollback) instead of starting a download at once.
+    Command { name: "upgrade", desc: "Upgrade atomcode to latest (subcommand: rollback)", needs_args: true, hidden: false, acp: false },
     Command { name: "plan",    desc: "Switch to Plan mode (read-only exploration)", needs_args: false, hidden: false, acp: true },
     Command { name: "build",   desc: "Switch to Build mode (full execution)", needs_args: false, hidden: false, acp: true },
     Command { name: "auto",    desc: "Switch to Auto mode (auto-approve all tools)", needs_args: false, hidden: false, acp: true },
@@ -733,6 +735,23 @@ mod tests {
         let (cmd, arg) = parse_slash_line("/session 是干什么的").unwrap();
         assert_eq!(cmd, "session");
         assert_eq!(arg, "是干什么的");
+    }
+
+    /// The static `desc` is the English-speaking fallback (ACP adverts, and any
+    /// display path that misses the i18n table). Localized wording lives in
+    /// `CmdDesc*`, which /help and the menu read — the fallback stays English.
+    #[test]
+    fn static_descs_are_english_fallbacks() {
+        for c in CommandRegistry::builtin().all() {
+            assert!(
+                !c.desc
+                    .chars()
+                    .any(|ch| ('\u{4E00}'..='\u{9FFF}').contains(&ch)),
+                "static desc of `{}` must be an English fallback, got: {}",
+                c.name,
+                c.desc
+            );
+        }
     }
 
     #[test]

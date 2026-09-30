@@ -23,6 +23,36 @@ pub enum McpTransportConfig {
     },
 }
 
+/// How a server is reached, without how to reach it.
+///
+/// [`McpTransportConfig`]'s payload carries headers and OAuth material, so a
+/// listener that only wants to say "this one is a stdio server" must not be
+/// handed the config to find out. This is the discriminant on its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum McpTransportKind {
+    Stdio,
+    Http,
+}
+
+impl McpTransportKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            McpTransportKind::Stdio => "stdio",
+            McpTransportKind::Http => "http",
+        }
+    }
+}
+
+impl McpTransportConfig {
+    /// Which transport this is, with nothing that could authenticate as anyone.
+    pub fn kind(&self) -> McpTransportKind {
+        match self {
+            McpTransportConfig::Stdio { .. } => McpTransportKind::Stdio,
+            McpTransportConfig::Http { .. } => McpTransportKind::Http,
+        }
+    }
+}
+
 /// Authentication configuration for HTTP MCP servers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum McpHttpAuthConfig {
@@ -155,15 +185,13 @@ struct ParsedHttpAuth {
     headers: BTreeMap<String, String>,
 }
 
-/// Load and merge MCP configurations from project and user levels.
+/// Merge the user-level and project-level configs, disabled entries included.
 ///
-/// Project config (`.mcp.json` in project root) overrides user config
-/// (`ATOMCODE_HOME/mcp.json`) for servers with the same name.
-pub fn load_mcp_config(project_dir: &Path) -> Result<Vec<McpServerConfig>> {
-    let user_config = load_config_file(
-        &crate::mcp::util::config_dir().join("mcp.json"),
-        McpConfigSource::User,
-    )?;
+/// Project overrides user for a server of the same name. This is the whole read; whether
+/// disabled servers are withheld is the caller's decision — see [`load_mcp_config`] and
+/// [`load_mcp_config_including_disabled`].
+fn merge_configs(project_dir: &Path, user_dir: &Path) -> Result<Vec<McpServerConfig>> {
+    let user_config = load_config_file(&user_dir.join("mcp.json"), McpConfigSource::User)?;
 
     let project_config =
         load_config_file(&project_dir.join(".mcp.json"), McpConfigSource::Project)?;
@@ -179,90 +207,108 @@ pub fn load_mcp_config(project_dir: &Path) -> Result<Vec<McpServerConfig>> {
         merged.insert(config.name.clone(), config);
     }
 
-    Ok(merged.into_values().filter(|c| !c.disabled).collect())
+    Ok(merged.into_values().collect())
 }
 
-/// Blank out `//` and `/* … */` comments so a JSONC-flavoured config parses.
+/// Load and merge MCP configurations from project and user levels.
 ///
-/// Editors (VS Code, Cursor) and our own `.mcp.json.example` all treat this file as
-/// JSONC, so people paste commented configs. Comment bytes are replaced with spaces
-/// rather than removed, and newlines inside block comments are kept, so every surviving
-/// byte stays at its original offset — a `serde_json` parse error still reports the
-/// line/column the user sees in their editor.
+/// Project config (`.mcp.json` in project root) overrides user config
+/// (`<user tree>/mcp.json`) for servers with the same name.
 ///
-/// String literals are never touched: `"https://mcp.example.com/mcp"` must survive the
-/// `//` in its scheme, and `"a\"//b"` must not end the string at the escaped quote.
+/// Servers configured with `disabled: true` are withheld: they are not a tool source for a
+/// running session. A surface that manages them wants the other entry point, below.
+pub fn load_mcp_config(project_dir: &Path, user_dir: &Path) -> Result<Vec<McpServerConfig>> {
+    Ok(merge_configs(project_dir, user_dir)?
+        .into_iter()
+        .filter(|c| !c.disabled)
+        .collect())
+}
+
+/// The same merge as [`load_mcp_config`], but keeping `disabled` servers.
 ///
-/// Trailing commas remain invalid — this is comment tolerance, not full JSON5.
-fn strip_json_comments(input: &str) -> String {
-    let bytes = input.as_bytes();
-    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    let mut in_string = false;
+/// A management surface has to show a server it is offering to re-enable; hiding it would
+/// make the switch one-way. Nothing that builds a tool catalog may use this.
+pub fn load_mcp_config_including_disabled(
+    project_dir: &Path,
+    user_dir: &Path,
+) -> Result<Vec<McpServerConfig>> {
+    merge_configs(project_dir, user_dir)
+}
 
-    while i < bytes.len() {
-        let b = bytes[i];
+/// The file a server of this source is read from and written back to.
+///
+/// `None` for [`McpConfigSource::Driver`]: those servers arrive over the wire (an ACP client
+/// injecting `mcpServers` in `session/new`) and have no file to edit. A caller that is about
+/// to report "disabled" must treat `None` as "not applicable", not as "not found".
+pub fn config_path_for_source(
+    project_dir: &Path,
+    user_dir: &Path,
+    source: McpConfigSource,
+) -> Option<std::path::PathBuf> {
+    match source {
+        McpConfigSource::User => Some(user_dir.join("mcp.json")),
+        McpConfigSource::Project => Some(project_dir.join(".mcp.json")),
+        McpConfigSource::Driver => None,
+    }
+}
 
-        if in_string {
-            out.push(b);
-            // A backslash escapes the next byte, including `\"` — consume both so an
-            // escaped quote does not look like the end of the string.
-            if b == b'\\' && i + 1 < bytes.len() {
-                out.push(bytes[i + 1]);
-                i += 2;
-                continue;
-            }
-            if b == b'"' {
-                in_string = false;
-            }
-            i += 1;
-            continue;
-        }
-
-        match b {
-            b'"' => {
-                in_string = true;
-                out.push(b);
-                i += 1;
-            }
-            b'/' if bytes.get(i + 1) == Some(&b'/') => {
-                while i < bytes.len() && bytes[i] != b'\n' {
-                    out.push(b' ');
-                    i += 1;
-                }
-            }
-            b'/' if bytes.get(i + 1) == Some(&b'*') => {
-                out.extend_from_slice(b"  ");
-                i += 2;
-                while i < bytes.len() {
-                    if bytes[i] == b'*' && bytes.get(i + 1) == Some(&b'/') {
-                        out.extend_from_slice(b"  ");
-                        i += 2;
-                        break;
-                    }
-                    // Keep newlines so line numbers in parse errors stay truthful.
-                    out.push(if bytes[i] == b'\n' { b'\n' } else { b' ' });
-                    i += 1;
-                }
-            }
-            _ => {
-                out.push(b);
-                i += 1;
-            }
-        }
+/// Turn one configured server off or back on, in the file that defines it.
+///
+/// Turning off writes `disabled: true`. Turning on **removes** the key rather than writing
+/// `false`, so an enabled entry reads exactly like one that never carried it
+/// (`McpServerEntry::disabled` is `#[serde(default)]`).
+///
+/// Bails, leaving the file byte-identical, when the file carries JSONC comments (see
+/// [`read_json_for_rewrite`]) or when it does not define `server_key`. This edits an existing
+/// entry; it never adds a server.
+pub fn set_mcp_server_disabled_in_json_file(
+    path: &Path,
+    server_key: &str,
+    disabled: bool,
+) -> Result<()> {
+    if server_key.is_empty() {
+        bail!("MCP server name must not be empty");
     }
 
-    // Every emitted byte is either copied verbatim or an ASCII space/newline, and a
-    // multi-byte UTF-8 sequence inside a comment has ALL of its bytes replaced, so the
-    // result is still valid UTF-8. The fallback keeps this infallible rather than
-    // panicking: the caller's parse then fails on the original text.
-    String::from_utf8(out).unwrap_or_else(|_| input.to_string())
+    let mut root: Value = read_json_for_rewrite(path)?;
+
+    let root_obj = root
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("MCP config root must be a JSON object"))?;
+
+    // Merge the legacy `servers` key into `mcpServers` first, so the edit lands on the entry
+    // a reader would resolve — and is written back in one place.
+    let mut servers = collect_merged_mcp_server_maps(root_obj);
+    let entry = servers.get_mut(server_key).ok_or_else(|| {
+        anyhow::anyhow!(
+            "MCP server '{server_key}' is not defined in {}",
+            path.display()
+        )
+    })?;
+    let entry_obj = entry
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("MCP server '{server_key}' entry is not an object"))?;
+
+    if disabled {
+        entry_obj.insert("disabled".to_string(), Value::Bool(true));
+    } else {
+        entry_obj.remove("disabled");
+    }
+
+    root_obj.insert("mcpServers".to_string(), Value::Object(servers));
+    root_obj.remove("servers");
+
+    let text = serde_json::to_string_pretty(&root).context("Failed to serialize MCP config")?;
+    std::fs::write(path, format!("{text}\n"))
+        .with_context(|| format!("Failed to write MCP config to {}", path.display()))?;
+
+    Ok(())
 }
 
 /// True when `text` carries JSONC comments, i.e. rewriting it as plain JSON would
 /// silently discard something the user wrote.
 fn has_json_comments(text: &str) -> bool {
-    strip_json_comments(text) != text
+    crate::jsonc::strip_comments(text) != text
 }
 
 /// Read a config file that is about to be REWRITTEN by a machine edit.
@@ -293,7 +339,7 @@ fn load_config_file(path: &Path, source: McpConfigSource) -> Result<Vec<McpServe
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read MCP config from {}", path.display()))?;
 
-    let raw: McpConfigFile = serde_json::from_str(&strip_json_comments(&content))
+    let raw: McpConfigFile = serde_json::from_str(&crate::jsonc::strip_comments(&content))
         .with_context(|| format!("Failed to parse MCP config from {}", path.display()))?;
 
     let mut configs = Vec::new();
@@ -592,14 +638,19 @@ fn expand_tilde(s: &str) -> String {
 /// array of `server` in whichever config file defines it (project `.mcp.json`
 /// first, else user `mcp.json`). Creates the user file if neither defines it.
 /// Idempotent; preserves existing JSON content.
-pub fn add_auto_approved_tool(project_dir: &Path, server: &str, tool: &str) -> Result<()> {
+pub fn add_auto_approved_tool(
+    project_dir: &Path,
+    user_dir: &Path,
+    server: &str,
+    tool: &str,
+) -> Result<()> {
     let project_path = project_dir.join(".mcp.json");
-    let user_path = crate::mcp::util::config_dir().join("mcp.json");
+    let user_path = user_dir.join("mcp.json");
 
     let defines = |p: &Path| -> bool {
         std::fs::read_to_string(p)
             .ok()
-            .and_then(|s| serde_json::from_str::<Value>(&strip_json_comments(&s)).ok())
+            .and_then(|s| serde_json::from_str::<Value>(&crate::jsonc::strip_comments(&s)).ok())
             .and_then(|v| {
                 let obj = v.get("mcpServers").or_else(|| v.get("servers")).cloned()?;
                 obj.as_object().map(|m| m.contains_key(server))
@@ -658,56 +709,6 @@ pub fn add_auto_approved_tool(project_dir: &Path, server: &str, tool: &str) -> R
 mod jsonc_tests {
     use super::*;
 
-    /// The trap: a URL's `//` sits inside a string and must survive untouched.
-    #[test]
-    fn double_slash_inside_a_string_is_not_a_comment() {
-        let src = r#"{"url": "https://mcp.example.com/mcp"}"#;
-        assert_eq!(
-            strip_json_comments(src),
-            src,
-            "stripping must not touch string contents"
-        );
-        let parsed: Value = serde_json::from_str(&strip_json_comments(src)).unwrap();
-        assert_eq!(parsed["url"], "https://mcp.example.com/mcp");
-    }
-
-    #[test]
-    fn escaped_quote_does_not_end_the_string_early() {
-        // The `//` here is still inside the string: the `\"` must not close it.
-        let src = r#"{"a": "x\"//y", "b": 1}"#;
-        assert_eq!(strip_json_comments(src), src);
-        let parsed: Value = serde_json::from_str(&strip_json_comments(src)).unwrap();
-        assert_eq!(parsed["a"], "x\"//y");
-        assert_eq!(parsed["b"], 1);
-    }
-
-    #[test]
-    fn line_and_block_comments_are_blanked_not_removed() {
-        let src = "{\n  // 说明\n  \"a\": 1, /* 尾注 */\n  \"b\": 2\n}";
-        let out = strip_json_comments(src);
-        assert_eq!(
-            out.len(),
-            src.len(),
-            "byte offsets must be preserved so parse errors keep pointing at the right column"
-        );
-        assert_eq!(
-            out.lines().count(),
-            src.lines().count(),
-            "line count must be preserved"
-        );
-        let parsed: Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(parsed["a"], 1);
-        assert_eq!(parsed["b"], 2);
-    }
-
-    #[test]
-    fn multi_line_block_comment_keeps_line_numbers() {
-        let src = "{\n/*\n\n*/\n  \"a\": 1\n}";
-        let out = strip_json_comments(src);
-        assert_eq!(out.matches('\n').count(), src.matches('\n').count());
-        assert_eq!(serde_json::from_str::<Value>(&out).unwrap()["a"], 1);
-    }
-
     #[test]
     fn commented_config_file_loads() {
         let dir = tempfile::tempdir().unwrap();
@@ -732,7 +733,9 @@ mod jsonc_tests {
     #[test]
     fn trailing_commas_are_still_rejected() {
         // Comment tolerance is not JSON5; keep the failure mode honest.
-        assert!(serde_json::from_str::<Value>(&strip_json_comments("{\"a\":1,}")).is_err());
+        assert!(
+            serde_json::from_str::<Value>(&crate::jsonc::strip_comments("{\"a\":1,}")).is_err()
+        );
     }
 
     #[test]
@@ -769,7 +772,8 @@ mod tests {
         )
         .unwrap();
 
-        add_auto_approved_tool(dir.path(), "srv", "query").expect("write ok");
+        add_auto_approved_tool(dir.path(), &dir.path().join("tree"), "srv", "query")
+            .expect("write ok");
 
         let written: Value =
             serde_json::from_str(&std::fs::read_to_string(dir.path().join(".mcp.json")).unwrap())
@@ -780,7 +784,7 @@ mod tests {
         assert!(arr.iter().any(|v| v == "query"));
 
         // Idempotent: second call must not duplicate.
-        add_auto_approved_tool(dir.path(), "srv", "query").unwrap();
+        add_auto_approved_tool(dir.path(), &dir.path().join("tree"), "srv", "query").unwrap();
         let again: Value =
             serde_json::from_str(&std::fs::read_to_string(dir.path().join(".mcp.json")).unwrap())
                 .unwrap();
@@ -900,7 +904,7 @@ mod tests {
         let project = tempfile::tempdir().unwrap();
         std::fs::write(project.path().join(".mcp.json"), "{not-json").unwrap();
 
-        let error = load_mcp_config(project.path()).unwrap_err();
+        let error = load_mcp_config(project.path(), &project.path().join("tree")).unwrap_err();
 
         assert!(error.to_string().contains("Failed to parse MCP config"));
     }
@@ -1042,6 +1046,153 @@ mod tests {
         );
         assert_eq!(p["auth"]["type"].as_str(), Some("oauth"));
         assert_eq!(p["auth"]["provider"].as_str(), Some("github"));
+    }
+
+    #[test]
+    fn listing_shows_disabled_servers_that_loading_still_hides() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(".mcp.json"),
+            r#"{"mcpServers":{
+                "panel-test-on":  {"command":"npx","args":["-y","a"]},
+                "panel-test-off": {"command":"npx","args":["-y","b"],"disabled":true}
+            }}"#,
+        )
+        .unwrap();
+
+        let listed =
+            load_mcp_config_including_disabled(dir.path(), &dir.path().join("tree")).unwrap();
+        let names: Vec<&str> = listed.iter().map(|c| c.name.as_str()).collect();
+        assert!(
+            names.contains(&"panel-test-off"),
+            "the management list shows disabled servers: {names:?}"
+        );
+        assert!(
+            listed
+                .iter()
+                .find(|c| c.name == "panel-test-off")
+                .unwrap()
+                .disabled
+        );
+
+        let loaded = load_mcp_config(dir.path(), &dir.path().join("tree")).unwrap();
+        let names: Vec<&str> = loaded.iter().map(|c| c.name.as_str()).collect();
+        assert!(
+            !names.contains(&"panel-test-off"),
+            "the runtime load still withholds it: {names:?}"
+        );
+        assert!(names.contains(&"panel-test-on"));
+    }
+
+    #[test]
+    fn a_driver_server_has_no_config_file_to_write() {
+        let dir = tempfile::tempdir().unwrap();
+
+        assert_eq!(
+            config_path_for_source(
+                dir.path(),
+                &dir.path().join("tree"),
+                McpConfigSource::Project
+            ),
+            Some(dir.path().join(".mcp.json")),
+            "a project server lives in the project root"
+        );
+        assert_eq!(
+            config_path_for_source(dir.path(), &dir.path().join("tree"), McpConfigSource::User),
+            Some(dir.path().join("tree").join("mcp.json")),
+            "a user server lives in the user tree handed in"
+        );
+        assert_eq!(
+            config_path_for_source(
+                dir.path(),
+                &dir.path().join("tree"),
+                McpConfigSource::Driver
+            ),
+            None,
+            "a driver-supplied server was never read from a file, so there is none to edit"
+        );
+    }
+
+    #[test]
+    fn a_disabled_server_is_written_and_read_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join(".mcp.json");
+        std::fs::write(
+            &target,
+            r#"{"mcpServers":{"srv":{"command":"npx","args":["-y","a"]}}}"#,
+        )
+        .unwrap();
+
+        set_mcp_server_disabled_in_json_file(&target, "srv", true).unwrap();
+
+        let configs = load_config_file(&target, McpConfigSource::Project).unwrap();
+        assert_eq!(configs.len(), 1);
+        assert!(configs[0].disabled, "the flag must survive a reload");
+
+        set_mcp_server_disabled_in_json_file(&target, "srv", false).unwrap();
+
+        let configs = load_config_file(&target, McpConfigSource::Project).unwrap();
+        assert!(!configs[0].disabled);
+        let text = std::fs::read_to_string(&target).unwrap();
+        assert!(
+            !text.contains("disabled"),
+            "enabling removes the key instead of writing false: {text}"
+        );
+    }
+
+    #[test]
+    fn disabling_a_server_the_file_does_not_define_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join(".mcp.json");
+        let original = r#"{"mcpServers":{"srv":{"command":"npx"}}}"#;
+        std::fs::write(&target, original).unwrap();
+
+        let error = set_mcp_server_disabled_in_json_file(&target, "nope", true).unwrap_err();
+        assert!(
+            error.to_string().contains("not defined"),
+            "unexpected error: {error}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            original,
+            "a refused write must leave the file byte-identical"
+        );
+    }
+
+    #[test]
+    fn a_server_under_the_legacy_servers_key_can_still_be_disabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join(".mcp.json");
+        std::fs::write(&target, r#"{"servers":{"srv":{"command":"npx"}}}"#).unwrap();
+
+        set_mcp_server_disabled_in_json_file(&target, "srv", true).unwrap();
+
+        let configs = load_config_file(&target, McpConfigSource::Project).unwrap();
+        assert!(configs[0].disabled);
+        let text = std::fs::read_to_string(&target).unwrap();
+        assert!(
+            !text.contains("\"servers\""),
+            "the legacy key is folded into mcpServers, same as the other writers: {text}"
+        );
+    }
+
+    #[test]
+    fn a_config_with_comments_refuses_the_disable_rewrite() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join(".mcp.json");
+        let original = "{\n  // 别删我\n  \"mcpServers\": {\"srv\": {\"command\": \"npx\"}}\n}";
+        std::fs::write(&target, original).unwrap();
+
+        let error = set_mcp_server_disabled_in_json_file(&target, "srv", true).unwrap_err();
+        assert!(
+            error.to_string().contains("contains comments"),
+            "unexpected error: {error}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            original,
+            "a refused rewrite must leave the file byte-identical"
+        );
     }
 }
 

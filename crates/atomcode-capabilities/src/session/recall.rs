@@ -1,7 +1,8 @@
 //! `recall` tool — lets the agent retrieve ANY past turn of THIS project, including
 //! from OTHER sessions, by topic and/or time ("昨天我们讨论过的那个 OAuth 的事").
 //!
-//! Reads the never-compacted `<id>.jsonl` transcripts (the recall ground truth) under
+//! Reads each session's never-compacted log, `<id>.events` (or the `<id>.jsonl`
+//! transcript of a session not yet converted) — the recall ground truth — under
 //! the project's `<project_hash>` bucket — derived from `ToolContext.working_dir`, so the
 //! tool needs no session wiring. Matching is keyword/full-text v1 behind a swappable
 //! [`RecallIndex`] so a semantic/embedding backend can drop in later without touching the
@@ -18,6 +19,7 @@ use serde::Deserialize;
 
 use super::manager::{for_each_jsonl_line, regular_file_len, MAX_JSONL_BYTES, MAX_JSONL_LINES};
 use super::{SessionManager, SessionResult, SessionStoreError, TurnRecord};
+use crate::search::{best_first, tokenize, Score};
 
 /// A parsed recall query: lowercased keyword terms + a result cap.
 pub struct RecallQuery {
@@ -37,48 +39,29 @@ pub trait RecallIndex: Send + Sync {
 /// query terms it matches (`matched_terms`), then by total term occurrences across
 /// the turn's user + assistant + tool (name/args/result) text, then by hit density,
 /// then by recency (`ts` desc). Query terms are CJK-bigram-expanded by
-/// [`tokenize_query`] so space-less Chinese phrases still hit.
+/// [`tokenize`](crate::search::tokenize) so space-less Chinese phrases still hit.
 pub struct KeywordIndex;
-
-/// Per-record score: how many distinct query terms matched, their total occurrences,
-/// and the hay length (density tiebreak). Private; `RecallIndex`/`RecallQuery` unchanged.
-#[derive(Default, Clone, Copy)]
-struct Scored {
-    matched_terms: usize,
-    occurrences: usize,
-    hay_len: usize,
-}
-
-fn density(s: Scored) -> f64 {
-    s.occurrences as f64 / s.hay_len.max(1) as f64
-}
 
 impl RecallIndex for KeywordIndex {
     fn search<'a>(&self, records: &'a [TurnRecord], q: &RecallQuery) -> Vec<&'a TurnRecord> {
-        let mut scored: Vec<(Scored, &'a TurnRecord)> = records
+        let mut scored: Vec<(Score, &'a TurnRecord)> = records
             .iter()
             .filter_map(|r| {
                 let s = score_record(r, &q.terms);
-                (s.matched_terms > 0).then_some((s, r))
+                s.hit().then_some((s, r))
             })
             .collect();
         // coverage desc → occurrences desc → density desc → ts desc (recency).
-        scored.sort_by(|a, b| {
-            b.0.matched_terms
-                .cmp(&a.0.matched_terms)
-                .then(b.0.occurrences.cmp(&a.0.occurrences))
-                .then(
-                    density(b.0)
-                        .partial_cmp(&density(a.0))
-                        .unwrap_or(std::cmp::Ordering::Equal),
-                )
-                .then(b.1.ts.cmp(&a.1.ts))
-        });
+        // The shared ranking, then recency — the one tiebreak only this record
+        // shape can supply.
+        scored.sort_by(|a, b| best_first(&a.0, &b.0).then(b.1.ts.cmp(&a.1.ts)));
         scored.into_iter().take(q.limit).map(|(_, r)| r).collect()
     }
 }
 
-fn score_record(r: &TurnRecord, terms: &[String]) -> Scored {
+/// A turn's searchable text. Which fields a record puts in the haystack is the
+/// record's own business; how the haystack ranks is not.
+fn score_record(r: &TurnRecord, terms: &[String]) -> Score {
     let mut hay = format!("{} {} {}", r.user, r.assistant, r.reasoning).to_lowercase();
     for t in &r.tools {
         hay.push(' ');
@@ -88,162 +71,43 @@ fn score_record(r: &TurnRecord, terms: &[String]) -> Scored {
         hay.push(' ');
         hay.push_str(&t.result.to_lowercase());
     }
-    let hay_len = hay.chars().count();
-    let mut matched_terms = 0;
-    let mut occurrences = 0;
-    for term in terms {
-        let n = hay.matches(term.as_str()).count();
-        if n > 0 {
-            matched_terms += 1;
-        }
-        occurrences += n;
-    }
-    Scored {
-        matched_terms,
-        occurrences,
-        hay_len,
-    }
-}
-
-/// CJK-run expansion: 1 char → the char itself; n≥2 → all consecutive char bigrams.
-fn expand_cjk_run(run: &str) -> Vec<String> {
-    let chars: Vec<char> = run.chars().collect();
-    match chars.len() {
-        0 => Vec::new(),
-        1 => vec![chars[0].to_string()],
-        n => (0..n - 1)
-            .map(|i| format!("{}{}", chars[i], chars[i + 1]))
-            .collect(),
-    }
-}
-
-fn is_cjk(c: char) -> bool {
-    let cp = c as u32;
-    (0x3400..=0x4DBF).contains(&cp)
-        || (0x4E00..=0x9FFF).contains(&cp)
-        || (0x20000..=0x2EBEF).contains(&cp)
-        || (0x2F800..=0x2FA1F).contains(&cp)
-        || (0x3040..=0x30FF).contains(&cp)
-        || (0x31F0..=0x31FF).contains(&cp)
-        || (0x1100..=0x11FF).contains(&cp)
-        || (0xAC00..=0xD7AF).contains(&cp)
-}
-
-/// Minimal connector 字 (char, not word) — stripable only at run edges.
-fn is_connector_char(c: char) -> bool {
-    matches!(c, '的' | '了' | '与' | '和' | '及' | '或')
-}
-
-/// 2-char connector words, stripped only at run edges.
-const CJK_CONNECTOR_WORDS: &[&str] = &["关于", "以及"];
-
-/// Edge-only connector strip + guard. Returns the core (or the original run when
-/// stripping would leave <2 chars); `None` when the whole run is connectors.
-fn strip_edge_connectors(run: &str) -> Option<String> {
-    let original: Vec<char> = run.chars().collect();
-    if original.len() == 1 {
-        return if is_connector_char(original[0]) {
-            None
-        } else {
-            Some(original[0].to_string())
-        };
-    }
-    let mut cur = run.to_string();
-    loop {
-        let before = cur.clone();
-        for &w in CJK_CONNECTOR_WORDS {
-            if let Some(rest) = cur.strip_prefix(w) {
-                cur = rest.to_string();
-                break;
-            }
-        }
-        for &w in CJK_CONNECTOR_WORDS {
-            if let Some(rest) = cur.strip_suffix(w) {
-                cur = rest.to_string();
-                break;
-            }
-        }
-        if let Some(first) = cur.chars().next() {
-            if is_connector_char(first) {
-                if let Some(rest) = cur.strip_prefix(first) {
-                    cur = rest.to_string();
-                }
-            }
-        }
-        if let Some(last) = cur.chars().next_back() {
-            if is_connector_char(last) {
-                if let Some(rest) = cur.strip_suffix(last) {
-                    cur = rest.to_string();
-                }
-            }
-        }
-        if cur == before {
-            break;
-        }
-    }
-    match cur.chars().count() {
-        0 => None,
-        1 => Some(original.iter().collect()), // guard: don't shave a ≥2 run to 1 char
-        _ => Some(cur),
-    }
-}
-
-/// One whitespace-token containing non-ASCII chars: drop punctuation → split into
-/// CJK/literal runs → edge-strip connectors on CJK runs → bigram-expand CJK runs,
-/// keep literal runs whole. Pure-ASCII tokens never enter here.
-fn tokenize_cjk_token(token: &str) -> Vec<String> {
-    let cleaned: String = token.chars().filter(|c| c.is_alphanumeric()).collect();
-    let chars: Vec<char> = cleaned.chars().collect();
-    let mut terms = Vec::new();
-    let mut i = 0;
-    while i < chars.len() {
-        let cjk_run = is_cjk(chars[i]);
-        let mut j = i;
-        while j < chars.len() && is_cjk(chars[j]) == cjk_run {
-            j += 1;
-        }
-        let run: String = chars[i..j].iter().collect();
-        if cjk_run {
-            if let Some(core) = strip_edge_connectors(&run) {
-                terms.extend(expand_cjk_run(&core));
-            }
-        } else {
-            terms.push(run); // literal run kept whole (already lowercased)
-        }
-        i = j;
-    }
-    terms
-}
-
-/// Lowercase → split_whitespace → pure-ASCII tokens verbatim / CJK tokens via
-/// [`tokenize_cjk_token`] → dedup, first-occurrence order.
-fn tokenize_query(query: &str) -> Vec<String> {
-    let lower = query.to_lowercase();
-    let mut terms: Vec<String> = Vec::new();
-    for raw in lower.split_whitespace() {
-        let candidates: Vec<String> = if raw.is_ascii() {
-            vec![raw.to_string()]
-        } else {
-            tokenize_cjk_token(raw)
-        };
-        for t in candidates {
-            if !t.is_empty() && !terms.contains(&t) {
-                terms.push(t);
-            }
-        }
-    }
-    terms
+    crate::search::score(&hay, terms)
 }
 
 #[derive(Debug, Deserialize)]
 struct RecallArgs {
+    /// Keywords. Optional: most of what people ask of recall is "yesterday",
+    /// "last time", "the first thing I asked" — questions with a time and no
+    /// topic. When it was required, models invented one (`"j"`, `"所有对话"`,
+    /// `"最近的对话"`), and an honest empty query found nothing even inside a
+    /// correct date window.
+    #[serde(default)]
     query: String,
     #[serde(default)]
     after: Option<String>,
     #[serde(default)]
     before: Option<String>,
+    /// One session: its id, or the leading characters recall and
+    /// `list_sessions` show.
+    #[serde(default)]
+    session: Option<String>,
+    /// Without keywords: `newest` (default) or `oldest` first.
+    #[serde(default)]
+    order: Option<String>,
     #[serde(default)]
     limit: Option<usize>,
+}
+
+/// What one recall asks for.
+#[derive(Debug, Default)]
+pub struct RecallRequest<'a> {
+    pub query: &'a str,
+    pub after: Option<&'a str>,
+    pub before: Option<&'a str>,
+    pub session: Option<&'a str>,
+    /// Only without keywords, where there is no relevance to rank by.
+    pub oldest_first: bool,
+    pub limit: usize,
 }
 
 const DEFAULT_LIMIT: usize = 8;
@@ -251,47 +115,32 @@ const DEFAULT_LIMIT: usize = 8;
 /// The `recall` tool.
 pub struct RecallTool {
     index: Arc<dyn RecallIndex>,
-    /// PINNED sessions dir. `None` (standalone default) derives the project bucket
-    /// from the live `ToolContext.working_dir` at each call — but that value MOVES
-    /// when the model runs `cd`, silently pointing recall at a different project's
-    /// bucket than the one the session hooks write. An assembly that owns a
-    /// `SessionManager` pins the root here so recall and persistence always agree.
-    sessions_dir: Option<std::path::PathBuf>,
-}
-
-impl Default for RecallTool {
-    fn default() -> Self {
-        Self {
-            index: Arc::new(KeywordIndex),
-            sessions_dir: None,
-        }
-    }
+    /// The sessions dir this tool searches — the assembly's
+    /// `SessionManager::root()`. Required: deriving it from the live
+    /// `ToolContext.working_dir` at each call MOVES when the model runs `cd`,
+    /// silently pointing recall at a different project's bucket than the one
+    /// the session hooks write.
+    sessions_dir: std::path::PathBuf,
 }
 
 impl RecallTool {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Use a custom ranking backend (e.g. a future embedding index).
-    pub fn with_index(index: Arc<dyn RecallIndex>) -> Self {
+    /// Search the sessions under `sessions_dir`.
+    pub fn new(sessions_dir: impl Into<std::path::PathBuf>) -> Self {
         Self {
-            index,
-            sessions_dir: None,
+            index: Arc::new(KeywordIndex),
+            sessions_dir: sessions_dir.into(),
         }
     }
 
-    /// Pin the sessions dir this tool searches (an assembly passes its
-    /// `SessionManager::root()`), instead of re-deriving it from the live —
-    /// `cd`-movable — working dir at each call.
-    pub fn with_sessions_dir(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
-        self.sessions_dir = Some(dir.into());
+    /// Use a custom ranking backend (e.g. a future embedding index).
+    pub fn with_index(mut self, index: Arc<dyn RecallIndex>) -> Self {
+        self.index = index;
         self
     }
 
-    /// The testable core: load every `*.jsonl` under `sessions_dir`, time-filter, rank,
+    /// The testable core: load every session log (and old transcript) under `sessions_dir`, time-filter, rank,
     /// and format the result the model reads. Separated from `execute` so it is unit-
-    /// testable against a temp dir without `$ATOMCODE_HOME`.
+    /// testable against a temp dir.
     pub fn search_dir(
         &self,
         sessions_dir: &Path,
@@ -300,29 +149,80 @@ impl RecallTool {
         before: Option<&str>,
         limit: usize,
     ) -> SessionResult<String> {
-        let after_ms = after.and_then(parse_date_bound);
-        let before_ms = before.and_then(parse_date_bound);
+        self.search(
+            sessions_dir,
+            &RecallRequest {
+                query,
+                after,
+                before,
+                limit,
+                ..RecallRequest::default()
+            },
+        )
+    }
+
+    /// As [`Self::search_dir`], with every filter: a session, and the order of a
+    /// search that has no keywords.
+    ///
+    /// Two modes, chosen by whether `query` holds any searchable term. With terms,
+    /// turns rank by relevance. Without, they come back by time — newest first
+    /// unless `oldest_first` — which is what "what did we do yesterday" and "what
+    /// was the first thing I asked" need, and what a required keyword could only
+    /// fake.
+    pub fn search(
+        &self,
+        sessions_dir: &Path,
+        request: &RecallRequest<'_>,
+    ) -> SessionResult<String> {
+        let after_ms = request.after.and_then(parse_date_bound);
+        let before_ms = request.before.and_then(parse_date_bound);
+        let session = request
+            .session
+            .map(str::trim)
+            .filter(|session| !session.is_empty());
 
         let records: Vec<TurnRecord> = load_records(sessions_dir)?
             .into_iter()
             .filter(|r| after_ms.is_none_or(|a| r.ts >= a))
             .filter(|r| before_ms.is_none_or(|b| r.ts < b))
+            .filter(|r| session.is_none_or(|s| r.session_id.starts_with(s)))
             .collect();
 
-        let q = RecallQuery {
-            terms: tokenize_query(query),
-            limit,
+        let terms = tokenize(request.query);
+        let mut out = if terms.is_empty() {
+            let mut by_time: Vec<&TurnRecord> = records.iter().collect();
+            if request.oldest_first {
+                by_time.sort_by_key(|r| r.ts);
+            } else {
+                by_time.sort_by_key(|r| std::cmp::Reverse(r.ts));
+            }
+            by_time.truncate(request.limit);
+            let order = if request.oldest_first {
+                "oldest first"
+            } else {
+                "newest first"
+            };
+            format_hits(
+                &by_time,
+                &format!("Recalled {{n}} turn(s) by time, {order} (no keywords given)"),
+                session,
+            )
+        } else {
+            let q = RecallQuery {
+                terms,
+                limit: request.limit,
+            };
+            let hits = self.index.search(&records, &q);
+            format_hits(&hits, "Recalled {n} matching turn(s)", session)
         };
-        let hits = self.index.search(&records, &q);
-        let mut out = format_hits(&hits);
         // Self-documenting fallback: point the model at the raw ground truth (prints the
         // REAL dir, so it never goes stale) and restate the freshness boundary right where
-        // a confused "why is nothing here?" lands. Reading those `<id>.jsonl` files gives
+        // a confused "why is nothing here?" lands. Reading those `<id>.events` files gives
         // the exact, full turn (incl. tool I/O) when the keyword digest above isn't enough.
         out.push_str(&format!(
-            "\n(Raw per-turn transcripts: {} — one `<session_id>.jsonl` per session, full \
-             text incl. tool I/O. The current in-progress turn is appended there only once \
-             it finishes.)",
+            "\n(Raw session logs: {} — one `<session_id>.events` per session, one JSON \
+             fact per line, full text incl. tool I/O. The current in-progress turn is \
+             listed here only once it finishes.)",
             sessions_dir.display()
         ));
         Ok(out)
@@ -336,26 +236,33 @@ impl Tool for RecallTool {
     }
 
     fn description(&self) -> &str {
-        "Search this project's COMPLETED conversation turns — across all sessions, \
-         including earlier turns of the CURRENT session — by topic and/or time. A turn is \
-         indexed only AFTER it finishes, so the in-progress turn (what is happening right \
-         now) is NOT here yet; for that, rely on your own context. Use it to recall a past \
-         decision, bug, or approach, even from another session. Resolve relative dates \
-         yourself (e.g. 'yesterday') into the `after`/`before` fields using the current \
-         date. Read-only — the result footer shows where the raw per-turn transcripts live \
-         if you need the exact, full text."
+        "Read this project's COMPLETED conversation turns — across all sessions, including \
+         earlier turns of the CURRENT session. Two ways to ask:\n\
+         - By topic: put the words you are looking for in `query` (a past decision, bug, \
+         approach).\n\
+         - By time or session: leave `query` OUT — do not invent one — and the turns come \
+         back by time, newest first. \"What did we do yesterday\": set `after`/`before`. \
+         \"What was our last conversation about\": no filters. \"What did I ask first\": \
+         `order: \"oldest\"`. To read one session (ids from `list_sessions` or an earlier \
+         recall result): `session`.\n\
+         Filters combine with `query` too. Resolve relative dates yourself (\"yesterday\") \
+         into `after`/`before` using the current date. A turn is indexed only AFTER it \
+         finishes, so the in-progress turn is not here; for that, rely on your own context. \
+         Read-only — the result footer shows where the raw per-turn transcripts live if you \
+         need the exact, full text."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "query": { "type": "string", "description": "keywords / topic to recall" },
+                "query": { "type": "string", "description": "words to search for; leave out to list turns by time" },
                 "after": { "type": "string", "description": "optional lower bound, inclusive — ISO datetime or YYYY-MM-DD (local time)" },
                 "before": { "type": "string", "description": "optional upper bound, exclusive — ISO datetime or YYYY-MM-DD (local time)" },
+                "session": { "type": "string", "description": "only this session: its id, or the leading characters shown by list_sessions / recall" },
+                "order": { "type": "string", "enum": ["newest", "oldest"], "description": "without query: which end of time comes first (default newest)" },
                 "limit": { "type": "integer", "description": "max turns to return (default 8)" }
-            },
-            "required": ["query"]
+            }
         })
     }
 
@@ -363,7 +270,7 @@ impl Tool for RecallTool {
         RiskLevel::Safe
     }
 
-    async fn execute(&self, args: &str, ctx: &ToolContext) -> ToolResult {
+    async fn execute(&self, args: &str, _ctx: &ToolContext) -> ToolResult {
         let a: RecallArgs = match serde_json::from_str(args) {
             Ok(a) => a,
             Err(e) => {
@@ -375,18 +282,19 @@ impl Tool for RecallTool {
                 }
             }
         };
-        let sessions_dir = match &self.sessions_dir {
-            Some(d) => d.clone(),
-            None => SessionManager::for_project(&ctx.working_dir)
-                .root()
-                .to_path_buf(),
-        };
-        let content = match self.search_dir(
-            &sessions_dir,
-            &a.query,
-            a.after.as_deref(),
-            a.before.as_deref(),
-            a.limit.unwrap_or(DEFAULT_LIMIT),
+        let content = match self.search(
+            &self.sessions_dir,
+            &RecallRequest {
+                query: &a.query,
+                after: a.after.as_deref(),
+                before: a.before.as_deref(),
+                session: a.session.as_deref(),
+                oldest_first: a
+                    .order
+                    .as_deref()
+                    .is_some_and(|order| order.trim().eq_ignore_ascii_case("oldest")),
+                limit: a.limit.unwrap_or(DEFAULT_LIMIT),
+            },
         ) {
             Ok(content) => content,
             Err(error) => {
@@ -430,7 +338,52 @@ fn load_records(dir: &Path) -> SessionResult<Vec<TurnRecord>> {
             source,
         })?;
         let path = entry.path();
+        // A session's log is its record (`docs/adr/0024` §14); a transcript
+        // is what a session a released build kept, until it is converted.
+        if path.extension().and_then(|e| e.to_str()) == Some("events") {
+            let Some(id) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            let file_bytes = regular_file_len(&path)?;
+            total_bytes = total_bytes.saturating_add(file_bytes);
+            if total_bytes > MAX_JSONL_BYTES {
+                return Err(SessionStoreError::TooLarge {
+                    kind: "recall transcripts",
+                    limit: MAX_JSONL_BYTES,
+                    actual: total_bytes,
+                });
+            }
+            let store = SessionManager::with_root(dir);
+            // A delegated agent's session is kept under its parent, and what
+            // it found reached the parent already. (A fork's header names a
+            // parent too, and is a session of its own: the index decides.)
+            if store.read_meta(id).is_ok_and(|meta| meta.parent.is_some()) {
+                continue;
+            }
+            let events = match store.load_events(id) {
+                Ok(events) => events,
+                // Written by a newer build: listed elsewhere as needing one,
+                // and no reason to fail every search in the project.
+                Err(SessionStoreError::FutureSchema { .. }) => continue,
+                Err(error) => return Err(error),
+            };
+            let records = super::events::turn_records(id, &events);
+            if out.len() + records.len() > MAX_JSONL_LINES {
+                return Err(SessionStoreError::TooLarge {
+                    kind: "recall transcript lines",
+                    limit: MAX_JSONL_LINES,
+                    actual: out.len() + records.len(),
+                });
+            }
+            out.extend(records);
+            continue;
+        }
         if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        // Another writer's journal left in the bucket is not a transcript, and
+        // not a corrupt one either: one of them used to fail every search.
+        if SessionManager::is_journal_file(&path) {
             continue;
         }
         let file_bytes = regular_file_len(&path)?;
@@ -526,13 +479,19 @@ fn parse_date_bound(s: &str) -> Option<i64> {
     )
 }
 
-fn format_hits(hits: &[&TurnRecord]) -> String {
+/// `heading` carries `{n}` for the count.
+fn format_hits(hits: &[&TurnRecord], heading: &str, session: Option<&str>) -> String {
     if hits.is_empty() {
-        return "No matching turns found in this project's history.".to_string();
+        return match session {
+            Some(session) => {
+                format!("No turns found for session {session:?} in this project's history.")
+            }
+            None => "No matching turns found in this project's history.".to_string(),
+        };
     }
     let mut out = format!(
-        "Recalled {} matching turn(s) (project-local):\n",
-        hits.len()
+        "{} (project-local):\n",
+        heading.replace("{n}", &hits.len().to_string())
     );
     for h in hits {
         // CHAR-safe truncation (mirrors `truncate` below): a byte slice `[..8]` would
@@ -621,7 +580,7 @@ mod tests {
             )],
         );
 
-        let tool = RecallTool::new();
+        let tool = RecallTool::new(dir.path());
         let out = tool.search_dir(dir.path(), "oauth", None, None, 8).unwrap();
         // Both oauth turns matched; the one with more "oauth" occurrences ranks first.
         assert!(out.contains("Recalled 2 matching"), "got: {out}");
@@ -647,7 +606,7 @@ mod tests {
                 rec("s", 5 * day, "alpha late", "x"),
             ],
         );
-        let tool = RecallTool::new();
+        let tool = RecallTool::new(dir.path());
         // after = 2*day (inclusive lower), before = 5*day (exclusive upper) → only the 3*day turn.
         let after = chrono::DateTime::from_timestamp_millis(2 * day)
             .unwrap()
@@ -666,7 +625,7 @@ mod tests {
     fn no_match_is_a_clear_message_not_an_error() {
         let dir = tempfile::tempdir().unwrap();
         write_jsonl(dir.path(), "a.jsonl", &[rec("s", 1, "hello", "world")]);
-        let out = RecallTool::new()
+        let out = RecallTool::new(dir.path())
             .search_dir(dir.path(), "nonexistent", None, None, 8)
             .unwrap();
         assert!(out.contains("No matching turns"));
@@ -679,7 +638,7 @@ mod tests {
         let want_dir = dir.path().display().to_string();
 
         // On a hit: footer shows the REAL dir + restates the freshness boundary.
-        let hit = RecallTool::new()
+        let hit = RecallTool::new(dir.path())
             .search_dir(dir.path(), "hello", None, None, 8)
             .unwrap();
         assert!(hit.contains(&want_dir), "footer shows the real dir: {hit}");
@@ -689,7 +648,7 @@ mod tests {
         );
 
         // On a no-match (where the "why is nothing here?" confusion lands): footer too.
-        let miss = RecallTool::new()
+        let miss = RecallTool::new(dir.path())
             .search_dir(dir.path(), "nonexistent", None, None, 8)
             .unwrap();
         assert!(miss.contains("No matching turns"));
@@ -704,7 +663,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let records: Vec<TurnRecord> = (0..10).map(|i| rec("s", i, "match me", "yes")).collect();
         write_jsonl(dir.path(), "a.jsonl", &records);
-        let out = RecallTool::new()
+        let out = RecallTool::new(dir.path())
             .search_dir(dir.path(), "match", None, None, 3)
             .unwrap();
         assert!(out.contains("Recalled 3 matching"), "got: {out}");
@@ -720,7 +679,7 @@ mod tests {
             "a.jsonl",
             &[rec("日本語のセッションid", 1, "match me", "yes")],
         );
-        let out = RecallTool::new()
+        let out = RecallTool::new(dir.path())
             .search_dir(dir.path(), "match", None, None, 8)
             .unwrap();
         assert!(
@@ -745,7 +704,7 @@ mod tests {
         });
         write_jsonl(dir.path(), "a.jsonl", &[r]);
         // A term only present in the tool args/result still matches.
-        let out = RecallTool::new()
+        let out = RecallTool::new(dir.path())
             .search_dir(dir.path(), "refresh_token", None, None, 8)
             .unwrap();
         assert!(
@@ -760,7 +719,7 @@ mod tests {
         std::fs::write(dir.path().join("broken.jsonl"), b"not-json\n").unwrap();
 
         assert!(matches!(
-            RecallTool::new().search_dir(dir.path(), "anything", None, None, 8),
+            RecallTool::new(dir.path()).search_dir(dir.path(), "anything", None, None, 8),
             Err(SessionStoreError::Corrupt {
                 kind: "transcript record",
                 ..
@@ -776,7 +735,7 @@ mod tests {
         write_jsonl(dir.path(), "future.jsonl", &[future]);
 
         assert!(matches!(
-            RecallTool::new().search_dir(dir.path(), "hello", None, None, 8),
+            RecallTool::new(dir.path()).search_dir(dir.path(), "hello", None, None, 8),
             Err(SessionStoreError::FutureSchema {
                 kind: "transcript record",
                 ..
@@ -795,48 +754,9 @@ mod tests {
         symlink(&target, dir.path().join("linked.jsonl")).unwrap();
 
         assert!(matches!(
-            RecallTool::new().search_dir(dir.path(), "hello", None, None, 8),
+            RecallTool::new(dir.path()).search_dir(dir.path(), "hello", None, None, 8),
             Err(SessionStoreError::UnsafeFile { .. })
         ));
-    }
-
-    #[test]
-    fn tokenize_query_preserves_ascii_behavior() {
-        assert_eq!(
-            tokenize_query("OAuth Refresh  TOKEN"),
-            vec!["oauth", "refresh", "token"]
-        );
-        assert_eq!(tokenize_query("oauth.refresh"), vec!["oauth.refresh"]);
-        assert!(tokenize_query("").is_empty());
-        assert!(tokenize_query("   ").is_empty());
-    }
-
-    #[test]
-    fn tokenize_query_expands_cjk_to_bigrams() {
-        assert_eq!(tokenize_query("工作任务"), vec!["工作", "作任", "任务"]);
-        assert_eq!(tokenize_query("工"), vec!["工"]);
-        assert_eq!(
-            tokenize_query("工作任务 工作"),
-            vec!["工作", "作任", "任务"]
-        );
-    }
-
-    #[test]
-    fn tokenize_query_cleans_punctuation_and_connectors() {
-        assert_eq!(tokenize_query("工作,任务"), vec!["工作", "作任", "任务"]);
-        assert_eq!(tokenize_query("工作，任务"), vec!["工作", "作任", "任务"]);
-        assert_eq!(tokenize_query("关于工作 任务"), vec!["工作", "任务"]);
-        assert_eq!(tokenize_query("工作的"), vec!["工作"]);
-        assert_eq!(tokenize_query("目的"), vec!["目的"]);
-        assert!(tokenize_query("的 了 和").is_empty());
-    }
-
-    #[test]
-    fn tokenize_query_handles_mixed_ascii_cjk() {
-        assert_eq!(tokenize_query("OAuth的token"), vec!["oauth", "token"]);
-        let kana = tokenize_query("日本語のセッションid");
-        assert!(!kana.is_empty());
-        assert!(kana.iter().any(|t| t == "id"));
     }
 
     #[test]
@@ -857,7 +777,7 @@ mod tests {
             "zh2.jsonl",
             &[rec("zh2", 2000, "关于咖啡豆的烘焙记录", "嗯")],
         );
-        let out = RecallTool::new()
+        let out = RecallTool::new(dir.path())
             .search_dir(dir.path(), "工作任务", None, None, 8)
             .unwrap();
         assert!(out.contains("Recalled 1 matching"), "got: {out}");
@@ -876,7 +796,7 @@ mod tests {
             "zh3.jsonl",
             &[rec("zh3", 1000, "工作任务", "收到")],
         );
-        let tool = RecallTool::new();
+        let tool = RecallTool::new(dir.path());
         let ascii = tool
             .search_dir(dir.path(), "工作,任务", None, None, 8)
             .unwrap();
@@ -908,7 +828,7 @@ mod tests {
             "zc.jsonl",
             &[rec("zc", 1500, "任务", &"任务".repeat(30))],
         );
-        let out = RecallTool::new()
+        let out = RecallTool::new(dir.path())
             .search_dir(dir.path(), "工作 任务", None, None, 8)
             .unwrap();
         assert!(out.contains("Recalled 3 matching"), "got: {out}");
@@ -925,13 +845,134 @@ mod tests {
     }
 
     #[test]
-    fn empty_and_all_stopword_queries_degrade_to_no_match() {
+    fn no_keywords_lists_turns_by_time_instead_of_finding_nothing() {
+        // Taken from real transcripts: "我昨天都产生了哪些对话" got a correct date
+        // window and an empty query, and was told nothing happened that day.
         let dir = tempfile::tempdir().unwrap();
-        write_jsonl(dir.path(), "a.jsonl", &[rec("s", 1, "工作 任务", "你好")]);
-        let tool = RecallTool::new();
+        write_jsonl(
+            dir.path(),
+            "a.jsonl",
+            &[
+                rec("s", 1_000, "工作 任务", "你好"),
+                rec("s", 3_000, "第三件事", "好"),
+                rec("s", 2_000, "第二件事", "行"),
+            ],
+        );
+        let tool = RecallTool::new(dir.path());
         for q in ["", "   ", "的 了 和"] {
             let out = tool.search_dir(dir.path(), q, None, None, 8).unwrap();
-            assert!(out.contains("No matching turns"), "query {q:?}: got {out}");
+            assert!(
+                out.contains("Recalled 3 turn(s) by time"),
+                "query {q:?}: got {out}"
+            );
+            let (third, first) = (out.find("第三件事").unwrap(), out.find("工作").unwrap());
+            assert!(third < first, "newest first by default: {out}");
         }
+
+        let oldest = tool
+            .search(
+                dir.path(),
+                &RecallRequest {
+                    oldest_first: true,
+                    limit: 1,
+                    ..RecallRequest::default()
+                },
+            )
+            .unwrap();
+        assert!(
+            oldest.contains("工作 任务") && !oldest.contains("第二件事"),
+            "{oldest}"
+        );
+
+        // The date window alone, which is the case that used to come back empty.
+        let window = tool
+            .search(
+                dir.path(),
+                &RecallRequest {
+                    after: Some("1970-01-01T00:00:01.500Z"),
+                    before: Some("1970-01-01T00:00:02.500Z"),
+                    limit: 8,
+                    ..RecallRequest::default()
+                },
+            )
+            .unwrap();
+        assert!(
+            window.contains("第二件事") && !window.contains("第三件事"),
+            "{window}"
+        );
+    }
+
+    #[test]
+    fn one_session_can_be_read_by_its_id_or_the_prefix_results_show() {
+        let dir = tempfile::tempdir().unwrap();
+        write_jsonl(
+            dir.path(),
+            "a.jsonl",
+            &[rec(
+                "0e300ebf-b604-4cd7-8c22-0a491456f89e",
+                1,
+                "这个会话的问题",
+                "答",
+            )],
+        );
+        write_jsonl(
+            dir.path(),
+            "b.jsonl",
+            &[rec(
+                "98333746-eb5c-4a98-aac2-a162c0699e3d",
+                2,
+                "别的会话",
+                "答",
+            )],
+        );
+        let tool = RecallTool::new(dir.path());
+        for session in ["0e300ebf-b604-4cd7-8c22-0a491456f89e", "0e300ebf"] {
+            let out = tool
+                .search(
+                    dir.path(),
+                    &RecallRequest {
+                        session: Some(session),
+                        limit: 8,
+                        ..RecallRequest::default()
+                    },
+                )
+                .unwrap();
+            assert!(out.contains("这个会话的问题"), "{out}");
+            assert!(!out.contains("别的会话"), "{out}");
+        }
+        let unknown = tool
+            .search(
+                dir.path(),
+                &RecallRequest {
+                    session: Some("ffffffff"),
+                    limit: 8,
+                    ..RecallRequest::default()
+                },
+            )
+            .unwrap();
+        assert!(unknown.contains("No turns found for session"), "{unknown}");
+    }
+
+    #[test]
+    fn an_event_journal_left_in_the_bucket_is_passed_over_not_called_corrupt() {
+        // Both journal shapes on real disks: with a header line, and older ones that
+        // open straight on a sequenced event. Either used to fail every search.
+        let dir = tempfile::tempdir().unwrap();
+        write_jsonl(dir.path(), "a.jsonl", &[rec("s", 1, "真正的回合", "答")]);
+        std::fs::write(
+            dir.path().join("1789296604064-38002.jsonl"),
+            "{\"header\":{\"created_at\":1,\"id\":\"1789296604064-38002\",\"inherited\":0,\"version\":1}}\n\
+             {\"event\":{\"kind\":\"turn_start\",\"turn\":1},\"seq\":1}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("1789000000000-1.jsonl"),
+            "{\"event\":{\"kind\":\"turn_start\",\"turn\":1},\"seq\":1}\n",
+        )
+        .unwrap();
+        let out = RecallTool::new(dir.path())
+            .search_dir(dir.path(), "真正", None, None, 8)
+            .unwrap();
+        assert!(out.contains("真正的回合"), "{out}");
     }
 }

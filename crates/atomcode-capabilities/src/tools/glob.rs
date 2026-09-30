@@ -3,18 +3,46 @@
 //! does not) via `globset` with `literal_separator(true)`. Build/VCS/cache dirs are
 //! skipped; results sorted, capped at 100.
 
-use super::{err, is_absolute_path, is_skip_dir, not_found_hint, ok, resolve_path};
+use super::{err, is_absolute_path, not_found_hint, ok, resolve_path};
+use crate::world::{FileSystem, LocalFs};
 use async_trait::async_trait;
 use atomcode_kernel::tool::{Tool, ToolContext, ToolResult};
 use globset::GlobBuilder;
-use ignore::WalkBuilder;
 use serde::Deserialize;
 use serde_json::json;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 const MAX_RESULTS: usize = 100;
 
-pub struct GlobTool;
+pub struct GlobTool {
+    /// Where the tree being searched lives. The walk is the world's
+    /// ([`FileSystem::walk`]); which subtrees are noise and how hits are shown
+    /// stay here.
+    world: Arc<dyn FileSystem>,
+    /// Where the product keeps its data: our own per-project dir is skipped
+    /// in walks (plugin clones, artifacts, team worktrees).
+    dirs: crate::ProductDirs,
+}
+
+#[cfg(test)]
+impl Default for GlobTool {
+    fn default() -> Self {
+        Self::new(crate::product_dirs::test_dirs())
+    }
+}
+
+impl GlobTool {
+    /// Work on this machine's disk.
+    pub fn new(dirs: crate::ProductDirs) -> Self {
+        Self::with_world(Arc::new(LocalFs::unfenced()), dirs)
+    }
+
+    /// Search `world` instead of this machine's disk.
+    pub fn with_world(world: Arc<dyn FileSystem>, dirs: crate::ProductDirs) -> Self {
+        Self { world, dirs }
+    }
+}
 
 #[derive(Deserialize)]
 struct Args {
@@ -71,8 +99,10 @@ impl Tool for GlobTool {
                 (resolve_path(&raw, &ctx.working_dir), a.pattern.clone())
             }
         };
-        match tokio::fs::metadata(&base).await {
-            Ok(m) if m.is_dir() => {}
+        match self.world.info(&base).await {
+            Ok(m) if m.is_dir => {}
+            // Denied is not missing — see the same note in `read`.
+            Err(e) if e.is_denied() => return err(format!("glob: {e}")),
             _ => {
                 return err(format!(
                     "glob: base directory does not exist: {}{}",
@@ -91,42 +121,34 @@ impl Tool for GlobTool {
         };
 
         let wd = ctx.working_dir.clone();
-        let base2 = base.clone();
         let pattern = a.pattern.clone();
-        let res = tokio::task::spawn_blocking(move || {
-            let mut hits: Vec<String> = Vec::new();
-            let walk = WalkBuilder::new(&base2)
-                .hidden(true)
-                .git_ignore(true)
-                .git_global(true)
-                .git_exclude(true)
-                .filter_entry(|e| {
-                    if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                        if let Some(name) = e.file_name().to_str() {
-                            return !is_skip_dir(name);
-                        }
+        let skip = crate::pathutil::skip_dir_for(&self.dirs);
+        let res = self
+            .world
+            .walk(&base, &skip, &ctx.cancel)
+            .await
+            .map(|files| {
+                let mut hits: Vec<String> = Vec::new();
+                for path in files {
+                    // Match the path RELATIVE to the base (standard glob semantics).
+                    let rel = path.strip_prefix(&base).unwrap_or(&path);
+                    if matcher.is_match(rel) {
+                        // Display relative to the working dir for usable paths.
+                        let shown =
+                            crate::pathnorm::to_display(path.strip_prefix(&wd).unwrap_or(&path));
+                        hits.push(shown);
                     }
-                    true
-                })
-                .build();
-            for entry in walk.flatten() {
-                let path = entry.path();
-                if !path.is_file() {
-                    continue;
                 }
-                // Match the path RELATIVE to the base (standard glob semantics).
-                let rel = path.strip_prefix(&base2).unwrap_or(path);
-                if matcher.is_match(rel) {
-                    // Display relative to the working dir for usable paths.
-                    let shown = crate::pathnorm::to_display(path.strip_prefix(&wd).unwrap_or(path));
-                    hits.push(shown);
-                }
-            }
-            hits.sort();
-            hits
-        })
-        .await;
+                hits.sort();
+                hits
+            });
 
+        // A walk that was stopped gives back what it had, and "no files matching"
+        // out of half a tree is a claim about the tree that is not true. Said the
+        // way `bash` says it.
+        if ctx.cancel.is_cancelled() {
+            return err("glob: cancelled before completion.".to_string());
+        }
         match res {
             Ok(hits) if hits.is_empty() => ok(format!("No files matching \"{pattern}\"")),
             Ok(mut hits) => {
@@ -141,7 +163,7 @@ impl Tool for GlobTool {
                 }
                 ok(out)
             }
-            Err(_) => err("glob: search task failed".to_string()),
+            Err(e) => err(format!("glob: {e}")),
         }
     }
 }
@@ -236,6 +258,23 @@ mod tests {
         }
     }
 
+    /// A stopped turn's walk does not answer out of what it had — the same
+    /// reason as `grep`'s: half a tree is not a fact about the tree, and the
+    /// walk is the only thing in a position to notice the stop.
+    #[tokio::test]
+    async fn a_stopped_walk_is_refused_rather_than_answered_from_half_a_tree() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("a.rs"), "").unwrap();
+        let mut ctx = ctx(d.path());
+        ctx.cancel = CancellationToken::new();
+        ctx.cancel.cancel();
+        let r = GlobTool::default()
+            .execute(r#"{"pattern":"*.rs"}"#, &ctx)
+            .await;
+        assert!(r.is_error, "{}", r.content);
+        assert!(r.content.contains("cancelled"), "{}", r.content);
+    }
+
     /// Same recovery clue as `grep`/`list_directory` — glob failed on the identical guessed
     /// path in the reported session.
     #[tokio::test]
@@ -243,7 +282,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         std::fs::create_dir(d.path().join("app")).unwrap();
         std::fs::write(d.path().join("app/build.gradle"), "").unwrap();
-        let r = GlobTool
+        let r = GlobTool::default()
             .execute(
                 r#"{"pattern":"**/*.java","path":"app/src/main/java"}"#,
                 &ctx(d.path()),
@@ -265,7 +304,7 @@ mod tests {
         std::fs::write(d.path().join("src/a.rs"), "").unwrap();
         std::fs::write(d.path().join("src/sub/b.rs"), "").unwrap();
         std::fs::write(d.path().join("src/c.txt"), "").unwrap();
-        let r = GlobTool
+        let r = GlobTool::default()
             .execute(r#"{"pattern":"**/*.rs"}"#, &ctx(d.path()))
             .await;
         assert!(!r.is_error, "{}", r.content);
@@ -280,7 +319,7 @@ mod tests {
         std::fs::create_dir_all(d.path().join("src")).unwrap();
         std::fs::write(d.path().join("top.rs"), "").unwrap();
         std::fs::write(d.path().join("src/deep.rs"), "").unwrap();
-        let r = GlobTool
+        let r = GlobTool::default()
             .execute(r#"{"pattern":"*.rs"}"#, &ctx(d.path()))
             .await;
         assert!(r.content.contains("top.rs"), "{}", r.content);
@@ -295,7 +334,7 @@ mod tests {
     async fn no_match_reports_cleanly() {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("a.txt"), "").unwrap();
-        let r = GlobTool
+        let r = GlobTool::default()
             .execute(r#"{"pattern":"**/*.zig"}"#, &ctx(d.path()))
             .await;
         assert!(!r.is_error, "{}", r.content);
@@ -314,7 +353,7 @@ mod tests {
         let work = tempfile::tempdir().unwrap(); // unrelated cwd, on a "different drive"
         let pattern = format!("{}/keystore/*", target.path().display());
         let args = serde_json::json!({ "pattern": pattern }).to_string();
-        let r = GlobTool.execute(&args, &ctx(work.path())).await;
+        let r = GlobTool::default().execute(&args, &ctx(work.path())).await;
         assert!(!r.is_error, "{}", r.content);
         assert!(r.content.contains("screenshare.jks"), "{}", r.content);
     }
@@ -328,7 +367,7 @@ mod tests {
         let work = tempfile::tempdir().unwrap();
         let pattern = format!("{}/**/*.jks", target.path().display());
         let args = serde_json::json!({ "pattern": pattern }).to_string();
-        let r = GlobTool.execute(&args, &ctx(work.path())).await;
+        let r = GlobTool::default().execute(&args, &ctx(work.path())).await;
         assert!(!r.is_error, "{}", r.content);
         assert!(r.content.contains("screenshare.jks"), "{}", r.content);
     }
@@ -341,7 +380,7 @@ mod tests {
         let work = tempfile::tempdir().unwrap();
         let pattern = format!("{}/", target.path().display());
         let args = serde_json::json!({ "pattern": pattern }).to_string();
-        let r = GlobTool.execute(&args, &ctx(work.path())).await;
+        let r = GlobTool::default().execute(&args, &ctx(work.path())).await;
         assert!(!r.is_error, "{}", r.content);
         assert!(r.content.contains("screenshare.jks"), "{}", r.content);
     }
@@ -352,7 +391,7 @@ mod tests {
         std::fs::create_dir_all(d.path().join("target")).unwrap();
         std::fs::write(d.path().join("target/x.rs"), "").unwrap();
         std::fs::write(d.path().join("keep.rs"), "").unwrap();
-        let r = GlobTool
+        let r = GlobTool::default()
             .execute(r#"{"pattern":"**/*.rs"}"#, &ctx(d.path()))
             .await;
         assert!(r.content.contains("keep.rs"), "{}", r.content);

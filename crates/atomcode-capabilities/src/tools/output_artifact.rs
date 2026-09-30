@@ -76,12 +76,54 @@ impl ArtifactStore {
     }
 }
 
-pub const THRESHOLD_BYTES: usize = 16 * 1024;
+pub const THRESHOLD_BYTES: usize = 50 * 1024;
 /// Stable prefix embedded in a conversation-visible result when the complete
 /// tool output was replaced by an artifact-backed head/tail preview.
 pub const ARTIFACT_TRUNCATION_MARKER_PREFIX: &str = "[atomcode: output truncated";
-const PREVIEW_HALF: usize = 4 * 1024;
+/// Head/tail kept inline when an oversized result is spilled. HEAD-HEAVY on purpose:
+/// the START of a command's output (a diff header, an error's first frames, a log's
+/// opening) is usually the more useful half, so the head gets the larger share while a
+/// smaller tail preserves a trailing error/summary line. Sized to the ~50 KB peer
+/// baseline (the previous 16 KB / 4 KB was ~3× tighter than comparable agents, which is
+/// what forced the model to keep working around "output truncated" on ordinary diffs /
+/// logs). `THRESHOLD_BYTES` stays above `HEAD + TAIL` so a truncated result always
+/// shrinks below the original.
+const PREVIEW_HEAD: usize = 32 * 1024;
+const PREVIEW_TAIL: usize = 12 * 1024;
 const MAX_ARTIFACT_BYTES: usize = 4 * 1024 * 1024;
+
+/// Override the spill threshold. Data-dense scenarios (financial reports,
+/// whole-market scans) truncate constantly at the 50 KB default; this lets an
+/// operator raise it without a rebuild. Default is [`THRESHOLD_BYTES`] to the
+/// byte. (Feedback B11.)
+const THRESHOLD_ENV: &str = "ATOMCODE_TOOL_OUTPUT_THRESHOLD_BYTES";
+
+/// The spill threshold to use: `ATOMCODE_TOOL_OUTPUT_THRESHOLD_BYTES`, else the
+/// configured value (`[tools.output] threshold_bytes`), else the default. The
+/// environment wins so an operator can override a file without editing it; the
+/// file exists for a process that cannot be given an environment, such as a
+/// daemon an editor extension starts. Pure over its inputs so it is testable
+/// without touching process env.
+///
+/// Clamped to `[HEAD + TAIL + marker, MAX_ARTIFACT_BYTES]`:
+/// - **Floor** — the preview is head + tail + a ~few-hundred-byte marker, so a
+///   threshold below that could make a "truncated" result *larger* than the
+///   original (breaking the whole point of spilling); the 1 KiB slack covers the
+///   marker with room to spare.
+/// - **Ceiling** — never above the artifact ceiling, or a result between the
+///   ceiling and an over-large threshold would reach the model *whole* and blow
+///   the context (the exact failure `MAX_ARTIFACT_BYTES` exists to prevent).
+///
+/// A bad/empty value falls back to the default rather than erroring — a typo in
+/// an env var must not make every tool output either truncate at 0 or never.
+fn resolve_threshold(env_val: Option<&str>, configured: Option<usize>) -> usize {
+    const FLOOR: usize = PREVIEW_HEAD + PREVIEW_TAIL + 1024;
+    env_val
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .or(configured)
+        .map(|v| v.clamp(FLOOR, MAX_ARTIFACT_BYTES))
+        .unwrap_or(THRESHOLD_BYTES)
+}
 
 /// Largest char-boundary index ≤ n.
 fn head_boundary(s: &str, n: usize) -> usize {
@@ -101,13 +143,103 @@ fn tail_start(s: &str, n: usize) -> usize {
     i
 }
 
+/// The opening of a truncation marker: what is shown, what is NOT, and that
+/// nothing in the missing range may be used.
+///
+/// Said as a byte range rather than left for the model to work out from "first
+/// N + last M bytes". A preview of structured output (JSON, a table) cut in two
+/// reads as one broken document, and a model that does not see it is missing a
+/// stretch fills the stretch in: in a financial deployment on 5.1.0 an answer
+/// quoted three figures, credited to the tool, that appeared in none of its
+/// results. The marker ends at the first `]` after its prefix (see
+/// `next_prompt_suggestion`), so none may appear before the end.
+fn missing_range(total: usize, head_end: usize, tail_begin: usize) -> String {
+    format!(
+        "{ARTIFACT_TRUNCATION_MARKER_PREFIX} — {total} bytes total. Shown: bytes 0–{head_end} and \
+{tail_begin}–{total}. NOT shown: bytes {head_end}–{tail_begin} ({} bytes) — do not quote, total or infer \
+any value from that range until you have read it.",
+        tail_begin - head_end
+    )
+}
+
 pub struct ArtifactMiddleware {
     store: Arc<ArtifactStore>,
+    /// `[tools.output] threshold_bytes`, when the deployment set one.
+    threshold: Option<usize>,
 }
 
 impl ArtifactMiddleware {
     pub fn new(store: Arc<ArtifactStore>) -> Self {
-        Self { store }
+        Self {
+            store,
+            threshold: None,
+        }
+    }
+
+    /// Spill above `threshold` bytes rather than the default; see
+    /// [`resolve_threshold`] for how it ranks against the environment.
+    pub fn with_threshold(mut self, threshold: Option<usize>) -> Self {
+        self.threshold = threshold;
+        self
+    }
+
+    fn threshold_bytes(&self) -> usize {
+        resolve_threshold(std::env::var(THRESHOLD_ENV).ok().as_deref(), self.threshold)
+    }
+}
+
+impl ArtifactMiddleware {
+    /// Spill an oversized result to the store and leave head+tail inline.
+    ///
+    /// The judgement, with no opinion about how it is delivered — the kernel
+    /// `ToolMiddleware::after` below wears one shell, a harness `tools/execute`
+    /// listener wears the other, and both call this. `self_bounds_output` is
+    /// passed as a plain bool rather than the resolved tool so neither shell has
+    /// to agree with the other about how a tool is looked up.
+    pub async fn spill(
+        &self,
+        result: &mut atomcode_kernel::tool::ToolResult,
+        self_bounds_output: bool,
+    ) {
+        // A tool that bounds and structures its own output (e.g. `read_file`: self-capped,
+        // 1-based line numbers, pagination) must reach the model WHOLE — head/tail
+        // truncation would corrupt it. Read the contract off the resolved tool, so this is
+        // robust even if an earlier `before` short-circuited the chain with `Allow`.
+        if self_bounds_output {
+            return;
+        }
+        let total = result.content.len();
+        if total <= self.threshold_bytes() {
+            return;
+        }
+        let head_end = head_boundary(&result.content, PREVIEW_HEAD);
+        let tail_begin = tail_start(&result.content, PREVIEW_TAIL);
+        let head = &result.content[..head_end];
+        let tail = &result.content[tail_begin..];
+        let missing = missing_range(total, head_end, tail_begin);
+
+        if total > MAX_ARTIFACT_BYTES {
+            // Too large to store; inline-truncate only.
+            let marker = format!(
+                "\n\n{missing} Full output unavailable (exceeds {MAX_ARTIFACT_BYTES}-byte artifact ceiling); \
+re-run the tool call with narrower output to see that range.]\n\n"
+            );
+            result.content = format!("{head}{marker}{tail}");
+            return;
+        }
+
+        let marker = match self.store.put(result.content.as_bytes()) {
+            Ok(id) => format!(
+                "\n\n{missing} Full output saved as artifact {id}; the missing range is {} part(s) of up to \
+{FETCH_MAX_LIMIT} bytes. Read part 1: fetch_output(artifact_id=\"{id}\", offset={head_end}, limit={FETCH_MAX_LIMIT}).]\n\n",
+                (tail_begin - head_end).div_ceil(FETCH_MAX_LIMIT).max(1),
+            ),
+            Err(_) => format!(
+                "\n\n{missing} Full output unavailable (could not be saved); re-run the tool call with narrower \
+output to see that range.]\n\n"
+            ),
+        };
+        result.content = format!("{head}{marker}{tail}");
     }
 }
 
@@ -118,55 +250,100 @@ impl atomcode_kernel::middleware::ToolMiddleware for ArtifactMiddleware {
         result: &mut atomcode_kernel::tool::ToolResult,
         tool: Option<&Arc<dyn atomcode_kernel::tool::Tool>>,
     ) -> atomcode_kernel::middleware::AfterOutcome {
-        // A tool that bounds and structures its own output (e.g. `read_file`: self-capped,
-        // 1-based line numbers, pagination) must reach the model WHOLE — head/tail
-        // truncation would corrupt it. Read the contract off the resolved tool, so this is
-        // robust even if an earlier `before` short-circuited the chain with `Allow`.
-        if tool.is_some_and(|t| t.self_bounds_output()) {
-            return atomcode_kernel::middleware::AfterOutcome::Proceed;
-        }
-        let total = result.content.len();
-        if total <= THRESHOLD_BYTES {
-            return atomcode_kernel::middleware::AfterOutcome::Proceed;
-        }
-        let head_end = head_boundary(&result.content, PREVIEW_HALF);
-        let tail_begin = tail_start(&result.content, PREVIEW_HALF);
-        let head = &result.content[..head_end];
-        let tail = &result.content[tail_begin..];
-
-        if total > MAX_ARTIFACT_BYTES {
-            // Too large to store; inline-truncate only.
-            let marker = format!(
-                "\n\n[atomcode: output truncated — {total} bytes total, showing first {} + last {} bytes. \
-Full output unavailable (exceeds {MAX_ARTIFACT_BYTES}-byte artifact ceiling).]\n\n",
-                head.len(),
-                tail.len()
-            );
-            result.content = format!("{head}{marker}{tail}");
-            return atomcode_kernel::middleware::AfterOutcome::Proceed;
-        }
-
-        let marker = match self.store.put(result.content.as_bytes()) {
-            Ok(id) => format!(
-                "\n\n[atomcode: output truncated — {total} bytes total, showing first {} + last {} bytes. \
-Full output saved as artifact {id}. To read more: fetch_output(artifact_id=\"{id}\", offset, limit).]\n\n",
-                head.len(),
-                tail.len()
-            ),
-            Err(_) => format!(
-                "\n\n[atomcode: output truncated — {total} bytes total, showing first {} + last {} bytes. \
-Full output unavailable (could not be saved).]\n\n",
-                head.len(),
-                tail.len()
-            ),
-        };
-        result.content = format!("{head}{marker}{tail}");
+        // Read the contract off the RESOLVED tool, so this is robust even if an
+        // earlier `before` short-circuited the chain with `Allow`.
+        self.spill(result, tool.is_some_and(|t| t.self_bounds_output()))
+            .await;
         atomcode_kernel::middleware::AfterOutcome::Proceed
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn threshold_env_override_defaults_byte_identical_and_clamps() {
+        use super::{
+            resolve_threshold, MAX_ARTIFACT_BYTES, PREVIEW_HEAD, PREVIEW_TAIL, THRESHOLD_BYTES,
+        };
+        let floor = PREVIEW_HEAD + PREVIEW_TAIL + 1024;
+        // Unset / empty / garbage → the default, to the byte.
+        assert_eq!(resolve_threshold(None, None), THRESHOLD_BYTES);
+        assert_eq!(resolve_threshold(Some("  "), None), THRESHOLD_BYTES);
+        assert_eq!(
+            resolve_threshold(Some("not-a-number"), None),
+            THRESHOLD_BYTES
+        );
+        // A larger value (the data-dense case) is honored verbatim.
+        assert_eq!(resolve_threshold(Some("200000"), None), 200_000);
+        assert_eq!(resolve_threshold(Some(" 200000 "), None), 200_000);
+        // Below head+tail+marker → floored, so a spill still SHRINKS the result.
+        assert_eq!(resolve_threshold(Some("1000"), None), floor);
+        // Above the artifact ceiling → clamped, so the hard context cap holds.
+        assert_eq!(
+            resolve_threshold(Some("8388608"), None),
+            MAX_ARTIFACT_BYTES,
+            "an over-large threshold must not defeat the {MAX_ARTIFACT_BYTES}-byte ceiling"
+        );
+    }
+
+    /// `[tools.output] threshold_bytes` is used when the environment says
+    /// nothing usable, is clamped the same way, and gives way to the
+    /// environment when both are set.
+    #[test]
+    fn a_configured_threshold_is_used_clamped_and_yields_to_the_environment() {
+        use super::{
+            resolve_threshold, MAX_ARTIFACT_BYTES, PREVIEW_HEAD, PREVIEW_TAIL, THRESHOLD_BYTES,
+        };
+        let floor = PREVIEW_HEAD + PREVIEW_TAIL + 1024;
+        assert_eq!(resolve_threshold(None, Some(204_800)), 204_800);
+        assert_eq!(resolve_threshold(Some("junk"), Some(204_800)), 204_800);
+        assert_eq!(resolve_threshold(None, Some(1)), floor);
+        assert_eq!(
+            resolve_threshold(None, Some(usize::MAX)),
+            MAX_ARTIFACT_BYTES
+        );
+        assert_eq!(resolve_threshold(Some("100000"), Some(204_800)), 100_000);
+        assert_eq!(resolve_threshold(None, None), THRESHOLD_BYTES);
+    }
+
+    /// A middleware given a threshold spills by it: a result between the default
+    /// and the configured value reaches the model whole.
+    #[tokio::test]
+    async fn a_configured_threshold_decides_what_is_spilled() {
+        use atomcode_kernel::tool::ToolResult;
+        // Only when the environment is silent; the ranking itself is pinned above.
+        if std::env::var_os(super::THRESHOLD_ENV).is_some() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(super::ArtifactStore::new(dir.path()));
+        let big = "x".repeat(super::THRESHOLD_BYTES + 10_000);
+        let mut result = ToolResult {
+            call_id: "c".into(),
+            content: big.clone(),
+            is_error: false,
+            images: vec![],
+        };
+        super::ArtifactMiddleware::new(store.clone())
+            .with_threshold(Some(super::THRESHOLD_BYTES + 20_000))
+            .spill(&mut result, false)
+            .await;
+        assert_eq!(
+            result.content, big,
+            "under the configured threshold: untouched"
+        );
+
+        super::ArtifactMiddleware::new(store)
+            .spill(&mut result, false)
+            .await;
+        assert!(
+            result
+                .content
+                .contains(super::ARTIFACT_TRUNCATION_MARKER_PREFIX),
+            "and the default still spills it"
+        );
+    }
+
     #[test]
     fn id_is_16_hex_and_deterministic() {
         let a = super::artifact_id(b"hello world");
@@ -243,7 +420,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = std::sync::Arc::new(super::ArtifactStore::new(dir.path()));
         let mw = super::ArtifactMiddleware::new(store.clone());
-        let big = "x".repeat(20 * 1024);
+        let big = "x".repeat(60 * 1024);
         let mk = || ToolResult {
             call_id: "c".into(),
             content: big.clone(),
@@ -256,6 +433,21 @@ mod tests {
         // rewritten: smaller, has head+tail+marker, names fetch_output + the id
         assert!(r1.content.len() < big.len());
         assert!(r1.content.contains("fetch_output"));
+        // The marker names what is missing — the byte range that is NOT shown and
+        // that it is not to be used — and how many reads cover it, from where.
+        let (head_end, tail_begin) = (super::PREVIEW_HEAD, big.len() - super::PREVIEW_TAIL);
+        assert!(
+            r1.content
+                .contains(&format!("NOT shown: bytes {head_end}–{tail_begin}")),
+            "marker names the missing range: {}",
+            r1.content
+        );
+        assert!(r1.content.contains("do not quote"), "{}", r1.content);
+        assert!(
+            r1.content.contains("1 part(s)") && r1.content.contains(&format!("offset={head_end}")),
+            "marker says how many reads cover it, and where the first starts: {}",
+            r1.content
+        );
         let id = super::artifact_id(big.as_bytes());
         assert!(r1.content.contains(&id));
         // artifact holds the FULL original
@@ -284,7 +476,7 @@ mod tests {
             std::sync::Arc::new(crate::tools::read::ReadFileTool::new(false));
 
         // A large read_file result (over THRESHOLD) must reach the model WHOLE.
-        let big = "x".repeat(40 * 1024);
+        let big = "x".repeat(60 * 1024);
         let mut r = ToolResult {
             call_id: "rc".into(),
             content: big.clone(),
@@ -370,6 +562,13 @@ artifact is unavailable, re-run the original command instead."
         true
     }
 
+    /// A page is at most `FETCH_MAX_LIMIT` bytes and says where the next one
+    /// starts. Spilled again, a default-sized page lost its middle to a fresh
+    /// artifact, and no page size the marker asked for could be read whole.
+    fn self_bounds_output(&self) -> bool {
+        true
+    }
+
     fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
@@ -392,7 +591,13 @@ artifact is unavailable, re-run the original command instead."
             Err(e) => return super::err(format!("invalid fetch_output args: {e}")),
         };
 
-        let limit = parsed.limit.unwrap_or(FETCH_MAX_LIMIT).min(FETCH_MAX_LIMIT);
+        // `0` is "no preference": an empty page whose hint names the same offset
+        // again is a page the model can only ask for forever.
+        let limit = parsed
+            .limit
+            .filter(|&limit| limit > 0)
+            .unwrap_or(FETCH_MAX_LIMIT)
+            .min(FETCH_MAX_LIMIT);
 
         match self.store.get(&parsed.artifact_id, parsed.offset, limit) {
             Ok(Some(bytes)) => {
@@ -406,9 +611,10 @@ artifact is unavailable, re-run the original command instead."
                 // Clamp the reported window to the artifact so an offset past the
                 // end yields a coherent "at end" hint (never "5000–5000 of 3000").
                 // `start <= total` holds, so `end` lands in `[start, total]`.
-                let start = parsed.offset.min(total);
-                let end = start.saturating_add(bytes.len()).min(total);
-                let body = String::from_utf8_lossy(&bytes);
+                let (skip, keep) = on_char_boundaries(&bytes, parsed.offset.saturating_add(bytes.len()) < total);
+                let start = parsed.offset.saturating_add(skip).min(total);
+                let end = start.saturating_add(keep.len()).min(total);
+                let body = String::from_utf8_lossy(keep);
                 let hint = if end < total {
                     format!(
                         "\n\n[showing bytes {start}–{end} of {total}; call fetch_output(artifact_id=\"{}\", offset={end}) for more]",
@@ -429,6 +635,38 @@ Re-run the original command to regenerate its output.",
     }
 }
 
+/// A page's bytes, cut back to whole UTF-8 characters: the continuation bytes an
+/// offset landed among are skipped (returned as the count), and — when more of the
+/// capture follows (`more`) — a character cut off at the page's end is left for the
+/// next page. Byte offsets are what the paging speaks, so a page edge fell inside a
+/// character wherever one straddled it: `�` at the end of one page, `��` at the start
+/// of the next, on nearly every edge of Chinese output.
+///
+/// Only ever at most 3 bytes either side, and never down to nothing: a capture that
+/// is not UTF-8 (or a limit smaller than one character) is returned as it came.
+fn on_char_boundaries(bytes: &[u8], more: bool) -> (usize, &[u8]) {
+    let is_continuation = |b: &u8| b & 0b1100_0000 == 0b1000_0000;
+    let skip = bytes
+        .iter()
+        .take(3)
+        .take_while(|b| is_continuation(b))
+        .count();
+    let rest = &bytes[skip..];
+    let rest = match std::str::from_utf8(rest) {
+        Err(error)
+            if more && error.error_len().is_none() && rest.len() - error.valid_up_to() <= 3 =>
+        {
+            &rest[..error.valid_up_to()]
+        }
+        _ => rest,
+    };
+    if rest.is_empty() {
+        (0, bytes)
+    } else {
+        (skip, rest)
+    }
+}
+
 #[cfg(test)]
 mod fetch_output_tests {
     use super::*;
@@ -442,6 +680,114 @@ mod fetch_output_tests {
             progress: atomcode_kernel::tool::ProgressSink::noop(),
             requester: None,
         }
+    }
+
+    /// A page `fetch_output` returns reaches the model whole.
+    ///
+    /// The page is already bounded (at most `FETCH_MAX_LIMIT` bytes plus a hint
+    /// naming the next offset), but it came back through the same spill as any
+    /// other result, and a default-sized page is over the spill threshold: it
+    /// was cut to head + tail again, into a fresh artifact, and the middle of
+    /// every page was out of reach at the size the marker told the model to ask
+    /// for. On 5.1.0 (threshold 16 KiB, 4 KiB each side) a 64 KiB page kept 8.
+    ///
+    /// Negative control: drop `self_bounds_output` from `FetchOutputTool` and
+    /// the page carries a truncation marker.
+    #[tokio::test]
+    async fn a_fetched_page_reaches_the_model_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(ArtifactStore::new(dir.path()));
+        let full: String = (0..200_000u32)
+            .map(|i| char::from(b'a' + (i % 26) as u8))
+            .collect();
+        let id = store.put(full.as_bytes()).unwrap();
+        let tool = FetchOutputTool::new(store.clone());
+
+        let mut page = tool
+            .execute(
+                &format!(r#"{{"artifact_id":"{id}","offset":0}}"#),
+                &ctx(dir.path()),
+            )
+            .await;
+        assert!(!page.is_error, "{}", page.content);
+        ArtifactMiddleware::new(store.clone())
+            .spill(&mut page, tool.self_bounds_output())
+            .await;
+
+        assert!(
+            !page.content.contains(ARTIFACT_TRUNCATION_MARKER_PREFIX),
+            "the page was truncated again on its way to the model"
+        );
+        assert!(page.content.starts_with(&full[..FETCH_MAX_LIMIT]));
+    }
+
+    /// The page after the page after the page, read back to back, is the capture —
+    /// not a capture with a `�` wherever a character straddled a page edge. Chinese
+    /// output (3 bytes a character) put one on nearly every edge.
+    #[tokio::test]
+    async fn pages_split_between_characters_not_inside_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(ArtifactStore::new(dir.path()));
+        let full = "收入同比增长百分之十二。".repeat(10_000); // 3 bytes a char, 360 000 bytes
+        let id = store.put(full.as_bytes()).unwrap();
+        let tool = FetchOutputTool::new(store);
+        let test_ctx = ctx(dir.path());
+
+        let mut read = String::new();
+        let mut offset = 0usize;
+        for _ in 0..20 {
+            let r = tool
+                .execute(
+                    &format!(r#"{{"artifact_id":"{id}","offset":{offset}}}"#),
+                    &test_ctx,
+                )
+                .await;
+            assert!(!r.is_error, "{}", r.content);
+            let (body, hint) = r.content.rsplit_once("\n\n[showing bytes ").unwrap();
+            assert!(
+                !body.contains('\u{FFFD}'),
+                "a character was cut at {offset}"
+            );
+            read.push_str(body);
+            match hint.split_once("offset=") {
+                Some((_, next)) => offset = next.trim_end_matches(") for more]").parse().unwrap(),
+                None => break,
+            }
+        }
+        assert_eq!(read, full);
+
+        // An offset that lands inside a character starts at the next one.
+        let r = tool
+            .execute(
+                &format!(r#"{{"artifact_id":"{id}","offset":1,"limit":9}}"#),
+                &test_ctx,
+            )
+            .await;
+        assert!(
+            r.content
+                .starts_with("入同\n\n[showing bytes 3–9 of 360000;"),
+            "{}",
+            r.content
+        );
+    }
+
+    /// `limit: 0` is "no preference", not an empty page pointing at the same offset.
+    #[tokio::test]
+    async fn a_zero_limit_reads_a_default_page() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(ArtifactStore::new(dir.path()));
+        let id = store.put(&b"B".repeat(100_000)).unwrap();
+        let r = FetchOutputTool::new(store)
+            .execute(
+                &format!(r#"{{"artifact_id":"{id}","offset":0,"limit":0}}"#),
+                &ctx(dir.path()),
+            )
+            .await;
+        assert!(
+            r.content.contains("[showing bytes 0–65536 of 100000;"),
+            "{}",
+            &r.content[65530..]
+        );
     }
 
     #[tokio::test]
@@ -484,9 +830,12 @@ mod fetch_output_tests {
             r.content
         );
         assert!(
-            r.content.contains("65536") || r.content.contains("of 100000"),
-            "pagination hint should show the hard cap or total: {}",
-            r.content
+            r.content.starts_with(&format!(
+                "{}\n\n[showing bytes 0–65536 of 100000;",
+                "A".repeat(65536)
+            )),
+            "the page is exactly the 64 KiB cap, then the hint: {}",
+            &r.content[65530..]
         );
 
         // missing artifact → terminal, actionable error, no "fetch" retry wording

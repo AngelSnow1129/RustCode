@@ -579,6 +579,8 @@ fn convert_legacy_session_with_diagnostic(
         detached_model_usage: Vec::new(),
         detached_unattributed_tokens: 0,
         origin: SessionOrigin::Manual,
+        format_version: 0,
+        parent: None,
     };
     meta.auto_name_from_messages(&snapshot.messages);
 
@@ -1089,14 +1091,20 @@ fn converge_session_with_retries(
 pub fn catalog_for_project(
     working_dir: &std::path::Path,
 ) -> anyhow::Result<Vec<atomcode_capabilities::session::CatalogEntry>> {
-    catalog_for_project_in_root(&SessionManager::sessions_root(), working_dir)
+    catalog_for_project_in_root(
+        &SessionManager::sessions_root(atomcode_coding::config::product_dirs_from_env().user()),
+        working_dir,
+    )
 }
 
 fn catalog_for_project_in_root(
     sessions_root: &std::path::Path,
     working_dir: &std::path::Path,
 ) -> anyhow::Result<Vec<atomcode_capabilities::session::CatalogEntry>> {
-    let bucket = SessionManager::project_hash(working_dir);
+    let bucket = SessionManager::project_hash(
+        working_dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let scan = SessionManager::scan_catalog(sessions_root);
     report_catalog_diagnostics(&scan.diagnostics);
     let mut entries: Vec<_> = scan
@@ -1121,14 +1129,20 @@ fn catalog_for_project_in_root(
 pub fn catalog_for_bucket(
     working_dir: &std::path::Path,
 ) -> anyhow::Result<Vec<atomcode_capabilities::session::CatalogEntry>> {
-    catalog_for_bucket_in_root(&SessionManager::sessions_root(), working_dir)
+    catalog_for_bucket_in_root(
+        &SessionManager::sessions_root(atomcode_coding::config::product_dirs_from_env().user()),
+        working_dir,
+    )
 }
 
 fn catalog_for_bucket_in_root(
     sessions_root: &std::path::Path,
     working_dir: &std::path::Path,
 ) -> anyhow::Result<Vec<atomcode_capabilities::session::CatalogEntry>> {
-    let bucket = SessionManager::project_hash(working_dir);
+    let bucket = SessionManager::project_hash(
+        working_dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let scan = SessionManager::scan_catalog_bucket(sessions_root, &bucket);
     report_catalog_diagnostics(&scan.diagnostics);
     let mut entries = scan.entries;
@@ -1167,21 +1181,32 @@ fn working_dirs_equivalent(left: &std::path::Path, right: &std::path::Path) -> b
 pub fn load_catalog_session_view(
     entry: &atomcode_capabilities::session::CatalogEntry,
 ) -> anyhow::Result<CatalogSessionView> {
-    load_catalog_session_view_in_root(&SessionManager::sessions_root(), entry)
+    load_catalog_session_view_in_root(
+        &SessionManager::sessions_root(atomcode_coding::config::product_dirs_from_env().user()),
+        entry,
+    )
 }
 
 pub fn load_catalog_session_view_in_project(
     project_bucket: &str,
     id: &str,
 ) -> anyhow::Result<Option<CatalogSessionView>> {
-    load_catalog_session_view_in_project_root(&SessionManager::sessions_root(), project_bucket, id)
+    load_catalog_session_view_in_project_root(
+        &SessionManager::sessions_root(atomcode_coding::config::product_dirs_from_env().user()),
+        project_bucket,
+        id,
+    )
 }
 
 pub fn preview_catalog_session_in_project(
     project_bucket: &str,
     id: &str,
 ) -> Result<Option<CatalogSessionPreview>, CatalogSessionPreviewError> {
-    preview_catalog_session_in_project_root(&SessionManager::sessions_root(), project_bucket, id)
+    preview_catalog_session_in_project_root(
+        &SessionManager::sessions_root(atomcode_coding::config::product_dirs_from_env().user()),
+        project_bucket,
+        id,
+    )
 }
 
 /// How many recent messages the preview excerpt keeps.
@@ -1374,7 +1399,7 @@ pub fn prepare_catalog_session_resume_in_project(
     id: &str,
 ) -> anyhow::Result<Option<PreparedCatalogSessionResume>> {
     prepare_catalog_session_resume_in_project_root(
-        &SessionManager::sessions_root(),
+        &SessionManager::sessions_root(atomcode_coding::config::product_dirs_from_env().user()),
         project_bucket,
         id,
         false,
@@ -1392,7 +1417,7 @@ pub fn prepare_catalog_session_resume_or_fork_in_project(
     id: &str,
 ) -> anyhow::Result<Option<PreparedCatalogSessionResume>> {
     prepare_catalog_session_resume_in_project_root(
-        &SessionManager::sessions_root(),
+        &SessionManager::sessions_root(atomcode_coding::config::product_dirs_from_env().user()),
         project_bucket,
         id,
         true,
@@ -1404,7 +1429,10 @@ pub fn prepare_catalog_session_resume_or_fork_in_project(
 pub fn prepare_catalog_session_resume_any_project(
     id: &str,
 ) -> anyhow::Result<Option<PreparedCatalogSessionResume>> {
-    prepare_catalog_session_resume_any_project_in_root(&SessionManager::sessions_root(), id)
+    prepare_catalog_session_resume_any_project_in_root(
+        &SessionManager::sessions_root(atomcode_coding::config::product_dirs_from_env().user()),
+        id,
+    )
 }
 
 pub(crate) fn prepare_catalog_session_resume_any_project_in_root(
@@ -1598,7 +1626,7 @@ pub fn rename_catalog_session_in_project(
     new_name: &str,
 ) -> anyhow::Result<String> {
     rename_catalog_session_in_project_root(
-        &SessionManager::sessions_root(),
+        &SessionManager::sessions_root(atomcode_coding::config::product_dirs_from_env().user()),
         project_bucket,
         id,
         new_name,
@@ -1615,7 +1643,7 @@ pub fn apply_ai_catalog_name_in_project(
     new_name: &str,
 ) -> anyhow::Result<bool> {
     Ok(rename_catalog_session_in_project_root(
-        &SessionManager::sessions_root(),
+        &SessionManager::sessions_root(atomcode_coding::config::product_dirs_from_env().user()),
         project_bucket,
         id,
         new_name,
@@ -1656,13 +1684,19 @@ fn rename_catalog_session_in_project_root(
 /// lease used by native runtimes. The project bucket is an external API value, so it
 /// must be validated before it is joined below the sessions root.
 pub fn delete_catalog_session_in_project(project_bucket: &str, id: &str) -> anyhow::Result<()> {
-    delete_catalog_session_in_root(&SessionManager::sessions_root(), project_bucket, id)
+    delete_catalog_session_in_root(
+        &SessionManager::sessions_root(atomcode_coding::config::product_dirs_from_env().user()),
+        project_bucket,
+        id,
+    )
 }
 
 /// Delete a project's catalog directory under sessions root
 pub fn delete_catalog_project_in_project(project_bucket: &str) -> anyhow::Result<()> {
     validate_project_bucket(project_bucket)?;
-    let bucket_dir = SessionManager::sessions_root().join(project_bucket);
+    let bucket_dir =
+        SessionManager::sessions_root(atomcode_coding::config::product_dirs_from_env().user())
+            .join(project_bucket);
     if bucket_dir.exists() {
         std::fs::remove_dir_all(bucket_dir)?;
     }
@@ -1678,7 +1712,7 @@ pub fn append_catalog_presentation_in_project(
     messages: &[(PresentationRole, String)],
 ) -> anyhow::Result<usize> {
     append_catalog_presentation_in_root(
-        &SessionManager::sessions_root(),
+        &SessionManager::sessions_root(atomcode_coding::config::product_dirs_from_env().user()),
         project_bucket,
         id,
         messages,
@@ -1692,7 +1726,10 @@ pub fn persist_pre_runtime_terminal(
     id: &str,
     snapshot: &atomcode_kernel::message::SessionSnapshot,
 ) -> anyhow::Result<()> {
-    let manager = SessionManager::for_project(working_dir);
+    let manager = SessionManager::for_project(
+        working_dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let lease = manager.acquire_lease(id)?;
     let has_existing = [
         manager.meta_path(id)?,
@@ -1799,28 +1836,7 @@ fn validate_project_bucket(project_bucket: &str) -> anyhow::Result<()> {
 }
 
 fn report_catalog_diagnostics(diagnostics: &[atomcode_capabilities::session::CatalogDiagnostic]) {
-    // Cap the per-entry detail: a large history with orphaned sidecars / corrupt
-    // legacy files can produce THOUSANDS of these, and each `tracing::warn!` is a
-    // synchronous write to the log file — that alone was a measurable chunk of
-    // `-c`/resume startup. Log a bounded sample, then one summary line.
-    const MAX_DETAIL: usize = 20;
-    for diagnostic in diagnostics.iter().take(MAX_DETAIL) {
-        tracing::warn!(
-            path = %diagnostic.path.display(),
-            kind = ?diagnostic.kind,
-            message = %diagnostic.message,
-            "session catalog entry was skipped"
-        );
-    }
-    if diagnostics.len() > MAX_DETAIL {
-        tracing::warn!(
-            skipped = diagnostics.len(),
-            shown = MAX_DETAIL,
-            "session catalog skipped {} entries ({} shown above)",
-            diagnostics.len(),
-            MAX_DETAIL,
-        );
-    }
+    crate::warn_catalog_diagnostics(diagnostics);
 }
 
 fn reject_matching_catalog_diagnostic(
@@ -3728,6 +3744,8 @@ mod tests {
             message_count: 0,
             turn_count: 0,
             presence: CatalogPresence::NativeOnly,
+            needs_newer_version: false,
+            origin: Default::default(),
         };
 
         let old = rename_catalog_entry_in_root(dir.path(), &entry, "chosen", false).unwrap();
@@ -3829,6 +3847,8 @@ mod tests {
             message_count: 1,
             turn_count: 0,
             presence: CatalogPresence::NativeOnly,
+            needs_newer_version: false,
+            origin: Default::default(),
         };
 
         let loaded = load_catalog_session_view_in_root(dir.path(), &entry).unwrap();
@@ -4122,6 +4142,8 @@ mod tests {
             message_count: 1,
             turn_count: 0,
             presence: CatalogPresence::NativeOnly,
+            needs_newer_version: false,
+            origin: Default::default(),
         };
 
         let loaded = load_catalog_session_view_in_root(dir.path(), &entry).unwrap();
@@ -4134,7 +4156,10 @@ mod tests {
     fn project_catalog_repairs_placeholder_before_first_resume_list() {
         let dir = tempfile::tempdir().unwrap();
         let working_dir = std::path::Path::new("/project");
-        let bucket = SessionManager::project_hash(working_dir);
+        let bucket = SessionManager::project_hash(
+            working_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
         let id = "catalog-placeholder";
         let manager = SessionManager::with_root(dir.path().join(&bucket));
         let lease = manager.acquire_lease(id).unwrap();
@@ -4165,7 +4190,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let working_dir = dir.path().join("project");
         std::fs::create_dir_all(&working_dir).unwrap();
-        let current_bucket = SessionManager::project_hash(&working_dir);
+        let current_bucket = SessionManager::project_hash(
+            &working_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
         let historical_bucket = "1111111111111111";
 
         for (bucket, id, stored_working_dir) in [
@@ -4231,7 +4259,10 @@ mod tests {
     fn project_catalog_name_repair_failure_does_not_hide_healthy_sessions() {
         let dir = tempfile::tempdir().unwrap();
         let working_dir = std::path::Path::new("/project");
-        let bucket = SessionManager::project_hash(working_dir);
+        let bucket = SessionManager::project_hash(
+            working_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
         let manager = SessionManager::with_root(dir.path().join(&bucket));
 
         let healthy_id = "healthy-placeholder";
@@ -4302,6 +4333,8 @@ mod tests {
             message_count: 1,
             turn_count: 0,
             presence: CatalogPresence::NativeOnly,
+            needs_newer_version: false,
+            origin: Default::default(),
         };
 
         let loaded = load_catalog_session_view_in_root(dir.path(), &entry).unwrap();
@@ -4343,6 +4376,8 @@ mod tests {
             message_count: session.messages.len(),
             turn_count: session.turn_stats.len(),
             presence: CatalogPresence::LegacyOnly,
+            needs_newer_version: false,
+            origin: Default::default(),
         };
 
         let loaded = load_catalog_session_view_in_root(dir.path(), &entry).unwrap();
@@ -4378,6 +4413,8 @@ mod tests {
             message_count: session.messages.len(),
             turn_count: session.turn_stats.len(),
             presence: CatalogPresence::LegacyOnly,
+            needs_newer_version: false,
+            origin: Default::default(),
         };
 
         rename_catalog_entry_in_root(dir.path(), &entry, "native-name", false).unwrap();

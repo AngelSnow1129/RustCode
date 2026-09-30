@@ -94,20 +94,56 @@ fn is_opencode_zen_url(url: &str) -> bool {
     atomcode_config::endpoints::host_matches_domain(url_host(url), "opencode.ai")
 }
 
-/// Attach OpenCode Zen's required `x-opencode-session` header — one stable ID per
+/// Attach OpenCode's required `x-opencode-session` header — one stable ID per
 /// conversation — when `url` targets opencode.ai. We already carry exactly that stable id
 /// (sent as `x-atomcode-session-id`), so surface it under their header name too rather than
-/// mint a second one. Gated to their host; an empty session (session-less sub-agent /
-/// summary) is omitted, matching the `x-atomcode-session-id` behavior.
-fn apply_opencode_session(
+/// mint a second one. Gated to their host.
+///
+/// **Never omitted there**: OpenCode may refuse a request without it. A request with no
+/// session bound — `atomcode -p --ephemeral` runs with no session at all — carries
+/// [`unbound_opencode_session`] instead: one id for the process, which for a run that
+/// persists nothing is the one conversation it has. `x-atomcode-session-id` is not
+/// given it: that one steers gateway affinity, and a made-up id would pin unrelated
+/// calls together.
+///
+/// `pub(super)`: the Anthropic adapter calls it too — OpenCode serves some models
+/// on its Anthropic-format `/messages` endpoint, and those requests need the
+/// same header under the same gate.
+pub(super) fn apply_opencode_session(
     url: &str,
     req: reqwest::RequestBuilder,
     session_id: &str,
 ) -> reqwest::RequestBuilder {
-    if session_id.is_empty() || !is_opencode_zen_url(url) {
+    if !is_opencode_zen_url(url) {
         return req;
     }
-    req.header("x-opencode-session", session_id)
+    let session = if session_id.is_empty() {
+        unbound_opencode_session()
+    } else {
+        session_id
+    };
+    req.header("x-opencode-session", session)
+}
+
+/// The `x-opencode-session` of a request with no session bound: random, made once
+/// per process and then stable, so every call of a session-less run reads to
+/// OpenCode as the one conversation it is.
+fn unbound_opencode_session() -> &'static str {
+    static ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ID.get_or_init(|| {
+        let mut bytes = [0u8; 16];
+        // A failed draw still has to yield an id: a fixed one is a worse
+        // conversation key than a random one, but a missing header is refused.
+        if getrandom::getrandom(&mut bytes).is_err() {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default();
+            bytes = (nanos ^ u128::from(std::process::id())).to_le_bytes();
+        }
+        let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        format!("atomcode-{hex}")
+    })
 }
 
 /// Attach the OpenRouter app-attribution headers to `req` when `url` targets
@@ -196,13 +232,32 @@ pub struct OpenAiCompatConfig {
     /// every construction site — including ACP/review/clix and coding assembly —
     /// is correct without extra wiring.
     pub supports_vision: bool,
+    /// The reasoning-effort levels this endpoint exposes, canonical order.
+    /// Empty (the `new()` default) means no reasoning-effort control, so a front
+    /// end offers only "leave it to the endpoint"; coding assembly fills it from
+    /// the model's config. Reported through [`LlmProvider::effort_levels`] so a
+    /// menu can offer exactly what the model supports.
+    pub effort_levels: Vec<String>,
+    /// Where `ATOMCODE_WIRE_DUMP=1` writes the exact request bodies (the host
+    /// passes `<user tree>/wire-dump`). `None` ⇒ no dump even with the switch on.
+    pub wire_dump_dir: Option<std::path::PathBuf>,
 }
 
 /// Canonical native-stack heuristic for whether a model name looks vision-capable.
 /// It gates provider image encoding and the `read_file` vision path; daemon live
 /// preprocessing also uses it. A drift would silently drop or wrongly forward images.
 pub fn model_suggests_vision(name: &str) -> bool {
-    let n = name.to_lowercase();
+    let lowered = name.to_lowercase();
+    // A gateway that fronts many vendors qualifies the model with its vendor:
+    // OpenRouter ids are `anthropic/claude-opus-4.1`, `openai/gpt-4o`,
+    // `google/gemini-2.5-pro`, and Vertex's are a whole resource path ending in
+    // the model name. Every `starts_with` rule below looks at the *front* of
+    // the string, so on a prefixed id not one of them fired — a vision model
+    // behind `anthropic/…` was classified blind, and the image someone pasted
+    // for it was degraded to a caption with nothing saying so. The rules are
+    // about the model, so they run against the model: the last path segment,
+    // which is the whole name when there is no prefix.
+    let n = lowered.rsplit('/').next().unwrap_or(lowered.as_str());
     n.contains("vision")
         || n.contains("-vl")
         || n.contains("vl-")
@@ -254,6 +309,8 @@ impl OpenAiCompatConfig {
             user_agent: None,
             skip_tls_verify: false,
             supports_vision,
+            effort_levels: Vec::new(),
+            wire_dump_dir: None,
         }
     }
 }
@@ -525,6 +582,16 @@ impl LlmProvider for OpenAiCompatProvider {
         self.cfg.context_window
     }
 
+    /// The same flag `format_messages` degrades on, so what a front end is told
+    /// before attaching a picture is what the encoder will actually do with it.
+    fn supports_vision(&self) -> bool {
+        self.cfg.supports_vision
+    }
+
+    fn effort_levels(&self) -> Vec<String> {
+        self.cfg.effort_levels.clone()
+    }
+
     fn bind_session_id(&self, session_id: &str) {
         // One-shot: the kernel binds exactly once at spawn. Ignore a redundant
         // re-bind (OnceLock keeps the first value) rather than panicking.
@@ -560,9 +627,9 @@ impl LlmProvider for OpenAiCompatProvider {
             &self.cfg,
             self.policy,
         );
-        super::wire_dump_request(&self.cfg.model, &body); // byte-level dump (ATOMCODE_WIRE_DUMP=1)
-                                                          // Serialize once and reuse the exact bytes across retries (hence `.body()`
-                                                          // with an explicit content-type rather than re-serializing via `.json()`).
+        super::wire_dump_request(self.cfg.wire_dump_dir.as_deref(), &self.cfg.model, &body); // byte-level dump (ATOMCODE_WIRE_DUMP=1)
+                                                                                             // Serialize once and reuse the exact bytes across retries (hence `.body()`
+                                                                                             // with an explicit content-type rather than re-serializing via `.json()`).
         let body_bytes = match serde_json::to_vec(&body) {
             Ok(b) => b,
             Err(e) => {
@@ -632,7 +699,15 @@ impl LlmProvider for OpenAiCompatProvider {
             let mut reconnect_attempts = 0u32;
             let mut resp = resp;
             'reopen: loop {
-                let mut dec = SseDecoder::new();
+                // What this body claims to be, for the one error that needs it: a
+                // body with no event stream in it at all (see `SseDecoder::finish`).
+                let content_type = resp
+                    .headers()
+                    .get(reqwest::header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("")
+                    .to_string();
+                let mut dec = SseDecoder::new().reading(&url, &content_type);
                 let mut emitted_replay_sensitive = false;
                 let mut pending_metadata = Vec::new();
                 let byte_stream = resp.bytes_stream();
@@ -790,6 +865,67 @@ impl LlmProvider for OpenAiCompatProvider {
     }
 }
 
+/// `url` as it is safe to show: no user, no password, no query, no fragment. A
+/// base_url may carry a key in either place, and this string reaches the screen.
+pub(crate) fn display_endpoint(url: &str) -> String {
+    match reqwest::Url::parse(url) {
+        Ok(mut parsed) => {
+            let _ = parsed.set_username("");
+            let _ = parsed.set_password(None);
+            parsed.set_query(None);
+            parsed.set_fragment(None);
+            parsed.to_string()
+        }
+        Err(_) => url.split(['?', '#']).next().unwrap_or(url).to_string(),
+    }
+}
+
+/// The base_url with `/v1` added, when the request address carries no version
+/// segment (`v1`, `v4`, `v1beta` …) at all — the usual way a base_url is wrong.
+/// `None` when one is already there: guessing a second would only mislead.
+pub(crate) fn version_suggestion(url: &str) -> Option<String> {
+    let shown = display_endpoint(url);
+    let base = ["/chat/completions", "/responses"]
+        .iter()
+        .find_map(|suffix| shown.strip_suffix(suffix))
+        .unwrap_or(&shown)
+        .trim_end_matches('/');
+    let path = reqwest::Url::parse(base)
+        .map(|u| u.path().to_string())
+        .ok()?;
+    let versioned = path.split('/').any(|seg| {
+        seg.strip_prefix('v')
+            .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+    });
+    (!versioned).then(|| format!("{base}/v1"))
+}
+
+/// Whether a 404 is about the model rather than the address — OpenAI answers an
+/// unknown model name with 404 `model_not_found`, and the base_url is right then.
+pub(crate) fn names_a_missing_model(detail: &str, provider_code: Option<&str>) -> bool {
+    if provider_code.is_some_and(|c| c.contains("model_not_found")) {
+        return true;
+    }
+    let d = detail.to_ascii_lowercase();
+    d.contains("model")
+        && ["not exist", "not found", "does not exist", "no such"]
+            .iter()
+            .any(|p| d.contains(p))
+}
+
+/// The error for a request that reached a path the server does not have.
+fn endpoint_not_found_message(code: u16, url: &str, detail: &str) -> String {
+    let shown = display_endpoint(url);
+    let suggestion = version_suggestion(url);
+    atomcode_config::i18n::t(atomcode_config::i18n::Msg::ChatEndpointNotFound {
+        code,
+        url: &shown,
+        suggestion: suggestion.as_deref(),
+        detail,
+    })
+    .into_owned()
+}
+
 /// The uniform "your session expired, re-run `/login`" terminal error surfaced
 /// when auth recovery cannot refresh the rejected credential (both the "refresh
 /// rejected" and the "a second 401 after recovery" paths).
@@ -879,6 +1015,7 @@ pub(crate) async fn open_stream(
                         "open failed: 等待首字节超过 {}s(网关无响应)",
                         open_timeout.as_secs()
                     ),
+                    code: Some(atomcode_kernel::stream::OPEN_TIMEOUT_CODE.to_string()),
                     ..Default::default()
                 });
             }
@@ -952,9 +1089,16 @@ pub(crate) async fn open_stream(
                     let detail = extract_error_detail(&text);
                     let envelope = serde_json::from_str::<serde_json::Value>(&text).ok();
                     let provider_code = envelope.as_ref().and_then(provider_error_code);
+                    let message = if matches!(code, 404 | 405)
+                        && !names_a_missing_model(&detail, provider_code.as_deref())
+                    {
+                        endpoint_not_found_message(code, url, &detail)
+                    } else {
+                        super::friendly_http_error(code, &detail)
+                    };
                     return Err(ProviderError {
                         retryable: retry::is_retryable_status(code),
-                        message: super::friendly_http_error(code, &detail),
+                        message,
                         http_status: Some(code),
                         code: provider_code,
                         retry_after_secs,
@@ -1132,13 +1276,26 @@ fn format_messages(
                         .collect();
                     obj.insert("tool_calls".into(), json!(tcs));
                 }
-                if policy == ReasoningPolicy::Include {
-                    let echo = m
-                        .reasoning
-                        .as_deref()
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or(REASONING_PLACEHOLDER);
-                    obj.insert("reasoning_content".into(), json!(echo));
+                match policy {
+                    // Requires a non-empty value on every assistant message: echo
+                    // the reasoning, or the placeholder when none was captured.
+                    ReasoningPolicy::Include => {
+                        let echo = m
+                            .reasoning
+                            .as_deref()
+                            .filter(|s| !s.is_empty())
+                            .unwrap_or(REASONING_PLACEHOLDER);
+                        obj.insert("reasoning_content".into(), json!(echo));
+                    }
+                    // Retain the train of thought without noise: echo only when this
+                    // turn actually produced reasoning; send nothing otherwise (no
+                    // placeholder), so a non-thinking turn adds no `reasoning_content`.
+                    ReasoningPolicy::Preserve => {
+                        if let Some(r) = m.reasoning.as_deref().filter(|s| !s.is_empty()) {
+                            obj.insert("reasoning_content".into(), json!(r));
+                        }
+                    }
+                    ReasoningPolicy::Exclude => {}
                 }
                 out.push(Value::Object(obj));
             }
@@ -1262,6 +1419,16 @@ fn normalize_openai_tool_schema_in_place(schema: &mut Value) {
     if allows_object && !map.contains_key("properties") {
         map.insert("properties".into(), Value::Object(Map::new()));
     }
+    // Some strict OpenAI-compatible validators (observed on a self-hosted DeepSeek
+    // gateway) require an object schema's `required` to be an ARRAY and reject its
+    // ABSENCE with "Invalid schema … null is not of type array" — which 400'd every
+    // turn as soon as an all-optional-param tool (`code_review`, `list_directory`, …)
+    // was in the tool list. An empty `[]` is semantically identical (no required
+    // properties) and satisfies them. Wire-boundary only; the neutral kernel schema
+    // stays untouched. Recurses, so nested objects + MCP/plugin schemas get it too.
+    if allows_object && !map.contains_key("required") {
+        map.insert("required".into(), Value::Array(Vec::new()));
+    }
 
     // Traverse only values that are themselves JSON Schemas. Literal-bearing
     // keywords such as `const`, `enum`, `default`, and `examples` must remain
@@ -1304,17 +1471,27 @@ fn normalize_openai_tool_schema_children(children: &mut Value) {
 /// DeepSeek V4 thinking models reject the `tool_choice` control parameter while
 /// still accepting tools in auto mode. This is a model protocol constraint, not an
 /// endpoint property: compatible gateways and fallback routes enforce it too.
+///
+/// The family test is version-parsed (shared with the reasoning-policy classifier)
+/// rather than a literal `contains("deepseek-v4")`, so the rename
+/// `deepseek-v4.1-flash` → `deepseek-flash` and a future `deepseek-v5` are still
+/// recognized instead of silently regaining the rejected parameter.
 fn supports_tool_choice(model: &str) -> bool {
     let model = model.trim().to_ascii_lowercase().replace(['_', ' '], "-");
-    !model.contains("deepseek-v4")
+    !super::reasoning::deepseek_thinking_v4_plus(&model)
 }
 
 /// Legacy model-name hint for DeepSeek V4. New runtime construction must prefer
 /// the concrete endpoint capability carried by [`OpenAiCompatConfig`]; identical
 /// model ids can expose different controls behind different gateways.
 pub fn reason_effort_applicable(model: &str) -> bool {
-    // Only DeepSeek-V4 takes a top-level `reasoning_effort`; others reject/ignore it.
-    model.to_ascii_lowercase().contains("deepseek-v4")
+    // Only the DeepSeek-V4 thinking family takes a top-level `reasoning_effort`;
+    // others reject/ignore it. Version-parsed (shared with the reasoning-policy
+    // classifier) so the `deepseek-flash` rename and future versions still match.
+    // Same `_`/space normalization as `supports_tool_choice` so both agree on a
+    // model id that arrives with underscores or spaces.
+    let model = model.trim().to_ascii_lowercase().replace(['_', ' '], "-");
+    super::reasoning::deepseek_thinking_v4_plus(&model)
 }
 
 /// True when an OPEN failure is a 400 specifically complaining about
@@ -1480,7 +1657,7 @@ pub(crate) fn error_code(err: &serde_json::Value) -> Option<String> {
 
 /// Extract a code from either the standard nested `error` envelope or vendor-style
 /// top-level `{code,message}` responses.
-fn provider_error_code(envelope: &serde_json::Value) -> Option<String> {
+pub(crate) fn provider_error_code(envelope: &serde_json::Value) -> Option<String> {
     envelope
         .get("error")
         .and_then(error_code)
@@ -1502,6 +1679,56 @@ pub(crate) fn inband_error_http_status(err: &serde_json::Value) -> Option<u16> {
     };
     let n = u16::try_from(n).ok()?;
     (100..=599).contains(&n).then_some(n)
+}
+
+/// Whether a JSON error a gateway sent with HTTP 200 is worth retrying, and the
+/// HTTP status it carries in-band when it names one.
+///
+/// A status in the error (`"code": 401`) decides it the way a real status would.
+/// Failing that, a code or type naming something no retry changes — the key, the
+/// balance, the model, the request itself — is not retried: retried, a wrong key
+/// cost the whole retry budget, with backoff, before the person was told. Anything
+/// else (an overload, a rate limit, an error with no code at all) is retried as
+/// before — a brief outage recovered that way.
+fn json_error_retry(body: &str) -> (bool, Option<u16>) {
+    const PERMANENT: &[&str] = &[
+        "invalid_api_key",
+        "authentication",
+        "unauthorized",
+        "permission",
+        "forbidden",
+        "quota",
+        "billing",
+        "balance",
+        "model_not_found",
+        "not_found",
+        "invalid_request",
+        "context_length",
+        // Content moderation: it is for the person to resend or reword
+        // (`super::content_blocked` says so), not for the loop to retry.
+        "data_inspection",
+        "content_filter",
+        "content_policy",
+    ];
+    let Ok(envelope) = serde_json::from_str::<serde_json::Value>(body) else {
+        return (true, None);
+    };
+    let inner = envelope.get("error").unwrap_or(&envelope);
+    if let Some(status) = inband_error_http_status(inner) {
+        return (retry::is_retryable_status(status), Some(status));
+    }
+    let named = [
+        provider_error_code(&envelope),
+        inner
+            .get("type")
+            .and_then(|t| t.as_str())
+            .map(str::to_string),
+    ];
+    let permanent = named.iter().flatten().any(|name| {
+        let name = name.to_ascii_lowercase();
+        PERMANENT.iter().any(|mark| name.contains(mark))
+    });
+    (!permanent, None)
 }
 
 // `friendly_http_error` (was here) moved to the shared `provider` module so
@@ -1526,6 +1753,16 @@ const MAX_TOOL_CALLS: usize = 256;
 /// inline in the network loop) makes the wire→event mapping deterministic and
 /// testable from recorded bytes.
 struct SseDecoder {
+    /// The address this body answered and the content type it claimed, for the
+    /// error a body with no event stream in it gets. `None` in tests that feed
+    /// bytes directly.
+    reading: Option<(String, String)>,
+    /// Whether any `data:` line arrived. A streaming reply without one is not a
+    /// stream at all — see [`Self::finish`].
+    saw_data: bool,
+    /// The start of whatever arrived that is not SSE (a web page, a JSON error),
+    /// kept short, to show in that error.
+    stray: String,
     buf: Vec<u8>,
     /// Per-index `(id, name, accumulated_args)` for in-flight tool calls.
     tool_calls: Vec<(String, String, String)>,
@@ -1538,11 +1775,22 @@ struct SseDecoder {
     response_model_seen: bool,
     seen_finish: bool,
     tool_call_delta_count: usize,
+    /// The slot the last tool-call delta landed in, so a delta that carries
+    /// neither `index` nor `id` (a bare argument continuation from a gateway that
+    /// omits both) appends to the call it is continuing rather than to slot 0.
+    last_tool_idx: usize,
+    /// Reasoning that arrived in the content channel, for a model whose serving
+    /// layer has no reasoning parser configured. Per decoder, so an unclosed
+    /// block cannot reach the next response — see [`InlineThink`].
+    think: super::reasoning::InlineThink,
 }
 
 impl SseDecoder {
     fn new() -> Self {
         Self {
+            reading: None,
+            saw_data: false,
+            stray: String::new(),
             buf: Vec::new(),
             tool_calls: Vec::new(),
             last_usage: None,
@@ -1552,7 +1800,38 @@ impl SseDecoder {
             response_model_seen: false,
             seen_finish: false,
             tool_call_delta_count: 0,
+            last_tool_idx: 0,
+            think: super::reasoning::InlineThink::new(),
         }
+    }
+
+    /// Decode the body `url` answered, which claimed to be `content_type`.
+    fn reading(mut self, url: &str, content_type: &str) -> Self {
+        self.reading = Some((url.to_string(), content_type.to_string()));
+        self
+    }
+
+    /// Keep the start of a line that is not SSE, for the error a body with no
+    /// event stream in it gets. Comments, blank lines and the other SSE fields
+    /// are part of a stream and are not kept.
+    fn note_stray(&mut self, line: &str) {
+        // Enough for a JSON error envelope to be read whole; the head shown for a
+        // web page is cut much shorter where it is said.
+        const KEEP: usize = 2000;
+        let line = line.trim();
+        if line.is_empty()
+            || line.starts_with(':')
+            || ["event:", "id:", "retry:"]
+                .iter()
+                .any(|f| line.starts_with(f))
+            || self.stray.chars().count() >= KEEP
+        {
+            return;
+        }
+        if !self.stray.is_empty() {
+            self.stray.push(' ');
+        }
+        self.stray.extend(line.chars().take(KEEP));
     }
 
     /// Feed a chunk of raw bytes; return any complete `StreamEvent`s produced. Safe
@@ -1588,6 +1867,79 @@ impl SseDecoder {
         if self.done {
             return out;
         }
+        // A body that ended without a single `data:` line but was not empty is
+        // not a stream: a gateway's web page for a path it does not serve (200,
+        // text/html — One API / New API answer an unknown path this way), a JSON
+        // error sent with a 200. Decoded as a stream it was an empty reply, and
+        // an empty reply is retried as an upstream flake — five times, and then
+        // the person was told to retry. No retry fixes an address, so it is an
+        // error that says what came back. An empty body stays an empty reply.
+        if !self.saw_data {
+            let rest = String::from_utf8_lossy(&std::mem::take(&mut self.buf)).into_owned();
+            self.note_stray(&rest);
+            if !self.stray.is_empty() {
+                let (url, content_type) = self.reading.clone().unwrap_or_default();
+                let shown = display_endpoint(&url);
+                self.done = true;
+                // A JSON error where the stream should be is the API refusing —
+                // an overload or a rate limit some gateways send as 200. The
+                // address is right: say what the server said. Whether the loop
+                // retries it is the error's own business (`json_error_retry`):
+                // an overload may pass, a wrong key or an empty balance will not.
+                let body = self.stray.trim_start();
+                if body.starts_with('{') || body.starts_with('[') {
+                    let detail = extract_error_detail(body);
+                    let (retryable, http_status) = json_error_retry(body);
+                    out.push(StreamEvent::Error(ProviderError {
+                        retryable,
+                        http_status,
+                        message: super::content_blocked(&detail).unwrap_or_else(|| {
+                            atomcode_config::i18n::t(
+                                atomcode_config::i18n::Msg::ChatUpstreamErrorBody {
+                                    url: &shown,
+                                    detail: &detail,
+                                },
+                            )
+                            .into_owned()
+                        }),
+                        code: Some("upstream_error_body".to_string()),
+                        ..Default::default()
+                    }));
+                    return out;
+                }
+                let suggestion = version_suggestion(&url);
+                let head: String = self.stray.chars().take(200).collect();
+                out.push(StreamEvent::Error(ProviderError {
+                    retryable: false,
+                    message: atomcode_config::i18n::t(
+                        atomcode_config::i18n::Msg::ChatNotAnEventStream {
+                            url: &shown,
+                            content_type: if content_type.is_empty() {
+                                "?"
+                            } else {
+                                &content_type
+                            },
+                            head: &head,
+                            suggestion: suggestion.as_deref(),
+                        },
+                    )
+                    .into_owned(),
+                    code: Some("not_an_event_stream".to_string()),
+                    ..Default::default()
+                }));
+                return out;
+            }
+        }
+        // Whatever the stripper was still holding: an unclosed `<think>` means
+        // the block never ended, and showing nothing would be worse than
+        // showing it as the thinking it is.
+        let held = self.think.flush();
+        if !held.visible.is_empty() {
+            out.push(StreamEvent::TextDelta(held.visible));
+        }
+        if !held.reasoning.is_empty() {
+            out.push(StreamEvent::Reasoning(held.reasoning));
+        }
         for (id, name, args) in std::mem::take(&mut self.tool_calls) {
             // A tool call with NO function name is UNDISPATCHABLE: executors resolve tools
             // BY NAME, so emitting one buys a guaranteed failed round trip — a 0ms
@@ -1620,8 +1972,14 @@ impl SseDecoder {
 
     fn process_line(&mut self, line: &str, out: &mut Vec<StreamEvent>) {
         let Some(data) = line.strip_prefix("data:") else {
-            return; // ignore `event:`/`:comment`/blank lines
+            // `event:`/`:comment`/blank lines are ignored; anything else is kept
+            // (briefly) in case the whole body turns out not to be a stream.
+            if !self.saw_data {
+                self.note_stray(line);
+            }
+            return;
         };
+        self.saw_data = true;
         let data = data.trim();
         if data == "[DONE]" {
             // Same finalization as a stream EOF: flush any accumulated tool
@@ -1675,7 +2033,11 @@ impl SseDecoder {
             let http_status = inband_error_http_status(err);
             out.push(StreamEvent::Error(ProviderError {
                 retryable: http_status.is_some_and(retry::is_retryable_status),
-                message: format!("provider error: {}", parse_error_obj(err)),
+                message: {
+                    let detail = parse_error_obj(err);
+                    super::content_blocked(&detail)
+                        .unwrap_or_else(|| format!("provider error: {detail}"))
+                },
                 http_status,
                 code: error_code(err),
                 retry_after_secs: None, // mid-stream error: no response headers
@@ -1692,7 +2054,16 @@ impl SseDecoder {
         };
         if let Some(c) = choice.delta.content {
             if !c.is_empty() {
-                out.push(StreamEvent::TextDelta(c));
+                // A `<think>` block here is reasoning that came down the wrong
+                // channel; it goes out of the right one rather than to the
+                // screen. Ordinary content passes through untouched.
+                let split = self.think.feed(&c);
+                if !split.visible.is_empty() {
+                    out.push(StreamEvent::TextDelta(split.visible));
+                }
+                if !split.reasoning.is_empty() {
+                    out.push(StreamEvent::Reasoning(split.reasoning));
+                }
             }
         }
         if let Some(r) = choice.delta.reasoning_content {
@@ -1707,7 +2078,30 @@ impl SseDecoder {
             }
             for tc in tcs {
                 self.tool_call_delta_count += 1;
-                let idx = tc.index.unwrap_or(0);
+                // Which call this delta belongs to. `index` is authoritative when
+                // present. When it is absent — some OpenAI-compatible gateways omit
+                // it — fall back to the call `id`, matching an existing call or
+                // opening a new one, the way ai-sdk does. Keying everything to 0
+                // (the old `unwrap_or(0)`) merged parallel calls into one corrupt
+                // call whose arguments were several calls concatenated. A delta with
+                // neither index nor id is a bare continuation of the most recent.
+                let idx = if let Some(i) = tc.index {
+                    i as usize
+                } else if let Some(id) = tc.id.as_deref().filter(|s| !s.is_empty()) {
+                    match self.tool_calls.iter().position(|e| e.0 == id) {
+                        Some(pos) => pos,
+                        None => {
+                            if self.tool_calls.len() >= MAX_TOOL_CALLS {
+                                continue;
+                            }
+                            self.tool_calls
+                                .push((String::new(), String::new(), String::new()));
+                            self.tool_calls.len() - 1
+                        }
+                    }
+                } else {
+                    self.last_tool_idx
+                };
                 // Bound the index BEFORE it pads the vector: an out-of-range value
                 // (e.g. `index: 999_999_999`) would otherwise push ~a billion slots →
                 // OOM. Real responses index densely from 0; a huge sparse index is
@@ -1719,6 +2113,7 @@ impl SseDecoder {
                     self.tool_calls
                         .push((String::new(), String::new(), String::new()));
                 }
+                self.last_tool_idx = idx;
                 let entry = &mut self.tool_calls[idx];
                 let mut delta_id: Option<String> = None;
                 let mut delta_name: Option<String> = None;
@@ -1956,6 +2351,245 @@ mod tests {
         }
     }
 
+    // ---- a base_url that misses its version path ------------------------------------------
+
+    async fn open_err(base: &str) -> ProviderError {
+        let provider = OpenAiCompatProvider::new(OpenAiCompatConfig::new("k", base, "m")).unwrap();
+        match provider
+            .chat_stream(&[Message::user("hi")], &[], &ChatOptions::default())
+            .await
+        {
+            Err(e) => e,
+            Ok(stream) => {
+                let events: Vec<_> = stream.collect().await;
+                events
+                    .into_iter()
+                    .find_map(|e| match e {
+                        StreamEvent::Error(e) => Some(e),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| panic!("the request was expected to fail"))
+            }
+        }
+    }
+
+    /// A base_url without its version path (`https://api.x.com` for
+    /// `https://api.x.com/v1`) reaches a path the server does not have. The error
+    /// used to be the server's own words — `HTTP 404: Invalid URL (POST
+    /// /chat/completions)` — with nothing saying which address was asked or that
+    /// the base_url is the thing to fix. It now names both, and the version path
+    /// to try.
+    #[tokio::test]
+    async fn a_missing_endpoint_names_the_address_and_the_base_url() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(404).set_body_string(
+                r#"{"error":{"message":"Invalid URL (POST /chat/completions)","type":"invalid_request_error"}}"#,
+            ))
+            .mount(&server)
+            .await;
+        let err = open_err(&server.uri()).await;
+        assert_eq!(err.http_status, Some(404));
+        assert!(!err.retryable);
+        let m = &err.message;
+        assert!(
+            m.contains(&format!("{}/chat/completions", server.uri())),
+            "{m}"
+        );
+        assert!(m.contains("base_url"), "{m}");
+        assert!(
+            m.contains(&format!("{}/v1", server.uri())),
+            "suggests the version path: {m}"
+        );
+        assert!(m.contains("Invalid URL"), "keeps what the server said: {m}");
+    }
+
+    /// A base_url that already has a version path is not told to add one.
+    #[tokio::test]
+    async fn a_versioned_base_url_is_not_told_to_add_v1() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(404).set_body_string("404 page not found"))
+            .mount(&server)
+            .await;
+        let base = format!("{}/api/paas/v4", server.uri());
+        let err = open_err(&base).await;
+        let m = &err.message;
+        assert!(m.contains("base_url"), "{m}");
+        assert!(!m.contains(&format!("{base}/v1")), "{m}");
+    }
+
+    /// A 404 that says the MODEL does not exist is about the model name, not the
+    /// address — the base_url is right, and saying otherwise sends the person to
+    /// fix the wrong thing.
+    #[tokio::test]
+    async fn a_missing_model_is_not_blamed_on_the_base_url() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(404).set_body_string(
+                r#"{"error":{"message":"The model `m` does not exist or you do not have access to it.","code":"model_not_found"}}"#,
+            ))
+            .mount(&server)
+            .await;
+        let err = open_err(&format!("{}/v1", server.uri())).await;
+        assert!(!err.message.contains("base_url"), "{}", err.message);
+    }
+
+    /// A gateway that answers an unknown path with its web page (200, text/html —
+    /// One API / New API do this) used to decode as an empty reply: the turn was
+    /// retried as an upstream flake five times and then told the person to retry.
+    /// It is an error now, not retried, that says what came back and why.
+    #[tokio::test]
+    async fn a_web_page_where_a_stream_should_be_is_an_error_not_an_empty_reply() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_raw(
+                    "<!doctype html><html><head><title>New API</title></head><body><div id=root></div></body></html>",
+                    "text/html; charset=utf-8",
+                ),
+            )
+            .mount(&server)
+            .await;
+        let err = open_err(&server.uri()).await;
+        assert!(!err.retryable, "no retry can fix an address");
+        let m = &err.message;
+        assert!(m.contains("text/html"), "{m}");
+        assert!(m.contains("base_url"), "{m}");
+        assert!(
+            m.contains(&format!("{}/chat/completions", server.uri())),
+            "{m}"
+        );
+        assert!(m.contains(&format!("{}/v1", server.uri())), "{m}");
+    }
+
+    /// A gateway that answers an overload with 200 and a JSON error, instead of a
+    /// stream, has an address that is right: the error is passed on in its own
+    /// words and may be retried — it was retried before, as an empty reply, and a
+    /// brief outage recovered. Blaming the base_url would send the person to
+    /// break a working setup.
+    #[tokio::test]
+    async fn a_json_error_where_a_stream_should_be_is_passed_on_and_retried() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                r#"{"error":{"message":"upstream overloaded, try again later"}}"#,
+                "application/json",
+            ))
+            .mount(&server)
+            .await;
+        let err = open_err(&format!("{}/v1", server.uri())).await;
+        assert!(err.retryable, "a transient refusal may be retried");
+        assert!(
+            err.message.contains("upstream overloaded"),
+            "{}",
+            err.message
+        );
+        assert!(!err.message.contains("base_url"), "{}", err.message);
+    }
+
+    /// A 200 with a JSON error is retried only when a retry could help: an
+    /// overload may pass, a wrong key, an empty balance or a missing model will not.
+    #[test]
+    fn a_json_error_sent_with_200_is_retried_only_when_a_retry_could_help() {
+        for (body, retry, status) in [
+            (r#"{"error":{"message":"upstream overloaded"}}"#, true, None),
+            (
+                r#"{"error":{"message":"slow down","type":"rate_limit_error"}}"#,
+                true,
+                None,
+            ),
+            (
+                r#"{"error":{"message":"busy","code":503}}"#,
+                true,
+                Some(503),
+            ),
+            (
+                r#"{"error":{"message":"too many","code":"429"}}"#,
+                true,
+                Some(429),
+            ),
+            (
+                r#"{"error":{"message":"bad key","code":401}}"#,
+                false,
+                Some(401),
+            ),
+            (
+                r#"{"error":{"message":"Incorrect API key","type":"invalid_request_error","code":"invalid_api_key"}}"#,
+                false,
+                None,
+            ),
+            (
+                r#"{"error":{"message":"no money","code":"insufficient_quota"}}"#,
+                false,
+                None,
+            ),
+            (
+                r#"{"error":{"message":"no such model","code":"model_not_found"}}"#,
+                false,
+                None,
+            ),
+            (
+                r#"{"code":"authentication_error","message":"denied"}"#,
+                false,
+                None,
+            ),
+            ("[1,2", true, None),
+        ] {
+            assert_eq!(json_error_retry(body), (retry, status), "{body}");
+        }
+    }
+
+    /// End to end: a wrong key sent with 200 reaches the loop as final.
+    #[tokio::test]
+    async fn a_wrong_key_sent_with_200_is_not_retried() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                r#"{"error":{"message":"Incorrect API key provided","code":"invalid_api_key"}}"#,
+                "application/json",
+            ))
+            .mount(&server)
+            .await;
+        let err = open_err(&format!("{}/v1", server.uri())).await;
+        assert!(!err.retryable, "{}", err.message);
+        assert!(err.message.contains("Incorrect API key"), "{}", err.message);
+    }
+
+    /// A reply with nothing in it at all is still the upstream flake it always was
+    /// (retried by the loop), not an address problem.
+    #[tokio::test]
+    async fn an_empty_reply_is_still_just_empty() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(
+                ResponseTemplate::new(200).insert_header("content-type", "text/event-stream"),
+            )
+            .mount(&server)
+            .await;
+        let provider =
+            OpenAiCompatProvider::new(OpenAiCompatConfig::new("k", server.uri(), "m")).unwrap();
+        let events: Vec<_> = provider
+            .chat_stream(&[Message::user("hi")], &[], &ChatOptions::default())
+            .await
+            .unwrap()
+            .collect()
+            .await;
+        assert!(
+            !events.iter().any(|e| matches!(e, StreamEvent::Error(_))),
+            "{events:?}"
+        );
+    }
+
+    /// The address a message names never carries a credential or a query string.
+    #[test]
+    fn the_address_shown_leaves_credentials_and_queries_out() {
+        let shown =
+            super::display_endpoint("https://me:secret@gw.example.com/chat/completions?key=abc");
+        assert_eq!(shown, "https://gw.example.com/chat/completions");
+    }
+
     #[tokio::test]
     async fn refreshable_signer_recovers_one_401_and_resigns_retry() {
         let server = MockServer::start().await;
@@ -2112,7 +2746,7 @@ mod tests {
     // Classification lock for every supported vision naming rule plus a
     // representative text-only negative.
     #[test]
-    fn model_suggests_vision_matches_core_classifications() {
+    fn model_suggests_vision_classification_lock() {
         for m in [
             "gpt-4-vision-preview",
             "glm-4v",
@@ -2139,6 +2773,40 @@ mod tests {
             "gpt-4-turbo",
             "claude-2.1",
             "o3-mini",
+        ] {
+            assert!(!model_suggests_vision(m), "should be text-only: {m}");
+        }
+    }
+
+    // A vendor prefix is a fact about the route, not about the model. Every
+    // `starts_with` rule looks at the front of the string, so before the
+    // last-segment normalization not one of them fired on a prefixed id:
+    // OpenRouter's `anthropic/claude-opus-4.1` was classified blind, and an
+    // image pasted for it was degraded to a caption in silence. This is the
+    // classification the paste gate and the degrade path both read.
+    #[test]
+    fn a_vendor_prefixed_id_is_classified_by_its_model_segment() {
+        for m in [
+            "anthropic/claude-opus-4.1",
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-4o",
+            "google/gemini-2.5-pro",
+            "mistralai/pixtral-12b",
+            // Vertex hands over the whole resource path as the model id.
+            "projects/p/locations/us-central1/publishers/google/models/gemini-2.5-pro",
+            // A `:free`-style tag suffix leaves the family at the front.
+            "google/gemini-2.0-flash-exp:free",
+        ] {
+            assert!(model_suggests_vision(m), "should be vision: {m}");
+        }
+        // The vendor segment must not be able to call a model vision-capable on
+        // its own, and a prefixed text-only model must stay text-only: only the
+        // model segment decides, in both directions.
+        for m in [
+            "anthropic/claude-2.1",
+            "deepseek/deepseek-v4",
+            "openai/o3-mini",
+            "vision-plus/gpt-3.5",
         ] {
             assert!(!model_suggests_vision(m), "should be text-only: {m}");
         }
@@ -2268,6 +2936,63 @@ mod tests {
         assert!(out.iter().skip(1).all(|v| v["role"] != "system"));
         assert_eq!(out[1], json!({"role":"user","content":"hi"}));
         assert_eq!(out[3], json!({"role":"user","content":"continue"}));
+    }
+
+    #[test]
+    fn a_mid_turn_reminder_appends_and_does_not_rewrite_the_system_prompt() {
+        // A runtime note (a stale-task-list reminder, `InjectionOrigin::Reminder`)
+        // is committed mid-turn, so it projects to a message placed AFTER the tool
+        // result it followed — not at the head. It must ride as a `user` message.
+        // As a `system` one it would be LIFTED to position 0 and coalesced into
+        // the assembled prompt, so every request after it would carry a different
+        // prefix than the one before: the whole prefix cache invalidates, while
+        // the log still records the round as `Append`. The system entry is the
+        // only thing here the provider is allowed to reorder.
+        const REMINDER: &str = "<system-reminder>The task list still shows \"fix the parser\" \
+                                 in progress. Do not mention this reminder to the user.</system-reminder>";
+        let mut note = Message::user(REMINDER);
+        // `derive_messages` marks every injected message synthetic; keep the
+        // fixture faithful so this test fails if that ever stops being true in a
+        // way that matters here.
+        note.synthetic = true;
+        let msgs = vec![
+            Message::system("persona"),
+            Message::user("fix the parser"),
+            Message::assistant(
+                "Planning.",
+                vec![ToolCall {
+                    id: "call_1".into(),
+                    name: "list_directory".into(),
+                    arguments: "{}".into(),
+                }],
+            ),
+            Message::tool_result("call_1", "result text", false),
+            note,
+        ];
+
+        let out = format_messages(&msgs, ReasoningPolicy::Exclude, true);
+
+        assert_eq!(out[0]["role"], "system");
+        assert_eq!(
+            out[0]["content"], "persona",
+            "the instruction header is untouched by a mid-turn note: {out:?}"
+        );
+        assert_eq!(
+            out.iter().filter(|v| v["role"] == "system").count(),
+            1,
+            "exactly one system entry, and no second one to lift"
+        );
+        assert_eq!(
+            out.last().unwrap(),
+            &json!({ "role": "user", "content": REMINDER }),
+            "the reminder appends at the tail as a user message: {out:?}"
+        );
+        // Appended, not merged: the tool result keeps its own wire entry, so the
+        // model can still tell the harness's judgement from the tool's output.
+        assert_eq!(
+            out[3],
+            json!({"role":"tool","tool_call_id":"call_1","content":"result text"})
+        );
     }
 
     #[test]
@@ -2502,6 +3227,27 @@ mod tests {
     }
 
     #[test]
+    fn reasoning_preserve_echoes_only_when_present() {
+        // GLM/Qwen: keep the thought on turns that had one, add nothing (NOT the
+        // placeholder) on turns that did not — retention without noise.
+        let mut with = Message::assistant("ans", vec![]);
+        with.reasoning = Some("because".into());
+        let no = Message::assistant("ans2", vec![]);
+        let mut empty = Message::assistant("ans3", vec![]);
+        empty.reasoning = Some(String::new());
+        let out = format_messages(&[with, no, empty], ReasoningPolicy::Preserve, true);
+        assert_eq!(out[0]["reasoning_content"], "because");
+        assert!(
+            out[1].get("reasoning_content").is_none(),
+            "no reasoning → nothing"
+        );
+        assert!(
+            out[2].get("reasoning_content").is_none(),
+            "empty reasoning → nothing"
+        );
+    }
+
+    #[test]
     fn body_basics_and_omissions() {
         let cfg = OpenAiCompatConfig::new("k", "https://x.test", "glm-5.1");
         let opts = ChatOptions::default();
@@ -2585,6 +3331,58 @@ mod tests {
             body.get("tool_choice").is_none(),
             "DeepSeek V4 thinking mode rejects forced tool_choice through proxy gateways too"
         );
+    }
+
+    #[test]
+    fn renamed_deepseek_flash_omits_unsupported_tool_choice() {
+        // `deepseek-v4.1-flash` was renamed to the versionless `deepseek-flash`; it
+        // is the same V4 thinking family and still rejects a forced tool_choice. A
+        // literal `contains("deepseek-v4")` gate missed the rename and would have
+        // sent the rejected control parameter (a 400 on strict gateways).
+        let cfg = OpenAiCompatConfig::new("k", "https://llm-api.atomgit.com/v1", "deepseek-flash");
+        let opts = ChatOptions {
+            tool_choice: ToolChoice::Specific("todowrite".into()),
+            ..Default::default()
+        };
+        let body = build_request_body(
+            "deepseek-flash",
+            &[Message::user("hi")],
+            &[],
+            &opts,
+            &cfg,
+            ReasoningPolicy::Include,
+        );
+        assert!(
+            body.get("tool_choice").is_none(),
+            "renamed deepseek-flash is the V4 thinking family and must not receive forced tool_choice"
+        );
+    }
+
+    #[test]
+    fn supports_tool_choice_excludes_only_v4_thinking_family() {
+        assert!(!supports_tool_choice("deepseek-flash"), "rename — the fix");
+        assert!(!supports_tool_choice("deepseek-v4-flash"));
+        assert!(
+            !supports_tool_choice("deepseek-v5"),
+            "future version parses >= 4"
+        );
+        assert!(
+            supports_tool_choice("deepseek-r1"),
+            "reasoner is not the V4 thinking family; it keeps tool_choice"
+        );
+        assert!(supports_tool_choice("gpt-4o"));
+        assert!(supports_tool_choice("kimi-k2"));
+    }
+
+    #[test]
+    fn reason_effort_applicable_tracks_v4_family_including_rename() {
+        assert!(reason_effort_applicable("deepseek-v4-flash"));
+        assert!(reason_effort_applicable("deepseek-flash"), "the rename");
+        assert!(reason_effort_applicable("deepseek-v5"));
+        // Same `_`/space normalization as supports_tool_choice, so the two agree.
+        assert!(reason_effort_applicable("deepseek_flash"));
+        assert!(!reason_effort_applicable("deepseek-r1"));
+        assert!(!reason_effort_applicable("gpt-4o"));
     }
 
     #[test]
@@ -2674,11 +3472,11 @@ mod tests {
 
         assert_eq!(
             body["tools"][0]["function"]["parameters"],
-            json!({"type":"object","properties":{}})
+            json!({"type":"object","properties":{},"required":[]})
         );
         assert_eq!(
             body["tools"][1]["function"]["parameters"]["properties"]["options"],
-            json!({"type":["object","null"],"properties":{}})
+            json!({"type":["object","null"],"properties":{},"required":[]})
         );
         assert_eq!(
             body["tools"][1]["function"]["parameters"]["properties"]["query"],
@@ -2703,12 +3501,35 @@ mod tests {
         );
         assert_eq!(
             external["properties"]["labels"]["additionalProperties"],
-            json!({"type":"object","properties":{}})
+            json!({"type":"object","properties":{},"required":[]})
         );
         assert_eq!(
             external["$defs"]["record"],
-            json!({"type":"object","properties":{}})
+            json!({"type":"object","properties":{},"required":[]})
         );
+    }
+
+    #[test]
+    fn normalizer_injects_empty_required_for_all_optional_object_schemas() {
+        // A strict gateway (self-hosted DeepSeek) 400'd with "null is not of type
+        // array" when a tool's parameters object omitted `required` (all-optional
+        // params, e.g. `code_review`). The wire boundary must add an empty `[]`.
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "scope": { "type": "object", "properties": { "kind": { "type": "string" } }, "required": ["kind"] },
+                "paths": { "type": "array", "items": { "type": "string" } },
+                "depth": { "type": "string", "enum": ["a", "b"] }
+            }
+        });
+        let out = shared_normalize_tool_schema(&schema);
+        // Top-level (was missing) gets an empty required array.
+        assert_eq!(out["required"], json!([]), "top-level required must be []");
+        // A nested object that ALREADY declares required is left intact.
+        assert_eq!(out["properties"]["scope"]["required"], json!(["kind"]));
+        // Non-object property schemas are untouched (no spurious required).
+        assert!(out["properties"]["paths"].get("required").is_none());
+        assert!(out["properties"]["depth"].get("required").is_none());
     }
 
     #[test]
@@ -2903,6 +3724,85 @@ mod tests {
                 StreamEvent::Malformed => "malformed",
             })
             .collect()
+    }
+
+    /// A gateway whose reasoning parser is not configured passes `<think>`
+    /// straight through in `content`. It must still reach the reasoning
+    /// channel — the same place the parsed path puts it — rather than being
+    /// printed in the middle of the answer.
+    ///
+    /// Judged through the decoder, not through `InlineThink`: the stripper has
+    /// its own tests, and those stay green whether or not this adapter ever
+    /// calls it.
+    #[test]
+    fn a_think_block_in_content_arrives_as_reasoning() {
+        let mut d = SseDecoder::new();
+        let mut ev = Vec::new();
+        // Split mid-tag, the way a stream really arrives.
+        for chunk in ["<think>weigh", "ing it up</th", "ink>the answer"] {
+            ev.extend(d.feed(line(json!({"choices":[{"delta":{"content":chunk}}]})).as_bytes()));
+        }
+        ev.extend(
+            d.feed(line(json!({"choices":[{"delta":{},"finish_reason":"stop"}]})).as_bytes()),
+        );
+        ev.extend(d.feed(b"data: [DONE]\n"));
+        let said: String = ev
+            .iter()
+            .filter_map(|e| match e {
+                StreamEvent::TextDelta(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect();
+        let thought: String = ev
+            .iter()
+            .filter_map(|e| match e {
+                StreamEvent::Reasoning(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(said, "the answer", "no tags reach the answer: {ev:?}");
+        assert_eq!(thought, "weighing it up", "and the thinking is kept");
+    }
+
+    /// The reported case, as DashScope sends it: a reply flagged by its output
+    /// moderation mid-stream. It reaches the person as what happened and what to
+    /// do — not a bare `provider error: [data_inspection_failed/…]` — keeps the
+    /// provider's code, and is not retried behind their back.
+    #[test]
+    fn a_moderation_refusal_mid_stream_says_what_to_do() {
+        let mut d = SseDecoder::new();
+        let mut ev = d.feed(line(json!({"choices":[{"delta":{"content":"好的，"}}]})).as_bytes());
+        ev.extend(
+            d.feed(
+                line(json!({"error":{
+                    "code":"data_inspection_failed",
+                    "type":"data_inspection_failed",
+                    "message":"Output data may contain inappropriate content."
+                }}))
+                .as_bytes(),
+            ),
+        );
+        let err = ev
+            .iter()
+            .find_map(|e| match e {
+                StreamEvent::Error(err) => Some(err),
+                _ => None,
+            })
+            .expect("the refusal is an error");
+        assert!(!err.retryable);
+        assert_eq!(err.code.as_deref(), Some("data_inspection_failed"));
+        assert!(
+            !err.message.starts_with("provider error:"),
+            "{}",
+            err.message
+        );
+        assert!(err.message.contains("/model"), "{}", err.message);
+        assert!(
+            err.message
+                .contains("Output data may contain inappropriate content."),
+            "{}",
+            err.message
+        );
     }
 
     #[test]
@@ -3140,6 +4040,53 @@ mod tests {
         assert_eq!(calls.len(), 2);
         assert_eq!(calls[0].name, "a");
         assert_eq!(calls[1].name, "b");
+    }
+
+    /// A gateway that omits `index` but sends `id` on each delta: the calls must
+    /// split by `id`, not collapse into one corrupt call whose arguments are
+    /// several calls concatenated (the old `unwrap_or(0)`).
+    #[test]
+    fn sse_parallel_tool_calls_without_index_split_by_id() {
+        let mut d = SseDecoder::new();
+        let mut ev = Vec::new();
+        ev.extend(
+            d.feed(
+                line(json!({"choices":[{"delta":{"tool_calls":[
+                    {"id":"c0","function":{"name":"a","arguments":"{\"x\":1"}},
+                    {"id":"c1","function":{"name":"b","arguments":"{\"y\":2"}}
+                ]}}]}))
+                .as_bytes(),
+            ),
+        );
+        // Continuation deltas, still without index, carry the id so each lands on
+        // its own call rather than both appending to slot 0.
+        ev.extend(
+            d.feed(
+                line(json!({"choices":[{"delta":{"tool_calls":[
+                    {"id":"c0","function":{"arguments":"}"}},
+                    {"id":"c1","function":{"arguments":"}"}}
+                ]}}]}))
+                .as_bytes(),
+            ),
+        );
+        ev.extend(
+            d.feed(line(json!({"choices":[{"delta":{},"finish_reason":"tool_calls"}]})).as_bytes()),
+        );
+        let calls: Vec<_> = ev
+            .iter()
+            .filter_map(|e| {
+                if let StreamEvent::ToolCall(t) = e {
+                    Some(t.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(calls.len(), 2, "two ids → two calls, not one merged");
+        assert_eq!(calls[0].name, "a");
+        assert_eq!(calls[0].arguments, "{\"x\":1}", "args are this call's only");
+        assert_eq!(calls[1].name, "b");
+        assert_eq!(calls[1].arguments, "{\"y\":2}");
     }
 
     /// A gateway can leave a buffered slot WITHOUT a `function.name`: an `id` on its own,
@@ -4186,7 +5133,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_opencode_session_gated_to_opencode_and_nonempty() {
+    fn apply_opencode_session_gated_to_opencode_and_never_missing_there() {
         let client = reqwest::Client::new();
         let header_of = |url: &str, sess: &str| {
             apply_opencode_session(url, client.post(url), sess)
@@ -4213,9 +5160,19 @@ mod tests {
             ),
             None
         );
-        // Empty session (sub-agent / summary) → omitted even on opencode.
+        // No session bound (`--ephemeral`) → still sent on opencode, which may refuse
+        // a request without it: one id for the process, the same on every call.
+        let unbound = header_of("https://opencode.ai/zen/v1/chat/completions", "")
+            .expect("an unbound request to opencode still carries the header");
+        assert!(unbound.starts_with("atomcode-"), "{unbound}");
         assert_eq!(
-            header_of("https://opencode.ai/zen/v1/chat/completions", ""),
+            header_of("https://opencode.ai/zen/go/v1/chat/completions", ""),
+            Some(unbound),
+            "stable across calls of the one run"
+        );
+        // And nowhere else, bound or not.
+        assert_eq!(
+            header_of("https://api.deepseek.com/v1/chat/completions", ""),
             None
         );
     }

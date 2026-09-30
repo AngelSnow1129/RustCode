@@ -86,6 +86,13 @@ pub struct AnthropicConfig {
     /// Disable TLS certificate verification (self-signed / internal gateways).
     /// Mirrors core's `ProviderConfig::skip_tls_verify`. Default false.
     pub skip_tls_verify: bool,
+    /// Reasoning-effort levels this endpoint exposes; empty = no such control.
+    /// Coding assembly fills it from config, reported via
+    /// [`LlmProvider::effort_levels`].
+    pub effort_levels: Vec<String>,
+    /// Where `ATOMCODE_WIRE_DUMP=1` writes the exact request bodies (the host
+    /// passes `<user tree>/wire-dump`). `None` ⇒ no dump even with the switch on.
+    pub wire_dump_dir: Option<std::path::PathBuf>,
 }
 
 impl AnthropicConfig {
@@ -112,6 +119,8 @@ impl AnthropicConfig {
             retry: RetryPolicy::default(),
             user_agent: None,
             skip_tls_verify: false,
+            effort_levels: Vec::new(),
+            wire_dump_dir: None,
         }
     }
 }
@@ -166,6 +175,15 @@ impl LlmProvider for AnthropicProvider {
         self.cfg.context_window
     }
 
+    /// The same flag `format_user_message` degrades on.
+    fn supports_vision(&self) -> bool {
+        self.cfg.supports_vision
+    }
+
+    fn effort_levels(&self) -> Vec<String> {
+        self.cfg.effort_levels.clone()
+    }
+
     fn bind_session_id(&self, session_id: &str) {
         let _ = self.session_id.set(session_id.to_string());
     }
@@ -177,7 +195,7 @@ impl LlmProvider for AnthropicProvider {
         options: &ChatOptions,
     ) -> Result<BoxStream<'static, StreamEvent>, ProviderError> {
         let body = build_request_body(&self.cfg.model, messages, tools, options, &self.cfg);
-        super::wire_dump_request(&self.cfg.model, &body); // byte-level dump (ATOMCODE_WIRE_DUMP=1)
+        super::wire_dump_request(self.cfg.wire_dump_dir.as_deref(), &self.cfg.model, &body); // byte-level dump (ATOMCODE_WIRE_DUMP=1)
 
         // Open the stream. A hard failure here returns `Err` so the kernel's
         // agent-layer open retry still applies.
@@ -340,6 +358,24 @@ impl LlmProvider for AnthropicProvider {
     }
 }
 
+/// The session headers one request carries: `x-atomcode-session-id` (gateway
+/// prefix-cache affinity), omitted when no session is bound, and on `opencode.ai`
+/// the `x-opencode-session` OpenCode requires — the same id, or a per-process one
+/// when none is bound, since OpenCode may refuse a request without it. Shared with
+/// the OpenAI-compatible adapter through `apply_opencode_session`, so the two
+/// formats cannot disagree about when OpenCode gets it.
+fn with_session_headers(
+    req: reqwest::RequestBuilder,
+    url: &str,
+    session_id: &str,
+) -> reqwest::RequestBuilder {
+    let mut req = req;
+    if !session_id.is_empty() {
+        req = req.header("x-atomcode-session-id", session_id);
+    }
+    super::openai_compat::apply_opencode_session(url, req, session_id)
+}
+
 /// Open one `/v1/messages` stream, retrying the OPEN (transient status /
 /// transport) per `policy`. Shared by the initial open and the mid-stream
 /// re-open so both paths behave identically.
@@ -361,10 +397,7 @@ async fn open_stream(
             .header("x-api-key", api_key)
             .header("anthropic-version", anthropic_version)
             .json(body);
-        // Stable session id → gateway prefix-cache affinity. Empty ⇒ omitted.
-        if !session_id.is_empty() {
-            req = req.header("x-atomcode-session-id", session_id);
-        }
+        req = with_session_headers(req, url, session_id);
         // TTFB watchdog for THIS attempt (mirrors openai_compat): bounds only the
         // silent-gateway wait, never a slow streaming body.
         let send = match tokio::time::timeout(open_timeout, req.send()).await {
@@ -381,6 +414,7 @@ async fn open_stream(
                         "open failed: 等待首字节超过 {}s(网关无响应)",
                         open_timeout.as_secs()
                     ),
+                    code: Some(atomcode_kernel::stream::OPEN_TIMEOUT_CODE.to_string()),
                     ..Default::default()
                 });
             }
@@ -1298,6 +1332,53 @@ mod tests {
     }
 
     #[test]
+    fn a_reminder_tail_folds_into_the_tool_results_user_message() {
+        // The shape `merge_consecutive_user` was written for, spelled out: a
+        // mid-turn reminder (`InjectionOrigin::Reminder`) projects to a user
+        // message right after the tool-result run, and Anthropic has no user/user
+        // adjacency — so the two fold into ONE user entry, the note becoming a
+        // text block after the tool_result block. Asserted here because the fold
+        // is what makes the role choice safe on this wire format; on OpenAI's it
+        // stays a separate entry instead.
+        const REMINDER: &str = "<system-reminder>The task list is stale.</system-reminder>";
+        let mut note = Message::user(REMINDER);
+        note.synthetic = true;
+        let msgs = vec![
+            Message::system("persona"),
+            Message::user("go"),
+            Message::assistant(
+                "",
+                vec![ToolCall {
+                    id: "a".into(),
+                    name: "x".into(),
+                    arguments: "{}".into(),
+                }],
+            ),
+            Message::tool_result("a", "ra", false),
+            note,
+        ];
+        let (sys, out) = format_messages(&msgs, false);
+
+        assert_eq!(sys.as_deref(), Some("persona"), "header unchanged");
+        assert_eq!(
+            out.len(),
+            3,
+            "user, assistant, then ONE user holding both blocks: {out:?}"
+        );
+        assert_eq!(out[2]["role"], "user");
+        let blocks = out[2]["content"].as_array().unwrap();
+        assert_eq!(blocks.len(), 2, "tool_result then the reminder text");
+        assert_eq!(blocks[0]["type"], "tool_result");
+        assert_eq!(blocks[0]["tool_use_id"], "a");
+        assert_eq!(blocks[1]["type"], "text");
+        assert_eq!(blocks[1]["text"], REMINDER);
+        assert!(
+            out.iter().all(|v| v["role"] != "system"),
+            "nothing is left as a system message on the wire"
+        );
+    }
+
+    #[test]
     fn assistant_signed_thinking_is_echoed_when_enabled() {
         let mut a = Message::assistant(
             "answer",
@@ -2151,6 +2232,49 @@ mod tests {
             drop(s);
         });
         (captured, handle)
+    }
+
+    /// OpenCode serves some models on its Anthropic-format `/messages`; those
+    /// requests carry `x-opencode-session` like the OpenAI-format ones, bound to a
+    /// session or not. Nowhere else: another Anthropic-compatible host never sees it.
+    #[test]
+    fn an_opencode_request_carries_its_session_header() {
+        let client = reqwest::Client::new();
+        let headers = |url: &str, sess: &str| {
+            with_session_headers(client.post(url), url, sess)
+                .build()
+                .expect("request must build")
+                .headers()
+                .clone()
+        };
+        let of = |h: &reqwest::header::HeaderMap, name: &str| {
+            h.get(name)
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_string)
+        };
+
+        let opencode = headers("https://opencode.ai/zen/go/v1/messages", "sess-1");
+        assert_eq!(
+            of(&opencode, "x-opencode-session").as_deref(),
+            Some("sess-1")
+        );
+        assert_eq!(
+            of(&opencode, "x-atomcode-session-id").as_deref(),
+            Some("sess-1")
+        );
+
+        let other = headers("https://api.anthropic.com/v1/messages", "sess-1");
+        assert_eq!(of(&other, "x-opencode-session"), None);
+        assert_eq!(
+            of(&other, "x-atomcode-session-id").as_deref(),
+            Some("sess-1")
+        );
+
+        // No session bound: OpenCode still gets its header (a per-process id),
+        // but the gateway-affinity header stays off — nothing to pin to.
+        let unbound = headers("https://opencode.ai/zen/go/v1/messages", "");
+        assert!(of(&unbound, "x-opencode-session").is_some());
+        assert_eq!(of(&unbound, "x-atomcode-session-id"), None);
     }
 
     #[tokio::test]

@@ -41,8 +41,9 @@ pub(crate) fn model_cycle_direction(
 /// Pick the adjacent model profile in stable id order and wrap at both ends.
 /// `/model` exposes the unified model catalog (legacy providers project to one
 /// model each), so the shortcut follows that same source of truth.
-/// Selection ids ordered so models from the same account are adjacent (sort by
-/// `(account, wire model)`), matching the `/model` list order (design §8).
+/// Selection ids ordered so models from the same account are adjacent, ranked
+/// ones (`/openrouter`'s free models) in their rank — `model_list_order`, the
+/// same key the new screen's lists use.
 fn grouped_selection_ids(config: &Config) -> Vec<String> {
     let models = config.logical_models();
     let mut ids: Vec<String> = models.keys().cloned().collect();
@@ -50,8 +51,8 @@ fn grouped_selection_ids(config: &Config) -> Vec<String> {
         let key = |id: &String| {
             models
                 .get(id)
-                .map(|m| (m.account.clone(), m.model.clone()))
-                .unwrap_or_else(|| (id.clone(), String::new()))
+                .map(atomcode_config::config::provider::model_list_order)
+                .unwrap_or_else(|| (id.clone(), u32::MAX, String::new()))
         };
         key(a).cmp(&key(b))
     });

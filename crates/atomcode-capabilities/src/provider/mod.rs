@@ -19,6 +19,7 @@ mod anthropic;
 mod atomgit_sign;
 mod ollama;
 mod openai_compat;
+pub mod probe;
 mod reasoning;
 mod responses;
 mod retry;
@@ -51,24 +52,26 @@ static WIRE_DUMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// BYTE-LEVEL outbound-request dump for wire diagnosis. No-op unless `ATOMCODE_WIRE_DUMP=1`.
 /// Writes the EXACT JSON body an adapter built (post-projection, pre-send) to
-/// `<config_dir>/wire-dump/<seq>-<ts>-<model>.req.json`. Best-effort: any failure (env unset,
-/// unwritable dir) is silently ignored so diagnostics never break a real request.
+/// `<dir>/<seq>-<ts>-<model>.req.json`, `dir` being the config's `wire_dump_dir` (the host
+/// passes `<user tree>/wire-dump`). Best-effort: any failure (env unset, no dir, unwritable
+/// dir) is silently ignored so diagnostics never break a real request.
 ///
 /// This is the ADAPTER-level, provider-SPECIFIC counterpart to the neutral
 /// [`WireLogHooks`](crate::hooks::WireLogHooks) (which logs the kernel `Message` view, not
 /// these bytes). The kernel has NO byte seam by design — byte framing is intrinsically the
 /// adapter's concern (each backend's JSON differs), so every adapter routes its built body
-/// through here. Ported from core's v1 `ATOMCODE_WIRE_DUMP` (same env + `wire-dump/` dir),
-/// but `config_dir()` honors `$ATOMCODE_HOME` (v1 used `$HOME`).
-pub(crate) fn wire_dump_request(model: &str, body: &Value) {
+/// through here. Ported from core's v1 `ATOMCODE_WIRE_DUMP` (same env + `wire-dump/` dir).
+pub(crate) fn wire_dump_request(dir: Option<&std::path::Path>, model: &str, body: &Value) {
     if std::env::var("ATOMCODE_WIRE_DUMP").ok().as_deref() != Some("1") {
         return;
     }
-    wire_dump_to(&crate::paths::config_dir().join("wire-dump"), model, body);
+    if let Some(dir) = dir {
+        wire_dump_to(dir, model, body);
+    }
 }
 
-/// The pure writer behind [`wire_dump_request`] — `dir`-injected so it's testable without
-/// mutating the process-global `$ATOMCODE_HOME`/`$ATOMCODE_WIRE_DUMP`. Best-effort.
+/// The pure writer behind [`wire_dump_request`] — testable without mutating the
+/// process-global `$ATOMCODE_WIRE_DUMP`. Best-effort.
 fn wire_dump_to(dir: &std::path::Path, model: &str, body: &Value) {
     if std::fs::create_dir_all(dir).is_err() {
         return;
@@ -148,6 +151,9 @@ pub(crate) fn push_system_coalesced(out: &mut Vec<Value>, text: &str) {
 /// (`rate_limit_server_message`) strips. Everything else keeps
 /// `HTTP {code}: {detail}` (the detail is the only signal there).
 pub(crate) fn friendly_http_error(code: u16, detail: &str) -> String {
+    if let Some(blocked) = content_blocked(detail) {
+        return blocked;
+    }
     if code == 403
         && detail
             .to_ascii_lowercase()
@@ -168,6 +174,96 @@ pub(crate) fn friendly_http_error(code: u16, detail: &str) -> String {
         return format!("{headline}（HTTP {code}）：{detail}");
     }
     format!("{headline}（HTTP {code}）")
+}
+
+/// The provider's content moderation refused this, said in words a person can
+/// act on — or `None` when `detail` is not such a refusal.
+///
+/// A moderation refusal reads like any other provider error
+/// (`[data_inspection_failed/data_inspection_failed] Output data may contain
+/// inappropriate content.`), in English, with nothing saying it is the
+/// provider's own judgement, that a resend often passes, or what else to try.
+/// Matched on the provider's words rather than one field, because the same
+/// refusal arrives as an HTTP 400 body, an in-band stream error or a 200 JSON
+/// error depending on the provider and on which side was flagged. The provider's
+/// text is kept at the end, code included, for whoever has to look into it.
+pub(crate) fn content_blocked(detail: &str) -> Option<String> {
+    const MARKS: &[&str] = &[
+        // Alibaba Cloud DashScope / Bailian.
+        "data_inspection_failed",
+        // OpenAI, Azure OpenAI and the gateways that relay them.
+        "content_filter",
+        "content_policy_violation",
+        "inappropriate content",
+        // Zhipu GLM (code 1301).
+        "不安全或敏感内容",
+    ];
+    let lower = detail.to_ascii_lowercase();
+    if !MARKS.iter().any(|mark| lower.contains(mark)) {
+        return None;
+    }
+    let output = if lower.contains("output data") || lower.contains("生成内容") {
+        Some(true)
+    } else if lower.contains("input data") || lower.contains("输入内容") {
+        Some(false)
+    } else {
+        None
+    };
+    Some(
+        atomcode_config::i18n::t(atomcode_config::i18n::Msg::ProviderContentBlocked {
+            output,
+            detail: detail.trim(),
+        })
+        .into_owned(),
+    )
+}
+
+#[cfg(test)]
+mod content_blocked_tests {
+    use super::{content_blocked, friendly_http_error};
+
+    /// The reported refusal: a DashScope output flag, said as what happened and
+    /// what to do, with the provider's own words kept at the end. Checked in a
+    /// way that holds in either language (the locale is process-global, and
+    /// tests run side by side); the wording itself is `atomcode-i18n`'s.
+    #[test]
+    fn a_moderation_refusal_says_what_happened_and_what_to_do() {
+        let raw = "[data_inspection_failed/data_inspection_failed] Output data may contain inappropriate content.";
+        let said = content_blocked(raw).expect("recognised");
+        assert!(said.ends_with(raw), "the provider's words are kept: {said}");
+        assert!(said.contains("/model"), "it says what else to try: {said}");
+        assert!(
+            said.len() > raw.len() + 40,
+            "it says more than the raw error: {said}"
+        );
+
+        // Which side was flagged is said: the reply, the request, or neither.
+        let input = content_blocked("Input data may contain inappropriate content.").unwrap();
+        let unsaid = content_blocked("[content_filter] filtered").unwrap();
+        let strip = |s: &str, tail: &str| s.strip_suffix(tail).unwrap().to_string();
+        let heads = [
+            strip(&said, raw),
+            strip(&input, "Input data may contain inappropriate content."),
+            strip(&unsaid, "[content_filter] filtered"),
+        ];
+        assert!(heads[0] != heads[1] && heads[1] != heads[2] && heads[0] != heads[2]);
+
+        // The same refusal sent as an HTTP error body goes the same way.
+        assert_eq!(friendly_http_error(400, raw), said);
+        // Other providers' spellings.
+        assert!(content_blocked("[content_policy_violation] blocked").is_some());
+        assert!(
+            content_blocked("[1301] 系统检测到输入或生成内容可能包含不安全或敏感内容").is_some()
+        );
+    }
+
+    /// Everything else is left exactly as it was.
+    #[test]
+    fn other_errors_are_not_read_as_moderation() {
+        assert_eq!(content_blocked("[rate_limit_error] slow down"), None);
+        assert_eq!(content_blocked("Incorrect API key provided"), None);
+        assert_eq!(friendly_http_error(500, "boom"), "HTTP 500: boom");
+    }
 }
 
 #[cfg(test)]

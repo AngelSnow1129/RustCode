@@ -155,6 +155,12 @@ pub struct ModelProfileConfig {
     /// (design §14.2). Higher = more capable; unset ⇒ does not participate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capable_model: Option<i64>,
+    /// What this model is good for, in the deployment's own words. Shown when
+    /// the agent asks what it may delegate to, so a person can write "fast,
+    /// weak at Rust" once instead of watching the model guess from the name.
+    /// Never inferred: an absent note is shown as absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -174,7 +180,49 @@ pub struct ModelProfileConfig {
     /// each layer's default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retry_max_attempts: Option<u32>,
+    /// Who put this entry here, when it was not the person: a command that
+    /// manages a set of entries it may later replace — `/openrouter` writes
+    /// [`OPENROUTER_FREE_ORIGIN`] on the free models it adds and swaps that set
+    /// for the current one when run again. `None` is the person's own entry,
+    /// which no such command ever changes or removes.
+    ///
+    /// Saving the model from a panel — `/provider` in either terminal UI, the
+    /// web UI — clears it: the entry is the person's from then on. Choosing a
+    /// thinking level for it (`/effort`) does not, and neither does editing
+    /// `config.toml` by hand; deleting the `origin` line is how to keep such an
+    /// entry.
+    ///
+    /// A build that does not know the field loads the file fine (the config is
+    /// not `deny_unknown_fields`), but one that rewrites the whole file drops it.
+    /// That only ever turns a managed entry into the person's own — it is then
+    /// left in place, never removed by mistake.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
+    /// Where the command that set [`Self::origin`] placed this model, from 1:
+    /// `/openrouter` writes OpenRouter's own "Free models" ranking here, most
+    /// used first. `[models.*]` is a map, so without it the order the command
+    /// chose would be gone the moment the file is written.
+    ///
+    /// Lists order an account's models by it, unranked ones after by name
+    /// ([`model_list_order`]). Cleared together with `origin`: it is that
+    /// command's order, and an entry the person has made theirs is not in it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rank: Option<u32>,
 }
+
+/// The order a list of models is shown in: by account, then an account's
+/// ranked models first by [`ModelProfileConfig::rank`], then by model name.
+/// One key for every list, so `/provider` and `/model` never disagree.
+pub fn model_list_order(model: &ModelProfileConfig) -> (String, u32, String) {
+    (
+        model.account.clone(),
+        model.rank.unwrap_or(u32::MAX),
+        model.model.clone(),
+    )
+}
+
+/// [`ModelProfileConfig::origin`] of a free model `/openrouter` added.
+pub const OPENROUTER_FREE_ORIGIN: &str = "openrouter-free";
 
 /// One flattened, immutable resolution of a model selection (design §3.4). This
 /// is the single value provider construction consumes — accounts, presets,
@@ -463,6 +511,31 @@ mod tests {
         .expect("parse auto");
         assert_eq!(auto.supports_vision, None);
         assert!(!toml::to_string(&auto).unwrap().contains("supports_vision"));
+    }
+
+    #[test]
+    fn accepts_images_sees_through_a_vendor_prefixed_model_id() {
+        // OpenRouter and Vertex qualify a model with its vendor, and the config
+        // is where those reach `accepts_images` — which the daemon projects as
+        // a live session's `supports_vision`. Reading the vendor as the family
+        // made every one of these look text-only.
+        let router: ProviderConfig = toml::from_str(
+            r#"
+                type = "openai"
+                model = "anthropic/claude-opus-4.1"
+            "#,
+        )
+        .expect("parse openrouter id");
+        assert!(router.accepts_images());
+
+        let text_only: ProviderConfig = toml::from_str(
+            r#"
+                type = "openai"
+                model = "deepseek/deepseek-v4"
+            "#,
+        )
+        .expect("parse prefixed text-only id");
+        assert!(!text_only.accepts_images());
     }
 
     #[test]

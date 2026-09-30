@@ -48,7 +48,10 @@ pub fn spawn_check(slot: Arc<Mutex<Option<(UsageInfo, Instant)>>>, wake_tx: mpsc
         // Blocking client lives on a spawn_blocking thread so the tokio
         // runtime worker pool stays free. Mirrors `monitor::spawn_check`.
         let fetched: Result<UsageInfo, ()> = tokio::task::spawn_blocking(|| {
-            let client = atomcode_codingplan::client::Client::from_stored_auth().map_err(|_| ())?;
+            let client = atomcode_codingplan::client::Client::from_stored_auth(
+                atomcode_coding::config::product_dirs_from_env().user(),
+            )
+            .map_err(|_| ())?;
             let resp = client.status_v2().map_err(|_| ())?;
             resp.current_usage.ok_or(())
         })

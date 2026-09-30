@@ -9,11 +9,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use atomcode_capabilities::tools::PermissionRules;
-use atomcode_coding::{assemble, prepare, CodingAgentConfig, PrepareOptions, SessionMode};
+mod support;
+
+use atomcode_coding::{prepare, CodingAgentConfig, PrepareOptions, SessionMode};
 use atomcode_kernel::event::{AgentCommand, AgentEvent};
 use atomcode_kernel::stream::StreamEvent;
 use atomcode_kernel::testkit::RecordingProvider;
 use atomcode_kernel::tool::ToolCall;
+use support::mount_parts;
 
 #[ctor::ctor]
 fn _isolate_atomcode_home() {
@@ -35,6 +38,8 @@ fn prepare_options() -> PrepareOptions {
         subagents: atomcode_coding::SubagentPolicy::Disabled,
         request_user_input: true,
         rate_limit_source: None,
+        front_end: None,
+        review_delegate: None,
     }
 }
 
@@ -65,15 +70,20 @@ struct Outcome {
 /// Run one turn against a fresh assembly built from `rules`, auto-DENYING any approval
 /// request (so an unexpected prompt cannot silently run the command).
 async fn run_turn(project: &std::path::Path, command: &str, rules: PermissionRules) -> Outcome {
-    let mut cfg = CodingAgentConfig::new("k", "http://unused", "test-model", project);
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://unused",
+        "test-model",
+        project,
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     cfg.stream_timeout = Duration::from_secs(5);
     cfg.request_timeout = Some(Duration::from_secs(5));
     cfg.permission_rules = Arc::new(rules);
 
-    let mut parts = prepare(&cfg, prepare_options()).await.unwrap();
-    let mut h = assemble(&mut parts, &cfg, bash_provider(command))
-        .unwrap()
-        .spawn();
+    let parts = prepare(&cfg, prepare_options()).await.unwrap();
+    let mut mounted = mount_parts(&parts, &cfg, &prepare_options(), bash_provider(command)).await;
+    let h = &mut mounted.handle;
     h.commands
         .send(AgentCommand::SendMessage {
             text: "run it".into(),
@@ -99,7 +109,6 @@ async fn run_turn(project: &std::path::Path, command: &str, rules: PermissionRul
         }
     }
     h.commands.send(AgentCommand::Shutdown).unwrap();
-    let _ = h.task.await;
     Outcome { prompted, denied }
 }
 

@@ -29,13 +29,23 @@ const DEFAULT_THRESHOLD: f32 = 0.7;
 pub struct RoundBudgetHook {
     /// Pressure begins once `round >= threshold * max_rounds`. In `(0.0, 1.0]`.
     threshold: f32,
+    /// See `ReviewAgentConfig::trace_budget_to_stderr`.
+    trace: bool,
 }
 
 impl RoundBudgetHook {
     pub fn new() -> Self {
         Self {
             threshold: DEFAULT_THRESHOLD,
+            trace: false,
         }
+    }
+
+    /// Also say on stderr when landing is forced — for a caller that owns the
+    /// terminal (the `atomcode review` command).
+    pub fn tracing_to_stderr(mut self, trace: bool) -> Self {
+        self.trace = trace;
+        self
     }
 }
 
@@ -79,11 +89,16 @@ impl LifecycleHooks for RoundBudgetHook {
         // round > max), so `round >= max` uniquely identifies the last executing round.
         // A one-line stderr trace (same channel as the CLI's `[rules]`/`[scope]` lines)
         // makes the pressure observable — you can see exactly when landing was forced.
+        // Only when the caller owns the terminal (`tracing_to_stderr`).
         if round >= max {
-            eprintln!("[budget] round {round}/{max}: injected FINAL landing reminder");
+            if self.trace {
+                eprintln!("[budget] round {round}/{max}: injected FINAL landing reminder");
+            }
             messages.push(Message::synthetic_user(final_reminder(round, max)));
         } else if round as f32 >= max as f32 * self.threshold {
-            eprintln!("[budget] round {round}/{max}: injected soft landing reminder");
+            if self.trace {
+                eprintln!("[budget] round {round}/{max}: injected soft landing reminder");
+            }
             messages.push(Message::synthetic_user(soft_reminder(round, max)));
         }
     }

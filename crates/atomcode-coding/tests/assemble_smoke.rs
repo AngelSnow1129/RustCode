@@ -1,14 +1,16 @@
-//! End-to-end assembly smoke test (no network): a scripted [`MockProvider`] drives the
-//! assembled coding agent through a tool call and a stop. Proves provider + tools +
+//! End-to-end assembly smoke test (no network): a scripted [`MockProvider`] drives
+//! the mounted product through a tool call and a stop. Proves provider + tools +
 //! approval + persona + discipline wire together and the loop runs to completion.
 
-use atomcode_coding::{build_coding_agent_with, CodingAgentConfig};
-use atomcode_kernel::agent::AutoRespond;
+mod support;
+
+use atomcode_coding::CodingAgentConfig;
 use atomcode_kernel::event::StopReason;
 use atomcode_kernel::stream::StreamEvent;
 use atomcode_kernel::testkit::MockProvider;
 use atomcode_kernel::tool::ToolCall;
 use std::sync::Arc;
+use support::{allow, mount, quiet_options, turn};
 
 #[tokio::test]
 async fn assembles_and_runs_a_tool_end_to_end() {
@@ -28,10 +30,15 @@ async fn assembles_and_runs_a_tool_end_to_end() {
         ],
     ]));
 
-    let cfg = CodingAgentConfig::new("k", "http://localhost:0", "mock-model", ".");
-    let outcome = build_coding_agent_with(&cfg, provider)
-        .run_to_completion("list the current directory", AutoRespond::AllowAll)
-        .await;
+    let cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost:0",
+        "mock-model",
+        ".",
+        atomcode_coding::config::product_dirs_from_env(),
+    );
+    let mut mounted = mount(&cfg, quiet_options(), provider).await;
+    let outcome = turn(&mut mounted.handle, "list the current directory", allow()).await;
 
     assert_eq!(
         outcome.tool_results.len(),
@@ -73,35 +80,66 @@ async fn coding_assembly_enables_the_round_fuse() {
         list_round("1", "."),
         list_round("2", "./"),
     ]));
-    let mut cfg = CodingAgentConfig::new("k", "http://localhost:0", "mock-model", project.path());
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost:0",
+        "mock-model",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     cfg.max_rounds = 2;
 
-    let outcome = build_coding_agent_with(&cfg, provider)
-        .run_to_completion("inspect using varied calls", AutoRespond::AllowAll)
-        .await;
+    let mut mounted = mount(&cfg, quiet_options(), provider).await;
+    let outcome = turn(&mut mounted.handle, "inspect using varied calls", allow()).await;
 
-    assert_eq!(outcome.stop, StopReason::MaxRounds);
+    assert_eq!(outcome.stop, Some(StopReason::MaxRounds));
     assert_eq!(outcome.tool_results.len(), 2);
 }
 
+/// The same call, over and over, is stopped — at the threshold the policy
+/// itself carries.
+///
+/// **The number comes from the configuration under test, not from a literal.**
+/// It was written as a hard-coded 4, and when the default moved 4→5 (kernel,
+/// 2026-09-24) the script ran out a round early: the guard was working, the
+/// mock had nothing left to say, and the criterion reported a `ProviderError`
+/// as though the stop had failed.
+///
+/// Read from `cfg` rather than from `ToolLoopPolicy::default()`, because those
+/// are **two** numbers — the kernel's default and this product's fallback
+/// (`coding/src/config.rs`'s `resolve_tool_loop_policy`) — and it is the
+/// second one that decides what actually runs. A criterion reading the first
+/// would go red on a move in the second and say nothing about why.
 #[tokio::test]
 async fn coding_assembly_enables_exact_stable_loop_detection() {
     let project = tempfile::tempdir().unwrap();
-    let provider = Arc::new(MockProvider::new(vec![
-        list_round("1", "."),
-        list_round("2", "."),
-        list_round("3", "."),
-        list_round("4", "."),
-    ]));
-    let mut cfg = CodingAgentConfig::new("k", "http://localhost:0", "mock-model", project.path());
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost:0",
+        "mock-model",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     cfg.max_rounds = 20;
+    let stops_at = cfg
+        .tool_loop_policy
+        .expect("the shipped configuration has a tool-loop policy")
+        .stop_threshold() as usize;
+    let provider = Arc::new(MockProvider::new(
+        (0..stops_at)
+            .map(|n| list_round(&n.to_string(), "."))
+            .collect(),
+    ));
 
-    let outcome = build_coding_agent_with(&cfg, provider)
-        .run_to_completion("repeat the same inspection", AutoRespond::AllowAll)
-        .await;
+    let mut mounted = mount(&cfg, quiet_options(), provider).await;
+    let outcome = turn(&mut mounted.handle, "repeat the same inspection", allow()).await;
 
-    assert_eq!(outcome.stop, StopReason::ToolLoopDetected);
-    assert_eq!(outcome.tool_results.len(), 4);
+    assert_eq!(outcome.stop, Some(StopReason::ToolLoopDetected));
+    assert_eq!(
+        outcome.tool_results.len(),
+        stops_at,
+        "it ran exactly as far as the policy allows, then stopped"
+    );
 }
 
 #[tokio::test]
@@ -117,14 +155,19 @@ async fn coding_assembly_can_disable_exact_guard_for_intentional_repetition() {
             StreamEvent::Done { truncated: false },
         ],
     ]));
-    let mut cfg = CodingAgentConfig::new("k", "http://localhost:0", "mock-model", project.path());
+    let mut cfg = CodingAgentConfig::new(
+        "k",
+        "http://localhost:0",
+        "mock-model",
+        project.path(),
+        atomcode_coding::config::product_dirs_from_env(),
+    );
     cfg.max_rounds = 20;
     cfg.tool_loop_policy = None;
 
-    let outcome = build_coding_agent_with(&cfg, provider)
-        .run_to_completion("inspect exactly four times", AutoRespond::AllowAll)
-        .await;
+    let mut mounted = mount(&cfg, quiet_options(), provider).await;
+    let outcome = turn(&mut mounted.handle, "inspect exactly four times", allow()).await;
 
-    assert_eq!(outcome.stop, StopReason::Stopped);
+    assert_eq!(outcome.stop, Some(StopReason::Stopped));
     assert_eq!(outcome.tool_results.len(), 4);
 }

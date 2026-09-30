@@ -115,7 +115,11 @@ fn dispatch_rewind_purge(ctx: &LoopCtx, renderer: &mut dyn Renderer) {
         return;
     }
     let session_id = ctx.current_session.id.as_str();
-    let cp = match WorkspaceCheckpoint::for_session(&ctx.working_dir, session_id) {
+    let cp = match WorkspaceCheckpoint::for_session(
+        &ctx.working_dir,
+        session_id,
+        &atomcode_coding::config::product_dirs_from_env(),
+    ) {
         Ok(cp) => cp,
         Err(e) => {
             renderer.render(UiLine::Error(format!("Code Rewind store unavailable: {e}")));
@@ -636,7 +640,10 @@ pub fn perform_session_rename(
 /// metadata is display data here: historical duplicates may carry a stale embedded
 /// `working_dir` and must never redirect a mutation to another bucket.
 pub(super) fn active_session_project_bucket(working_dir: &std::path::Path) -> String {
-    atomcode_capabilities::session::SessionManager::project_hash(working_dir)
+    atomcode_capabilities::session::SessionManager::project_hash(
+        working_dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    )
 }
 
 /// Render the "Instruction files:" status block — the same one shown
@@ -671,12 +678,22 @@ fn render_context_file_status_block(working_dir: &std::path::Path) -> String {
     out.push('\n');
     out.push_str(&t(Msg::StatusMemoryFilesHeader));
     for (scope_msg, store) in [
-        (Msg::StatusMemoryScopeGlobal, MemoryStore::global()),
+        (
+            Msg::StatusMemoryScopeGlobal,
+            MemoryStore::global(atomcode_coding::config::product_dirs_from_env().user()),
+        ),
         (
             Msg::StatusMemoryScopeProject,
-            MemoryStore::project(working_dir),
+            MemoryStore::project(
+                &atomcode_coding::config::product_dirs_from_env().project(working_dir),
+            ),
         ),
-        (Msg::StatusMemoryScopeLocal, MemoryStore::local(working_dir)),
+        (
+            Msg::StatusMemoryScopeLocal,
+            MemoryStore::local(
+                &atomcode_coding::config::product_dirs_from_env().project(working_dir),
+            ),
+        ),
     ] {
         let scope = t(scope_msg);
         let path = store.path().display().to_string();
@@ -1221,8 +1238,10 @@ struct RelayBinaryEntry {
 
 /// 获取 relay-client 远端版本清单。
 async fn fetch_relay_manifest() -> Result<RelayManifest, String> {
-    let token = atomcode_auth::oauth::get_valid_token()
-        .map_err(|_| "未登录 GitCode。请先在 atomcode 中执行 /login 登录账号".to_string())?;
+    let token = atomcode_auth::oauth::get_valid_token(
+        atomcode_coding::config::product_dirs_from_env().user(),
+    )
+    .map_err(|_| "未登录 GitCode。请先在 atomcode 中执行 /login 登录账号".to_string())?;
 
     let client = reqwest::Client::builder()
         .user_agent(concat!("atomcode/", env!("CARGO_PKG_VERSION")))
@@ -1523,8 +1542,10 @@ async fn download_relay_client(
     }
 
     // 获取 GitCode OAuth token（用户需先 /login）
-    let token = atomcode_auth::oauth::get_valid_token()
-        .map_err(|_| "未登录 GitCode。请先在 atomcode 中执行 /login 登录账号".to_string())?;
+    let token = atomcode_auth::oauth::get_valid_token(
+        atomcode_coding::config::product_dirs_from_env().user(),
+    )
+    .map_err(|_| "未登录 GitCode。请先在 atomcode 中执行 /login 登录账号".to_string())?;
 
     // 构建 HTTP 客户端 + 添加鉴权头
     let client = reqwest::Client::builder()
@@ -1781,7 +1802,7 @@ fn execute_slash_command_impl(
                     renderer.flush();
 
                     tokio::task::spawn_blocking(move || {
-                        let ev = match atomcode_capabilities::plugin::installer::ensure_plugin_installed(
+                        let ev = match atomcode_capabilities::plugin::installer::ensure_plugin_installed(&atomcode_coding::config::product_dirs_from_env(),
                             "atomcode",
                             "atomcode-skills",
                             "https://atomgit.com/atomgit_atomcode/atomcode-skills.git",
@@ -1969,7 +1990,7 @@ fn execute_slash_command_impl(
                     atomcode_daemon::legacy_convert::catalog_for_project(&working_dir)
                         .map(|all| {
                             all.into_iter()
-                                .filter(|entry| entry.message_count > 0)
+                                .filter(|entry| entry.message_count > 0 && !entry.delegated())
                                 .map(crate::session::SessionMeta::from)
                                 .collect::<Vec<_>>()
                         })
@@ -2212,9 +2233,12 @@ fn execute_slash_command_impl(
                     renderer.render(UiLine::Error(t(Msg::RememberUsage).into_owned()));
                 } else {
                     let store = if global {
-                        MemoryStore::global()
+                        MemoryStore::global(atomcode_coding::config::product_dirs_from_env().user())
                     } else {
-                        MemoryStore::project(&ctx.working_dir)
+                        MemoryStore::project(
+                            &atomcode_coding::config::product_dirs_from_env()
+                                .project(&ctx.working_dir),
+                        )
                     };
                     let scope = if global { "global" } else { "project" };
                     // Dedup on write (parity with the model-facing `memory` tool) so a
@@ -2239,16 +2263,20 @@ fn execute_slash_command_impl(
             if keyword.is_empty() {
                 renderer.render(UiLine::Error(t(Msg::ForgetUsage).into_owned()));
             } else {
-                let mut removed = MemoryStore::project(&ctx.working_dir)
-                    .remove_matching(keyword)
-                    .unwrap_or_default();
+                let mut removed = MemoryStore::project(
+                    &atomcode_coding::config::product_dirs_from_env().project(&ctx.working_dir),
+                )
+                .remove_matching(keyword)
+                .unwrap_or_default();
                 removed.extend(
-                    MemoryStore::local(&ctx.working_dir)
-                        .remove_matching(keyword)
-                        .unwrap_or_default(),
+                    MemoryStore::local(
+                        &atomcode_coding::config::product_dirs_from_env().project(&ctx.working_dir),
+                    )
+                    .remove_matching(keyword)
+                    .unwrap_or_default(),
                 );
                 removed.extend(
-                    MemoryStore::global()
+                    MemoryStore::global(atomcode_coding::config::product_dirs_from_env().user())
                         .remove_matching(keyword)
                         .unwrap_or_default(),
                 );
@@ -2266,9 +2294,14 @@ fn execute_slash_command_impl(
             renderer.flush();
         }
         "memory" => {
-            let global = MemoryStore::global();
-            let project = MemoryStore::project(&ctx.working_dir);
-            let local = MemoryStore::local(&ctx.working_dir);
+            let global =
+                MemoryStore::global(atomcode_coding::config::product_dirs_from_env().user());
+            let project = MemoryStore::project(
+                &atomcode_coding::config::product_dirs_from_env().project(&ctx.working_dir),
+            );
+            let local = MemoryStore::local(
+                &atomcode_coding::config::product_dirs_from_env().project(&ctx.working_dir),
+            );
             let name = ctx
                 .working_dir
                 .file_name()
@@ -2464,7 +2497,11 @@ fn execute_slash_command_impl(
                     None => "用法：/app（默认连官方中继），或 /app <中继地址> 覆盖".to_string(),
                     Some(relay) => {
                         // 1) 检查登录态：未登录不允许开启远程访问。
-                        if atomcode_auth::oauth::get_stored_auth().is_none() {
+                        if atomcode_auth::oauth::get_stored_auth(
+                            atomcode_coding::config::product_dirs_from_env().user(),
+                        )
+                        .is_none()
+                        {
                             renderer.render(UiLine::CommandOutput(
                                 "远程访问需要先登录。输入 /login 完成登录后，再执行 /app。"
                                     .to_string(),
@@ -2478,8 +2515,10 @@ fn execute_slash_command_impl(
                         //    attach_live_session replaces it atomically on the success path.
                         atomcode_daemon::stop_app_server();
                         //    传入当前登录 user_id 启用双向校验。
-                        let app_user_id =
-                            atomcode_auth::oauth::get_stored_auth().map(|a| a.user.id);
+                        let app_user_id = atomcode_auth::oauth::get_stored_auth(
+                            atomcode_coding::config::product_dirs_from_env().user(),
+                        )
+                        .map(|a| a.user.id);
                         let started = tokio::task::block_in_place(|| {
                             tokio::runtime::Handle::current().block_on(
                                 atomcode_daemon::ensure_app_server(
@@ -2494,7 +2533,9 @@ fn execute_slash_command_impl(
                             Ok((_h, port)) => {
                                 // 3) route token（中继路由 key + 凭证）+ 中继 URL。
                                 // token = user_id.随机hex，App 端扫码后校验 user_id 是否一致。
-                                let token = match atomcode_auth::oauth::get_stored_auth() {
+                                let token = match atomcode_auth::oauth::get_stored_auth(
+                                    atomcode_coding::config::product_dirs_from_env().user(),
+                                ) {
                                     Some(auth) => format!(
                                         "{}.{}",
                                         auth.user.id,
@@ -2628,7 +2669,7 @@ fn execute_slash_command_impl(
                 let _ = ctx.app_relay_child.take();
             }
             atomcode_daemon::stop_app_server();
-            match atomcode_auth::logout() {
+            match atomcode_auth::logout(atomcode_coding::config::product_dirs_from_env().user()) {
                 Ok(()) => {
                     match deactivate_runtime_provider_after_logout(ctx) {
                         Ok(true) => {
@@ -2670,7 +2711,9 @@ fn execute_slash_command_impl(
                 // Rollback is sync and fast (three renames). Run inline
                 // so the user sees the result immediately without waiting
                 // for an async task to schedule.
-                match atomcode_updater::run_rollback() {
+                // With the pause: a bare swap is undone by the next launch's
+                // auto-update, which the restart below is.
+                match atomcode_updater::rollback_and_pause() {
                     Ok(sum) => {
                         // Route through the event channel so rendering
                         // and "set done → exit" logic stays in one place.
@@ -2679,6 +2722,7 @@ fn execute_slash_command_impl(
                             .send(atomcode_updater::UpgradeEvent::RolledBack {
                                 exe: sum.exe,
                                 backup: sum.backup,
+                                updates: sum.updates,
                             });
                     }
                     Err(e) => {
@@ -2689,7 +2733,8 @@ fn execute_slash_command_impl(
                 }
             } else {
                 let force = arg_norm == "--force" || arg_norm == "-f";
-                if !force && !arg_norm.is_empty() {
+                // `latest` is the sub-menu's row for a plain upgrade.
+                if !force && !arg_norm.is_empty() && arg_norm != "latest" {
                     renderer.render(UiLine::Error(
                         t(Msg::UpgradeUnknownArg { arg }).into_owned(),
                     ));
@@ -3055,7 +3100,7 @@ fn execute_slash_command_impl(
             // LLM-driven: submit the init prompt as a normal user turn; the agent explores the
             // repo with its tools and writes/improves AGENTS.md via write_file. Replaces the old
             // static .atomcode.md generator.
-            let prompt = match build_init_prompt_from_config(&ctx.config) {
+            let prompt = match build_init_prompt_from_config(&ctx.config, ctx.config_store.path()) {
                 Ok(prompt) => prompt,
                 Err(error) => {
                     renderer.render(UiLine::Error(error.to_string()));
@@ -3073,7 +3118,7 @@ fn execute_slash_command_impl(
                 Some(McpSub::Login) => {
                     // Exactly one token is the server key; missing or a stray extra
                     // arg (`/mcp login rvs new-file`) → usage, not a bogus key.
-                    let args = sub.strip_prefix("login").map(str::trim).unwrap_or("");
+                    let args = mcp_subcommand_arg(sub);
                     let Some(server) = mcp_single_server_arg(args) else {
                         renderer.render(UiLine::CommandOutput(
                             t(Msg::McpOAuthLoginUsage).into_owned(),
@@ -3081,20 +3126,22 @@ fn execute_slash_command_impl(
                         renderer.flush();
                         return Ok(());
                     };
-                    let configs =
-                        match atomcode_capabilities::mcp::load_mcp_config(&ctx.working_dir) {
-                            Ok(configs) => configs,
-                            Err(e) => {
-                                renderer.render(UiLine::Error(
-                                    t(Msg::McpOAuthLoadConfigFailed {
-                                        error: &format!("{:#}", e),
-                                    })
-                                    .into_owned(),
-                                ));
-                                renderer.flush();
-                                return Ok(());
-                            }
-                        };
+                    let configs = match atomcode_capabilities::mcp::load_mcp_config(
+                        &ctx.working_dir,
+                        atomcode_coding::config::product_dirs_from_env().user(),
+                    ) {
+                        Ok(configs) => configs,
+                        Err(e) => {
+                            renderer.render(UiLine::Error(
+                                t(Msg::McpOAuthLoadConfigFailed {
+                                    error: &format!("{:#}", e),
+                                })
+                                .into_owned(),
+                            ));
+                            renderer.flush();
+                            return Ok(());
+                        }
+                    };
                     let mut available: Vec<String> =
                         configs.iter().map(|config| config.name.clone()).collect();
                     available.sort();
@@ -3130,6 +3177,20 @@ fn execute_slash_command_impl(
                                 },
                                 client_secret_env: None,
                                 scopes: Vec::new(),
+                            },
+                            atomcode_coding::config::product_dirs_from_env().user(),
+                            // What the library used to print itself; kept as it
+                            // was for this screen, which is on its way out.
+                            &|step| {
+                                if let atomcode_capabilities::mcp::McpOAuthStep::WaitingForBrowser {
+                                    url,
+                                } = step
+                                {
+                                    println!(
+                                        "  Browser didn't open? Open the URL below to authorize MCP server '{server}':"
+                                    );
+                                    println!("  {url}");
+                                }
                             },
                         )
                     });
@@ -3167,7 +3228,7 @@ fn execute_slash_command_impl(
                 Some(McpSub::Logout) => {
                     // Exactly one token is the server key; missing or a stray extra
                     // arg (`/mcp logout rvs new-file`) → usage, not a bogus key.
-                    let args = sub.strip_prefix("logout").map(str::trim).unwrap_or("");
+                    let args = mcp_subcommand_arg(sub);
                     let Some(server) = mcp_single_server_arg(args) else {
                         renderer.render(UiLine::CommandOutput(
                             t(Msg::McpOAuthLogoutUsage).into_owned(),
@@ -3175,7 +3236,9 @@ fn execute_slash_command_impl(
                         renderer.flush();
                         return Ok(());
                     };
-                    let token_store = atomcode_capabilities::mcp::McpTokenStore::default();
+                    let token_store = atomcode_capabilities::mcp::McpTokenStore::in_tree(
+                        atomcode_coding::config::product_dirs_from_env().user(),
+                    );
                     match token_store.load_token(server) {
                         Ok(None) => {
                             renderer.render(UiLine::CommandOutput(
@@ -3232,7 +3295,10 @@ fn execute_slash_command_impl(
                 }
 
                 Some(McpSub::Trust) => {
-                    match atomcode_capabilities::mcp::trust::trust_project(&ctx.working_dir) {
+                    match atomcode_capabilities::mcp::trust::trust_project(
+                        &ctx.working_dir,
+                        atomcode_coding::config::product_dirs_from_env().user(),
+                    ) {
                         Ok(()) => {
                             renderer.render(UiLine::CommandOutput(
                                 t(Msg::McpProjectTrusted).into_owned(),
@@ -3258,7 +3324,10 @@ fn execute_slash_command_impl(
                 }
 
                 Some(McpSub::Untrust) => {
-                    if !atomcode_capabilities::mcp::trust::is_project_trusted(&ctx.working_dir) {
+                    if !atomcode_capabilities::mcp::trust::is_project_trusted(
+                        &ctx.working_dir,
+                        atomcode_coding::config::product_dirs_from_env().user(),
+                    ) {
                         renderer.render(UiLine::CommandOutput(
                             t(Msg::McpProjectNotTrusted).into_owned(),
                         ));
@@ -3270,7 +3339,10 @@ fn execute_slash_command_impl(
                         renderer.flush();
                         return Ok(());
                     }
-                    match atomcode_capabilities::mcp::trust::untrust_project(&ctx.working_dir) {
+                    match atomcode_capabilities::mcp::trust::untrust_project(
+                        &ctx.working_dir,
+                        atomcode_coding::config::product_dirs_from_env().user(),
+                    ) {
                         Ok(true) => {
                             renderer.render(UiLine::CommandOutput(
                                 t(Msg::McpProjectUntrusted).into_owned(),
@@ -3306,20 +3378,22 @@ fn execute_slash_command_impl(
                     }
                     // Preflight: parse merged MCP config so we can show progress immediately.
                     // (Connection attempts happen in background and may take up to timeout_ms.)
-                    let configs =
-                        match atomcode_capabilities::mcp::load_mcp_config(&ctx.working_dir) {
-                            Ok(c) => c,
-                            Err(e) => {
-                                renderer.render(UiLine::Error(
-                                    t(Msg::McpReloadFailed {
-                                        error: &format!("{:#}", e),
-                                    })
-                                    .into_owned(),
-                                ));
-                                renderer.flush();
-                                return Ok(());
-                            }
-                        };
+                    let configs = match atomcode_capabilities::mcp::load_mcp_config(
+                        &ctx.working_dir,
+                        atomcode_coding::config::product_dirs_from_env().user(),
+                    ) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            renderer.render(UiLine::Error(
+                                t(Msg::McpReloadFailed {
+                                    error: &format!("{:#}", e),
+                                })
+                                .into_owned(),
+                            ));
+                            renderer.flush();
+                            return Ok(());
+                        }
+                    };
 
                     // Partition by trust so the preflight header only lists servers that will
                     // actually be attempted (project-source servers from untrusted projects are
@@ -3327,6 +3401,7 @@ fn execute_slash_command_impl(
                     let partition = atomcode_capabilities::mcp::trust::partition_by_trust(
                         configs.clone(),
                         &ctx.working_dir,
+                        atomcode_coding::config::product_dirs_from_env().user(),
                     );
                     let connecting = &partition.allowed;
 
@@ -3370,7 +3445,7 @@ fn execute_slash_command_impl(
                 Some(McpSub::Tools) => {
                     // `/mcp tools <server>`: list remote tool names for a connected server.
                     // This is intentionally separate from a global `/tools` so we keep the surface minimal.
-                    let args = sub.strip_prefix("tools").map(str::trim).unwrap_or("");
+                    let args = mcp_subcommand_arg(sub);
                     let Some(server) = mcp_single_server_arg(args) else {
                         // Zero, or a stray extra arg (e.g. `/mcp tools rvs new-file`) →
                         // arg-count error; reuse the usage hint.
@@ -3397,7 +3472,17 @@ fn execute_slash_command_impl(
                     return Ok(());
                 }
 
-                None => { /* fall through to default status display below */ }
+                // Bare `/mcp` shows the status below. Anything else that is
+                // not a subcommand is said to be one, rather than answered with
+                // the status list: `/mcp relaod` looked like it had worked.
+                None if !sub.is_empty() => {
+                    renderer.render(UiLine::CommandOutput(
+                        t(Msg::McpUnknownSubcommand { what: sub }).into_owned(),
+                    ));
+                    renderer.flush();
+                    return Ok(());
+                }
+                None => { /* bare `/mcp`: the status display below */ }
             }
 
             // Default: show status.
@@ -3414,7 +3499,11 @@ fn execute_slash_command_impl(
                     let mut txt = t(Msg::McpServersHeader).into_owned();
                     let blocked = count_blocked_untrusted(&status.servers);
                     for (name, server_status) in &status.servers {
-                        txt.push_str(&format!("    {}  {}\n", name, server_status));
+                        txt.push_str(&format!(
+                            "    {}  {}\n",
+                            name,
+                            mcp_status_words(server_status)
+                        ));
                     }
                     // When any project-source server is withheld, surface how to
                     // unblock it — the raw `blocked: untrusted project` lines never
@@ -3706,7 +3795,12 @@ fn execute_slash_command_impl(
                     let images = take_marker_matched_images(state, arg);
                     if ctx
                         .runtime
-                        .dispatch(atomcode_coding::DriverCommand::StartGoal(condition.clone()))
+                        .dispatch(atomcode_coding::DriverCommand::StartGoal(
+                            atomcode_coding::UserInput {
+                                text: condition.clone(),
+                                images,
+                            },
+                        ))
                         .is_err()
                     {
                         renderer.render(UiLine::Error(t(Msg::CmdProviderUnavailable).into_owned()));
@@ -3736,20 +3830,11 @@ fn execute_slash_command_impl(
                             renderer.flush();
                         }
                     }
-                    let submitted = if images.is_empty() {
-                        submit_agent_text(ctx, condition)
-                    } else {
-                        submit_agent_input(
-                            ctx,
-                            atomcode_coding::UserInput {
-                                text: condition,
-                                images,
-                            },
-                        )
-                    };
-                    if submitted {
-                        state.on_submit();
-                    }
+                    // The runtime opens the goal's first round itself, out of
+                    // the same `StartGoal` above. Submitting the condition from
+                    // here as well — which is what this used to do — is now two
+                    // turns for one `/goal`.
+                    state.on_submit();
                 }
             }
         }
@@ -3803,9 +3888,8 @@ fn execute_slash_command_impl(
                     state.loop_label = Some(prompt.clone());
                     state.loop_round = 0;
                     state.loop_started_at = Some(std::time::Instant::now());
-                    if submit_agent_text(ctx, prompt) {
-                        state.on_submit();
-                    }
+                    // The runtime runs the first pass itself (see `/goal`).
+                    state.on_submit();
                     // Non-silent: /loop is live-only (persistence deferred) — tell the
                     // user it won't come back after a restart/resume.
                     renderer.render(UiLine::CommandOutput(
@@ -3874,6 +3958,7 @@ fn execute_slash_command_impl(
                     .map(|r| {
                         let mut v: Vec<String> = r
                             .user_invocable()
+                            .into_iter()
                             .map(|s| format!("  /skills {:<48}  {}", s.name, s.description))
                             .collect();
                         v.sort();
@@ -3972,7 +4057,10 @@ fn execute_slash_command_impl(
                 renderer.flush();
 
                 let project_root = ctx.working_dir.clone();
-                let opts = atomcode_capabilities::setup::RunOptions::new(project_root);
+                let opts = atomcode_capabilities::setup::RunOptions::new(
+                    project_root,
+                    atomcode_coding::config::product_dirs_from_env(),
+                );
 
                 // `setup::run` is synchronous (file I/O only). Run it on the
                 // current thread via `block_in_place` to avoid blocking the
@@ -4064,7 +4152,7 @@ fn execute_slash_command_impl(
             // `/worklog [date]`: deterministically gather the day's completed turns
             // across ALL projects (with computed agent-active durations), then hand
             // the model a structured recap to fill the 工作内容/时长/问题与评价 table.
-            use chrono::{Local, TimeZone};
+            use chrono::Local;
             let english = matches!(
                 atomcode_config::i18n::current_locale(),
                 atomcode_config::i18n::Locale::En
@@ -4082,23 +4170,14 @@ fn execute_slash_command_impl(
                 renderer.flush();
                 return Ok(());
             };
-            // Local-day [midnight, next-midnight) → epoch ms. `.earliest()` resolves a
-            // DST-gap midnight; the UTC fallback is only for that rare ambiguity.
-            let to_ms = |ndt: chrono::NaiveDateTime| -> i64 {
-                Local
-                    .from_local_datetime(&ndt)
-                    .earliest()
-                    .map(|dt| dt.timestamp_millis())
-                    .unwrap_or_else(|| ndt.and_utc().timestamp_millis())
-            };
-            let after_ms = to_ms(date.and_hms_opt(0, 0, 0).unwrap());
-            let before_ms = to_ms(
-                date.succ_opt()
-                    .unwrap_or(date)
-                    .and_hms_opt(0, 0, 0)
-                    .unwrap(),
+            // Local-day [midnight, next-midnight) → epoch ms; a DST-gap midnight
+            // resolves to the earliest instant that exists. Shared with the row
+            // that offers `/worklog` on the row-assembled screen, so the two
+            // front ends cannot disagree about which day they are recapping.
+            let (after_ms, before_ms) = atomcode_capabilities::session::local_day_window_ms(date);
+            let sessions_root = atomcode_capabilities::session::SessionManager::sessions_root(
+                atomcode_coding::config::product_dirs_from_env().user(),
             );
-            let sessions_root = atomcode_capabilities::session::SessionManager::sessions_root();
             let turns = atomcode_capabilities::session::collect_day_turns(
                 &sessions_root,
                 after_ms,
@@ -4159,11 +4238,20 @@ fn execute_slash_command_impl(
     Ok(())
 }
 
-fn build_init_prompt_from_config(config: &atomcode_config::Config) -> Result<String, String> {
+/// A relative `init_prompt_file` is read beside the config file that named it
+/// — the same answer the `/init` row gives (`host_rows::init_prompt_from`).
+fn build_init_prompt_from_config(
+    config: &atomcode_config::Config,
+    config_path: &std::path::Path,
+) -> Result<String, String> {
     let locale = config
         .language
         .unwrap_or_else(atomcode_config::i18n::current_locale);
-    atomcode_coding::build_init_prompt(locale, config.init_prompt_file.as_deref())
+    atomcode_coding::build_init_prompt(
+        locale,
+        config.init_prompt_file.as_deref(),
+        config_path.parent().unwrap_or(std::path::Path::new(".")),
+    )
 }
 
 /// Reload the current-project session picker after a cancelled resume without
@@ -4182,7 +4270,7 @@ pub(crate) fn request_session_catalog(ctx: &LoopCtx, renderer: &mut dyn Renderer
             atomcode_daemon::legacy_convert::catalog_for_project(&working_dir)
                 .map(|all| {
                     all.into_iter()
-                        .filter(|entry| entry.message_count > 0)
+                        .filter(|entry| entry.message_count > 0 && !entry.delegated())
                         .map(crate::session::SessionMeta::from)
                         .collect::<Vec<_>>()
                 })
@@ -4360,24 +4448,28 @@ fn handle_plugin(arg: &str, ctx: &mut super::LoopCtx, renderer: &mut dyn Rendere
                         t(Msg::PluginMarketplaceCloning { url: &url }).into_owned(),
                     );
                     tokio::task::spawn_blocking(move || {
-                        let ev =
-                            match atomcode_capabilities::plugin::marketplace::add_marketplace(&url)
-                            {
-                                Ok(info) => {
-                                    atomcode_capabilities::plugin::PluginJobEvent::MarketplaceAdded(
-                                        info,
-                                    )
-                                }
-                                Err(e) => atomcode_capabilities::plugin::PluginJobEvent::Failed {
-                                    op: "add marketplace".into(),
-                                    msg: format!("{:#}", e),
-                                },
-                            };
+                        let ev = match atomcode_capabilities::plugin::marketplace::add_marketplace(
+                            &atomcode_coding::config::product_dirs_from_env(),
+                            &url,
+                        ) {
+                            Ok(info) => {
+                                atomcode_capabilities::plugin::PluginJobEvent::MarketplaceAdded(
+                                    info,
+                                )
+                            }
+                            Err(e) => atomcode_capabilities::plugin::PluginJobEvent::Failed {
+                                op: "add marketplace".into(),
+                                msg: format!("{:#}", e),
+                            },
+                        };
                         let _ = tx.send(ev);
                     });
                 }
                 "remove" => {
-                    match atomcode_capabilities::plugin::marketplace::remove_marketplace(arg) {
+                    match atomcode_capabilities::plugin::marketplace::remove_marketplace(
+                        &atomcode_coding::config::product_dirs_from_env(),
+                        arg,
+                    ) {
                         Ok(()) => {
                             super::reload_plugins(ctx);
                             ok(
@@ -4402,7 +4494,7 @@ fn handle_plugin(arg: &str, ctx: &mut super::LoopCtx, renderer: &mut dyn Rendere
                         t(Msg::PluginMarketplaceUpdating { name: &name }).into_owned(),
                     );
                     tokio::task::spawn_blocking(move || {
-                        let ev = match atomcode_capabilities::plugin::marketplace::update_marketplace(&name)
+                        let ev = match atomcode_capabilities::plugin::marketplace::update_marketplace(&atomcode_coding::config::product_dirs_from_env(), &name)
                         {
                             Ok(info) => {
                                 atomcode_capabilities::plugin::PluginJobEvent::MarketplaceUpdated(info)
@@ -4415,7 +4507,9 @@ fn handle_plugin(arg: &str, ctx: &mut super::LoopCtx, renderer: &mut dyn Rendere
                         let _ = tx.send(ev);
                     });
                 }
-                "list" => match atomcode_capabilities::plugin::marketplace::list_marketplaces() {
+                "list" => match atomcode_capabilities::plugin::marketplace::list_marketplaces(
+                    &atomcode_coding::config::product_dirs_from_env(),
+                ) {
                     Ok(items) if items.is_empty() => {
                         ok(renderer, t(Msg::PluginNoMarketplaces).into_owned());
                     }
@@ -4466,7 +4560,7 @@ fn handle_plugin(arg: &str, ctx: &mut super::LoopCtx, renderer: &mut dyn Rendere
                         .into_owned(),
                     );
                     tokio::task::spawn_blocking(move || {
-                        let ev = match atomcode_capabilities::plugin::installer::install(&plugin, &mp, scope) {
+                        let ev = match atomcode_capabilities::plugin::installer::install(&atomcode_coding::config::product_dirs_from_env(), &plugin, &mp, scope) {
                             Ok(info) => atomcode_capabilities::plugin::PluginJobEvent::PluginInstalled(info),
                             Err(e) => {
                                 if let Some(_aie) = e.downcast_ref::<atomcode_capabilities::plugin::installer::AlreadyInstalledError>() {
@@ -4487,6 +4581,7 @@ fn handle_plugin(arg: &str, ctx: &mut super::LoopCtx, renderer: &mut dyn Rendere
                 Some(PluginArg::Bare { plugin }) => {
                     // Bare plugin name — resolve across all marketplaces.
                     match atomcode_capabilities::plugin::installer::resolve_plugin_marketplace(
+                        &atomcode_coding::config::product_dirs_from_env(),
                         &plugin,
                     ) {
                         Ok(matches) if matches.len() == 1 => {
@@ -4499,7 +4594,7 @@ fn handle_plugin(arg: &str, ctx: &mut super::LoopCtx, renderer: &mut dyn Rendere
                                 t(Msg::PluginInstallingByName { plugin: &plugin }).into_owned(),
                             );
                             tokio::task::spawn_blocking(move || {
-                                let ev = match atomcode_capabilities::plugin::installer::install(&resolved_plugin, &mp, scope) {
+                                let ev = match atomcode_capabilities::plugin::installer::install(&atomcode_coding::config::product_dirs_from_env(), &resolved_plugin, &mp, scope) {
                                     Ok(info) => atomcode_capabilities::plugin::PluginJobEvent::PluginInstalled(info),
                                     Err(e) => {
                                         if let Some(_aie) = e.downcast_ref::<atomcode_capabilities::plugin::installer::AlreadyInstalledError>() {
@@ -4547,6 +4642,7 @@ fn handle_plugin(arg: &str, ctx: &mut super::LoopCtx, renderer: &mut dyn Rendere
                 marketplace: mp,
             }) => {
                 match atomcode_capabilities::plugin::installer::uninstall(
+                    &atomcode_coding::config::product_dirs_from_env(),
                     &plugin,
                     &mp,
                     atomcode_capabilities::plugin::InstallScope::User,
@@ -4573,8 +4669,10 @@ fn handle_plugin(arg: &str, ctx: &mut super::LoopCtx, renderer: &mut dyn Rendere
             }
             Some(PluginArg::Bare { plugin }) => {
                 // Look up which installed plugins match this name.
-                let installed =
-                    atomcode_capabilities::plugin::installer::list_installed().unwrap_or_default();
+                let installed = atomcode_capabilities::plugin::installer::list_installed(
+                    &atomcode_coding::config::product_dirs_from_env(),
+                )
+                .unwrap_or_default();
                 let matches: Vec<_> = installed
                     .into_iter()
                     .filter(|p| {
@@ -4594,8 +4692,12 @@ fn handle_plugin(arg: &str, ctx: &mut super::LoopCtx, renderer: &mut dyn Rendere
                         let p = &matches[0];
                         let (plug, mp, scope) =
                             (p.plugin.clone(), p.marketplace.clone(), p.scope.clone());
-                        match atomcode_capabilities::plugin::installer::uninstall(&plug, &mp, scope)
-                        {
+                        match atomcode_capabilities::plugin::installer::uninstall(
+                            &atomcode_coding::config::product_dirs_from_env(),
+                            &plug,
+                            &mp,
+                            scope,
+                        ) {
                             Ok(()) => {
                                 super::reload_plugins(ctx);
                                 ok(
@@ -4631,7 +4733,9 @@ fn handle_plugin(arg: &str, ctx: &mut super::LoopCtx, renderer: &mut dyn Rendere
             }
             None => err(renderer, t(Msg::PluginUninstallUsage).into_owned()),
         },
-        "list" => match atomcode_capabilities::plugin::installer::list_installed() {
+        "list" => match atomcode_capabilities::plugin::installer::list_installed(
+            &atomcode_coding::config::product_dirs_from_env(),
+        ) {
             Ok(items) if items.is_empty() => {
                 ok(renderer, t(Msg::PluginNoInstalled).into_owned());
             }
@@ -4706,8 +4810,15 @@ fn parse_plugin_arg(s: &str) -> Option<PluginArg> {
 /// Parse a `--scope user|project|local` argument.
 /// Defaults to `User` if missing or unrecognized.
 fn parse_scope_arg(s: &str) -> atomcode_capabilities::plugin::InstallScope {
-    // Accept both `--scope user` and bare `user`.
-    let val = s.strip_prefix("--scope=").unwrap_or(s).trim();
+    // Accept `--scope project`, `--scope=project` and bare `project`. The caller
+    // hands over everything after the plugin name, so the spaced form arrives as
+    // one string — which the `--scope=`-only strip used to turn into user scope.
+    let s = s.trim();
+    let val = s
+        .strip_prefix("--scope=")
+        .or_else(|| s.strip_prefix("--scope").map(str::trim_start))
+        .unwrap_or(s)
+        .trim();
     match val.to_lowercase().as_str() {
         "project" => atomcode_capabilities::plugin::InstallScope::Project,
         "local" => atomcode_capabilities::plugin::InstallScope::Local,
@@ -5094,7 +5205,7 @@ fn format_login_identity(name: Option<&str>, username: &str) -> String {
 /// name. Shared by both `/status` renderers so the interactive and remote
 /// outputs can't drift.
 fn render_login_line_from_stored_auth() -> String {
-    match atomcode_auth::get_stored_auth() {
+    match atomcode_auth::get_stored_auth(atomcode_coding::config::product_dirs_from_env().user()) {
         Some(a) => {
             let identity = format_login_identity(a.user.name.as_deref(), &a.user.username);
             render_login_line(Some(&identity))
@@ -5127,13 +5238,17 @@ fn render_codingplan_status_for_status_cmd() -> String {
     tokio::task::block_in_place(|| {
         use atomcode_codingplan::client::Client;
 
-        let client = match Client::from_stored_auth() {
-            Ok(c) => c,
-            // Expired login → clear re-login prompt; genuinely not signed in → the
-            // not-signed-in hint. Without this split a dead token showed "not signed in"
-            // while the Login line above said "signed in as X" — contradictory.
-            Err(e) => return render_cp_auth_error(&e, || t(Msg::StatusCpNotSignedIn).into_owned()),
-        };
+        let client =
+            match Client::from_stored_auth(atomcode_coding::config::product_dirs_from_env().user())
+            {
+                Ok(c) => c,
+                // Expired login → clear re-login prompt; genuinely not signed in → the
+                // not-signed-in hint. Without this split a dead token showed "not signed in"
+                // while the Login line above said "signed in as X" — contradictory.
+                Err(e) => {
+                    return render_cp_auth_error(&e, || t(Msg::StatusCpNotSignedIn).into_owned())
+                }
+            };
         let status = match client.status_v2() {
             Ok(s) => s,
             Err(e) => {
@@ -5413,7 +5528,9 @@ pub(super) fn build_status_text(ctx: &LoopCtx, proxy: Option<&str>) -> String {
 
 /// `/whoami` 的账号信息文本。TUI arm 与手机远程执行共用。
 pub(super) fn build_whoami_text() -> String {
-    if let Some(auth) = atomcode_auth::get_stored_auth() {
+    if let Some(auth) =
+        atomcode_auth::get_stored_auth(atomcode_coding::config::product_dirs_from_env().user())
+    {
         let email = auth.user.email.as_deref().unwrap_or("—");
         let name = auth.user.name.as_deref().unwrap_or(&auth.user.username);
         format!(
@@ -5421,7 +5538,8 @@ pub(super) fn build_whoami_text() -> String {
             name,
             auth.user.username,
             email,
-            atomcode_auth::auth_file_path().display(),
+            atomcode_auth::auth_file_path(atomcode_coding::config::product_dirs_from_env().user())
+                .display(),
         )
     } else {
         t(Msg::CmdWhoamiNotSignedIn).into_owned()
@@ -5471,7 +5589,10 @@ pub(super) fn build_diff_stat_text(ctx: &LoopCtx) -> Result<String, String> {
 /// the Overview/Models tabs.
 fn fetch_usage_data() -> Option<UsageData> {
     tokio::task::block_in_place(|| {
-        let client = atomcode_codingplan::client::Client::from_stored_auth().ok()?;
+        let client = atomcode_codingplan::client::Client::from_stored_auth(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        )
+        .ok()?;
         let status = client.status_v2().ok();
         let window = status.as_ref().and_then(|s| {
             s.rate_limit_windows
@@ -5650,10 +5771,18 @@ pub(crate) fn session_manager_for_cost(
         .filter(|bucket| bucket.len() == 16 && bucket.bytes().all(|byte| byte.is_ascii_hexdigit()))
         .map(|bucket| {
             atomcode_capabilities::session::SessionManager::with_root(
-                atomcode_capabilities::session::SessionManager::sessions_root().join(bucket),
+                atomcode_capabilities::session::SessionManager::sessions_root(
+                    atomcode_coding::config::product_dirs_from_env().user(),
+                )
+                .join(bucket),
             )
         })
-        .unwrap_or_else(|| atomcode_capabilities::session::SessionManager::for_project(working_dir))
+        .unwrap_or_else(|| {
+            atomcode_capabilities::session::SessionManager::for_project(
+                working_dir,
+                &atomcode_coding::config::product_dirs_from_env(),
+            )
+        })
 }
 
 #[cfg(test)]
@@ -5666,7 +5795,10 @@ mod cost_session_location_tests {
         let manager = session_manager_for_cost(Some(bucket), std::path::Path::new("/different"));
         assert_eq!(
             manager.root(),
-            atomcode_capabilities::session::SessionManager::sessions_root().join(bucket)
+            atomcode_capabilities::session::SessionManager::sessions_root(
+                atomcode_coding::config::product_dirs_from_env().user()
+            )
+            .join(bucket)
         );
     }
 }
@@ -5950,7 +6082,9 @@ pub(crate) fn save_recent_dirs(dirs: &[PathBuf]) {
 /// Windows case/verbatim aliases collapse to one row.
 pub(crate) fn load_cd_picker_dirs(current: &Path, recent: &[PathBuf]) -> Vec<PathBuf> {
     let scan = atomcode_capabilities::session::SessionManager::scan_catalog(
-        &atomcode_capabilities::session::SessionManager::sessions_root(),
+        &atomcode_capabilities::session::SessionManager::sessions_root(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        ),
     );
     merge_cd_picker_dirs(
         current,
@@ -6661,40 +6795,61 @@ pub(crate) fn format_mcp_tools_snapshot(
     available: &[String],
 ) -> String {
     if !tools.is_empty() {
-        let mut message = String::from("tools:\n");
+        let mut message = t(Msg::McpToolsOf { server }).into_owned();
         for tool in tools {
-            message.push_str(&format!("  - {tool}\n"));
+            message.push_str(&format!("    - {tool}\n"));
         }
         return message.trim_end().to_string();
     }
     match status {
-        Some(status) => format!("tools:\n  (none — {status})"),
+        Some(status) => t(Msg::McpServerNoTools {
+            server,
+            status: &mcp_status_words(status),
+        })
+        .trim_end()
+        .to_string(),
         None => format_unknown_server(server, available),
     }
 }
 
-pub(crate) fn parse_mcp_subcommand(sub: &str) -> Option<McpSub> {
-    let s = sub.trim();
-    if s.eq_ignore_ascii_case("reload") {
-        Some(McpSub::Reload)
-    } else if s.eq_ignore_ascii_case("trust") {
-        Some(McpSub::Trust)
-    } else if s.eq_ignore_ascii_case("untrust") {
-        Some(McpSub::Untrust)
-    } else if s.eq_ignore_ascii_case("help")
-        || s.eq_ignore_ascii_case("--help")
-        || s.eq_ignore_ascii_case("-h")
-    {
-        Some(McpSub::Help)
-    } else if s.starts_with("tools") {
-        Some(McpSub::Tools)
-    } else if s.starts_with("login") {
-        Some(McpSub::Login)
-    } else if s.starts_with("logout") {
-        Some(McpSub::Logout)
-    } else {
-        None
+/// A server's state in the screen's language — the status list printed the
+/// capability's English `Display` (`blocked: untrusted project`) in the middle
+/// of a Chinese screen.
+pub(crate) fn mcp_status_words(status: &atomcode_capabilities::mcp::ServerStatus) -> String {
+    use atomcode_capabilities::mcp::ServerStatus as S;
+    match status {
+        S::Connecting => t(Msg::McpStatusConnecting),
+        S::Connected => t(Msg::McpStatusConnected),
+        S::BlockedUntrusted => t(Msg::McpStatusBlockedUntrusted),
+        S::Failed(error) => t(Msg::McpStatusFailed { error }),
+        S::Disconnected => t(Msg::McpStatusDisconnected),
     }
+    .into_owned()
+}
+
+/// The subcommand is the first word, in any case; what follows is its argument
+/// ([`mcp_subcommand_arg`]). The same reading as the rows screen's `/mcp`, so a
+/// line gets the same answer on both — `/mcp Tools fs`, `/mcp reload now` —
+/// and `/mcp toolsx` is not taken for `tools`.
+pub(crate) fn parse_mcp_subcommand(sub: &str) -> Option<McpSub> {
+    let word = sub.split_whitespace().next()?.to_ascii_lowercase();
+    match word.as_str() {
+        "reload" => Some(McpSub::Reload),
+        "trust" => Some(McpSub::Trust),
+        "untrust" => Some(McpSub::Untrust),
+        "help" | "--help" | "-h" => Some(McpSub::Help),
+        "tools" => Some(McpSub::Tools),
+        "login" => Some(McpSub::Login),
+        "logout" => Some(McpSub::Logout),
+        _ => None,
+    }
+}
+
+/// What follows the subcommand's word.
+pub(crate) fn mcp_subcommand_arg(sub: &str) -> &str {
+    let sub = sub.trim_start();
+    sub.split_once(char::is_whitespace)
+        .map_or("", |(_, rest)| rest.trim())
 }
 
 #[cfg(test)]
@@ -7149,7 +7304,7 @@ mod compose_login_chrome_tests {
 /// alongside the URL — same UX as any other slash command.
 ///
 /// Earlier revisions suspended `renderer` for the OAuth window and let
-/// `auth::login()` println straight to stdout. That collapsed the input
+/// `auth::login(atomcode_coding::config::product_dirs_from_env().user(), )` println straight to stdout. That collapsed the input
 /// box and (worse) wrote URL bytes on top of existing scrollback because
 /// the cursor was wherever the last paint left it. The renderer-driven
 /// path here avoids both problems.
@@ -7231,7 +7386,10 @@ fn run_oauth_with_renderer(
     // Stop the poller before the token exchange.
     drop(poll_rx);
 
-    session.finish(Some(&ctx.telemetry))
+    session.finish(
+        atomcode_coding::config::product_dirs_from_env().user(),
+        Some(&ctx.telemetry),
+    )
 }
 
 /// Run `coding_plan::run()` on a blocking thread to prevent
@@ -7263,6 +7421,7 @@ fn run_coding_plan_blocking(
         // Interactive `/login`: reset the active default to the server's primary model.
         let report = atomcode_codingplan::run(
             &mut cfg,
+            atomcode_coding::config::product_dirs_from_env().user(),
             Some(&tel),
             atomcode_codingplan::DefaultModelPolicy::AdoptServerDefault,
         );
@@ -7289,10 +7448,14 @@ fn run_coding_plan_blocking(
 /// path — that path prints to stdout and is reserved for CLI callers.
 pub(crate) fn run_login_flow(renderer: &mut dyn Renderer, ctx: &mut LoopCtx) -> Result<()> {
     // Phase 1: pre-flight login if needed.
-    if !atomcode_auth::is_logged_in() {
-        if let Err(e) = run_oauth_with_renderer(renderer, ctx)
-            .and_then(|auth| atomcode_auth::save_auth(&auth).map(|_| auth))
-        {
+    if !atomcode_auth::is_logged_in(atomcode_coding::config::product_dirs_from_env().user()) {
+        if let Err(e) = run_oauth_with_renderer(renderer, ctx).and_then(|auth| {
+            atomcode_auth::save_auth(
+                atomcode_coding::config::product_dirs_from_env().user(),
+                &auth,
+            )
+            .map(|_| auth)
+        }) {
             // Login failed/cancelled. Surface as a top-level error;
             // skip the rest of setup since claim/models/status all
             // need a token.
@@ -7339,9 +7502,13 @@ pub(crate) fn run_login_flow(renderer: &mut dyn Renderer, ctx: &mut LoopCtx) -> 
     if report.auth_expired {
         renderer.render(UiLine::CommandOutput(t(Msg::CpReauthAfter401).into_owned()));
         renderer.flush();
-        match run_oauth_with_renderer(renderer, ctx)
-            .and_then(|auth| atomcode_auth::save_auth(&auth).map(|_| auth))
-        {
+        match run_oauth_with_renderer(renderer, ctx).and_then(|auth| {
+            atomcode_auth::save_auth(
+                atomcode_coding::config::product_dirs_from_env().user(),
+                &auth,
+            )
+            .map(|_| auth)
+        }) {
             Ok(_) => {
                 let (cfg_after2, r2) =
                     match run_coding_plan_blocking(&prepared_config, &ctx.telemetry) {
@@ -7411,11 +7578,15 @@ pub(crate) fn run_login_flow(renderer: &mut dyn Renderer, ctx: &mut LoopCtx) -> 
         // Stamp the drift-monitor sync marker alongside the config
         // write. Failures are non-fatal: at worst the 24h staleness
         // hint mis-fires once.
-        let _ = atomcode_codingplan::write_last_sync_now();
+        let _ = atomcode_codingplan::write_last_sync_now(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        );
         // Also bump our own last-seen timestamp so the cross-process
         // sync-check on the next keystroke doesn't redundantly
         // reload the config we just saved ourselves.
-        ctx.monitor_last_sync_seen = atomcode_codingplan::read_last_sync();
+        ctx.monitor_last_sync_seen = atomcode_codingplan::read_last_sync(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        );
         // Clear any stale drift warning now that we've just
         // re-synced. Also reset the cooldown so the next
         // pre-turn trigger (if conditions change) can fire
@@ -8246,7 +8417,9 @@ mod tests {
     fn context_file_status_shows_instruction_and_memory_paths() {
         let project = tempfile::tempdir().unwrap();
         std::fs::write(project.path().join("AGENTS.md"), "project instructions").unwrap();
-        let project_memory = MemoryStore::project(project.path());
+        let project_memory = MemoryStore::project(
+            &atomcode_coding::config::product_dirs_from_env().project(project.path()),
+        );
         std::fs::create_dir_all(project_memory.path().parent().unwrap()).unwrap();
         std::fs::write(project_memory.path(), "- remembered fact\n").unwrap();
         let status = render_context_file_status_block(project.path());
@@ -8320,11 +8493,17 @@ mod tests {
 
         assert_eq!(
             bucket,
-            atomcode_capabilities::session::SessionManager::project_hash(&runtime_dir)
+            atomcode_capabilities::session::SessionManager::project_hash(
+                &runtime_dir,
+                &atomcode_coding::config::product_dirs_from_env()
+            )
         );
         assert_ne!(
             bucket,
-            atomcode_capabilities::session::SessionManager::project_hash(&stale_meta_dir)
+            atomcode_capabilities::session::SessionManager::project_hash(
+                &stale_meta_dir,
+                &atomcode_coding::config::product_dirs_from_env()
+            )
         );
     }
 
@@ -8822,11 +9001,16 @@ mod memory_command_tests {
     fn remember_project_writes_directly_to_store() {
         use atomcode_capabilities::memory::MemoryStore;
         let tmp = tempfile::tempdir().unwrap();
-        let store = MemoryStore::project(tmp.path());
-        // 迁移后 /remember 走 MemoryStore::project(cwd).append —— 这里直接验证 store 语义,
+        let store = MemoryStore::project(
+            &atomcode_coding::config::product_dirs_from_env().project(tmp.path()),
+        );
+        // 迁移后 /remember 走 MemoryStore::project(&atomcode_coding::config::product_dirs_from_env().project(cwd)).append —— 这里直接验证 store 语义,
         // 命令臂在 Step 4 改为调用它。
         store.append("uses tabs not spaces").unwrap();
-        let entries = MemoryStore::project(tmp.path()).load();
+        let entries = MemoryStore::project(
+            &atomcode_coding::config::product_dirs_from_env().project(tmp.path()),
+        )
+        .load();
         assert!(entries.iter().any(|e| e == "uses tabs not spaces"));
     }
 }
@@ -9357,8 +9541,23 @@ mod todo_command_tests {
     fn init_prompt_uses_the_language_from_the_live_config() {
         let mut config = atomcode_config::Config::default();
         config.language = Some(atomcode_config::locale::Locale::ZhCn);
-        let prompt = build_init_prompt_from_config(&config).unwrap();
+        let prompt =
+            build_init_prompt_from_config(&config, std::path::Path::new("config.toml")).unwrap();
         assert!(prompt.contains("最终文件使用简体中文编写"));
+    }
+
+    /// A relative `init_prompt_file` is the file beside the config that named
+    /// it, as the `/init` row reads it — one config, one prompt, whichever
+    /// front end runs it.
+    #[test]
+    fn a_relative_init_prompt_is_read_beside_its_config() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("init.md"), "BESIDE-THE-CONFIG").unwrap();
+        let mut config = atomcode_config::Config::default();
+        config.init_prompt_file = Some(std::path::PathBuf::from("init.md"));
+        let prompt =
+            build_init_prompt_from_config(&config, &dir.path().join("config.toml")).unwrap();
+        assert!(prompt.contains("BESIDE-THE-CONFIG"), "{prompt}");
     }
 
     #[test]
@@ -9366,7 +9565,8 @@ mod todo_command_tests {
         let dir = tempfile::tempdir().unwrap();
         let mut config = atomcode_config::Config::default();
         config.init_prompt_file = Some(dir.path().join("missing.md"));
-        let error = build_init_prompt_from_config(&config).unwrap_err();
+        let error = build_init_prompt_from_config(&config, std::path::Path::new("config.toml"))
+            .unwrap_err();
         assert!(error.contains("failed to read custom /init prompt"));
     }
 
@@ -9405,6 +9605,7 @@ mod todo_command_tests {
 #[cfg(test)]
 mod mcp_subcommand_tests {
     use super::{count_blocked_untrusted, parse_mcp_subcommand, McpSub};
+    use crate::i18n::{t, Msg};
     use atomcode_capabilities::mcp::ServerStatus;
 
     #[test]
@@ -9426,6 +9627,27 @@ mod mcp_subcommand_tests {
             ("b".to_string(), ServerStatus::Disconnected),
         ];
         assert_eq!(count_blocked_untrusted(&servers), 0);
+    }
+
+    #[test]
+    fn plugin_install_scope_reads_every_spelling_the_usage_offers() {
+        use atomcode_capabilities::plugin::InstallScope;
+        for arg in [
+            "--scope project",
+            "--scope=project",
+            "project",
+            "  --scope   project ",
+        ] {
+            assert!(
+                matches!(super::parse_scope_arg(arg), InstallScope::Project),
+                "`{arg}` must install at project scope"
+            );
+        }
+        assert!(matches!(
+            super::parse_scope_arg("--scope local"),
+            InstallScope::Local
+        ));
+        assert!(matches!(super::parse_scope_arg(""), InstallScope::User));
     }
 
     #[test]
@@ -9546,13 +9768,84 @@ mod mcp_subcommand_tests {
         // NOT misreport it as an unknown key.
         let out =
             format_mcp_tools_snapshot("rvs", &[], Some(&ServerStatus::Connected), &["rvs".into()]);
-        assert!(
-            out.contains("none"),
-            "shows the (none — status) form: {out:?}"
+        assert_eq!(
+            out,
+            t(Msg::McpServerNoTools {
+                server: "rvs",
+                status: &t(Msg::McpStatusConnected),
+            })
+            .trim_end(),
+            "says it has none, and its state, in the screen's language"
         );
         assert!(
             !out.contains("未找到") && !out.contains("named"),
             "not an unknown-key message: {out:?}"
+        );
+    }
+
+    /// The status list is in the screen's language: no `blocked: untrusted
+    /// project` from the capability's English `Display`.
+    #[test]
+    fn mcp_status_is_said_in_the_screens_words() {
+        use atomcode_capabilities::mcp::ServerStatus as S;
+        for status in [
+            S::Connecting,
+            S::Connected,
+            S::BlockedUntrusted,
+            S::Failed("exit 1".into()),
+            S::Disconnected,
+        ] {
+            assert!(!super::mcp_status_words(&status).is_empty());
+        }
+        let held = super::mcp_status_words(&S::BlockedUntrusted);
+        assert_ne!(
+            held,
+            S::BlockedUntrusted.to_string(),
+            "not the capability's Display"
+        );
+        // And `/mcp tools` says it in the same words.
+        let out =
+            super::format_mcp_tools_snapshot("p", &[], Some(&S::BlockedUntrusted), &["p".into()]);
+        assert!(out.contains(&held), "{out}");
+        assert!(!out.contains(&S::BlockedUntrusted.to_string()), "{out}");
+        assert!(super::mcp_status_words(&S::Failed("exit 1".into())).contains("exit 1"));
+    }
+
+    /// The same line reads the same on both screens: the first word, in any
+    /// case, is the subcommand, and what follows it is its argument.
+    #[test]
+    fn a_subcommand_is_its_first_word_in_any_case() {
+        use super::mcp_subcommand_arg;
+        assert!(matches!(
+            parse_mcp_subcommand("Tools fs"),
+            Some(McpSub::Tools)
+        ));
+        assert_eq!(mcp_subcommand_arg("Tools fs"), "fs");
+        assert!(matches!(
+            parse_mcp_subcommand("reload now"),
+            Some(McpSub::Reload)
+        ));
+        assert!(matches!(
+            parse_mcp_subcommand("LOGIN github"),
+            Some(McpSub::Login)
+        ));
+        assert_eq!(mcp_subcommand_arg("  login   github  "), "github");
+        assert!(
+            parse_mcp_subcommand("toolsx").is_none(),
+            "not a prefix match"
+        );
+        assert!(parse_mcp_subcommand("").is_none());
+    }
+
+    /// A word that is not a subcommand is said to be one: `/mcp relaod`
+    /// answered with the status list, which read as if it had reloaded.
+    #[test]
+    fn an_unknown_mcp_subcommand_is_not_taken_for_the_status() {
+        assert!(super::parse_mcp_subcommand("relaod").is_none());
+        let said = t(Msg::McpUnknownSubcommand { what: "relaod" });
+        assert!(
+            said.contains("relaod") && said.contains("/mcp help"),
+            "{said}"
         );
     }
 

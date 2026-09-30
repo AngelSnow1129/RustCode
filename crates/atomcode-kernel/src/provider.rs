@@ -126,6 +126,35 @@ pub trait LlmProvider: Send + Sync {
     fn context_window(&self) -> u32 {
         0
     }
+    /// Whether this backend can carry image content in a user message.
+    ///
+    /// FALSE by default, and deliberately so. An adapter that needs images
+    /// degrades them to text when this is false, which is right for a resumed
+    /// conversation but silent for a picture someone just pasted; so a *front
+    /// end* asks this question before it attaches one, and a backend that
+    /// cannot answer must say false rather than let the bytes vanish between
+    /// the marker on screen and the request on the wire.
+    ///
+    /// A wrapper that delegates MUST forward this, exactly as it forwards
+    /// [`context_window`](Self::context_window): a decorator that forgets is a
+    /// decorator that disables vision for every model behind it.
+    fn supports_vision(&self) -> bool {
+        false
+    }
+    /// The reasoning-effort LEVELS this backend exposes, canonical order (a
+    /// subset of `low`/`medium`/`high`/`xhigh`/`max`). EMPTY by default and when
+    /// the model has no reasoning-effort control — a front end then offers only
+    /// "leave it to the endpoint". A non-empty list is exactly what a person may
+    /// pick from, so a menu can offer what the model supports instead of a fixed
+    /// set (and the strength a person carries across models stays a separate
+    /// value — see the `reasoning-effort` row).
+    ///
+    /// A wrapper that delegates MUST forward this, exactly as it forwards
+    /// [`supports_vision`](Self::supports_vision): a decorator that forgets
+    /// collapses every model behind it to "no levels".
+    fn effort_levels(&self) -> Vec<String> {
+        Vec::new()
+    }
     /// Bind this provider to its owning Agent's session id, ONCE. The kernel calls
     /// this at spawn — the single point where the session id (allocated by the coding
     /// layer's `prepare`, threaded in via `AgentBuilder::session_id`) meets the

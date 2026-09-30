@@ -1,0 +1,6737 @@
+//! The commands this build ships, grouped by what they are about.
+//!
+//! Split into sets on purpose: the screen's own verbs, the session's, and
+//! `/help`. Removing a set removes its commands, and a capability that wants a
+//! command of its own contributes a set rather than editing anything here.
+//!
+//! There are no commands that read or rewrite the agent's config tree: the
+//! agent is in the host's App, and what a person may change about it is what
+//! host control offers (`docs/adr/0022` §7).
+
+use crate::i18n::{t, Msg};
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use atomcode_host_api::{HostCommand, HostError, HostReply};
+use atomcode_kernel::message::Role;
+use atomcode_kernel::provider::ReasoningEffort;
+use atomcode_kernel::session::{derive_messages, SessionEvent};
+use atomcode_plexus::Context;
+
+use crate::command::{Command, CommandOption, CommandSet, Commands, Outcome};
+use crate::host::ToolOutput;
+use crate::keymap::Action;
+
+/// Quit, clear, fold — things the screen itself owns.
+pub struct ScreenCommands;
+
+/// Built per call rather than held in a `const`, because what each line says
+/// depends on the language in force and `/language` changes that mid-session.
+fn screen_catalogue() -> Vec<Command> {
+    vec![
+        // `/exit` keeps working as an alias — one row, not two.
+        Command::said("quit", t(Msg::CmdAboutQuit)).with_aliases(&["exit"]),
+        Command::said("reasoning", t(Msg::CmdAboutReasoning)),
+        Command::said_taking(
+            "tools",
+            "[full|head|each|group]".into(),
+            t(Msg::CmdAboutTools),
+        ),
+        Command::said("showinject", t(Msg::CmdAboutShowInject)),
+        Command::said("mouse", t(Msg::CmdAboutMouse)),
+        Command::said("keys", t(Msg::CmdAboutKeys)),
+        Command::said("todo", t(Msg::CmdAboutTodo)),
+        Command::said("team", t(Msg::CmdAboutTeam)),
+        Command::said_taking("paste", t(Msg::CmdTakesPath), t(Msg::CmdAboutPaste)),
+        Command::said("config", t(Msg::CmdAboutConfig)),
+        Command::said("provider", t(Msg::CmdAboutProviderPanel)),
+    ]
+}
+
+#[async_trait]
+impl CommandSet for ScreenCommands {
+    fn id(&self) -> &'static str {
+        "cmd-screen"
+    }
+    fn commands(&self) -> Vec<Command> {
+        screen_catalogue()
+    }
+    async fn run(&self, name: &str, args: &str, ctx: &Context) -> Outcome {
+        match name {
+            "quit" | "exit" => Outcome::Do(Action::Quit),
+            "reasoning" => Outcome::Do(Action::ToggleFold("reasoning")),
+            "tools" => match tool_output(&args.to_ascii_lowercase()) {
+                Ok(action) => Outcome::Do(action),
+                Err(why) => Outcome::Refused(why),
+            },
+            "showinject" => match showinject(&args.to_ascii_lowercase()) {
+                Ok(action) => Outcome::Do(action),
+                Err(why) => Outcome::Refused(why),
+            },
+            "mouse" => Outcome::Do(Action::ToggleMouse),
+            // The two panels a person toggles by name. Same gesture the fold
+            // keys are, so a command and a key share one implementation — and
+            // with a state named, the flat setter, because a toggle means the
+            // opposite of itself every other time.
+            //
+            // The bare form stays a toggle: that is the gesture, and it is what
+            // a person who can see the panel means. `show`/`hide` are for
+            // everyone who cannot — a script, a keybinding, a session just
+            // resumed onto a second screen.
+            // `/todo` prints the plan, as `atomcode-tuix`'s does: the panel
+            // leaves once every item is done, and this is how the finished list
+            // is still read. The panel itself is the named states (and the fold
+            // key), not the bare command.
+            "todo" => {
+                let args = args.trim();
+                let verb = args
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                let client = ctx.service::<crate::plugin::AgentClientSvc>();
+                match verb.as_str() {
+                    "" | "list" => match client {
+                        Some(client) => {
+                            Outcome::Said(crate::modules::todo::plan_text(&client.events()))
+                        }
+                        None => Outcome::Refused(t(Msg::NoAgent).into_owned()),
+                    },
+                    // The edits are the session's own `todo` command (`tool-todo`
+                    // in the harness), which writes them into the log between
+                    // turns; the screen only passes the words on, as they were
+                    // typed — the task keeps its case.
+                    "add" | "clear" => match client {
+                        Some(client) => {
+                            client.invoke("todo", args);
+                            Outcome::Quiet
+                        }
+                        None => Outcome::Refused(t(Msg::NoAgent).into_owned()),
+                    },
+                    "toggle" | "show" | "open" | "hide" | "fold" | "close" => {
+                        fold_command("todo", &verb)
+                    }
+                    other => Outcome::Refused(t(Msg::TodoUsage { other }).into_owned()),
+                }
+            }
+            "team" => fold_command("team", args),
+            // A typed way in to the thing ctrl-v does, because ctrl-v does not
+            // always arrive: Windows terminals hand the paste to the key layer
+            // as a keystroke, and some platforms have no clipboard this process
+            // can read at all. With a path it does not need one.
+            // Resolved by the handler rather than here, so the clipboard is
+            // read once: `clipboard_image` decodes bytes, and asking it "is
+            // there one?" here and "give it to me" there would decode twice —
+            // and could get two different answers if the clipboard changed in
+            // between. A path, though, is placed here: which directory a
+            // relative one is in is the host's answer, and the handler cannot
+            // wait for it.
+            "paste" => match args.trim() {
+                "" => Outcome::Do(Action::PasteFrom(None)),
+                path => {
+                    let Some(client) = ctx.service::<crate::plugin::AgentClientSvc>() else {
+                        return Outcome::Refused(t(Msg::NoAgent).into_owned());
+                    };
+                    match session_path(&client, path).await {
+                        Ok(full) => {
+                            Outcome::Do(Action::PasteFrom(Some(full.display().to_string())))
+                        }
+                        Err(refused) => refused,
+                    }
+                }
+            },
+            "config" => Outcome::Do(Action::ToggleSettings),
+            "provider" => Outcome::Do(Action::ToggleProviders),
+            "keys" => Outcome::Said(t(Msg::KeysHelp).into_owned()),
+            _ => Outcome::Quiet,
+        }
+    }
+}
+
+/// The word `/mode` takes for one of the four.
+///
+/// Beside the arm that reads them, and paired with [`mode_named`] by a
+/// round-trip test: the cycle key asks for "the next one" and has to say it in
+/// the same vocabulary a person types, so a second table here would be the
+/// second place for the two to disagree.
+pub fn mode_word(mode: atomcode_host_api::Mode) -> &'static str {
+    use atomcode_host_api::Mode;
+    match mode {
+        Mode::Plan => "plan",
+        Mode::Ask => "ask",
+        Mode::AcceptEdits => "edits",
+        Mode::Auto => "auto",
+    }
+}
+
+/// The mode a word names, or `None` for a word that names none.
+///
+/// `accept-edits` is accepted as well as `edits`: the contract calls the mode
+/// `AcceptEdits` and the shorter word is what the badge and the help text use,
+/// so both spellings are the one mode rather than two.
+pub fn mode_named(word: &str) -> Option<atomcode_host_api::Mode> {
+    use atomcode_host_api::Mode;
+    match word {
+        "plan" => Some(Mode::Plan),
+        "ask" => Some(Mode::Ask),
+        "edits" | "accept-edits" => Some(Mode::AcceptEdits),
+        "auto" => Some(Mode::Auto),
+        _ => None,
+    }
+}
+
+/// Turn `/showinject <what>` into the one action it means.
+///
+/// Split out from the dispatch because the interesting part is the refusal, and
+/// a refusal that has to be written to be tested is a refusal that says what the
+/// alternatives were. `/showinject` with nothing after it is the group — every
+/// environmental injection at once — since that is the thing a person forms an
+/// opinion about, not any one of them.
+///
+/// A named one is the same `Hidden → Folded → Open → Hidden` cycle `/reasoning`
+/// is, with `Folded` standing in the label `[reminder]` alone: the useful middle
+/// state for something that is off the screen because it is noise but is not
+/// hidden from anybody who goes looking.
+fn tool_output(what: &str) -> Result<Action, String> {
+    // Bare: the cycle, which is what the key does too. One gesture, one
+    // implementation — a press of ctrl-t and a bare `/tools` are the same act.
+    if what.is_empty() {
+        return Ok(Action::ToggleFold("tool_call"));
+    }
+    match what {
+        "full" | "all" => Ok(Action::SetToolOutput(ToolOutput::Full)),
+        "head" | "preview" => Ok(Action::SetToolOutput(ToolOutput::Head)),
+        "each" | "one" => Ok(Action::SetToolOutput(ToolOutput::Each)),
+        "group" | "run" => Ok(Action::SetToolOutput(ToolOutput::Group)),
+        _ => Err(t(Msg::ToolOutputUnknown { what }).into_owned()),
+    }
+}
+
+fn showinject(what: &str) -> Result<Action, String> {
+    if what.is_empty() {
+        return Ok(Action::ToggleFolds(
+            crate::content::ENVIRONMENTAL_INJECTIONS.to_vec(),
+        ));
+    }
+    // `all` rather than a fourth name: every kind in the table, peers included,
+    // because "show me the injections" is a question about the screen and a
+    // teammate's report is an injection flatly.
+    if what == "all" {
+        return Ok(Action::ToggleFolds(
+            crate::content::INJECTIONS
+                .iter()
+                .map(|(_, kind)| *kind)
+                .collect(),
+        ));
+    }
+    match crate::content::injected_kind(what) {
+        Some(kind) => Ok(Action::ToggleFold(kind)),
+        None => Err(t(Msg::InjectionUnknown {
+            what,
+            names: &crate::content::INJECTIONS
+                .iter()
+                .map(|(name, _)| *name)
+                .collect::<Vec<_>>()
+                .join(" / "),
+        })
+        .into_owned()),
+    }
+}
+
+/// Taking the conversation out of the terminal: onto the clipboard, onto disk.
+///
+/// Its own set rather than two more arms in [`SessionCommands`], because it is
+/// the one part of the command surface a downstream build is most likely to
+/// have an opinion about — a house that saves to its own wiki drops this row
+/// and mounts its own, or keeps it and overrides `save` alone
+/// ([`CommandSet::overrides`]).
+pub struct TakeAwayCommands;
+
+/// The most of a file `/view` will read into memory.
+///
+/// A cap and not a preference: without one, `/view` on a multi-gigabyte log
+/// reads the whole thing into a `String` before anyone can press anything.
+/// The three caps below are the ones `atomcode-tuix` settled on, kept because
+/// their job is to be large enough that nobody meets them by accident.
+const VIEW_MAX_BYTES: u64 = 8 * 1024 * 1024;
+/// The most lines it will show. Past this the file is a haystack, not a read.
+const VIEW_MAX_LINES: usize = 1000;
+/// The most characters kept from one line. A minified bundle is one line of
+/// two million; wrapping it fills the screen with a single row of the file.
+const VIEW_MAX_LINE: usize = 2000;
+
+/// `/team` and `/todo`: the bare toggle, or a named state.
+///
+/// **An argument nobody recognises is refused, not ignored.** Both commands
+/// used to drop `args` on the floor, so `/team stauts` toggled the panel — a
+/// typo that did something, which is the one thing a typo must never do. That
+/// is the bug this shape fixes; the named states are what it fixes it with.
+///
+/// `hide` is [`Showing::Folded`] rather than gone: neither panel is hideable
+/// ([`crate::host::Showing`] — only reasoning and the environment's injections
+/// are), so one row is as far away as they go. Named `hide` anyway, because
+/// that is the word people reach for and the panel does go away as a thing you
+/// read.
+fn fold_command(kind: &'static str, args: &str) -> Outcome {
+    use crate::host::Showing;
+    match args.trim().to_ascii_lowercase().as_str() {
+        "" | "toggle" => Outcome::Do(Action::ToggleFold(kind)),
+        "show" | "open" => Outcome::Do(Action::SetFold(kind, Showing::Open)),
+        "hide" | "fold" | "close" => Outcome::Do(Action::SetFold(kind, Showing::Folded)),
+        other => Outcome::Refused(t(Msg::FoldUsage { name: kind, other }).into_owned()),
+    }
+}
+
+/// Which file a typed path means — for `/view`, and for `/paste <path>`.
+///
+/// Its own function because it is a decision with three inputs and one right
+/// answer, and the alternative is judging it through a command dispatch that
+/// would have to own the machine's home directory to say anything. Shared by
+/// the two commands that take a path rather than copied, so `~/shot.png` and
+/// `~/notes.md` cannot come to mean files in two different places.
+///
+/// `~/…` is expanded **before** the absolute test, not after: an unexpanded
+/// `~/notes.md` is a relative path, so it would be joined onto the working
+/// directory and the refusal would name a file nobody meant.
+pub(crate) fn view_path(
+    typed: &str,
+    root: &str,
+    home: Option<&std::path::Path>,
+) -> std::path::PathBuf {
+    let expanded = crate::text::expand_home_with(typed, home);
+    let path = std::path::Path::new(&expanded);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::path::Path::new(root).join(path)
+    }
+}
+
+/// A file as `/view` will show it, and what had to be left out to show it.
+struct Viewed {
+    body: String,
+    /// The file was longer than [`VIEW_MAX_BYTES`], so this is its opening.
+    at_byte_cap: bool,
+    /// Lines past [`VIEW_MAX_LINES`] were dropped.
+    at_line_cap: bool,
+    /// How many lines were cut at [`VIEW_MAX_LINE`].
+    long_lines: usize,
+}
+
+/// Read a file for `/view`, bounded on all three axes.
+///
+/// Returns `Ok(None)` for a file that is not text. A binary opened in a text
+/// viewer is not a degraded read — it is a screenful of garbage plus whatever
+/// escape sequences happened to be in it, so it is refused by name instead.
+/// (`crate::text::for_screen` would strip those on the way out; this refuses
+/// earlier because "here are 8MB of nothing" is not worth drawing.)
+///
+/// **NUL first, then lossy.** The byte cap can land mid-character, and a file
+/// that is merely not-UTF-8 (a latin-1 README) still reads fine with
+/// replacement characters — so invalid UTF-8 alone is not the test. An embedded
+/// NUL is: no text file has one, every binary does.
+fn view_file(path: &std::path::Path) -> std::io::Result<Option<Viewed>> {
+    view_file_within(path, VIEW_MAX_BYTES, VIEW_MAX_LINES, VIEW_MAX_LINE)
+}
+
+/// [`view_file`] with the three caps passed in, so each one can be judged
+/// against a file of a few bytes instead of one of eight megabytes.
+fn view_file_within(
+    path: &std::path::Path,
+    max_bytes: u64,
+    max_lines: usize,
+    max_line: usize,
+) -> std::io::Result<Option<Viewed>> {
+    use std::io::Read as _;
+    let file = std::fs::File::open(path)?;
+    let mut bytes = Vec::new();
+    // One past the cap, so "exactly at the cap" and "longer than the cap" are
+    // distinguishable without a second trip to the filesystem.
+    std::io::Read::take(file, max_bytes + 1).read_to_end(&mut bytes)?;
+    let at_byte_cap = bytes.len() as u64 > max_bytes;
+    if at_byte_cap {
+        bytes.truncate(max_bytes as usize);
+    }
+    if bytes.contains(&0) {
+        return Ok(None);
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let mut body = String::new();
+    let mut long_lines = 0;
+    let mut lines = text.lines();
+    for line in lines.by_ref().take(max_lines) {
+        if line.chars().count() > max_line {
+            long_lines += 1;
+            let keep: String = line.chars().take(max_line).collect();
+            body.push_str(&keep);
+        } else {
+            body.push_str(line);
+        }
+        body.push('\n');
+    }
+    Ok(Some(Viewed {
+        body,
+        at_byte_cap,
+        at_line_cap: lines.next().is_some(),
+        long_lines,
+    }))
+}
+
+fn take_away_catalogue() -> Vec<Command> {
+    vec![
+        Command::said_taking("copy", "[N|all|msg]".into(), t(Msg::CmdAboutCopy)),
+        Command::said_taking("save", t(Msg::CmdTakesFilename), t(Msg::CmdAboutSave)),
+        // Not `requiring`: a bare `/view` is the list of files to pick one from.
+        Command::said_taking("view", t(Msg::CmdTakesPath), t(Msg::CmdAboutView)),
+    ]
+}
+
+#[async_trait]
+impl CommandSet for TakeAwayCommands {
+    fn id(&self) -> &'static str {
+        "cmd-take-away"
+    }
+    fn commands(&self) -> Vec<Command> {
+        take_away_catalogue()
+    }
+    async fn run(&self, name: &str, args: &str, ctx: &Context) -> Outcome {
+        let Some(client) = ctx.service::<crate::plugin::AgentClientSvc>() else {
+            return Outcome::Refused(t(Msg::NoAgent).into_owned());
+        };
+        match name {
+            // Copying a code block is the one thing people do with an answer
+            // that the answer itself cannot do: the model wrote it to be run,
+            // and dragging across a wrapped terminal is how it ends up with
+            // line numbers and gutters in it.
+            "copy" => {
+                let answer = last_answer(&client.events());
+                // `msg` takes the whole reply, prose and all — the other half of
+                // what people do with an answer. A block is for running; the
+                // whole message is for pasting into an issue or a review, and
+                // that is exactly the case where dragging across a wrapped
+                // terminal picks up gutters and fold marks.
+                if args.trim() == "msg" {
+                    if answer.trim().is_empty() {
+                        return Outcome::Refused(t(Msg::CopyNoBlocks).into_owned());
+                    }
+                    let Some(surface) = ctx.service::<crate::plugin::SurfaceSvc>() else {
+                        return Outcome::Refused(t(Msg::NoClipboard).into_owned());
+                    };
+                    let lines = answer.lines().count();
+                    return Outcome::Said(
+                        surface.copy(&answer).words(t(Msg::CopiedLines { lines })),
+                    );
+                }
+                let blocks = code_blocks(&answer);
+                if blocks.is_empty() {
+                    return Outcome::Refused(t(Msg::CopyNoBlocks).into_owned());
+                }
+                let text = match args.trim() {
+                    "" if blocks.len() == 1 => blocks[0].clone(),
+                    "" => {
+                        return Outcome::Refused(
+                            t(Msg::CopyWhichBlock {
+                                count: blocks.len(),
+                            })
+                            .into_owned(),
+                        )
+                    }
+                    "all" => blocks.join("\n\n"),
+                    n => match n.parse::<usize>().ok().filter(|n| *n >= 1) {
+                        Some(n) if n <= blocks.len() => blocks[n - 1].clone(),
+                        _ => {
+                            return Outcome::Refused(
+                                t(Msg::CopyNoSuchBlock {
+                                    count: blocks.len(),
+                                    asked: n,
+                                })
+                                .into_owned(),
+                            )
+                        }
+                    },
+                };
+                let Some(surface) = ctx.service::<crate::plugin::SurfaceSvc>() else {
+                    return Outcome::Refused(t(Msg::NoClipboard).into_owned());
+                };
+                let lines = text.lines().count();
+                Outcome::Said(surface.copy(&text).words(t(Msg::CopiedLines { lines })))
+            }
+            // Markdown rather than the screen's own rendering: what is saved is
+            // read elsewhere — in an editor, in a review, in an issue — and the
+            // gutters and the fold marks belong to this screen.
+            "save" => {
+                let text = as_markdown(&client.events());
+                if text.trim().is_empty() {
+                    return Outcome::Refused(t(Msg::SaveNothingYet).into_owned());
+                }
+                let name = match args.trim() {
+                    "" => format!("atomcode-{}.md", client.session().replace('/', "-")),
+                    given => given.to_string(),
+                };
+                // Relative to where the session is working, not to wherever the
+                // process happened to be started: a person saying `/save` means
+                // "beside the code I am looking at".
+                let path = match session_path(&client, &name).await {
+                    Ok(path) => path,
+                    Err(refused) => return refused,
+                };
+                // **An existing file that this command did not write is not
+                // overwritten.** `/save` produces markdown; a `.md` target is
+                // therefore a previous save being replaced, which is what a
+                // person means by saving again. Any other extension is a file
+                // that came from somewhere else — `/save Cargo.toml` would
+                // destroy it, silently, with a transcript. Refusing costs one
+                // retype; the other way round costs the file.
+                let markdown = path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("md"));
+                if path.exists() && !markdown {
+                    return Outcome::Refused(
+                        t(Msg::SaveWouldOverwrite {
+                            path: &crate::text::collapse_home(&path.display().to_string()),
+                        })
+                        .into_owned(),
+                    );
+                }
+                match std::fs::write(&path, text) {
+                    Ok(()) => Outcome::Said(
+                        t(Msg::SavedTo {
+                            path: &path.display().to_string(),
+                        })
+                        .into_owned(),
+                    ),
+                    Err(error) => Outcome::Refused(
+                        t(Msg::SaveFailed {
+                            error: &error.to_string(),
+                        })
+                        .into_owned(),
+                    ),
+                }
+            }
+            // Looking at a file costs a turn otherwise — and puts the whole
+            // file in the conversation for good. This sends nothing and logs
+            // nothing.
+            "view" => {
+                let path = args.trim();
+                // Nothing named: every file here, to pick one from — filtered as
+                // it is typed, the way the classic screen's file picker does it.
+                // The pick is `/view <path>`, so the file opens where a typed
+                // path would, and Esc comes back to this list.
+                if path.is_empty() {
+                    let here = match working_dir(client.control(), client.root()).await {
+                        Ok(here) => here,
+                        Err(why) => return Outcome::Refused(why),
+                    };
+                    let root = std::path::PathBuf::from(&here);
+                    let own = ctx
+                        .service::<crate::plugin::ProductDirsSvc>()
+                        .map(|dirs| dirs.project_dir_name().to_string())
+                        .unwrap_or_default();
+                    let files = tokio::task::spawn_blocking(move || {
+                        atomcode_capabilities::file_index::FileIndex::files_blocking(&root, &own)
+                    })
+                    .await
+                    .unwrap_or_default();
+                    let rows = files
+                        .into_iter()
+                        .map(|file| crate::sheet::Row::new(format!("/view {file}"), file))
+                        .collect();
+                    return Outcome::Do(Action::OpenSheet(crate::sheet::Sheet::list(
+                        crate::sheet::List::new("view", t(Msg::ViewPickerTitle), rows)
+                            .empty(t(Msg::ViewPickerEmpty)),
+                    )));
+                }
+                let full = match session_path(&client, path).await {
+                    Ok(full) => full,
+                    Err(refused) => return refused,
+                };
+                let shown = crate::text::collapse_home(&full.display().to_string());
+                match view_file(&full) {
+                    // Read here rather than in the overlay: an overlay draws
+                    // under the same rule a view module does — pure, no IO.
+                    Ok(Some(seen)) => {
+                        // What was left out rides in the title, not on the last
+                        // line: the reader who needs to know is the one who
+                        // never reaches the end.
+                        let mut notes = Vec::new();
+                        if seen.at_byte_cap {
+                            notes.push(
+                                t(Msg::ViewTooBig {
+                                    mb: VIEW_MAX_BYTES / (1024 * 1024),
+                                })
+                                .into_owned(),
+                            );
+                        } else if seen.at_line_cap {
+                            notes.push(
+                                t(Msg::ViewOnlyFirstLines {
+                                    lines: VIEW_MAX_LINES,
+                                })
+                                .into_owned(),
+                            );
+                        }
+                        if seen.long_lines > 0 {
+                            notes.push(
+                                t(Msg::ViewLongLinesCut {
+                                    lines: seen.long_lines,
+                                })
+                                .into_owned(),
+                            );
+                        }
+                        let mut title =
+                            vec![crate::sheet::Piece::new(shown, crate::sheet::Tone::Plain)];
+                        if !notes.is_empty() {
+                            title.push(crate::sheet::Piece::new(
+                                format!("  ({})", notes.join(" · ")),
+                                crate::sheet::Tone::Warning,
+                            ));
+                        }
+                        Outcome::Do(Action::OpenSheet(crate::sheet::Sheet::read(
+                            crate::sheet::Read::file("view", title, &seen.body)
+                                .empty(t(Msg::OverlayEmptyFile).trim()),
+                        )))
+                    }
+                    Ok(None) => Outcome::Refused(t(Msg::ViewNotText { path: &shown }).into_owned()),
+                    Err(error) => Outcome::Refused(
+                        t(Msg::FileUnreadable {
+                            path,
+                            error: &error.to_string(),
+                        })
+                        .into_owned(),
+                    ),
+                }
+            }
+            _ => Outcome::Quiet,
+        }
+    }
+}
+
+/// The conversation: what is in it, what to do with it, and which one it is.
+pub struct SessionCommands;
+
+/// The reasoning-effort levels the slash menu offers inline, in place of a
+/// modal: the closed set from the one place that defines it, plus `default`
+/// (leave it to the endpoint). A pick dispatches `/effort <value>`, so this and
+/// a typed `/effort high` reach one implementation.
+fn effort_options() -> Vec<CommandOption> {
+    let mut out: Vec<CommandOption> = atomcode_harness::REASONING_EFFORT_LEVELS
+        .iter()
+        .map(|level| CommandOption::new(*level, t(Msg::EffortAbout)))
+        .collect();
+    out.push(CommandOption::new("default", t(Msg::EffortDefaultAbout)));
+    out
+}
+
+/// The background sessions, in slot order, as the host answers them now.
+async fn background_list(
+    control: &Arc<dyn atomcode_host_api::HostControl>,
+) -> Result<Vec<atomcode_host_api::BackgroundSession>, String> {
+    match control.call(HostCommand::BackgroundSessions).await {
+        Ok(HostReply::BackgroundSessions { sessions }) => Ok(sessions),
+        Ok(other) => Err(format!("{other:?}")),
+        Err(error) => Err(refusal(error)),
+    }
+}
+
+/// `/background` (`/bg`): bare, `<task>`, `list`, `<N>`, `drop <N|id>` — and
+/// `tell <id> <text>`, which is what the panel's reply sends (not listed: a
+/// person replies from the panel, where the id is the row they are on).
+async fn background_command(
+    control: &Arc<dyn atomcode_host_api::HostControl>,
+    root: &str,
+    args: &str,
+) -> Outcome {
+    let mut words = args.splitn(2, char::is_whitespace);
+    let first = words.next().unwrap_or("").trim();
+    let rest = words.next().unwrap_or("").trim();
+    // A slot number as `/bg list` numbers it, or a session id as the panel
+    // names it — both land on the same id.
+    let resolve = |sessions: &[atomcode_host_api::BackgroundSession], which: &str| match which
+        .parse::<usize>()
+    {
+        Ok(slot) => sessions
+            .get(slot.wrapping_sub(1))
+            .map(|s| (slot, s.clone()))
+            .ok_or_else(|| {
+                t(Msg::BgNoSuchSlot {
+                    slot,
+                    count: sessions.len(),
+                })
+                .into_owned()
+            }),
+        Err(_) => sessions
+            .iter()
+            .position(|s| s.session == which)
+            .map(|at| (at + 1, sessions[at].clone()))
+            .ok_or_else(|| t(Msg::BgUsage).into_owned()),
+    };
+    // A word is a subcommand only where it cannot be a task: `list` alone,
+    // `drop 2`, a bare slot number. Anything else is words for a new background
+    // session to work on — "tell me why the build is slow" is a task, not
+    // `tell` addressed to a session called "me".
+    //
+    // A target is a slot number, or a session id as the panel sends it
+    // (`/bg drop <id>` for ctrl+d) — an id is a UUID, which no task reads as.
+    let is_target = |word: &str| {
+        let word = word.split_whitespace().next().unwrap_or("");
+        word.parse::<usize>().is_ok()
+            || (word.len() == 36
+                && word.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+                && word.matches('-').count() == 4)
+    };
+    let is_slot = |word: &str| word.parse::<usize>().is_ok();
+    let first = match first {
+        "list" | "ls" | "help" if rest.is_empty() => first,
+        "drop" if is_target(rest) && rest.split_whitespace().count() == 1 => first,
+        "tell" if is_target(rest) => first,
+        "" => first,
+        which if is_slot(which) && rest.is_empty() => which,
+        _ => return start_background(control, None, args).await,
+    };
+    match first {
+        "" => match control
+            .call(HostCommand::Background {
+                session: root.to_string(),
+            })
+            .await
+        {
+            Ok(HostReply::Backgrounded { session, .. }) => {
+                let view = background_list(control).await.unwrap_or_default();
+                Outcome::Do(Action::OpenBg {
+                    moved: Some(session),
+                    view: crate::bg::BgView::from_host(view),
+                })
+            }
+            Ok(other) => Outcome::Refused(format!("{other:?}")),
+            Err(error) => Outcome::Refused(refusal(error)),
+        },
+        "list" | "ls" => match background_list(control).await {
+            Ok(sessions) => Outcome::Do(Action::OpenBg {
+                moved: None,
+                view: crate::bg::BgView::from_host(sessions),
+            }),
+            Err(why) => Outcome::Refused(why),
+        },
+        "help" => Outcome::Said(t(Msg::BgUsage).into_owned()),
+        "drop" | "tell" => {
+            let sessions = match background_list(control).await {
+                Ok(sessions) => sessions,
+                Err(why) => return Outcome::Refused(why),
+            };
+            let (which, text) = match first {
+                "tell" => {
+                    let mut parts = rest.splitn(2, char::is_whitespace);
+                    (
+                        parts.next().unwrap_or("").trim(),
+                        parts.next().unwrap_or("").trim(),
+                    )
+                }
+                _ => (rest, ""),
+            };
+            if which.is_empty() || (first == "tell" && text.is_empty()) {
+                return Outcome::Refused(t(Msg::BgUsage).into_owned());
+            }
+            let (slot, session) = match resolve(&sessions, which) {
+                Ok(found) => found,
+                Err(why) => return Outcome::Refused(why),
+            };
+            let command = if first == "tell" {
+                HostCommand::TellBackground {
+                    target: session.session.clone(),
+                    text: text.to_string(),
+                }
+            } else {
+                HostCommand::DropBackground {
+                    target: session.session.clone(),
+                }
+            };
+            match control.call(command).await {
+                Ok(_) if first == "tell" => {
+                    let title = session.title.unwrap_or(session.session);
+                    Outcome::Said(t(Msg::BgTold { title: &title }).into_owned())
+                }
+                Ok(_) => Outcome::Said(t(Msg::BgDropped { slot }).into_owned()),
+                Err(error) => Outcome::Refused(refusal(error)),
+            }
+        }
+        which => {
+            if which.parse::<usize>().is_err() || !rest.is_empty() {
+                return Outcome::Refused(t(Msg::BgUsage).into_owned());
+            }
+            let sessions = match background_list(control).await {
+                Ok(sessions) => sessions,
+                Err(why) => return Outcome::Refused(why),
+            };
+            let (_, session) = match resolve(&sessions, which) {
+                Ok(found) => found,
+                Err(why) => return Outcome::Refused(why),
+            };
+            match control
+                .call(HostCommand::Foreground {
+                    session: root.to_string(),
+                    target: session.session,
+                })
+                .await
+            {
+                Ok(_) => Outcome::Quiet,
+                Err(error) => Outcome::Refused(refusal(error)),
+            }
+        }
+    }
+}
+
+/// Start a new session in the background on `task`; the one on screen stays.
+///
+/// `reviewed` is what the session is about and the scope to measure, for the
+/// callers that know it (`/review`): the line that says it started then names the
+/// work and how many files it touches. `None` for a plain `/background <task>`.
+async fn start_background(
+    control: &Arc<dyn atomcode_host_api::HostControl>,
+    reviewed: Option<(&str, &str)>,
+    task: &str,
+) -> Outcome {
+    match control
+        .call(HostCommand::StartBackground {
+            text: task.to_string(),
+            scope: reviewed.map(|(_, scope)| scope.to_string()),
+        })
+        .await
+    {
+        Ok(HostReply::Backgrounded { slot, files, .. }) => Outcome::Said(match reviewed {
+            Some((what, _)) => t(Msg::ReviewStarted { what, files }).into_owned(),
+            None => t(Msg::BgStarted { slot }).into_owned(),
+        }),
+        Ok(other) => Outcome::Refused(format!("{other:?}")),
+        Err(error) => Outcome::Refused(refusal(error)),
+    }
+}
+
+/// `/review`: what the session it starts is asked to do.
+///
+/// The compact syntax becomes the explicit schema the `code_review` tool takes —
+/// `[deep|deep+verify] [staged|<base>]` — and stays pure so the command's meaning
+/// is judged without a session. `<base>` means the committed `base..HEAD` range,
+/// not the legacy top-level `base` field whose diff quietly included the working
+/// tree as a side effect.
+/// `/review` 的简写拆成 *(深度, 范围, 关注点)*:
+/// `[deep|deep+verify] [staged|<base>] [关注点…]`。
+///
+/// 一处解析、两处用:[`review_prompt`] 把它翻成工具要的 schema,[`review_what`] 把它
+/// 说成人要读的那句话 —— 两个口径不会各拆一半而对不上。
+///
+/// **只有像 ref 的第一个词才是范围。** 人会顺着说一句 `/review 下代码改动`,
+/// 原来那整句被当成 base,屏上说「审查 下代码改动 之后的提交」,后台那段对话
+/// 拿着一个不存在的 ref 去跑。git 的 ref 是 ASCII 写的、也不以 `-` 开头(那是
+/// 选项),所以不是这样的词、以及范围后面剩下的话,都是关注点:范围照旧按默认
+/// (未提交的改动),那句话交给评审去看重。
+fn review_scope(arg: &str) -> (Option<&str>, &str, &str) {
+    let arg = arg.trim();
+    // A leading `deep+verify` or `deep` keyword — alone or before a scope — sets
+    // the depth; what follows is the scope and the focus.
+    let (depth, rest) = if let Some(rest) = arg
+        .strip_prefix("deep+verify")
+        .filter(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
+    {
+        (Some("deep+verify"), rest.trim())
+    } else if let Some(rest) = arg
+        .strip_prefix("deep")
+        .filter(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
+    {
+        (Some("deep"), rest.trim())
+    } else {
+        (None, arg)
+    };
+    let (word, after) = match rest.split_once(char::is_whitespace) {
+        Some((word, after)) => (word, after.trim()),
+        None => (rest, ""),
+    };
+    if word.is_ascii() && !word.starts_with('-') {
+        (depth, word, after)
+    } else {
+        (depth, "", rest)
+    }
+}
+
+/// `/review` 那一行说它要干什么:范围,说得出深度时连深度一起,有关注点再跟上它。
+fn review_what(arg: &str) -> String {
+    let (depth, scope, focus) = review_scope(arg);
+    let mut what = if scope.is_empty() {
+        t(Msg::ReviewWhatUncommitted).into_owned()
+    } else if scope.eq_ignore_ascii_case("staged") {
+        t(Msg::ReviewWhatStaged).into_owned()
+    } else {
+        t(Msg::ReviewWhatRange { base: scope }).into_owned()
+    };
+    if let Some(depth) = depth {
+        what = format!("{what}  {depth}");
+    }
+    if !focus.is_empty() {
+        what = format!("{what} · {focus}");
+    }
+    what
+}
+
+fn review_prompt(arg: &str) -> String {
+    let (depth, scope, focus) = review_scope(arg);
+    let scope_json = if scope.is_empty() {
+        r#"{"kind":"working_tree"}"#.to_string()
+    } else if scope.eq_ignore_ascii_case("staged") {
+        r#"{"kind":"staged"}"#.to_string()
+    } else {
+        format!(
+            r#"{{"kind":"range","base":{base},"head":"HEAD"}}"#,
+            base = serde_json::to_string(scope).expect("serializing a string cannot fail")
+        )
+    };
+    let args = match depth {
+        Some(depth) => format!(r#"{{"scope":{scope_json},"depth":"{depth}"}}"#),
+        None => format!(r#"{{"scope":{scope_json}}}"#),
+    };
+    let ask = format!(
+        "Review the requested changes: call the `code_review` tool with {args}, then give me a \
+         concise summary of its findings."
+    );
+    // 关注点是人的原话,不是参数:交给评审自己去读,而不是塞进工具的 schema。
+    match focus {
+        "" => ask,
+        focus => format!("{ask} The person also said: {focus}"),
+    }
+}
+
+fn session_catalogue() -> Vec<Command> {
+    vec![
+        Command::said("compact", t(Msg::CmdAboutCompact)),
+        Command::said("cancel-all", t(Msg::CmdAboutCancelAll)),
+        Command::said_taking("context", "[prompt]".into(), t(Msg::CmdAboutContext)),
+        Command::said("agents", t(Msg::CmdAboutAgents)),
+        Command::said("transcript", t(Msg::CmdAboutTranscript)),
+        Command::said("clear", t(Msg::CmdAboutClear)),
+        // `/session` is the same fresh start, named the way the reference does,
+        // with `/new` as its memorable alias — one row, not two.
+        Command::said("session", t(Msg::CmdAboutSession)).with_aliases(&["new"]),
+        Command::said_taking("resume", t(Msg::CmdTakesSessionId), t(Msg::CmdAboutResume)),
+        // One command for everything about background sessions: bare, it moves
+        // this one there; with words, those words are a task for a new one; and
+        // `list` / `<N>` / `drop <N>` look at, switch to and drop them. `/bg` is
+        // the short name people type.
+        Command::said_taking("background", t(Msg::CmdTakesBg), t(Msg::CmdAboutBg))
+            .with_aliases(&["bg"]),
+        // A review runs in a session of its own by default — the reviewer is a
+        // whole runtime, and a review takes minutes the person's conversation is
+        // not a place to wait them out in. Same road as `/background`, with the
+        // task filled in.
+        //
+        // `requiring`: taking the row stops on the line so the scope can be
+        // typed. The bare form is worth having — it means the working tree — but
+        // it is not worth *firing on the pick*: somebody who opened the menu and
+        // took this row is about to say which changes. Enter without an argument
+        // runs the default, which is what the row would have started anyway.
+        Command::said_taking("review", t(Msg::CmdTakesReview), t(Msg::CmdAboutReview)).requiring(),
+        // A closed set of levels, so the menu offers them inline (one row each,
+        // marked with the one in force) rather than a modal — the same way `/`
+        // shows the commands themselves.
+        Command::said("effort", t(Msg::CmdAboutEffort)).selecting(effort_options()),
+        Command::said_taking("undo", t(Msg::CmdTakesTurn), t(Msg::CmdAboutUndo)),
+        Command::said_taking("rewind", t(Msg::CmdTakesTurnScope), t(Msg::CmdAboutRewind)),
+        Command::said_taking("model", t(Msg::CmdTakesModelId), t(Msg::CmdAboutModel)),
+        Command::said("autonomy", t(Msg::CmdAboutAutonomy)),
+        Command::said_taking("rename", t(Msg::CmdTakesName), t(Msg::CmdAboutRename)).requiring(),
+        Command::said_taking("diff", t(Msg::CmdTakesFile), t(Msg::CmdAboutDiff)),
+        Command::said_taking("mode", "[plan|ask|edits|auto]".into(), t(Msg::CmdAboutMode)),
+        Command::said_taking("cd", t(Msg::CmdTakesDirectory), t(Msg::CmdAboutCd)),
+        // The three modes people reach for by name. `/mode` is the one
+        // implementation; these are the words tuix taught everyone to type.
+        Command::said("plan", t(Msg::CmdAboutPlan)),
+        Command::said("build", t(Msg::CmdAboutBuild)),
+        Command::said("auto", t(Msg::CmdAboutAuto)),
+        Command::said("status", t(Msg::CmdAboutStatus)),
+        Command::said("cost", t(Msg::CmdAboutCost)),
+        Command::said("usage", t(Msg::CmdAboutUsage)),
+        Command::said_taking("mcp", t(Msg::CmdTakesMcp), t(Msg::CmdAboutMcp)),
+        Command::said_taking(
+            "language",
+            t(Msg::CmdTakesLanguage),
+            t(Msg::CmdAboutLanguage),
+        ),
+        Command::said("reload", t(Msg::CmdAboutReload)),
+        Command::said("logout", t(Msg::CmdAboutLogout)),
+        Command::said("login", t(Msg::CmdAboutLogin)),
+        Command::said("whoami", t(Msg::CmdAboutWhoami)),
+        Command::said_taking("think", "[on|off]".into(), t(Msg::CmdAboutThink)),
+    ]
+}
+
+/// A host's refusal, in words a person can act on.
+///
+/// `pub(crate)` because a host command is not only a command's business: the
+/// settings seam hands one to the runtime after writing a file, and its failure
+/// has to read the same as every other host failure. One renderer, so one error
+/// does not get two wordings depending on which path it came back along.
+/// The word for what happened to a file, and whether it is staged.
+///
+/// A pure function so the listing's wording can be judged without a host, a
+/// repository or a session — and so the two facts are joined in exactly one
+/// place. Staged **and** modified since is its own word, because a commit made
+/// from that state takes something other than what is on screen, and that is
+/// the single most expensive thing this listing can fail to say.
+/// The one letter `git status` would put in front of the file — the classic
+/// screen's `/diff` list leads each row with it.
+fn change_letter(change: atomcode_host_api::FileChange) -> &'static str {
+    use atomcode_host_api::FileChange as C;
+    match change {
+        C::Added => "A",
+        C::Deleted => "D",
+        C::Renamed => "R",
+        C::Copied => "C",
+        C::Untracked => "?",
+        C::Conflicted => "U",
+        C::Modified | C::Other => "M",
+    }
+}
+
+fn change_word(change: atomcode_host_api::FileChange, staged: bool) -> Msg<'static> {
+    use atomcode_host_api::FileChange as C;
+    match (change, staged) {
+        (C::Untracked, _) => Msg::DiffUntracked,
+        (C::Conflicted, _) => Msg::DiffConflicted,
+        (C::Added, true) => Msg::DiffAddedStaged,
+        (C::Added, false) => Msg::DiffAdded,
+        (C::Deleted, true) => Msg::DiffDeletedStaged,
+        (C::Deleted, false) => Msg::DiffDeleted,
+        (C::Renamed, _) | (C::Copied, _) => Msg::DiffRenamed,
+        (C::Modified, true) => Msg::DiffModifiedStaged,
+        (C::Modified, false) | (C::Other, _) => Msg::DiffModified,
+    }
+}
+
+/// 一次拒绝,用话说。
+///
+/// 此前这儿是 `format!("{error:?}")`,于是屏上写的是「没有送达:Unavailable」
+/// —— 一个枚举的 Debug 形式,中文界面上的一个英文词,而且不告诉任何人
+/// 该怎么办。`Busy` 更难看:它会把整个结构体清单都印出来。
+///
+/// 宿主自己的话(比如「登录过期了」)另走一条事件 —— 它比这里的
+/// 分类更具体,因为 `Unavailable` 把好几种原因攒成了一种。
+/// 一份按模型分开的 token 账单。
+///
+/// 每个模型一段,归不了属的单列在最后 —— 推给任一个模型都是编的。
+/// 命中缓存那一项是 `prompt` 的子集而不是另一笔,所以它后面跟一个比例
+/// —— 一个裸数字读起来像“又花了这么多”。
+fn cost_report(models: &[atomcode_host_api::ModelCost], unattributed: u64) -> String {
+    if models.is_empty() && unattributed == 0 {
+        return t(Msg::CostNothingYet).into_owned();
+    }
+    let mut out: Vec<String> = models
+        .iter()
+        .map(|m| {
+            let rate = match m.prompt {
+                0 => 0,
+                prompt => m.cached.saturating_mul(100) / prompt,
+            };
+            format!(
+                "{} · {}
+{}",
+                m.account,
+                m.model,
+                t(Msg::CostTokens {
+                    prompt: m.prompt,
+                    completion: m.completion,
+                    cached: m.cached,
+                    rate,
+                    total: m.prompt.saturating_add(m.completion),
+                })
+            )
+        })
+        .collect();
+    if unattributed > 0 {
+        out.push(
+            t(Msg::CostUnattributed {
+                tokens: unattributed,
+            })
+            .into_owned(),
+        );
+    }
+    out.join(
+        "
+
+",
+    )
+}
+
+pub(crate) fn refusal_words(error: &atomcode_kernel::event::CommandError) -> String {
+    use atomcode_kernel::event::CommandError as E;
+    match error {
+        E::StaleQuestion => t(Msg::RefusedStaleQuestion).into_owned(),
+        E::NotRunning => t(Msg::RefusedNotRunning).into_owned(),
+        E::Unavailable => t(Msg::RefusedUnavailable).into_owned(),
+        E::Busy { reason } => t(Msg::HostBusy { reason }).into_owned(),
+        E::NotFound => t(Msg::HostNotFound).into_owned(),
+        E::Unsupported => t(Msg::RefusedUnsupported).into_owned(),
+        other => format!("{other:?}"),
+    }
+}
+
+pub(crate) fn refusal(error: HostError) -> String {
+    match error {
+        HostError::Busy { reason } => t(Msg::HostBusy { reason: &reason }).into_owned(),
+        HostError::NotFound => t(Msg::HostNotFound).into_owned(),
+        HostError::SessionInUse { id } => t(Msg::HostSessionInUse { id: &id }).into_owned(),
+        HostError::Unavailable => t(Msg::HostUnavailable).into_owned(),
+        HostError::Stale { .. } => t(Msg::HostStale).into_owned(),
+        HostError::ProviderUnavailable { reason } => t(Msg::HostNoProvider {
+            reason: &format!("{reason:?}"),
+        })
+        .into_owned(),
+        HostError::Failed { message } => message,
+        other => format!("{other:?}"),
+    }
+}
+
+#[async_trait]
+impl CommandSet for SessionCommands {
+    fn id(&self) -> &'static str {
+        "cmd-session"
+    }
+    fn commands(&self) -> Vec<Command> {
+        session_catalogue()
+    }
+    /// `/review` is claimed from the agent's own catalog, which defines the same
+    /// name for its inline reviewer (`atomcode-harness`'s `ReviewCommand`,
+    /// `CommandTarget::Session`). This screen's `/review` is the one that runs
+    /// the review in a session of its own, and two sets defining one name is an
+    /// error rather than a silent winner — so the claim is written down, the way
+    /// `SetupCommands` claims `/setup`.
+    fn overrides(&self) -> Vec<&'static str> {
+        vec!["review"]
+    }
+    /// What `/agents` dispatches when a row is picked. Not listed: nobody types
+    /// it, and a session id in the menu would be noise (`CommandSet::hidden`).
+    fn hidden(&self) -> Vec<Command> {
+        vec![Command::said_taking(
+            "look",
+            t(Msg::CmdTakesSessionIdRequired),
+            t(Msg::CmdAboutLook),
+        )]
+    }
+    async fn run(&self, name: &str, args: &str, ctx: &Context) -> Outcome {
+        let Some(client) = ctx.service::<crate::plugin::AgentClientSvc>() else {
+            return Outcome::Refused(t(Msg::NoAgent).into_owned());
+        };
+        // Asking is all a command may do here: which session is on screen is
+        // screen state, and the loop writes it (`Action::LookAt`).
+        if name == "look" {
+            let session = args.trim();
+            if session.is_empty() {
+                return Outcome::Refused(t(Msg::LookWhichSession).into_owned());
+            }
+            return Outcome::Do(Action::LookAt(session.to_string()));
+        }
+        let control = client.control();
+        // What host control acts on is the session this screen follows, whoever
+        // is on screen.
+        let root = client.root();
+        let host = |control: Option<std::sync::Arc<dyn atomcode_host_api::HostControl>>| {
+            control.ok_or_else(|| Outcome::Refused(t(Msg::NoHost).into_owned()))
+        };
+        match name {
+            "cancel-all" => {
+                let members = client.cancel_all();
+                Outcome::Said(
+                    if members == 0 {
+                        t(Msg::CancelledTurn)
+                    } else {
+                        t(Msg::CancelledTurnAndMembers { members })
+                    }
+                    .into_owned(),
+                )
+            }
+            "compact" => {
+                if !client.described().is_some_and(|d| d.compaction) {
+                    return Outcome::Refused(t(Msg::NoCompaction).into_owned());
+                }
+                // Over the handle, so it waits behind a running turn like every
+                // other driver's `/compact`. The outcome comes back as an event
+                // and is said then; saying "done" here would be saying it
+                // before it is true.
+                let focus = args.trim();
+                client.compact((!focus.is_empty()).then(|| focus.to_string()));
+                Outcome::Quiet
+            }
+            "context" => {
+                // `/context prompt`:这个会话到底跑在哪份系统提示词上。人想看
+                // 它的那一刻很具体 —— agent 表现得像是被告知了一件谁也不记得
+                // 告诉过它的事,而那份提示词是挂着的各行各写一段拼出来的,
+                // 没有任何一处能读到全文。
+                if args.trim() == "prompt" {
+                    let control = match host(control) {
+                        Ok(control) => control,
+                        Err(refusal) => return refusal,
+                    };
+                    return match control
+                        .call(HostCommand::Context {
+                            session: root,
+                            prompt: true,
+                        })
+                        .await
+                    {
+                        Ok(HostReply::Context {
+                            system_prompt: Some(prompt),
+                            ..
+                        }) if !prompt.trim().is_empty() => Outcome::Said(prompt),
+                        // 宿主答了,只是没有提示词可说 —— 不是错误。
+                        Ok(HostReply::Context { .. }) => {
+                            Outcome::Said(t(Msg::ContextNoPrompt).into_owned())
+                        }
+                        Ok(other) => Outcome::Refused(
+                            t(Msg::HostSaidSomethingElse {
+                                reply: &format!("{other:?}"),
+                            })
+                            .into_owned(),
+                        ),
+                        Err(error) => Outcome::Refused(refusal(error)),
+                    };
+                }
+                let events = client.events();
+                let turn = events
+                    .iter()
+                    .filter_map(|logged| match logged.event {
+                        SessionEvent::TurnStart { turn } => Some(turn),
+                        _ => None,
+                    })
+                    .max()
+                    .unwrap_or(0);
+                let mut said = t(Msg::ContextCounts {
+                    turn,
+                    messages: derive_messages(&events).len(),
+                    facts: events.len(),
+                })
+                .into_owned();
+                // What the screen counted is not the budget: the host packs a
+                // system prompt, instructions and tool definitions nobody here
+                // ever saw. Ask it, and say both — the counts answer "what is
+                // in this conversation", the budget answers "how much room is
+                // left", and a person asking `/context` wants the second.
+                if let Some(control) = control {
+                    if let Ok(HostReply::Context {
+                        window,
+                        used,
+                        model,
+                        ..
+                    }) = control
+                        .call(HostCommand::Context {
+                            session: root,
+                            prompt: false,
+                        })
+                        .await
+                    {
+                        if window > 0 {
+                            said.push_str(&format!(
+                                "\n{used} / {window} tokens · {:.0}% · {model}",
+                                used as f32 / window as f32 * 100.0
+                            ));
+                        }
+                    }
+                }
+                Outcome::Said(said)
+            }
+            "transcript" => {
+                let text = derive_messages(&client.events())
+                    .iter()
+                    .map(|m| format!("{:?}: {}", m.role, first_line(&m.text)))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                Outcome::Said(if text.is_empty() {
+                    t(Msg::NothingSaidYet).into_owned()
+                } else {
+                    text
+                })
+            }
+            // The switch itself is not done here: the host announces the new
+            // session, and the screen moves to it on that — the same way it
+            // moves when something else replaced the session.
+            //
+            // `/clear` is this and not "empty the composer", which is what it
+            // used to say. Emptying the line is a fact about the composer that
+            // is already false by the time a command runs — `submit` clears the
+            // field before it dispatches, so the old arm cleared nothing. What
+            // people expect from the word (`/clear`, `/session` and Claude
+            // Code's own) is a conversation that starts over, which is what the
+            // host does here; ctrl-u is the gesture for the line.
+            "clear" | "session" => {
+                let Some(control) = control else {
+                    return Outcome::Refused(t(Msg::NoHost).into_owned());
+                };
+                match control
+                    .call(HostCommand::NewSession {
+                        session: root.clone(),
+                    })
+                    .await
+                {
+                    Ok(_) => Outcome::Quiet,
+                    Err(error) => Outcome::Refused(refusal(error)),
+                }
+            }
+            // The sessions kept running out of view
+            // (`docs/plans/2026-09-25-bg-design.md`). Everything here is a host
+            // command; the panel is only how the answer is drawn.
+            "background" => {
+                let Some(control) = control else {
+                    return Outcome::Refused(t(Msg::NoHost).into_owned());
+                };
+                background_command(&control, &root, args.trim()).await
+            }
+            // A review of the current changes, in a session of its own: the
+            // reviewer works while this conversation keeps going, and its answer
+            // is read in `/bg` (or brought forward with `/bg <N>`). Same call as
+            // `/background`, with the task filled in — including the working
+            // directory, which the host takes from the foreground session.
+            "review" => {
+                let Some(control) = control else {
+                    return Outcome::Refused(t(Msg::NoHost).into_owned());
+                };
+                // 范围按工具自己的词汇交给宿主 —— 量文件数要用它:`working_tree`
+                // 就是"没给参数"的那一个。
+                let (_, scope, _) = review_scope(args.trim());
+                let scope = if scope.is_empty() {
+                    "working_tree"
+                } else {
+                    scope
+                };
+                start_background(
+                    &control,
+                    Some((&review_what(args.trim()), scope)),
+                    &review_prompt(args.trim()),
+                )
+                .await
+            }
+            // Who has been on this team, and the way to look at any of them.
+            //
+            // The team strip draws what is running now, so a stopped member has
+            // no row there — but its log is kept, and `docs/adr/0023` §5 wants
+            // it readable. This is that way in: the lead first, then every
+            // member this screen has heard of, stopped ones included. The pick
+            // is an [`Action::LookAt`] rather than a switch done here, because
+            // which session is on screen is screen state (`docs/adr/0021`).
+            "agents" => {
+                let Some(roster) = ctx.service::<crate::plugin::TeamRosterSvc>() else {
+                    return Outcome::Refused(t(Msg::NoRoster).into_owned());
+                };
+                let mut rows: Vec<crate::sheet::Row> = Vec::new();
+                if !root.is_empty() {
+                    rows.push(
+                        crate::sheet::Row::new(
+                            format!("/look {root}"),
+                            t(Msg::AgentsLead).into_owned(),
+                        )
+                        .about(root.clone()),
+                    );
+                }
+                for (name, session, gone) in roster.members() {
+                    rows.push(
+                        crate::sheet::Row::new(
+                            format!("/look {session}"),
+                            // Where it stands is part of what the row is: a
+                            // stopped member's conversation is still there and
+                            // is not something to talk to.
+                            if gone {
+                                t(Msg::AgentsStopped { name: &name }).into_owned()
+                            } else {
+                                name.clone()
+                            },
+                        )
+                        .about(session.clone()),
+                    );
+                }
+                if rows.is_empty() {
+                    return Outcome::Said(t(Msg::AgentsNoneYet).into_owned());
+                }
+                Outcome::Do(Action::OpenSheet(crate::sheet::Sheet::list(
+                    crate::sheet::List::new("agents", t(Msg::AgentsPickerHint), rows),
+                )))
+            }
+            "resume" => {
+                let Some(control) = control else {
+                    return Outcome::Refused(t(Msg::NoHost).into_owned());
+                };
+                let target = args.trim();
+                if target.is_empty() {
+                    // **Where the session works, not where the process was
+                    // started.** The list is scoped to a directory, and the
+                    // two part company the moment anyone passes `--dir` or
+                    // types `/cd` — after which this listed another project's
+                    // sessions and called them this one's. Asked of the host,
+                    // the way `/cd` asks.
+                    let here = working_dir(Some(control.clone()), client.root()).await.ok();
+                    return match control
+                        .call(HostCommand::ListSessions { working_dir: here })
+                        .await
+                    {
+                        Ok(HostReply::Sessions { sessions }) => {
+                            // Drop the one on screen — resuming the session you
+                            // are already in is a no-op — and hand the rest to the
+                            // panel, which rises over the composer like `/provider`
+                            // rather than a pop-up. The metadata (`N 轮 · 时间 ·
+                            // 目录`) is drawn by the panel from these fields.
+                            let live = client.session();
+                            let sessions: Vec<crate::resume::Session> = sessions
+                                .into_iter()
+                                .filter(|stored| stored.id != live)
+                                .map(|stored| crate::resume::Session {
+                                    id: stored.id,
+                                    title: stored.title,
+                                    working_dir: stored.working_dir,
+                                    updated_at: stored.updated_at,
+                                    turns: stored.turns,
+                                    needs_newer_version: stored.needs_newer_version,
+                                })
+                                .collect();
+                            if sessions.is_empty() {
+                                Outcome::Said(t(Msg::ResumeNoOthers).into_owned())
+                            } else {
+                                Outcome::Do(Action::OpenResume(crate::resume::ResumeView::new(
+                                    sessions,
+                                )))
+                            }
+                        }
+                        Ok(other) => Outcome::Refused(format!("{other:?}")),
+                        Err(error) => Outcome::Refused(refusal(error)),
+                    };
+                }
+                match control
+                    .call(HostCommand::Resume {
+                        session: root.clone(),
+                        target: target.to_string(),
+                    })
+                    .await
+                {
+                    Ok(_) => Outcome::Quiet,
+                    Err(error) => Outcome::Refused(refusal(error)),
+                }
+            }
+            // A level is the session's, not the model route's, so this survives
+            // a model switch. Whether a route can reason at all is the model's.
+            "effort" => {
+                let wanted = args.trim();
+                // One vocabulary, taken from the place that defines it, so this
+                // command cannot offer a level nothing parses.
+                let levels = atomcode_harness::REASONING_EFFORT_LEVELS;
+                // With nothing after it, the command reports rather than opens a
+                // modal: the levels are offered inline in the slash menu (one row
+                // each — see `effort_options`), so a bare `/effort` that reaches
+                // here is the menu dismissed, and the honest answer is the level
+                // in force and the closed set to type. A pick from the menu
+                // arrives as `/effort <level>`, the branch below.
+                if wanted.is_empty() {
+                    let current = client
+                        .described()
+                        .and_then(|d| d.reasoning_effort)
+                        .map(|level| level.as_str().to_string());
+                    let now = current.as_deref().unwrap_or("default");
+                    let mut all = levels.to_vec();
+                    all.push("default");
+                    return Outcome::Said(
+                        t(Msg::EffortCurrent {
+                            now,
+                            levels: &all.join(", "),
+                        })
+                        .into_owned(),
+                    );
+                }
+                let level = if wanted == "default" {
+                    None
+                } else if levels.contains(&wanted) {
+                    ReasoningEffort::from_config(Some(wanted))
+                } else {
+                    return Outcome::Refused(
+                        t(Msg::EffortUnknown {
+                            wanted,
+                            levels: &levels.join(", "),
+                        })
+                        .into_owned(),
+                    );
+                };
+                let Some(control) = control else {
+                    return Outcome::Refused(t(Msg::NoHost).into_owned());
+                };
+                match control
+                    .call(HostCommand::SetReasoningEffort {
+                        session: root.clone(),
+                        level,
+                    })
+                    .await
+                {
+                    Ok(_) => {
+                        client.chose_effort(level);
+                        Outcome::Said(t(Msg::EffortSet { wanted }).into_owned())
+                    }
+                    Err(error) => Outcome::Refused(refusal(error)),
+                }
+            }
+            // The conversation goes back; the words the person said go back to
+            // where they type, to change and send again (`docs/adr/0024` §17).
+            "undo" | "rewind" => {
+                let control = match host(control) {
+                    Ok(control) => control,
+                    Err(refused) => return refused,
+                };
+                if client.session() != root {
+                    return Outcome::Refused(t(Msg::UndoLeadOnly).into_owned());
+                }
+                let mut words = args.split_whitespace();
+                let turn = match words.next().map(str::parse::<u64>) {
+                    None => None,
+                    Some(Ok(turn)) => Some(turn),
+                    Some(Err(_)) => {
+                        return Outcome::Refused(
+                            t(Msg::NotATurnNumber { what: args.trim() }).into_owned(),
+                        )
+                    }
+                };
+                let based_on = client.root_high();
+                let reply = if name == "undo" {
+                    control
+                        .call(HostCommand::Undo {
+                            session: root,
+                            turn,
+                            based_on,
+                        })
+                        .await
+                } else {
+                    // With no turn: the panel, which is where choosing one
+                    // belongs (`crate::rewind`). It used to be a modal picker
+                    // here — a list you picked from once and lost — and the scope
+                    // could only be said by typing it. The panel is the same
+                    // gesture a double-tap on Esc makes, so there is one rewind
+                    // on screen rather than two.
+                    let Some(turn) = turn else {
+                        return Outcome::Do(Action::ToggleRewind);
+                    };
+                    let scope = match words.next() {
+                        // Both spellings of each scope are taken, in either
+                        // language: what a person typed last month must keep
+                        // parsing after `/language`. The panel never dispatches
+                        // a command at all — it carries a `Scope` — so this
+                        // parser exists for what a person types, and only that.
+                        None | Some("对话") | Some("conversation") => {
+                            atomcode_kernel::session::RewindScope::Conversation
+                        }
+                        Some("代码") | Some("code") => {
+                            atomcode_kernel::session::RewindScope::Code
+                        }
+                        Some("全部") | Some("both") => {
+                            atomcode_kernel::session::RewindScope::Both
+                        }
+                        Some(other) => {
+                            return Outcome::Refused(
+                                t(Msg::RewindScopeUnknown { what: other }).into_owned(),
+                            )
+                        }
+                    };
+                    control
+                        .call(HostCommand::Rewind {
+                            session: root,
+                            turn,
+                            scope,
+                            based_on,
+                        })
+                        .await
+                };
+                match reply {
+                    Ok(HostReply::Undone {
+                        prompt: Some(prompt),
+                        ..
+                    }) => Outcome::Do(Action::Paste(prompt)),
+                    Ok(HostReply::Undone { restored_files, .. }) => Outcome::Said(
+                        t(Msg::RewindRestored {
+                            files: restored_files.len(),
+                        })
+                        .into_owned(),
+                    ),
+                    Ok(other) => Outcome::Refused(format!("{other:?}")),
+                    Err(error) => Outcome::Refused(refusal(error)),
+                }
+            }
+            "model" => {
+                // 尾巴上再跟一档强度,就是「换过去,并且按这一档想」。
+                // 两件事必须是一条命令:挑强度那一层的收尾就落在这里,分两条
+                // 派发的话第一条(换模型)会再把档位问一遍 —— 面板刚被那一挑
+                // 关上就又弹回来,永远收不了尾。
+                //
+                // 只在尾巴确实是一档时才这么拆:模型 id 本身可以带空格。
+                let levels = atomcode_harness::REASONING_EFFORT_LEVELS;
+                let (wanted, level) = match args.trim().rsplit_once(char::is_whitespace) {
+                    Some((head, tail)) if tail == "default" || levels.contains(&tail) => {
+                        (head.trim(), Some(tail))
+                    }
+                    _ => (args.trim(), None),
+                };
+                // With no argument: open the providers panel on its model list —
+                // one surface for switching and editing models, the same panel
+                // `/provider` opens on its 账号 tab. It replaced a models-only
+                // popup so switching and editing a model are never two places.
+                if wanted.is_empty() {
+                    return Outcome::Do(Action::OpenModels);
+                }
+                let control = match host(control) {
+                    Ok(control) => control,
+                    Err(refused) => return refused,
+                };
+                let (model_line, note) = match control
+                    .call(HostCommand::SwitchModel {
+                        session: root,
+                        model: wanted.to_string(),
+                    })
+                    .await
+                {
+                    // 宿主说换成了,但有话要说 —— 两句都要说:换确实成了,
+                    // 而没存下来是重启之后才看得到的那一半。
+                    Ok(HostReply::DoneWithNote { note }) => (
+                        format!("{}\n{note}", t(Msg::ModelSet { wanted })),
+                        Some(note),
+                    ),
+                    Ok(_) => (t(Msg::ModelSet { wanted }).into_owned(), None),
+                    Err(error) => return Outcome::Refused(refusal(error)),
+                };
+                // 换成了,把**选择 id** 记下来:描述报的是 wire 名,而两个账号跑
+                // 同一个模型时,只有选择 id 认得出是哪一行(`ProvidersView`
+                // 先按 id 匹配)。状态行要靠它在同名时说清是哪个 provider。
+                //
+                // 只在**恰好一行**对得上时才认它的 id。打的是 id 就永远对得上;
+                // 打的是 wire 名或别名、而那个名字被几个账号共用时,这里认不出
+                // 宿主换过去的那一行——那就干脆不认(`None`)。认一个猜的行比不认
+                // 更糟:状态行会指着错的 provider 说,而 `marked_row` 本来就拒绝
+                // 在这种时候猜,让它继续用 wire 名、退回不标才是诚实的答案。
+                // 宿主其实知道换到了哪一行(`HostReply` 目前不带回来,正解是
+                // 在 reply 上加),所以这是权宜:宁可这一帧没有前缀。
+                let selection = ctx
+                    .service::<crate::plugin::ProvidersSvc>()
+                    .and_then(|port| {
+                        let rows = port.rows();
+                        let mut hit = rows
+                            .models()
+                            .iter()
+                            .filter(|m| m.id == wanted || m.model == wanted);
+                        let first = hit.next()?;
+                        hit.next().is_none().then(|| first.id.clone())
+                    });
+                client.chose_model(selection);
+                // 带了档位:走 `/effort` 那一套设过去(只有一份实现),于是
+                // 这一趟不再问第二次。模型此时已经换过去了,所以强度那一步
+                // 不管成不成,「换成了」这句都得留在屏上 —— 只报强度的拒绝,
+                // 人会以为什么都没变。
+                if let Some(level) = level {
+                    return match self.run("effort", level, ctx).await {
+                        Outcome::Said(said) => Outcome::Said(format!("{model_line}\n{said}")),
+                        Outcome::Refused(why) => Outcome::Refused(format!("{model_line}\n{why}")),
+                        _ => Outcome::Said(model_line),
+                    };
+                }
+                // 没带档位:新模型声明了思考强度,就把档位递上来让人挑。面板
+                // 选择也派发成这条命令,所以一个入口盖住面板和手打两条路;
+                // 要不要问由 `ModelRow::effort_pick` 一处判,面板回车也用它。
+                let offered = ctx
+                    .service::<crate::plugin::ProvidersSvc>()
+                    .and_then(|port| {
+                        port.rows()
+                            .models()
+                            .iter()
+                            .find(|m| m.id == wanted || m.model == wanted)
+                            .and_then(crate::providers::ModelRow::effort_pick)
+                    });
+                let Some(levels) = offered else {
+                    return Outcome::Said(model_line);
+                };
+                // 交给 providers 面板去画:`Action::PickEffort` 把它切到挑强度
+                // 那一层,行由面板自己的列表画出来 —— 和挑模型同一套样式、
+                // 同一套按键,不是另开一个弹窗。挑强度那一层顶掉了「换成了」
+                // 这一句,宿主的「没存下来」得跟着带过去,不然就丢了。
+                Outcome::Do(Action::PickEffort {
+                    model: wanted.to_string(),
+                    levels,
+                    note,
+                })
+            }
+            "mode" => {
+                let wanted = match args.trim() {
+                    "" => return Outcome::Said(t(Msg::ModeWhatEachDoes).into_owned()),
+                    other => match mode_named(other) {
+                        Some(mode) => mode,
+                        None => {
+                            return Outcome::Refused(
+                                t(Msg::ModeUnknown { what: other }).into_owned(),
+                            )
+                        }
+                    },
+                };
+                let control = match host(control) {
+                    Ok(control) => control,
+                    Err(refused) => return refused,
+                };
+                match control
+                    .call(HostCommand::SetMode {
+                        session: root,
+                        mode: wanted,
+                    })
+                    .await
+                {
+                    Ok(_) => Outcome::Said(t(Msg::ModeSet { mode: args.trim() }).into_owned()),
+                    Err(error) => Outcome::Refused(refusal(error)),
+                }
+            }
+            "cd" => {
+                // `~/…` 是人打出来的写法,而展开它的是 shell —— 一条命令的
+                // 参数没经过 shell。不展开的话它不是绝对路径,会被拼到当前
+                // 目录后面变成 `<wd>/~/x`,然后报一句「进不去」—— `text.rs` 里
+                // `expand_home_with` 的说明写的就是这个失败形状,之前只接了
+                // `/view` 和 `/paste`。先展开,再看它是不是个子命令。
+                let expanded =
+                    crate::text::expand_home_with(args.trim(), crate::text::home_dir().as_deref());
+                let directory = expanded.trim();
+                // `pin` / `unpin`:标一个目录,或取消。带目录就是它,不带就是
+                // 现在这个——人多半是干着干着决定「这地方以后还要来」。
+                // **整词,不是前缀。** `strip_prefix("pin")` 让 `/cd pinia-app` 变成
+                // 「把 ia-app 加书签」—— 目录压根没进去,屏上还说标好了;
+                // `/cd unpinned-dir` 更坏,`starts_with("pin")` 是假,于是变成
+                // 「取消标记 ned-dir」。一个真的子命令后面要么什么都没有,
+                // 要么跟一个空格。
+                let word = |head: &str| {
+                    directory
+                        .strip_prefix(head)
+                        .filter(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
+                };
+                if let Some(rest) = word("unpin").or_else(|| word("pin")) {
+                    let pinning = word("unpin").is_none();
+                    // Placed the way `/view` places a file: a mark stored as
+                    // typed only means something from wherever the process was
+                    // started, and `unpin` has to name what `pin` stored.
+                    let where_ = match rest.trim() {
+                        "" => match working_dir(control.clone(), client.root()).await {
+                            Ok(here) => here,
+                            Err(why) => return Outcome::Refused(why),
+                        },
+                        named => match session_path(&client, named).await {
+                            Ok(place) => place.display().to_string(),
+                            Err(refused) => return refused,
+                        },
+                    };
+                    let Some(places) = ctx.service::<crate::plugin::PlacesSvc>() else {
+                        return Outcome::Refused(t(Msg::NoPlaces).into_owned());
+                    };
+                    let done = match pinning {
+                        true => places.pin(&where_).await,
+                        false => places.unpin(&where_).await,
+                    };
+                    let shown = crate::text::collapse_home(&where_);
+                    return match (done, pinning) {
+                        (Ok(()), true) => {
+                            Outcome::Said(t(Msg::CdPinned { dir: &shown }).into_owned())
+                        }
+                        (Ok(()), false) => {
+                            Outcome::Said(t(Msg::CdUnpinned { dir: &shown }).into_owned())
+                        }
+                        (Err(why), _) => Outcome::Refused(why),
+                    };
+                }
+                // Nothing typed, or a directory named but not the last word:
+                // browse from there. tuix had a picker for this
+                // (`modals/dir_picker.rs`); what a person needs of it is to see
+                // what is under here and step into it, which is a list whose
+                // picks are this command again.
+                if directory.is_empty() || directory.ends_with('/') {
+                    // 从哪儿开始浏览。**要问宿主要工作目录**:`client.root()` 是
+                    // 这块屏幕跟着的**会话 id**,不是目录——裸 `/cd` 曾经拿它当路径
+                    // 去读,于是只会报「读不了」,相对路径也拼在会话 id 上。
+                    let from = if std::path::Path::new(directory).is_absolute() {
+                        directory.to_string()
+                    } else {
+                        let here = match working_dir(control.clone(), client.root()).await {
+                            Ok(here) => here,
+                            Err(why) => return Outcome::Refused(why),
+                        };
+                        if directory.is_empty() {
+                            here
+                        } else {
+                            std::path::Path::new(&here)
+                                .join(directory)
+                                .display()
+                                .to_string()
+                        }
+                    };
+                    // The trailing slash was the gesture ("browse here"), not
+                    // part of the place. Left on, the row that says "stay here"
+                    // would read as another "browse here" and the browser could
+                    // not be stepped out of. Root keeps its one slash.
+                    let from = {
+                        let trimmed = from.trim_end_matches('/');
+                        if trimmed.is_empty() {
+                            "/".to_string()
+                        } else {
+                            trimmed.to_string()
+                        }
+                    };
+                    let mut rows: Vec<crate::sheet::Row> = Vec::new();
+                    // 标下的地方排在最前,其次是最近干活的目录:这两样是「我要去
+                    // 哪儿」的答案,而底下那半是「这儿有什么」。只在最外面那一屏
+                    // 给——走进子目录之后再列一遍,等于每一层都把同样的东西说一遍。
+                    if directory.is_empty() {
+                        let pinned = match ctx.service::<crate::plugin::PlacesSvc>() {
+                            Some(places) => places.bookmarks().await,
+                            None => Vec::new(),
+                        };
+                        for dir in &pinned {
+                            rows.push(
+                                crate::sheet::Row::new(
+                                    format!("/cd {dir}"),
+                                    crate::text::collapse_home(dir),
+                                )
+                                .about(t(Msg::CdBookmarked)),
+                            );
+                        }
+                        for dir in recent_places(control.clone(), &from, &pinned).await {
+                            rows.push(
+                                crate::sheet::Row::new(
+                                    format!("/cd {dir}"),
+                                    crate::text::collapse_home(&dir),
+                                )
+                                .about(t(Msg::CdRecent)),
+                            );
+                        }
+                    }
+                    // Up first: a browser you cannot back out of is a trap.
+                    if let Some(up) = std::path::Path::new(&from).parent() {
+                        rows.push(
+                            crate::sheet::Row::new(
+                                format!("/cd {}/", up.display()),
+                                "..".to_string(),
+                            )
+                            .about(t(Msg::CdUpOneLevel)),
+                        );
+                    }
+                    match std::fs::read_dir(&from) {
+                        Ok(entries) => {
+                            let mut here: Vec<String> = entries
+                                .flatten()
+                                .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+                                .map(|e| e.file_name().to_string_lossy().into_owned())
+                                .filter(|name| !name.starts_with('.'))
+                                .collect();
+                            here.sort();
+                            for name in here {
+                                let at = std::path::Path::new(&from).join(&name);
+                                rows.push(
+                                    crate::sheet::Row::new(format!("/cd {}/", at.display()), name)
+                                        .about(t(Msg::CdStepInto)),
+                                );
+                            }
+                        }
+                        Err(error) => {
+                            return Outcome::Refused(
+                                t(Msg::FileUnreadable {
+                                    path: &from,
+                                    error: &error.to_string(),
+                                })
+                                .into_owned(),
+                            )
+                        }
+                    }
+                    // Staying is a choice too — and the only way to say "this
+                    // one" once you have stepped into it.
+                    rows.insert(
+                        0,
+                        crate::sheet::Row::new(
+                            format!("/cd {from}"),
+                            t(Msg::CdStayHere).into_owned(),
+                        )
+                        .about(crate::text::collapse_home(&from)),
+                    );
+                    return Outcome::Do(Action::OpenSheet(crate::sheet::Sheet::list(
+                        crate::sheet::List::new(
+                            "cd",
+                            t(Msg::CdPickerHint {
+                                here: &crate::text::collapse_home(&from),
+                            }),
+                            rows,
+                        )
+                        // 打出来的那一条也算数。书签、最近、以及这一层底下的
+                        // 东西答的是「我要去哪儿」的常见一半;另一半是人本来就
+                        // 知道路径 —— 而那时候列表里一条都不会匹配,回车此前是
+                        // 个死键,只能关掉列表重打一遍命令。
+                        .accepting_typed("/cd {}"),
+                    )));
+                }
+                let control = match host(control) {
+                    Ok(control) => control,
+                    Err(refused) => return refused,
+                };
+                match control
+                    .call(HostCommand::ChangeDirectory {
+                        session: root,
+                        directory: directory.to_string(),
+                    })
+                    .await
+                {
+                    // A new session: what was read and written belongs to where
+                    // it ran, so the screen follows the new stream.
+                    Ok(HostReply::SessionChanged { session }) => Outcome::Said(
+                        t(Msg::CdMovedNewSession {
+                            directory,
+                            session: &session,
+                        })
+                        .into_owned(),
+                    ),
+                    Ok(_) => Outcome::Said(t(Msg::CdMoved { directory }).into_owned()),
+                    Err(error) => Outcome::Refused(refusal(error)),
+                }
+            }
+            // Two levels, one command: the list, then one file's diff. The
+            // most-asked question of a coding session is "what did it do to my
+            // code", and before this the only way to ask it was to leave for
+            // another window or spend a turn asking the model — which answers
+            // from what it remembers doing, not from the workspace.
+            "diff" => {
+                let control = match host(control) {
+                    Ok(control) => control,
+                    Err(refusal) => return refusal,
+                };
+                // `git` is a word, not a path: the two questions `/diff`
+                // answers are "what did this agent do" (the default, the more
+                // frequently useful one in a coding session) and "how dirty is
+                // my tree" — and the second is the one you want before
+                // committing. A file called `git` in the working directory is
+                // still reachable as `./git`, which is the ordinary way to
+                // disambiguate a name from a word.
+                let (scope, wanted) = match args.trim() {
+                    "git" => (atomcode_host_api::ChangeScope::Workspace, ""),
+                    rest => match rest.strip_prefix("git ") {
+                        Some(path) => (atomcode_host_api::ChangeScope::Workspace, path.trim()),
+                        None => (atomcode_host_api::ChangeScope::Session, rest),
+                    },
+                };
+                let file = (!wanted.is_empty()).then(|| wanted.to_string());
+                match control
+                    .call(HostCommand::Changes {
+                        session: root.clone(),
+                        file: file.clone(),
+                        scope,
+                    })
+                    .await
+                {
+                    // "Cannot tell" and "nothing changed" are different answers
+                    // and must read differently: one is a session without
+                    // workspace snapshots, the other is a session that has not
+                    // touched anything.
+                    Ok(HostReply::Changes {
+                        unavailable: Some(why),
+                        ..
+                    }) => Outcome::Refused(why),
+                    Ok(HostReply::Changes {
+                        diff: Some(text), ..
+                    }) => {
+                        let what = file.unwrap_or_default();
+                        if text.trim().is_empty() {
+                            return Outcome::Said(
+                                t(Msg::DiffNoChangeIn { what: &what }).into_owned(),
+                            );
+                        }
+                        // Picked out of the list, `esc` comes back to it with
+                        // the cursor where it was (the sheet keeps the list
+                        // behind this page) — reading one file's diff is how
+                        // you decide to read the next one's.
+                        Outcome::Do(Action::OpenSheet(crate::sheet::Sheet::read(
+                            crate::sheet::Read::diff("diff", &what, &text),
+                        )))
+                    }
+                    Ok(HostReply::Changes { files, .. }) if files.is_empty() => {
+                        Outcome::Said(t(Msg::DiffNothingChanged).into_owned())
+                    }
+                    Ok(HostReply::Changes { files, .. }) => {
+                        use crate::sheet::{Piece, Tone};
+                        let count = files.len();
+                        let (added, removed): (u64, u64) = files
+                            .iter()
+                            .fold((0, 0), |(a, r), f| (a + f.added, r + f.removed));
+                        let rows = files
+                            .into_iter()
+                            .map(|f| {
+                                // The numbers ride on the right, coloured, the way
+                                // the classic screen lays a file out: a letter for
+                                // what happened, the path, then `+a -r`.
+                                let figures = if f.binary {
+                                    vec![Piece::new(t(Msg::DiffBinary), Tone::Muted)]
+                                } else {
+                                    vec![
+                                        Piece::new(format!("+{}", f.added), Tone::Added),
+                                        Piece::new(format!(" -{}", f.removed), Tone::Removed),
+                                    ]
+                                };
+                                // The value is the command that opens it, and it
+                                // carries the scope: a row picked out of a `git`
+                                // listing has to open the `git` diff of that file,
+                                // not the session's.
+                                let open = match scope {
+                                    atomcode_host_api::ChangeScope::Workspace => {
+                                        format!("/diff git {}", f.path)
+                                    }
+                                    _ => format!("/diff {}", f.path),
+                                };
+                                let row =
+                                    crate::sheet::Row::new(open, f.path.clone()).figures(figures);
+                                // What happened to it, when the scope knows — and
+                                // whether it is staged, because "what a commit
+                                // would take" and "what it would leave" is the
+                                // question this listing is usually read for.
+                                match f.change {
+                                    None => row,
+                                    Some(change) => row
+                                        .tag(Piece::new(change_letter(change), Tone::Muted))
+                                        .about(t(change_word(change, f.staged))),
+                                }
+                            })
+                            .collect();
+                        Outcome::Do(Action::OpenSheet(crate::sheet::Sheet::list(
+                            crate::sheet::List::new(
+                                "diff",
+                                t(Msg::DiffListTitle {
+                                    workspace: matches!(
+                                        scope,
+                                        atomcode_host_api::ChangeScope::Workspace
+                                    ),
+                                }),
+                                rows,
+                            )
+                            .summary(vec![
+                                Piece::new(t(Msg::DiffFilesChanged { count }), Tone::Muted),
+                                Piece::new(format!("+{added}"), Tone::Added),
+                                Piece::new(format!(" -{removed}"), Tone::Removed),
+                            ]),
+                        )))
+                    }
+                    Ok(other) => Outcome::Refused(
+                        t(Msg::HostSaidSomethingElse {
+                            reply: &format!("{other:?}"),
+                        })
+                        .into_owned(),
+                    ),
+                    Err(error) => Outcome::Refused(refusal(error)),
+                }
+            }
+            // A named way in to one setting, because it is the one people
+            // look for by name. It is `/config language <x>` underneath — one
+            // implementation, so the two cannot drift.
+            "language" => {
+                let control = match host(control) {
+                    Ok(control) => control,
+                    Err(refusal) => return refusal,
+                };
+                let settings = match control
+                    .call(HostCommand::Settings {
+                        session: root.clone(),
+                    })
+                    .await
+                {
+                    Ok(HostReply::Settings { settings }) => settings,
+                    Ok(other) => {
+                        return Outcome::Refused(
+                            t(Msg::HostSaidSomethingElse {
+                                reply: &format!("{other:?}"),
+                            })
+                            .into_owned(),
+                        )
+                    }
+                    Err(error) => return Outcome::Refused(refusal(error)),
+                };
+                let Some(setting) = settings.into_iter().find(|s| s.id == "language") else {
+                    return Outcome::Refused(t(Msg::NoLanguageSetting).into_owned());
+                };
+                let wanted = args.trim();
+                // With nothing after it, say what it is and what it takes.
+                // `/config` is the settings panel now — a screen command with
+                // its own search and editing — and a session command cannot
+                // open it for one row, so this names the row instead.
+                if wanted.is_empty() {
+                    return Outcome::Said(
+                        t(Msg::LanguageNow {
+                            value: &setting.value,
+                            accepts: &setting.accepts,
+                        })
+                        .into_owned(),
+                    );
+                }
+                match control
+                    .call(HostCommand::SetSetting {
+                        session: root.clone(),
+                        id: "language".into(),
+                        value: wanted.to_string(),
+                    })
+                    .await
+                {
+                    Ok(_) => Outcome::Said(
+                        t(Msg::LanguageSet {
+                            wanted,
+                            applies: &setting.applies,
+                        })
+                        .into_owned(),
+                    ),
+                    Err(error) => Outcome::Refused(refusal(error)),
+                }
+            }
+            // Listing only. Adding, editing and removing a provider stays with
+            // the configuration file on purpose: a provider entry carries an
+            // `api_key`, and a screen that edited those tables would be a screen
+            // that handles credentials.
+            //
+            // Switching is `/model <id>` — a provider and a model are resolved
+            // by the same call, so the picked value is that command rather than
+            // a second switch that would have to agree with it.
+            // The runtime publishes `GoalChanged` every round, but that stream
+            // is its own and this screen is not on it — so this asks. An
+            // always-on status line would want the push instead; that is the
+            // part still owed (B2-13's second half).
+            // What `/cost` cannot answer: that one is this conversation's
+            // token bill, this is the account's remaining allowance. Answered
+            // by the settings panel's Usage page — the allowance, the session's
+            // context and the plan together, the page `/config` shows — rather
+            // than a second rendering of the same windows printed into the
+            // conversation.
+            "usage" => Outcome::Do(Action::OpenUsage),
+            "autonomy" => {
+                let control = match host(control) {
+                    Ok(control) => control,
+                    Err(refusal) => return refusal,
+                };
+                match control
+                    .call(HostCommand::Autonomy {
+                        session: root.clone(),
+                    })
+                    .await
+                {
+                    Ok(HostReply::Autonomy { running: None }) => {
+                        Outcome::Said(t(Msg::AutonomyIdle).into_owned())
+                    }
+                    Ok(HostReply::Autonomy {
+                        running: Some(running),
+                    }) => {
+                        let what = if running.kind == "goal" {
+                            t(Msg::AutonomyGoal {
+                                what: &running.what,
+                            })
+                        } else {
+                            t(Msg::AutonomyLoop {
+                                what: &running.what,
+                            })
+                        };
+                        let rounds = match running.of {
+                            Some(of) => t(Msg::AutonomyRoundOf {
+                                round: running.round,
+                                of,
+                            }),
+                            None => t(Msg::AutonomyRound {
+                                round: running.round,
+                            }),
+                        };
+                        let took = crate::text::spoken_duration(running.elapsed_secs);
+                        let line = t(Msg::AutonomyLine {
+                            what: &what,
+                            rounds: &rounds,
+                            took: &took,
+                        })
+                        .into_owned();
+                        Outcome::Said(match running.paused {
+                            Some(why) => t(Msg::AutonomyHeld {
+                                line: &line,
+                                why: &why,
+                            })
+                            .into_owned(),
+                            None => line,
+                        })
+                    }
+                    Ok(other) => Outcome::Refused(
+                        t(Msg::HostSaidSomethingElse {
+                            reply: &format!("{other:?}"),
+                        })
+                        .into_owned(),
+                    ),
+                    Err(error) => Outcome::Refused(refusal(error)),
+                }
+            }
+            // One implementation, three words. A person who types `/plan`
+            // means the mode, and a second switch that had to agree with
+            // `/mode` is the thing that eventually disagrees.
+            "plan" | "build" | "auto" => {
+                let wanted = match name {
+                    "plan" => "plan",
+                    "build" => "ask",
+                    _ => "auto",
+                };
+                return Box::pin(self.run("mode", wanted, ctx)).await;
+            }
+            // `/cost` is `/context` under the name tuix taught. Same reason.
+            // 此前这是 `/context` 的一行别名 —— 而那两条答的不是同一个问题。
+            // `/context` 是「现在窗口里装了多少」,这一条是「这段对话一共花了
+            // 多少」—— **而且按模型分开**:中途换过模型时,合起来的总数什么也
+            // 回答不了。归因那一套有两份设计文档建过
+            // (`2026-07-26-model-cost-attribution.md`),数据一直在会话里。
+            "cost" => {
+                let control = match host(control) {
+                    Ok(control) => control,
+                    Err(refusal) => return refusal,
+                };
+                match control.call(HostCommand::Cost { session: root }).await {
+                    Ok(HostReply::Cost {
+                        models,
+                        unattributed,
+                    }) => Outcome::Said(cost_report(&models, unattributed)),
+                    Ok(other) => Outcome::Refused(
+                        t(Msg::HostSaidSomethingElse {
+                            reply: &format!("{other:?}"),
+                        })
+                        .into_owned(),
+                    ),
+                    Err(error) => Outcome::Refused(refusal(error)),
+                }
+            }
+            // What a person asks when they come back to a window and cannot
+            // remember which one it is. Everything here is already on screen
+            // somewhere — this is the one place that says it all at once.
+            "status" => {
+                let described = client.described();
+                let model = described
+                    .as_ref()
+                    .and_then(|d| d.model.clone())
+                    .unwrap_or_else(|| t(Msg::StatusNoModel).into_owned());
+                let effort = described
+                    .as_ref()
+                    .and_then(|d| d.reasoning_effort)
+                    .map(|level| level.as_str().to_string())
+                    .unwrap_or_else(|| t(Msg::StatusEffortDefault).into_owned());
+                let mut lines = vec![
+                    t(Msg::StatusSessionLine {
+                        session: &client.session(),
+                    })
+                    .into_owned(),
+                    t(Msg::StatusModelLine {
+                        model: &model,
+                        effort: &effort,
+                    })
+                    .into_owned(),
+                ];
+                // Where the session works is the host's to say; with no answer
+                // the line is left out rather than filled with the session id.
+                if let Ok(here) = working_dir(control.clone(), root.clone()).await {
+                    lines.push(
+                        t(Msg::StatusWhereLine {
+                            where_: &crate::text::collapse_home(&here),
+                        })
+                        .into_owned(),
+                    );
+                }
+                if let Some(control) = control {
+                    if let Ok(HostReply::Autonomy {
+                        running: Some(running),
+                    }) = control
+                        .call(HostCommand::Autonomy {
+                            session: root.clone(),
+                        })
+                        .await
+                    {
+                        lines.push(
+                            t(Msg::StatusAutonomyLine {
+                                what: &running.what,
+                                round: running.round,
+                                took: &crate::text::spoken_duration(running.elapsed_secs),
+                            })
+                            .into_owned(),
+                        );
+                    }
+                }
+                Outcome::Said(lines.join("\n"))
+            }
+            "whoami" => {
+                let control = match host(control) {
+                    Ok(control) => control,
+                    Err(refusal) => return refusal,
+                };
+                match control
+                    .call(HostCommand::WhoAmI {
+                        session: root.clone(),
+                    })
+                    .await
+                {
+                    Ok(HostReply::Identity {
+                        signed_in: true,
+                        who,
+                        detail,
+                        stored_at,
+                    }) => Outcome::Said(whoami_lines(
+                        who.unwrap_or_else(|| t(Msg::WhoAmIUnnamed).into_owned()),
+                        detail,
+                        stored_at,
+                    )),
+                    Ok(HostReply::Identity { .. }) => {
+                        Outcome::Said(t(Msg::WhoAmINobody).into_owned())
+                    }
+                    Ok(other) => Outcome::Refused(
+                        t(Msg::HostSaidSomethingElse {
+                            reply: &format!("{other:?}"),
+                        })
+                        .into_owned(),
+                    ),
+                    Err(error) => Outcome::Refused(refusal(error)),
+                }
+            }
+            // Two knobs, not one: `/effort` is how hard, this is whether at all.
+            "think" => {
+                let control = match host(control) {
+                    Ok(control) => control,
+                    Err(refusal) => return refusal,
+                };
+                let wanted = args.trim().to_ascii_lowercase();
+                let on = match wanted.as_str() {
+                    "" => {
+                        return match control
+                            .call(HostCommand::Thinking {
+                                session: root.clone(),
+                            })
+                            .await
+                        {
+                            Ok(HostReply::Settings { settings }) => match settings.first() {
+                                Some(setting) => Outcome::Said(
+                                    t(Msg::ThinkingNow {
+                                        value: &setting.value,
+                                    })
+                                    .into_owned(),
+                                ),
+                                None => Outcome::Refused(t(Msg::NoThinkingSwitch).into_owned()),
+                            },
+                            Ok(other) => Outcome::Refused(
+                                t(Msg::HostSaidSomethingElse {
+                                    reply: &format!("{other:?}"),
+                                })
+                                .into_owned(),
+                            ),
+                            Err(error) => Outcome::Refused(refusal(error)),
+                        }
+                    }
+                    "on" | "true" => true,
+                    "off" | "false" => false,
+                    other => {
+                        return Outcome::Refused(t(Msg::NotOnOrOff { what: other }).into_owned());
+                    }
+                };
+                match control
+                    .call(HostCommand::SetThinking {
+                        session: root.clone(),
+                        on,
+                    })
+                    .await
+                {
+                    Ok(_) => Outcome::Said(
+                        t(Msg::ThinkingSet {
+                            value: if on { "on" } else { "off" },
+                        })
+                        .into_owned(),
+                    ),
+                    Err(error) => Outcome::Refused(refusal(error)),
+                }
+            }
+            "rename" => {
+                let title = args.trim();
+                if title.is_empty() {
+                    return Outcome::Refused(t(Msg::RenameNeedsName).into_owned());
+                }
+                let control = match host(control) {
+                    Ok(control) => control,
+                    Err(refused) => return refused,
+                };
+                match control
+                    .call(HostCommand::Rename {
+                        session: root,
+                        title: title.to_string(),
+                    })
+                    .await
+                {
+                    Ok(_) => Outcome::Said(t(Msg::RenamedTo { title }).into_owned()),
+                    Err(error) => Outcome::Refused(refusal(error)),
+                }
+            }
+            "mcp" => {
+                // 无参要的是那块面板,不是一列文本(设计 §5.1):它读的端口是面板自己的,
+                // 而命令这一层连不上宿主——所以举起动作,由插件那一侧升起它(`/toolbox`
+                // 同形)。有参的那几支见 [`mcp`]。
+                let rest = args.trim();
+                if rest.is_empty() {
+                    return Outcome::Do(Action::ToggleMcp);
+                }
+                // Help and the two that only point somewhere need no host.
+                let (sub, arg) = rest
+                    .split_once(char::is_whitespace)
+                    .map_or((rest, ""), |(sub, arg)| (sub, arg.trim()));
+                match sub.to_ascii_lowercase().as_str() {
+                    "help" | "--help" | "-h" => {
+                        return Outcome::Said(t(Msg::McpHelp).into_owned());
+                    }
+                    "login" if single_arg(arg).is_none() => {
+                        return Outcome::Refused(t(Msg::McpLoginUsage).into_owned());
+                    }
+                    _ => {}
+                }
+                let control = match host(control) {
+                    Ok(control) => control,
+                    Err(refused) => return refused,
+                };
+                mcp(control, root, sub, arg).await
+            }
+            "reload" | "logout" | "login" => {
+                let control = match host(control) {
+                    Ok(control) => control,
+                    Err(refused) => return refused,
+                };
+                let (command, done) = match name {
+                    "reload" => (HostCommand::Reload { session: root }, t(Msg::Reloaded)),
+                    "logout" => (HostCommand::SignOut { session: root }, t(Msg::SignedOut)),
+                    _ => (HostCommand::SignIn { session: root }, t(Msg::SignedIn)),
+                };
+                match control.call(command).await {
+                    Ok(_) => Outcome::Said(done.into_owned()),
+                    Err(error) => Outcome::Refused(refusal(error)),
+                }
+            }
+            _ => Outcome::Quiet,
+        }
+    }
+}
+
+/// `/mcp <sub> [arg]`, the subcommands that ask the host. The same set, and
+/// the same answers, as the classic screen's `/mcp` — a person moving between
+/// the two front ends types the same words and reads the same replies — plus
+/// `withdraw`, which only this one has.
+async fn mcp(
+    control: std::sync::Arc<dyn atomcode_host_api::HostControl>,
+    root: String,
+    sub: &str,
+    arg: &str,
+) -> Outcome {
+    use atomcode_host_api::McpAction;
+    match sub.to_ascii_lowercase().as_str() {
+        "withdraw" => match control
+            .call(HostCommand::WithdrawMcpTools { session: root })
+            .await
+        {
+            Ok(_) => Outcome::Said(t(Msg::McpWithdrawn).into_owned()),
+            Err(error) => Outcome::Refused(refusal(error)),
+        },
+        // The classic screen's `/mcp reload`, and the words a person reaches
+        // for. It is `/reload` — skills, MCP and the configuration are read
+        // again together — and then says where each server stands, the way the
+        // classic screen lists what it is connecting to: a reload that answers
+        // only "done" leaves "reconnected" and "failed again" looking the same.
+        "reload" => match control
+            .call(HostCommand::Reload {
+                session: root.clone(),
+            })
+            .await
+        {
+            Ok(_) => {
+                let mut said = t(Msg::Reloaded).into_owned();
+                let servers = servers_now(&control, root).await;
+                if !servers.is_empty() {
+                    said.push('\n');
+                    said.push_str(&servers);
+                }
+                Outcome::Said(said)
+            }
+            Err(error) => Outcome::Refused(refusal(error)),
+        },
+        "tools" => {
+            let Some(server) = single_arg(arg) else {
+                return Outcome::Refused(t(Msg::McpNeedsServerName).into_owned());
+            };
+            tools_of(&control, root, server).await
+        }
+        // Signing in is the panel's — the browser flow belongs to its port —
+        // so this puts the panel up on that server's page. A name that is no
+        // server would open on a page that never loads.
+        "login" => {
+            let Some(server) = single_arg(arg) else {
+                return Outcome::Refused(t(Msg::McpLoginUsage).into_owned());
+            };
+            match unknown_server(&control, root, server).await {
+                Some(refused) => refused,
+                None => Outcome::Do(Action::OpenMcpServer(server.to_string())),
+            }
+        }
+        "trust" | "untrust" => {
+            let (action, done) = match sub.eq_ignore_ascii_case("trust") {
+                true => (McpAction::Trust, Msg::McpProjectTrusted),
+                false => (McpAction::Untrust, Msg::McpProjectUntrusted),
+            };
+            // Trust is the project's, not a server's: no name is needed, and
+            // the host reconnects what the change lets in or keeps out.
+            match control
+                .call(HostCommand::McpAct {
+                    session: root,
+                    server: String::new(),
+                    action,
+                })
+                .await
+            {
+                Ok(_) => Outcome::Said(t(done).into_owned()),
+                // Untrusting a project that never was is said as such, the way
+                // the classic screen says it — not as a failure to reconfigure.
+                Err(HostError::Failed { message })
+                    if message.contains(atomcode_capabilities::mcp::trust::PROJECT_NOT_TRUSTED) =>
+                {
+                    Outcome::Said(t(Msg::McpProjectNotTrusted).into_owned())
+                }
+                Err(error) => Outcome::Refused(refusal(error)),
+            }
+        }
+        "logout" => {
+            let Some(server) = single_arg(arg) else {
+                return Outcome::Refused(t(Msg::McpLogoutUsage).into_owned());
+            };
+            // Signing out takes every MCP tool off and reconnects: not for a
+            // name that is no server.
+            if let Some(refused) = unknown_server(&control, root.clone(), server).await {
+                return refused;
+            }
+            match control
+                .call(HostCommand::McpAct {
+                    session: root,
+                    server: server.to_string(),
+                    action: McpAction::Logout,
+                })
+                .await
+            {
+                Ok(_) => Outcome::Said(t(Msg::McpLoggedOut { server }).into_owned()),
+                Err(error) => Outcome::Refused(refusal(error)),
+            }
+        }
+        _ => Outcome::Refused(
+            t(Msg::McpUnknownSubcommand {
+                what: &format!("{sub} {arg}").trim_end().to_string(),
+            })
+            .into_owned(),
+        ),
+    }
+}
+
+/// `None` when `server` is a configured one (disabled ones count: they can be
+/// signed in to or out of). Otherwise the refusal to give: there are none, or
+/// here is which there are. Unanswered, it lets the action go on and the host
+/// answer for it.
+async fn unknown_server(
+    control: &std::sync::Arc<dyn atomcode_host_api::HostControl>,
+    root: String,
+    server: &str,
+) -> Option<Outcome> {
+    let rows = match control.call(HostCommand::McpManage { session: root }).await {
+        Ok(HostReply::McpRows { rows }) => rows,
+        _ => return None,
+    };
+    if rows.iter().any(|row| row.name == server) {
+        return None;
+    }
+    if rows.is_empty() {
+        return Some(Outcome::Refused(t(Msg::McpNoneConfigured).into_owned()));
+    }
+    Some(Outcome::Refused(
+        t(Msg::McpUnknownServer {
+            name: server,
+            available: &rows
+                .iter()
+                .map(|row| row.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+        })
+        .into_owned(),
+    ))
+}
+
+/// Exactly one word, or nothing — `/mcp tools a b` is a slip, not a server
+/// called "a b", and the usage says so rather than a "not found" for "a".
+fn single_arg(arg: &str) -> Option<&str> {
+    let mut words = arg.split_whitespace();
+    let first = words.next()?;
+    words.next().is_none().then_some(first)
+}
+
+/// Every configured server and its state, one line each, with the way out
+/// when the project's own servers are held back for want of trust.
+async fn servers_now(
+    control: &std::sync::Arc<dyn atomcode_host_api::HostControl>,
+    root: String,
+) -> String {
+    use atomcode_host_api::McpServerState;
+    // Not read: the reload is still said, just without the list.
+    let servers = match control.call(HostCommand::McpStatus { session: root }).await {
+        Ok(HostReply::McpServers { servers }) => servers,
+        _ => return String::new(),
+    };
+    if servers.is_empty() {
+        return t(Msg::McpNoneConfigured).into_owned();
+    }
+    let mut out = t(Msg::McpServersHeader).into_owned();
+    for server in &servers {
+        out.push_str(&format!(
+            "\n  {}  {}",
+            server.name,
+            mcp_state_words(&server.state)
+        ));
+    }
+    let blocked = servers
+        .iter()
+        .filter(|s| matches!(s.state, McpServerState::Untrusted))
+        .count();
+    if blocked > 0 {
+        out.push('\n');
+        out.push_str(&t(Msg::McpBlockedTrustHint { count: blocked }));
+    }
+    out
+}
+
+/// `/mcp tools <server>`: its tools; or, when it has none, why — its state,
+/// or that there is no such server and which there are.
+async fn tools_of(
+    control: &std::sync::Arc<dyn atomcode_host_api::HostControl>,
+    root: String,
+    server: &str,
+) -> Outcome {
+    match control
+        .call(HostCommand::McpTools {
+            session: root.clone(),
+            server: server.to_string(),
+        })
+        .await
+    {
+        Ok(HostReply::McpTools { tools }) if !tools.is_empty() => {
+            let mut said = t(Msg::McpToolsHeader { server }).into_owned();
+            for tool in &tools {
+                said.push_str(&format!("\n  - {tool}"));
+            }
+            Outcome::Said(said)
+        }
+        // None: why, from the server's state — "connected and offers nothing"
+        // and "failed" were one sentence — or that it is not a server at all.
+        Ok(HostReply::McpTools { .. }) => {
+            let servers = match control.call(HostCommand::McpStatus { session: root }).await {
+                Ok(HostReply::McpServers { servers }) => Some(servers),
+                _ => None,
+            };
+            let Some(servers) = servers else {
+                return Outcome::Said(
+                    t(Msg::McpServerHasNoTools {
+                        server,
+                        state: &t(Msg::McpUnknownState),
+                    })
+                    .into_owned(),
+                );
+            };
+            match servers.iter().find(|s| s.name == server) {
+                Some(found) => Outcome::Said(
+                    t(Msg::McpServerHasNoTools {
+                        server,
+                        state: &mcp_state_words(&found.state),
+                    })
+                    .into_owned(),
+                ),
+                None if servers.is_empty() => {
+                    Outcome::Refused(t(Msg::McpNoneConfigured).into_owned())
+                }
+                None => Outcome::Refused(
+                    t(Msg::McpUnknownServer {
+                        name: server,
+                        available: &servers
+                            .iter()
+                            .map(|s| s.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    })
+                    .into_owned(),
+                ),
+            }
+        }
+        Ok(other) => Outcome::Refused(format!("{other:?}")),
+        Err(error) => Outcome::Refused(refusal(error)),
+    }
+}
+
+/// A server's state in the words the MCP panel uses for it.
+fn mcp_state_words(state: &atomcode_host_api::McpServerState) -> String {
+    use crate::i18n::product::{t as pt, Msg as PMsg};
+    use atomcode_host_api::McpServerState as S;
+    // 连接态的三个词经典界面已经说过：读 product 的词表，不写第二份。
+    match state {
+        S::Connecting => pt(PMsg::McpStatusConnecting),
+        S::Connected => pt(PMsg::McpStatusConnected),
+        S::Untrusted => t(Msg::McpUntrusted),
+        S::NeedsAuthentication => t(Msg::McpNeedsAuthentication),
+        S::Disabled => t(Msg::McpDisabled),
+        S::Failed { message } => t(Msg::McpFailed {
+            message: message.as_str(),
+        }),
+        S::Disconnected => pt(PMsg::McpStatusDisconnected),
+        // The contract is `non_exhaustive`: a state this build does not know.
+        _ => t(Msg::McpUnknownState),
+    }
+    .into_owned()
+}
+
+/// 这个会话现在在哪个目录里干活。
+///
+/// 问宿主,不看屏幕自己记的东西:目录是运行中那棵树的事实,`/cd` 改的也是它
+/// (`docs/adr/0022` §3)。
+///
+/// 答不上来时带着理由:没接宿主是一回事,宿主在但这一刻答不了(比如正在重建)
+/// 是另一回事,两者说成同一句会让人去查错地方。
+async fn working_dir(
+    control: Option<std::sync::Arc<dyn atomcode_host_api::HostControl>>,
+    session: String,
+) -> Result<String, String> {
+    let Some(control) = control else {
+        return Err(t(Msg::NoHost).into_owned());
+    };
+    match control
+        .call(HostCommand::Context {
+            session,
+            prompt: false,
+        })
+        .await
+    {
+        Ok(HostReply::Context { working_dir, .. }) => Ok(working_dir),
+        Ok(other) => Err(t(Msg::HostSaidSomethingElse {
+            reply: &format!("{other:?}"),
+        })
+        .into_owned()),
+        Err(error) => Err(refusal(error)),
+    }
+}
+
+/// A path a person typed, placed where they meant it: `~` is the home directory,
+/// an absolute path is itself, and a relative one is beside the code the
+/// session works on — which only the host can say. `client.root()` is the
+/// session this screen follows, **not a directory**; `/view`, `/save` and
+/// `/paste` all once joined onto it and so only ever worked with an absolute
+/// path, and `/cd pin` stored the text as typed. With no answer from the host,
+/// a relative path is refused — with the host's reason — rather than read or
+/// written somewhere guessed.
+async fn session_path(
+    client: &crate::plugin::AgentClient,
+    typed: &str,
+) -> Result<std::path::PathBuf, Outcome> {
+    let home = crate::text::home_dir();
+    let expanded = crate::text::expand_home_with(typed, home.as_deref());
+    if std::path::Path::new(&expanded).is_absolute() {
+        return Ok(expanded.into());
+    }
+    match working_dir(client.control(), client.root()).await {
+        Ok(here) => Ok(view_path(typed, &here, home.as_deref())),
+        Err(why) => Err(Outcome::Refused(why)),
+    }
+}
+
+/// 最近干活的那几个目录,最新的在前。
+///
+/// 从宿主的会话目录折出来,不另存一份:会话本来就记着它是在哪儿跑的,而「最近去过
+/// 哪儿」正是这句话的另一种读法。现在这个目录和已经标下的目录不再重复出现——
+/// 一份清单里同一个地方出现两次,人得先分辨它们是不是同一个。
+async fn recent_places(
+    control: Option<std::sync::Arc<dyn atomcode_host_api::HostControl>>,
+    here: &str,
+    pinned: &[String],
+) -> Vec<String> {
+    /// 列几个。多到要翻页的「最近」就不是最近了。
+    const MOST: usize = 5;
+    let Some(control) = control else {
+        return Vec::new();
+    };
+    let Ok(HostReply::Sessions { sessions }) = control
+        .call(HostCommand::ListSessions { working_dir: None })
+        .await
+    else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = Vec::new();
+    for session in sessions {
+        let Some(dir) = session.working_dir else {
+            continue;
+        };
+        if dir == here || pinned.iter().any(|already| already == &dir) {
+            continue;
+        }
+        if out.iter().any(|already| already == &dir) {
+            continue;
+        }
+        out.push(dir);
+        if out.len() == MOST {
+            break;
+        }
+    }
+    out
+}
+
+/// `/help`, which has to know about everything, so it holds the registry.
+pub struct HelpCommands {
+    pub all: Arc<Commands>,
+}
+
+fn help_catalogue() -> Vec<Command> {
+    // `/guide` is what the classic screen called "how do I use this": there it
+    // was a hand-written menu of thirteen lines, plus a skill for a question
+    // with an argument. The menu is what `/help` already is, and the question
+    // half is the `ask` skill, which is a command of its own wherever it is
+    // installed — so the name resolves here rather than growing a second help.
+    vec![Command::said("help", t(Msg::CmdAboutHelp)).with_aliases(&["guide"])]
+}
+
+#[async_trait]
+impl CommandSet for HelpCommands {
+    fn id(&self) -> &'static str {
+        "cmd-help"
+    }
+    fn commands(&self) -> Vec<Command> {
+        help_catalogue()
+    }
+    async fn run(&self, _name: &str, _args: &str, _ctx: &Context) -> Outcome {
+        // 经典界面 /help 的同一款式：表头一行，命令名列对齐，描述跟在同一列上。
+        // 参数占位不进这一列——那是斜杠菜单的活；别名括号保留，`/help` 与
+        // 斜杠菜单仍以同一方式称呼一条命令（`/session (new)`）。
+        let listed = self.all.help_listed();
+        let width = listed
+            .iter()
+            .map(|c| c.display_name().len())
+            .max()
+            .unwrap_or(8);
+        let rows: Vec<String> = listed
+            .iter()
+            .map(|c| {
+                format!(
+                    "    /{:<width$}  {}",
+                    c.display_name(),
+                    c.about,
+                    width = width
+                )
+            })
+            .collect();
+        // 表头是经典界面已说过的一句话：读 product 的词表，不写第二份。
+        let mut out =
+            crate::i18n::product::t(crate::i18n::product::Msg::HelpAvailableCommands).into_owned();
+        out.push_str(&rows.join("\n"));
+        Outcome::Said(out)
+    }
+}
+
+/// `/setup`: put the seed skills on disk if this machine never has, then hand
+/// the name to the agent — which owns what running it means.
+///
+/// **Why the screen owns this at all.** `/setup` is a skill
+/// (`assets/setup-seeds/skills/atomcode-automation-recommender/SKILL.md` —
+/// `name: setup`, `user_invocable: true`), and the `skills` row registers one
+/// command per user-invocable skill, so on a machine where the seeds *are*
+/// installed the agent's catalog already offers `/setup` and there is nothing to
+/// add here. On a machine where they are not, that command does not exist yet —
+/// and typing `/setup` is answered with "no such command" by the very command
+/// that would have installed what it needs. Unpacking the seeds is the one step
+/// the agent cannot take, because it has to have the skill before it can be
+/// asked for one.
+///
+/// **Why it declares `overrides`.** Both machines have to end in the same place,
+/// so this set claims the name unconditionally rather than only when the agent
+/// lacks it. Who would notice the difference is the person, at the moment one of
+/// the two worked and the other did not.
+///
+/// What is left of tuix's `/setup` (`event_loop/commands.rs:3947`) is exactly
+/// this: install → reload → forward. The reload is not optional — writing the
+/// files is not making them so, and the command about to be handed over is one
+/// of the things that arrives by that rebuild.
+pub struct SetupCommands;
+
+fn setup_catalogue() -> Vec<Command> {
+    vec![Command::said_taking(
+        "setup",
+        t(Msg::CmdTakesSetup),
+        t(Msg::CmdAboutSetup),
+    )]
+}
+
+#[async_trait]
+impl CommandSet for SetupCommands {
+    fn id(&self) -> &'static str {
+        "cmd-setup"
+    }
+    fn commands(&self) -> Vec<Command> {
+        setup_catalogue()
+    }
+    fn overrides(&self) -> Vec<&'static str> {
+        vec!["setup"]
+    }
+    async fn run(&self, _name: &str, args: &str, ctx: &Context) -> Outcome {
+        let Some(client) = ctx.service::<crate::plugin::AgentClientSvc>() else {
+            return Outcome::Refused(t(Msg::NoAgent).into_owned());
+        };
+        let Some(port) = ctx.service::<crate::plugin::SetupSvc>() else {
+            return Outcome::Refused(t(Msg::NoSetupPort).into_owned());
+        };
+        // The common case, and the whole reason this is a question rather than
+        // an attempt: on a machine that has run `/setup` once, unfolding the
+        // seeds, taking the file lock and rebuilding the graph are all work with
+        // nothing behind it.
+        if port.installed() {
+            return run_setup_skill(client.as_ref(), args);
+        }
+        // Said before the work, not after: unpacking the embedded seeds is a
+        // second of file I/O, and a command that says nothing until it is over
+        // reads as one that did nothing.
+        let ui = ctx.service::<atomcode_harness::seams::UiSvc>();
+        let announce = |line: &str| {
+            if let Some(ui) = ui.as_ref() {
+                ui.say(line);
+            }
+        };
+        announce(&t(Msg::SetupInstalling));
+        let report = match port.install().await {
+            Ok(report) => report,
+            Err(why) => return Outcome::Refused(why),
+        };
+        if let Err(why) = reload(ctx).await {
+            // The files really are on disk — saying only the failure would have
+            // a person run `/setup` twice for nothing.
+            return Outcome::Said(
+                t(Msg::ReloadFailedAfter {
+                    said: report.trim_end(),
+                    why: &why,
+                })
+                .into_owned(),
+            );
+        }
+        announce(report.trim_end());
+        run_setup_skill(client.as_ref(), args)
+    }
+}
+
+/// Hand the name to the agent, which is where the skill actually runs.
+///
+/// The skill expands into **the person's own message** (`RunSkill` in
+/// `harness/plugins/capabilities.rs`): a skill is a prompt somebody wrote to
+/// send, so what comes back is an ordinary turn — logged as theirs, answerable,
+/// undoable. Asking to send it is all the screen does.
+///
+/// Not gated on the agent having said it offers `setup`: right after the reload
+/// above, what the screen was last *described* as offering is the answer from
+/// before it. The agent looks the name up in the catalog it has now and refuses
+/// it out loud if it is not there — one honest refusal beats a fresh false one.
+fn run_setup_skill(client: &crate::plugin::AgentClient, args: &str) -> Outcome {
+    client.invoke("setup", args);
+    Outcome::Said(t(Msg::SetupRunningSkill).into_owned())
+}
+
+/// The agent's own commands, as its description lists them (`docs/adr/0021`
+/// §10): whatever the rows in its tree registered — stopping a team member, say.
+/// Run by name through the connection; what one produced comes back on screen.
+///
+/// Read when asked rather than copied at mount, so what is listed is what the
+/// agent on screen was last described as offering.
+pub struct AgentCatalogCommands {
+    pub client: Arc<crate::plugin::AgentClient>,
+}
+
+#[async_trait]
+impl CommandSet for AgentCatalogCommands {
+    fn id(&self) -> &'static str {
+        "cmd-agent-catalog"
+    }
+    /// The agent's rows are the menu's, not `/help`'s: one row per
+    /// user-invocable skill, and `/help` is this build's own table.
+    fn in_help(&self) -> bool {
+        false
+    }
+    fn commands(&self) -> Vec<Command> {
+        self.client
+            .described()
+            .map(|d| d.commands)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|c| Command {
+                name: c.name.into(),
+                about: c.summary.into(),
+                takes: c.usage.map(Into::into),
+                // The agent's own commands carry no aliases.
+                aliases: &[],
+                // Nor a closed set of values to pick from inline.
+                options: Vec::new(),
+                // The agent owns what its own command does with no argument, so
+                // this screen dispatches it bare rather than deciding for it.
+                require_arg: false,
+                // The agent's commands are described, not typed with keys.
+                secret_args: false,
+            })
+            .collect()
+    }
+    async fn run(&self, name: &str, args: &str, _ctx: &Context) -> Outcome {
+        self.client.invoke(name, args);
+        Outcome::Quiet
+    }
+}
+
+fn first_line(s: &str) -> &str {
+    s.lines().next().unwrap_or("")
+}
+
+/// The last thing the model said, as text. Empty when it has not said anything
+/// yet — a session that has only been typed into.
+fn last_answer(events: &[atomcode_kernel::session::LoggedEvent]) -> String {
+    derive_messages(events)
+        .into_iter()
+        .rfind(|m| m.role == Role::Assistant)
+        .map(|m| m.text)
+        .unwrap_or_default()
+}
+
+/// The fenced code blocks in `text`, in the order they appear, without their
+/// fences. An unclosed fence still counts: a model that stopped mid-block wrote
+/// the part a person wants to run, and refusing to copy it because the closing
+/// line never arrived is the wrong answer.
+fn code_blocks(text: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut current: Option<Vec<&str>> = None;
+    for line in text.lines() {
+        let fence = line.trim_start().starts_with("```");
+        match (&mut current, fence) {
+            (None, true) => current = Some(Vec::new()),
+            (Some(_), true) => {
+                let lines = current.take().unwrap_or_default();
+                blocks.push(lines.join("\n"));
+            }
+            (Some(lines), false) => lines.push(line),
+            (None, false) => {}
+        }
+    }
+    if let Some(lines) = current {
+        blocks.push(lines.join("\n"));
+    }
+    blocks.retain(|b| !b.trim().is_empty());
+    blocks
+}
+
+/// The conversation as markdown: who said what, in order, with tool traffic
+/// left out. What is saved is read somewhere else — an editor, a review, an
+/// issue — so it is the conversation, not this screen's rendering of it.
+/// What `/whoami` says: the name, then what is worth showing beside it, then
+/// where the thing that says so is kept.
+///
+/// The path is its own line and the last one. The question it answers comes
+/// **after** the answer above reads wrong — which file do I delete, which one
+/// did I copy to the other machine — so it must not push the name off the
+/// first line. A host that signs in some other way sends nothing and this says
+/// nothing; the path is folded to `~` like every other path on this screen.
+fn whoami_lines(who: String, detail: Option<String>, stored_at: Option<String>) -> String {
+    let mut said = match detail {
+        Some(detail) => format!("{who} · {detail}"),
+        None => who,
+    };
+    if let Some(path) = stored_at.filter(|path| !path.trim().is_empty()) {
+        said.push('\n');
+        said.push_str(&t(Msg::WhoAmIStoredAt {
+            path: &crate::text::collapse_home(&path),
+        }));
+    }
+    said
+}
+
+fn as_markdown(events: &[atomcode_kernel::session::LoggedEvent]) -> String {
+    let mut out = String::new();
+    for message in derive_messages(events) {
+        let who = match message.role {
+            Role::User => t(Msg::MarkdownUser),
+            Role::Assistant => t(Msg::MarkdownAssistant),
+            Role::System | Role::Tool => continue,
+        };
+        if message.text.trim().is_empty() {
+            continue;
+        }
+        out.push_str(&who);
+        out.push_str("\n\n");
+        out.push_str(message.text.trim_end());
+        out.push_str("\n\n");
+    }
+    out
+}
+
+// `builtin()` used to live here and mount all five sets at once. It is gone on
+// purpose: with each set a row, a function that mounted "the usual five" would
+// be a second answer to "what commands does a screen have", and the second
+// answer is the one that goes stale. See `crate::rows::SCREEN`.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The sheet a command put up at the foot of the screen.
+    fn sheet_of(outcome: Outcome) -> crate::sheet::Sheet {
+        match outcome {
+            Outcome::Do(Action::OpenSheet(sheet)) => sheet,
+            other => panic!("a sheet: {other:?}"),
+        }
+    }
+
+    /// What that sheet shows, drawn by the module that draws it.
+    fn sheet_text(sheet: &crate::sheet::Sheet) -> String {
+        use crate::module::View;
+        let moment = crate::moment::Moment {
+            sheet: Some(sheet.clone()),
+            ..Default::default()
+        };
+        let vp = crate::moment::Viewport::new(crate::frame::Rect::sized(100, 40), &moment);
+        crate::modules::sheet::SheetView::render(&crate::modules::sheet::State, &vp)
+            .iter()
+            .map(|line| line.plain())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn press(sheet: &mut crate::sheet::Sheet, key: crate::surface::Key) -> crate::sheet::Step {
+        crate::sheet::key(
+            sheet,
+            crate::surface::KeyPress::plain(key),
+            crate::sheet::READ_ROWS,
+        )
+    }
+
+    /// A host that answers from a script and keeps what it was asked.
+    #[derive(Default)]
+    struct Recording {
+        asked: std::sync::Mutex<Vec<HostCommand>>,
+        replies: std::sync::Mutex<std::collections::VecDeque<Result<HostReply, HostError>>>,
+    }
+
+    #[async_trait]
+    impl atomcode_host_api::HostControl for Recording {
+        async fn call(&self, command: HostCommand) -> Result<HostReply, HostError> {
+            self.asked.lock().unwrap().push(command);
+            self.replies
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or(Ok(HostReply::Done))
+        }
+        fn subscribe(&self) -> tokio::sync::mpsc::UnboundedReceiver<atomcode_host_api::HostEvent> {
+            tokio::sync::mpsc::unbounded_channel().1
+        }
+    }
+
+    /// A stale undo is said in words, not as the contract's Debug text: the
+    /// person was shown `Stale { current: 94956 }` and could do nothing with it.
+    #[test]
+    fn a_stale_refusal_is_a_sentence() {
+        let said = refusal(HostError::Stale { current: 94956 });
+        assert_eq!(said, t(Msg::HostStale));
+        assert!(!said.contains("Stale") && !said.contains("94956"), "{said}");
+    }
+
+    /// `/help` speaks the classic layout: a header line, then every command on
+    /// a `    /name  about` row whose description starts at one shared column.
+    /// Takes placeholders stay in the slash menu; hidden commands stay out.
+    /// The wording is whichever locale the process runs under — the assertion
+    /// reads it back through the same `t`, so it holds under either.
+    #[tokio::test]
+    async fn help_reads_like_the_classic_list() {
+        let all = builtin_for_test();
+        let app = bare();
+        let width = all
+            .all()
+            .iter()
+            .map(|c| c.display_name().len())
+            .max()
+            .unwrap_or(8);
+        let said = match all.dispatch("/help", &app.context()).await {
+            Outcome::Said(said) => said,
+            other => panic!("{other:?}"),
+        };
+        let mut lines = said.lines();
+        let header = lines.next().expect("the header line");
+        let expected_header =
+            crate::i18n::product::t(crate::i18n::product::Msg::HelpAvailableCommands);
+        assert_eq!(
+            header,
+            expected_header.trim_end(),
+            "the list opens with the header"
+        );
+        let rows: Vec<&str> = lines.collect();
+        assert!(!rows.is_empty(), "commands follow the header");
+        for row in &rows {
+            assert!(
+                row.starts_with("    /"),
+                "rows are indented and slash-prefixed: {row:?}"
+            );
+            assert!(
+                row.is_char_boundary(width + 7),
+                "the name column ends inside a char: {row:?}"
+            );
+            assert!(
+                row[..width + 7].is_ascii(),
+                "the name column is ASCII-aligned: {row:?}"
+            );
+            assert_eq!(
+                &row[width + 5..width + 7],
+                "  ",
+                "the description starts two spaces right of the widest name: {row:?}"
+            );
+        }
+        assert!(
+            rows.iter().all(|r| !r.starts_with("    /look")),
+            "hidden commands are not listed"
+        );
+        assert!(
+            rows.iter().all(|r| !r.contains("[reload|tools")),
+            "takes placeholders stay in the slash menu, not here"
+        );
+    }
+
+    /// `/keys` speaks the classic two-column table — tuix's layout, with THIS
+    /// screen's real keys. The per-locale wording is pinned in the i18n crate's
+    /// own tests: flipping the locale here would race every other test in this
+    /// binary, because `set_locale` is process-global.
+    #[test]
+    fn keys_help_is_the_classic_two_column_table() {
+        let body = t(Msg::KeysHelp).into_owned();
+        let first = body
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .expect("a header line");
+        assert!(
+            first.starts_with("  ") && !first.trim().is_empty(),
+            "header: {body}"
+        );
+        let sections = body
+            .lines()
+            .filter(|l| l.starts_with("  ── ") && l.ends_with(" ──"))
+            .count();
+        assert!(
+            sections >= 5,
+            "five sections expected, got {sections}:\n{body}"
+        );
+        for key in [
+            "Ctrl+O / Alt+R",
+            "Ctrl+T",
+            "Ctrl+L",
+            "Ctrl+G / /mouse",
+            "Ctrl+R",
+            "Shift+Tab",
+            "Esc Esc",
+        ] {
+            assert!(body.contains(key), "missing {key}:\n{body}");
+        }
+        // 旧散文形态的行内分隔（` · `）不再出现：现在是逐行两列。
+        assert!(
+            !body.contains(" · "),
+            "the prose form is gone, rows are two-column:\n{body}"
+        );
+    }
+
+    /// `/help` is this build's own table: the agent's catalog — one row per
+    /// user-invocable skill — rides in the menu and stays out of `/help`.
+    #[tokio::test]
+    async fn help_leaves_the_agents_catalog_to_the_menu() {
+        // 真实那一组自己声明不进 /help。
+        let real = AgentCatalogCommands {
+            client: Arc::new(crate::plugin::AgentClient::default()),
+        };
+        assert!(!real.in_help(), "agent 的命令目录不进 /help");
+
+        // ……/help 端到端不列技能,菜单照旧给得出。
+        struct Catalog;
+        #[async_trait]
+        impl CommandSet for Catalog {
+            fn id(&self) -> &'static str {
+                "cmd-agent-catalog"
+            }
+            fn in_help(&self) -> bool {
+                false
+            }
+            fn commands(&self) -> Vec<Command> {
+                vec![Command::said("playwright-best-practices", "a skill".into())]
+            }
+            async fn run(&self, _name: &str, _args: &str, _ctx: &Context) -> Outcome {
+                Outcome::Quiet
+            }
+        }
+        let c = Arc::new(Commands::new());
+        c.add(Arc::new(ScreenCommands)).unwrap();
+        c.add(Arc::new(Catalog)).unwrap();
+        c.add(Arc::new(HelpCommands { all: c.clone() })).unwrap();
+        let app = bare();
+        let Outcome::Said(help) = c.dispatch("/help", &app.context()).await else {
+            panic!("no /help");
+        };
+        assert!(!help.contains("playwright-best-practices"), "{help}");
+        assert!(
+            c.matching("play")
+                .iter()
+                .any(|x| x.name == "playwright-best-practices"),
+            "菜单仍然给得出技能"
+        );
+    }
+
+    /// A screen following session `lead`, whose last fact it saw is number 7.
+    fn following(host: &Arc<Recording>) -> (App, Arc<crate::plugin::AgentClient>, Arc<Commands>) {
+        let app = bare();
+        let client = Arc::new(crate::plugin::AgentClient::default());
+        let (commands, _agent) = tokio::sync::mpsc::unbounded_channel();
+        client.connect(commands, host.clone());
+        client.follow("lead");
+        client.keep(&atomcode_kernel::session::Committed {
+            session: "lead".into(),
+            seq: 7,
+            at: 0,
+            event: SessionEvent::TurnStart { turn: 1 },
+        });
+        let _ = app
+            .context()
+            .provide::<crate::plugin::AgentClientSvc>(client.clone());
+        let all = Arc::new(Commands::new());
+        let _ = all.add(Arc::new(SessionCommands));
+        (app, client, all)
+    }
+
+    /// `/undo` asks the host about the session this screen follows, based on the
+    /// last fact it saw, and puts the words it hands back where the person
+    /// types (`docs/adr/0024` §17).
+    #[tokio::test]
+    async fn undo_is_asked_of_the_host_and_the_words_come_back_to_the_composer() {
+        let host = Arc::new(Recording::default());
+        host.replies
+            .lock()
+            .unwrap()
+            .push_back(Ok(HostReply::Undone {
+                prompt: Some("fix the parser".into()),
+                restored_files: Vec::new(),
+            }));
+        let (app, client, all) = following(&host);
+        assert_eq!(
+            all.dispatch("/undo", &app.context()).await,
+            Outcome::Do(Action::Paste("fix the parser".into()))
+        );
+        let _ = all.dispatch("/undo 3", &app.context()).await;
+        assert_eq!(
+            *host.asked.lock().unwrap(),
+            vec![
+                HostCommand::Undo {
+                    session: "lead".into(),
+                    turn: None,
+                    based_on: 7,
+                },
+                HostCommand::Undo {
+                    session: "lead".into(),
+                    turn: Some(3),
+                    based_on: 7,
+                },
+            ]
+        );
+
+        // With a member on screen, the lead's conversation is not what is shown.
+        let _ = client.look_at("lead/scout");
+        assert!(matches!(
+            all.dispatch("/undo", &app.context()).await,
+            Outcome::Refused(_)
+        ));
+        assert_eq!(
+            host.asked.lock().unwrap().len(),
+            2,
+            "nothing more was asked"
+        );
+    }
+
+    /// `/rewind` with nothing after it asks for the panel — the same thing a
+    /// double-tap on Esc asks for, so there is one rewind on screen rather than
+    /// two. With a turn and a scope it goes back without opening anything.
+    #[tokio::test]
+    async fn rewind_opens_the_panel_and_goes_back_with_a_scope() {
+        let host = Arc::new(Recording::default());
+        host.replies
+            .lock()
+            .unwrap()
+            .push_back(Ok(HostReply::Undone {
+                prompt: None,
+                restored_files: vec!["src/a.rs".into()],
+            }));
+        let (app, _client, all) = following(&host);
+        assert_eq!(
+            all.dispatch("/rewind", &app.context()).await,
+            Outcome::Do(Action::ToggleRewind),
+            "无参的 /rewind 不问宿主,它要的是那块面板"
+        );
+        assert!(
+            host.asked.lock().unwrap().is_empty(),
+            "而且一趟往返都没发出去"
+        );
+        assert_eq!(
+            all.dispatch("/rewind 2 代码", &app.context()).await,
+            Outcome::Said("已还原 1 个文件".into())
+        );
+        assert_eq!(
+            host.asked.lock().unwrap().last(),
+            Some(&HostCommand::Rewind {
+                session: "lead".into(),
+                turn: 2,
+                scope: atomcode_kernel::session::RewindScope::Code,
+                based_on: 7,
+            })
+        );
+    }
+
+    /// `/cost` 按模型分开算,而不是 `/context` 的别名。
+    ///
+    /// 此前它就是一行 `return self.run("context", ...)` —— 而那两条答的不是同
+    /// 一个问题:`/context` 是「现在窗口里装了多少」,这一条是「这段对话
+    /// 一共花了多少」。归因那一套有两份设计文档建过,数据一直在会话里。
+    ///
+    /// **按模型分开是重点**:中途换过模型时,合起来的总数什么也回答不了。
+    /// 命中缓存那一项是 `prompt` 的子集,不是另一笔 —— 加进总数里就是把同
+    /// 一批 token 算两遍。
+    #[tokio::test]
+    async fn cost_is_counted_per_model_rather_than_aliased_to_context() {
+        let host = Arc::new(Recording::default());
+        host.replies.lock().unwrap().extend([Ok(HostReply::Cost {
+            models: vec![
+                atomcode_host_api::ModelCost {
+                    account: "AtomGit".into(),
+                    model: "glm-5".into(),
+                    prompt: 1000,
+                    completion: 200,
+                    cached: 400,
+                },
+                atomcode_host_api::ModelCost {
+                    account: "自建".into(),
+                    model: "qwen3".into(),
+                    prompt: 50,
+                    completion: 10,
+                    cached: 0,
+                },
+            ],
+            unattributed: 7,
+        })]);
+        let (app, _client, all) = following(&host);
+
+        let said = match all.dispatch("/cost", &app.context()).await {
+            Outcome::Said(said) => said,
+            other => panic!("{other:?}"),
+        };
+        // 两个模型各自一段,不是合起来的一个总数。
+        assert!(said.contains("glm-5") && said.contains("qwen3"), "{said}");
+        assert!(
+            said.contains("AtomGit") && said.contains("自建"),
+            "账号名:{said}"
+        );
+        assert!(said.contains("1200"), "第一个的总数:{said}");
+        assert!(said.contains("40%"), "缓存命中率:{said}");
+        assert!(said.contains('7'), "归不了属的那一块单列:{said}");
+        // 而它问的是 `Cost`,不是 `Context` —— 别名那一版在这里会露馅。
+        assert_eq!(
+            *host.asked.lock().unwrap(),
+            vec![HostCommand::Cost {
+                session: "lead".into()
+            }]
+        );
+    }
+
+    /// 被拒的提交说的是话,不是一个枚举的名字。
+    ///
+    /// 此前这里是 `format!("{error:?}")`,于是中文界面上写着
+    /// 「没有送达:Unavailable」—— 一个英文词,而且不告诉任何人该怎么办。
+    /// `Busy` 更难看:它会把整个结构体清单都印出来。
+    ///
+    /// 带理由的那一种要把理由带上:`Busy { reason }` 里的 reason 是运行时
+    /// 自己写的,丢了就只剩「忙」。
+    #[test]
+    fn a_refusal_is_said_in_words() {
+        use atomcode_kernel::event::CommandError as E;
+        for error in [
+            E::StaleQuestion,
+            E::NotRunning,
+            E::Unavailable,
+            E::NotFound,
+            E::Unsupported,
+        ] {
+            let said = refusal_words(&error);
+            assert!(
+                !said.contains(&format!("{error:?}")),
+                "{error:?} 还是把枚举名印出来了:{said}"
+            );
+            assert!(!said.trim().is_empty(), "{error:?}");
+        }
+        let busy = refusal_words(&E::Busy {
+            reason: "正在压缩 q4z".into(),
+        });
+        assert!(busy.contains("正在压缩 q4z"), "理由带上了:{busy}");
+        assert!(!busy.contains("Busy {"), "而不是整个结构体:{busy}");
+    }
+
+    /// 换模型没存下来时,屏上要说两句。
+    ///
+    /// 换本身确实生效了,而写配置可能单独失败 —— 于是重启之后又
+    /// 回到旧模型,而人当时看到的是一句干干净净的「模型 → X」。此前
+    /// 这一半只进了日志文件,屏幕一个字不提。
+    ///
+    /// 两句都要说:只说第二句会读成「没换成」,只说第一句就是
+    /// 今天这个样子。
+    #[tokio::test]
+    async fn a_model_switch_that_was_not_written_down_says_both_halves() {
+        let host = Arc::new(Recording::default());
+        let (app, _client, all) = following(&host);
+        host.replies
+            .lock()
+            .unwrap()
+            .extend([Ok(HostReply::DoneWithNote {
+                note: "但没存下来 PERM-DENIED".into(),
+            })]);
+        match all.dispatch("/model glm-5", &app.context()).await {
+            Outcome::Said(said) => {
+                assert!(said.contains("glm-5"), "换成了哪个:{said}");
+                assert!(said.contains("PERM-DENIED"), "以及没存下来:{said}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// 换到一个声明了思考强度的模型,屏上要把档位递上来让人挑;
+    /// 没声明的,一句「模型 → X」就够,不多问。
+    #[tokio::test]
+    async fn a_model_that_declares_effort_levels_offers_them_to_pick() {
+        struct Declares;
+        impl crate::providers::Providers for Declares {
+            fn rows(&self) -> crate::providers::ProvidersView {
+                let row = |id: &str, levels: Vec<String>, effort: Option<String>| {
+                    crate::providers::ModelRow {
+                        id: id.into(),
+                        account: "a".into(),
+                        model: id.into(),
+                        window: 1000,
+                        vision: None,
+                        effort,
+                        levels,
+                        current: false,
+                        managed: false,
+                    }
+                };
+                crate::providers::ProvidersView::new(
+                    Vec::new(),
+                    vec![
+                        row("glm", vec!["low".into(), "high".into()], None),
+                        row("plain", Vec::new(), None),
+                        // 声明了吃思考强度、却没截短档位的:全量档位都递上来。
+                        row("reasons", Vec::new(), Some("high".into())),
+                        // id 自己带空格:尾巴不是一档时不许拆。
+                        row("my model", vec!["low".into()], None),
+                    ],
+                    Vec::new(),
+                    Vec::new(),
+                )
+            }
+            fn add_account(&self, _: &crate::providers::AccountDraft) -> Result<String, String> {
+                Ok("x".into())
+            }
+            fn edit_account(
+                &self,
+                _: &str,
+                _: &crate::providers::AccountDraft,
+            ) -> Result<(), String> {
+                Ok(())
+            }
+            fn delete_account(&self, _: &str) -> Result<(), String> {
+                Ok(())
+            }
+            fn add_model(&self, _: &crate::providers::ModelDraft) -> Result<String, String> {
+                Ok("x".into())
+            }
+            fn edit_model(&self, _: &str, _: &crate::providers::ModelDraft) -> Result<(), String> {
+                Ok(())
+            }
+            fn delete_model(&self, _: &str) -> Result<(), String> {
+                Ok(())
+            }
+        }
+
+        let host = Arc::new(Recording::default());
+        let (app, _client, all) = following(&host);
+        let _ = app
+            .context()
+            .provide::<crate::plugin::ProvidersSvc>(Arc::new(Declares));
+
+        // 声明了 levels 的:把档位交给 providers 面板去画,一行一档,
+        // default 收尾 —— 挑强度那一层(`Action::PickEffort`)。
+        match all.dispatch("/model glm", &app.context()).await {
+            Outcome::Do(Action::PickEffort { model, levels, .. }) => {
+                assert_eq!(model, "glm");
+                assert_eq!(levels, ["low", "high", "default"]);
+            }
+            other => panic!("{other:?}"),
+        }
+
+        // 没声明的:还是那一句,不进挑强度那一层。
+        match all.dispatch("/model plain", &app.context()).await {
+            Outcome::Said(said) => assert!(said.contains("plain"), "{said}"),
+            other => panic!("{other:?}"),
+        }
+
+        // 吃思考强度、没截短档位的:全量档位一档一行,default 收尾。
+        match all.dispatch("/model reasons", &app.context()).await {
+            Outcome::Do(Action::PickEffort { model, levels, .. }) => {
+                assert_eq!(model, "reasons");
+                let mut want: Vec<String> = atomcode_harness::REASONING_EFFORT_LEVELS
+                    .iter()
+                    .map(|level| level.to_string())
+                    .collect();
+                want.push("default".into());
+                assert_eq!(levels, want);
+            }
+            other => panic!("{other:?}"),
+        }
+
+        // 带着档位一起换 —— 挑强度那一层的收尾就是这一句。它必须只说一句
+        // 「换成了、并且按这档想」,不能再回去开一遍挑强度那一层:面板刚被
+        // 那一挑选关上,再开就是把这一挑作废,永远收不了尾。
+        match all.dispatch("/model glm high", &app.context()).await {
+            Outcome::Said(said) => {
+                assert!(said.contains("glm"), "{said}");
+                assert!(said.contains("high"), "{said}");
+            }
+            other => panic!("{other:?}"),
+        }
+
+        // 模型 id 里带空格也还是 id:尾巴不是一档时不拆。
+        match all.dispatch("/model my model", &app.context()).await {
+            Outcome::Do(Action::PickEffort { model, .. }) => assert_eq!(model, "my model"),
+            other => panic!("{other:?}"),
+        }
+
+        // 换成了、但没存下来:挑强度那一层顶掉了「换成了」那句,宿主的
+        // 「没存下来」得跟着带过去,不能丢。
+        host.replies
+            .lock()
+            .unwrap()
+            .extend([Ok(HostReply::DoneWithNote {
+                note: "但没存下来 PERM-DENIED".into(),
+            })]);
+        match all.dispatch("/model glm", &app.context()).await {
+            Outcome::Do(Action::PickEffort { note, .. }) => {
+                assert_eq!(note.as_deref(), Some("但没存下来 PERM-DENIED"));
+            }
+            other => panic!("{other:?}"),
+        }
+
+        // 模型换过去了、强度那一步被拒:拒绝要说,「换成了」那句也得留着 ——
+        // 只报拒绝,人会以为什么都没变,可会话已经在新模型上了。
+        host.replies
+            .lock()
+            .unwrap()
+            .extend([Ok(HostReply::Done), Err(HostError::Stale { current: 1 })]);
+        match all.dispatch("/model glm high", &app.context()).await {
+            Outcome::Refused(said) => {
+                assert!(said.contains("glm"), "换成了哪个:{said}");
+                assert!(
+                    said.contains(&*t(Msg::HostStale)),
+                    "以及强度为什么没设上:{said}"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// The rest of host control over a session is a command each, for the
+    /// session this screen follows even while a member is on screen.
+    #[tokio::test]
+    async fn model_mcp_reload_and_signing_in_and_out_are_asked_of_the_host() {
+        let host = Arc::new(Recording::default());
+        let (app, client, all) = following(&host);
+        host.replies.lock().unwrap().extend([Ok(HostReply::Done)]);
+        let _ = client.look_at("lead/scout");
+        for line in [
+            "/model glm-5",
+            "/mcp withdraw",
+            "/reload",
+            "/mcp reload",
+            "/logout",
+            "/login",
+        ] {
+            assert!(
+                !matches!(
+                    all.dispatch(line, &app.context()).await,
+                    Outcome::Refused(_)
+                ),
+                "{line}"
+            );
+        }
+        let lead = || "lead".to_string();
+        assert_eq!(
+            *host.asked.lock().unwrap(),
+            vec![
+                HostCommand::SwitchModel {
+                    session: lead(),
+                    model: "glm-5".into(),
+                },
+                HostCommand::WithdrawMcpTools { session: lead() },
+                HostCommand::Reload { session: lead() },
+                // `/mcp reload` — the classic screen's words — is `/reload`,
+                // not an unknown subcommand, and then says where each server is.
+                HostCommand::Reload { session: lead() },
+                HostCommand::McpStatus { session: lead() },
+                HostCommand::SignOut { session: lead() },
+                HostCommand::SignIn { session: lead() },
+            ]
+        );
+    }
+
+    /// A server with no tools says why, from its state: "connected and offers
+    /// nothing" and "failed" were one sentence, and a person could not tell a
+    /// server to fix from one with nothing to give.
+    #[tokio::test]
+    async fn a_server_with_no_tools_says_what_state_it_is_in() {
+        let host = Arc::new(Recording::default());
+        let (app, _client, all) = following(&host);
+        host.replies.lock().unwrap().extend([
+            Ok(HostReply::McpTools { tools: Vec::new() }),
+            Ok(HostReply::McpServers {
+                servers: vec![atomcode_host_api::McpServer {
+                    name: "zouwu".into(),
+                    state: atomcode_host_api::McpServerState::Failed {
+                        message: "exit status 1".into(),
+                    },
+                }],
+            }),
+        ]);
+        let said = match all.dispatch("/mcp tools zouwu", &app.context()).await {
+            Outcome::Said(said) => said,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            said,
+            t(Msg::McpServerHasNoTools {
+                server: "zouwu",
+                state: &t(Msg::McpFailed {
+                    message: "exit status 1"
+                }),
+            })
+        );
+    }
+
+    fn rows(names: &[&str]) -> HostReply {
+        HostReply::McpRows {
+            rows: names
+                .iter()
+                .map(|name| atomcode_host_api::McpRow {
+                    name: (*name).into(),
+                    state: atomcode_host_api::McpServerState::Connected,
+                    source: "global".into(),
+                    tool_count: 0,
+                    config_path: None,
+                })
+                .collect(),
+        }
+    }
+
+    /// A name that is no server is not acted on: signing out takes every MCP
+    /// tool off and reconnects, and a page that never loads is no sign-in. The
+    /// servers there are are named instead, as the classic screen names them.
+    #[tokio::test]
+    async fn mcp_login_and_logout_want_a_server_that_exists() {
+        for line in ["/mcp logout gthub", "/mcp login gthub"] {
+            let (said, asked) = said_by(line, vec![Ok(rows(&["github", "figma"]))]).await;
+            assert_eq!(
+                said,
+                Outcome::Refused(
+                    t(Msg::McpUnknownServer {
+                        name: "gthub",
+                        available: "github, figma"
+                    })
+                    .into_owned()
+                ),
+                "{line}"
+            );
+            assert!(
+                !asked
+                    .iter()
+                    .any(|c| matches!(c, HostCommand::McpAct { .. })),
+                "{line}: {asked:?}"
+            );
+        }
+    }
+
+    /// Untrusting a project that never was is said as such, as on the classic
+    /// screen — not as a failure to reconfigure.
+    #[tokio::test]
+    async fn untrusting_an_untrusted_project_says_so() {
+        let (said, _) = said_by(
+            "/mcp untrust",
+            vec![Err(HostError::Failed {
+                message: format!(
+                    "reconfigure failed: {}",
+                    atomcode_capabilities::mcp::trust::PROJECT_NOT_TRUSTED
+                ),
+            })],
+        )
+        .await;
+        assert_eq!(
+            said,
+            Outcome::Said(t(Msg::McpProjectNotTrusted).into_owned())
+        );
+    }
+
+    fn server(
+        name: &str,
+        state: atomcode_host_api::McpServerState,
+    ) -> atomcode_host_api::McpServer {
+        atomcode_host_api::McpServer {
+            name: name.into(),
+            state,
+        }
+    }
+
+    async fn said_by(
+        line: &str,
+        replies: Vec<Result<HostReply, HostError>>,
+    ) -> (Outcome, Vec<HostCommand>) {
+        let host = Arc::new(Recording::default());
+        let (app, _client, all) = following(&host);
+        host.replies.lock().unwrap().extend(replies);
+        let outcome = all.dispatch(line, &app.context()).await;
+        let asked = host.asked.lock().unwrap().clone();
+        (outcome, asked)
+    }
+
+    /// `/mcp` answers the classic screen's subcommands with the classic
+    /// screen's answers: help, trust and untrust, logout, login. Help and the
+    /// usages ask the host nothing.
+    #[tokio::test]
+    async fn mcp_answers_the_classic_screens_subcommands() {
+        for line in ["/mcp help", "/mcp --help", "/mcp -h"] {
+            let (said, asked) = said_by(line, vec![]).await;
+            assert_eq!(said, Outcome::Said(t(Msg::McpHelp).into_owned()), "{line}");
+            assert!(asked.is_empty(), "{line}");
+        }
+        let help = t(Msg::McpHelp);
+        for sub in [
+            "reload", "tools", "trust", "untrust", "login", "logout", "withdraw",
+        ] {
+            assert!(help.contains(&format!("/mcp {sub}")), "help names {sub}");
+        }
+
+        let (said, asked) = said_by("/mcp trust", vec![]).await;
+        assert_eq!(said, Outcome::Said(t(Msg::McpProjectTrusted).into_owned()));
+        assert!(matches!(
+            asked.as_slice(),
+            [HostCommand::McpAct {
+                action: atomcode_host_api::McpAction::Trust,
+                ..
+            }]
+        ));
+        let (said, asked) = said_by("/mcp untrust", vec![]).await;
+        assert_eq!(
+            said,
+            Outcome::Said(t(Msg::McpProjectUntrusted).into_owned())
+        );
+        assert!(matches!(
+            asked.as_slice(),
+            [HostCommand::McpAct {
+                action: atomcode_host_api::McpAction::Untrust,
+                ..
+            }]
+        ));
+
+        let (said, asked) = said_by("/mcp logout github", vec![Ok(rows(&["github"]))]).await;
+        assert_eq!(
+            said,
+            Outcome::Said(t(Msg::McpLoggedOut { server: "github" }).into_owned())
+        );
+        assert!(matches!(
+            asked.as_slice(),
+            [HostCommand::McpManage { .. }, HostCommand::McpAct { server, action: atomcode_host_api::McpAction::Logout, .. }] if server == "github"
+        ));
+        let (said, asked) = said_by("/mcp logout", vec![]).await;
+        assert_eq!(said, Outcome::Refused(t(Msg::McpLogoutUsage).into_owned()));
+        assert!(asked.is_empty());
+
+        // Signing in is the panel's: up on that server's page.
+        let (said, _) = said_by("/mcp login github", vec![Ok(rows(&["github"]))]).await;
+        assert_eq!(said, Outcome::Do(Action::OpenMcpServer("github".into())));
+        let (said, _) = said_by("/mcp login", vec![]).await;
+        assert_eq!(said, Outcome::Refused(t(Msg::McpLoginUsage).into_owned()));
+    }
+
+    /// `/mcp reload` says where each server stands afterwards, and how to let
+    /// in the project's own servers when they are held back.
+    #[tokio::test]
+    async fn mcp_reload_lists_each_server_and_the_way_past_trust() {
+        use atomcode_host_api::McpServerState as S;
+        let (said, _) = said_by(
+            "/mcp reload",
+            vec![
+                Ok(HostReply::Done),
+                Ok(HostReply::McpServers {
+                    servers: vec![server("fs", S::Connecting), server("proj", S::Untrusted)],
+                }),
+            ],
+        )
+        .await;
+        let Outcome::Said(said) = said else {
+            panic!("{said:?}");
+        };
+        assert!(said.starts_with(&*t(Msg::Reloaded)), "{said}");
+        assert!(
+            said.contains(&format!(
+                "fs  {}",
+                crate::i18n::product::t(crate::i18n::product::Msg::McpStatusConnecting)
+            )),
+            "{said}"
+        );
+        assert!(
+            said.contains(&format!("proj  {}", t(Msg::McpUntrusted))),
+            "{said}"
+        );
+        assert!(
+            said.contains(&*t(Msg::McpBlockedTrustHint { count: 1 })),
+            "{said}"
+        );
+    }
+
+    /// `/mcp tools`: the list; a usage for no name or two; the servers there
+    /// are for a name that is none of them.
+    #[tokio::test]
+    async fn mcp_tools_lists_or_says_which_servers_there_are() {
+        use atomcode_host_api::McpServerState as S;
+        let (said, _) = said_by(
+            "/mcp tools fs",
+            vec![Ok(HostReply::McpTools {
+                tools: vec!["read".into(), "write".into()],
+            })],
+        )
+        .await;
+        assert_eq!(
+            said,
+            Outcome::Said(format!(
+                "{}\n  - read\n  - write",
+                t(Msg::McpToolsHeader { server: "fs" })
+            ))
+        );
+        for line in ["/mcp tools", "/mcp tools a b"] {
+            let (said, asked) = said_by(line, vec![]).await;
+            assert_eq!(
+                said,
+                Outcome::Refused(t(Msg::McpNeedsServerName).into_owned()),
+                "{line}"
+            );
+            assert!(asked.is_empty(), "{line}");
+        }
+        let (said, _) = said_by(
+            "/mcp tools nope",
+            vec![
+                Ok(HostReply::McpTools { tools: vec![] }),
+                Ok(HostReply::McpServers {
+                    servers: vec![server("a", S::Connected), server("b", S::Connected)],
+                }),
+            ],
+        )
+        .await;
+        assert_eq!(
+            said,
+            Outcome::Refused(
+                t(Msg::McpUnknownServer {
+                    name: "nope",
+                    available: "a, b"
+                })
+                .into_owned()
+            )
+        );
+    }
+
+    /// `/mcp` with nothing after it raises the panel — it prints no list of
+    /// servers, and it asks the host for nothing: the directory arrives over the
+    /// panel's own port.
+    ///
+    /// The two states that list used to spell out are `McpState::about()`'s words,
+    /// and the drawing layer's tests pin them where they are drawn. The half that
+    /// says the panel really is up lives in `plugin.rs` — a command holds no host,
+    /// so it cannot raise one itself.
+    #[tokio::test]
+    async fn mcp_with_no_argument_asks_for_the_panel() {
+        let host = Arc::new(Recording::default());
+        let (app, _client, all) = following(&host);
+        assert!(
+            matches!(
+                all.dispatch("/mcp", &app.context()).await,
+                Outcome::Do(Action::ToggleMcp)
+            ),
+            "/mcp with no argument routes to the panel"
+        );
+        assert!(
+            host.asked.lock().unwrap().is_empty(),
+            "opening the panel asks the host for nothing"
+        );
+    }
+
+    /// `/model` with no argument opens the providers panel on its model list —
+    /// one surface for switching and editing — instead of a models-only popup.
+    /// It asks the host for nothing: opening a panel is screen state.
+    #[tokio::test]
+    async fn bare_model_opens_the_providers_model_list() {
+        let host = Arc::new(Recording::default());
+        let (app, _client, all) = following(&host);
+        assert!(
+            matches!(
+                all.dispatch("/model", &app.context()).await,
+                Outcome::Do(Action::OpenModels)
+            ),
+            "/model with no arg routes to the providers model list"
+        );
+        assert!(
+            host.asked.lock().unwrap().is_empty(),
+            "opening the panel asks the host for nothing"
+        );
+    }
+
+    /// `/context` says both numbers, because they answer different questions.
+    ///
+    /// What the screen can count is what it was shown. The budget is the host's
+    /// — it packs a system prompt, instructions and tool definitions that never
+    /// reach a front end — so a `/context` that only counted would be reporting
+    /// the smaller half of the answer and calling it the answer.
+    #[tokio::test]
+    async fn context_says_what_is_in_the_conversation_and_how_much_room_is_left() {
+        let host = Arc::new(Recording::default());
+        host.replies
+            .lock()
+            .unwrap()
+            .push_back(Ok(HostReply::Context {
+                window: 200_000,
+                used: 50_000,
+                model: "glm-5".into(),
+                working_dir: "/w".into(),
+                system_prompt: None,
+            }));
+        let (app, _client, all) = following(&host);
+
+        match all.dispatch("/context", &app.context()).await {
+            Outcome::Said(text) => {
+                assert!(text.contains("条事实"), "the counted half: {text}");
+                assert!(text.contains("50000 / 200000"), "the budget half: {text}");
+                assert!(text.contains("25%"), "and how full that is: {text}");
+                assert!(
+                    text.contains("glm-5"),
+                    "a window belongs to a model: {text}"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(
+            *host.asked.lock().unwrap(),
+            vec![HostCommand::Context {
+                session: "lead".into(),
+                prompt: false,
+            }]
+        );
+    }
+
+    /// `/context prompt` 拿的是这个会话真正跑着的那份系统提示词。
+    ///
+    /// 人问它的那一刻很具体:agent 表现得像是被告知了一件谁也不记得告诉过它的
+    /// 事。而那份提示词是挂着的各行各写一段拼出来的 —— 没有任何一处能读到
+    /// 全文,连写它的人也不能。
+    ///
+    /// **另一半同样要钉:不带参数的 `/context` 不许把它要过来。** 那是一份几千
+    /// 字的东西,而状态面板每隔一会儿就问一次这条命令;只钉前一半的话,把
+    /// `prompt` 恒设成 `true` 照样全绿,而每一次刷新都在搬一份提示词。
+    #[tokio::test]
+    async fn context_prompt_shows_the_system_prompt_and_plain_context_does_not_fetch_it() {
+        let host = Arc::new(Recording::default());
+        host.replies.lock().unwrap().extend([
+            Ok(HostReply::Context {
+                window: 1,
+                used: 0,
+                model: "m".into(),
+                working_dir: "/w".into(),
+                system_prompt: Some("You are a coding agent.\nTools: …".into()),
+            }),
+            Ok(HostReply::Context {
+                window: 1,
+                used: 0,
+                model: "m".into(),
+                working_dir: "/w".into(),
+                system_prompt: None,
+            }),
+        ]);
+        let (app, _client, all) = following(&host);
+
+        match all.dispatch("/context prompt", &app.context()).await {
+            Outcome::Said(text) => {
+                assert!(text.contains("You are a coding agent."), "{text}");
+                // 原样,不是摘要:人要读的就是这份东西本身。
+                assert!(text.contains("Tools: …"), "{text}");
+            }
+            other => panic!("{other:?}"),
+        }
+        // 没有提示词可说不是错误。
+        match all.dispatch("/context prompt", &app.context()).await {
+            Outcome::Said(text) => assert!(!text.is_empty(), "{text}"),
+            other => panic!("{other:?}"),
+        }
+        let asked = host.asked.lock().unwrap().clone();
+        assert!(
+            asked
+                .iter()
+                .all(|c| matches!(c, HostCommand::Context { prompt: true, .. })),
+            "问的时候要说明是要提示词的:{asked:?}"
+        );
+    }
+
+    /// A host that cannot say what the window is says nothing rather than
+    /// `0 / 0`, and the counted half still reaches the person.
+    #[tokio::test]
+    async fn context_without_a_known_window_still_says_what_it_knows() {
+        let host = Arc::new(Recording::default());
+        host.replies
+            .lock()
+            .unwrap()
+            .push_back(Ok(HostReply::Context {
+                window: 0,
+                used: 0,
+                model: String::new(),
+                working_dir: "/w".into(),
+                system_prompt: None,
+            }));
+        let (app, _client, all) = following(&host);
+        match all.dispatch("/context", &app.context()).await {
+            Outcome::Said(text) => {
+                assert!(text.contains("条事实"), "{text}");
+                assert!(
+                    !text.contains("0 / 0"),
+                    "a window nobody knows is not a number: {text}"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// `/usage` opens the settings panel on its Usage page, where the
+    /// allowance is drawn — what is left, when a spent window comes back, and
+    /// "not metered" said differently from "could not ask" (the page's own
+    /// criteria in `modules::settings`). It asks the host nothing itself: the
+    /// panel does, as it opens.
+    #[tokio::test]
+    async fn usage_opens_the_usage_page() {
+        let host = Arc::new(Recording::default());
+        let (app, _client, all) = following(&host);
+        assert!(matches!(
+            all.dispatch("/usage", &app.context()).await,
+            Outcome::Do(Action::OpenUsage)
+        ));
+        assert!(host.asked.lock().unwrap().is_empty());
+    }
+
+    /// `pin` / `unpin` 是整词,不是前缀。
+    ///
+    /// `strip_prefix("pin")` 让 `/cd pinia-app` 变成「把 ia-app 加书签」——
+    /// 目录压根没进去,而屏上说标好了;`/cd unpinned-dir` 更坏,
+    /// `starts_with("pin")` 是假,于是变成「取消标记 ned-dir」。两条都是
+    /// 「看起来成功了、实际做的是另一件事」。
+    #[tokio::test]
+    async fn cd_reads_pin_as_a_word_not_as_a_prefix() {
+        let host = Arc::new(Recording::default());
+        let (app, _client, all) = following(&host);
+        // 没挂书签端口。真是子命令的话会在那里被拒,不是命令的话
+        // 会走到换目录那一路 —— 两者答得不一样,正好用来分辨。
+        let pinned = all.dispatch("/cd pinia-app", &app.context()).await;
+        assert_ne!(
+            pinned,
+            Outcome::Refused(t(Msg::NoPlaces).into_owned()),
+            "`pinia-app` 是个目录名,不是 `pin ia-app`"
+        );
+        let unpinned = all.dispatch("/cd unpinned-dir", &app.context()).await;
+        assert_ne!(
+            unpinned,
+            Outcome::Refused(t(Msg::NoPlaces).into_owned()),
+            "`unpinned-dir` 同理"
+        );
+        // 而真的子命令仍然是子命令。
+        assert_eq!(
+            all.dispatch("/cd pin /srv/x", &app.context()).await,
+            Outcome::Refused(t(Msg::NoPlaces).into_owned()),
+            "后面跟空格的才是子命令"
+        );
+    }
+
+    /// `/cd` browses. Before this it took a path a person had to already know,
+    /// and tuix had a picker for exactly that reason (`modals/dir_picker.rs`).
+    ///
+    /// What the picks are is the point: stepping in is `/cd <path>/` and
+    /// staying is `/cd <path>` — this same command — so the browser cannot
+    /// drift away from the typed form, because it is the typed form.
+    #[tokio::test]
+    async fn cd_browses_rather_than_demanding_a_path_already_known() {
+        let host = Arc::new(Recording::default());
+        let (app, _client, all) = following(&host);
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Names that a random temp path cannot accidentally contain, so the
+        // assertions below are about the listing and not about luck.
+        std::fs::create_dir_all(dir.path().join("src-alpha")).expect("dir");
+        std::fs::create_dir_all(dir.path().join("docs-beta")).expect("dir");
+        std::fs::create_dir_all(dir.path().join(".hidden-gamma")).expect("dir");
+        std::fs::write(dir.path().join("alpha-file.txt"), "x").expect("file");
+
+        // The trailing slash is "browse from here", which is what picking a row
+        // sends back in.
+        let at = format!("/cd {}/", dir.path().display());
+        let sheet = sheet_of(all.dispatch(&at, &app.context()).await);
+        assert_eq!(sheet.page.id(), "cd");
+        let text = sheet_text(&sheet);
+
+        assert!(text.contains("src-alpha"), "{text}");
+        assert!(text.contains("docs-beta"), "{text}");
+        // A browser you cannot back out of is a trap.
+        assert!(text.contains("上一层"), "{text}");
+        // And one you cannot stop in is useless: stepping in has to be able to
+        // end somewhere.
+        assert!(text.contains("就在这儿干活"), "{text}");
+        assert!(
+            !text.contains("alpha-file"),
+            "files are not directories: {text}"
+        );
+        assert!(
+            !text.contains("hidden-gamma"),
+            "dot directories stay out: {text}"
+        );
+        // Nothing was asked of the host: browsing is looking, not moving.
+        assert!(
+            host.asked.lock().unwrap().is_empty(),
+            "looking at a directory must not move the session into it"
+        );
+
+        // And the way out. The "stay here" row sends `/cd <from>` with no
+        // trailing slash, which is this — so a browser that could be stepped
+        // into but never out of would fail here. It did: `from` kept the slash
+        // it was browsed with, and the row read as "browse here" again.
+        let stay = format!("/cd {}", dir.path().display());
+        match all.dispatch(&stay, &app.context()).await {
+            Outcome::Said(_) => {}
+            other => panic!("picking a directory must move into it, not reopen: {other:?}"),
+        }
+        assert!(matches!(
+            host.asked.lock().unwrap().first(),
+            Some(HostCommand::ChangeDirectory { .. })
+        ));
+    }
+
+    /// The words people type for a mode reach the one mode switch — they are
+    /// not a second implementation that would drift from it.
+    #[tokio::test]
+    async fn plan_build_and_auto_are_the_one_mode_switch_under_other_names() {
+        let host = Arc::new(Recording::default());
+        let (app, _client, all) = following(&host);
+        for (typed, wanted) in [
+            ("/plan", atomcode_host_api::Mode::Plan),
+            ("/build", atomcode_host_api::Mode::Ask),
+            ("/auto", atomcode_host_api::Mode::Auto),
+        ] {
+            let _ = all.dispatch(typed, &app.context()).await;
+            assert_eq!(
+                host.asked.lock().unwrap().last(),
+                Some(&HostCommand::SetMode {
+                    session: "lead".into(),
+                    mode: wanted,
+                }),
+                "{typed}"
+            );
+        }
+        // And `/mode plan` still reaches the same place, so the two doors agree.
+        let _ = all.dispatch("/mode plan", &app.context()).await;
+        assert_eq!(
+            host.asked.lock().unwrap().last(),
+            Some(&HostCommand::SetMode {
+                session: "lead".into(),
+                mode: atomcode_host_api::Mode::Plan,
+            })
+        );
+    }
+
+    /// The two tables over the four modes agree, and both spellings of the one
+    /// mode mean it.
+    ///
+    /// The cycle key builds a `/mode <word>` line from [`mode_word`], and the
+    /// command reads it back with [`mode_named`]. A pair that disagreed — a word
+    /// the command does not take, or a word that named a different mode — is the
+    /// drift this pins, and it would show up as a key that says "no such mode"
+    /// rather than as a wrong mode.
+    #[test]
+    fn every_mode_has_one_word_both_ways_and_the_cycle_visits_them_all() {
+        use atomcode_host_api::Mode;
+        for mode in [Mode::Plan, Mode::Ask, Mode::AcceptEdits, Mode::Auto] {
+            let word = mode_word(mode);
+            assert_eq!(mode_named(word), Some(mode), "`{word}` does not round-trip");
+        }
+        // The long spelling is the one mode, not a fifth.
+        assert_eq!(mode_named("accept-edits"), Some(Mode::AcceptEdits));
+        assert_eq!(mode_named("nonsense"), None);
+
+        // Four steps from anywhere and the cycle is back where it started,
+        // visiting each mode once — the property that makes the key usable
+        // without looking.
+        let mut seen = Vec::new();
+        let mut mode = Mode::Ask;
+        for _ in 0..4 {
+            seen.push(mode);
+            mode = mode.next();
+        }
+        assert_eq!(mode, Mode::Ask, "the cycle does not close");
+        seen.sort_by_key(|m| mode_word(*m));
+        seen.dedup();
+        assert_eq!(seen.len(), 4, "the cycle skips a mode: {seen:?}");
+    }
+
+    /// `/autonomy` says whether the session is driving itself, and how far it
+    /// has got — the thing the runtime publishes every round to a stream this
+    /// screen is not on.
+    #[tokio::test]
+    async fn autonomy_says_what_the_session_is_doing_on_its_own() {
+        let host = Arc::new(Recording::default());
+        host.replies.lock().unwrap().extend([
+            Ok(HostReply::Autonomy {
+                running: Some(atomcode_host_api::Running {
+                    kind: "goal".into(),
+                    what: "测试全过".into(),
+                    round: 3,
+                    of: Some(20),
+                    elapsed_secs: 252,
+                    paused: None,
+                }),
+            }),
+            Ok(HostReply::Autonomy {
+                running: Some(atomcode_host_api::Running {
+                    kind: "loop".into(),
+                    what: "再看一遍".into(),
+                    round: 9,
+                    of: None,
+                    elapsed_secs: 40,
+                    paused: Some("PausedAtCap".into()),
+                }),
+            }),
+            Ok(HostReply::Autonomy { running: None }),
+        ]);
+        let (app, _client, all) = following(&host);
+
+        match all.dispatch("/autonomy", &app.context()).await {
+            Outcome::Said(text) => {
+                assert!(text.contains("测试全过"), "{text}");
+                assert!(text.contains("3/20"), "with a cap it says the cap: {text}");
+                assert!(text.contains("4 分 12 秒"), "{text}");
+            }
+            other => panic!("{other:?}"),
+        }
+        match all.dispatch("/autonomy", &app.context()).await {
+            Outcome::Said(text) => {
+                assert!(text.contains("循环") && text.contains("第 9 轮"), "{text}");
+                assert!(!text.contains('/'), "no cap, no slash: {text}");
+                assert!(text.contains("停着"), "a paused one says so: {text}");
+            }
+            other => panic!("{other:?}"),
+        }
+        // Idle is said, not refused.
+        match all.dispatch("/autonomy", &app.context()).await {
+            Outcome::Said(text) => assert!(text.contains("没有在自己干"), "{text}"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(host.asked.lock().unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn language_reads_and_writes_the_one_setting_it_names() {
+        let host = Arc::new(Recording::default());
+        let language = || atomcode_host_api::Setting {
+            id: "language".into(),
+            label: "语言".into(),
+            value: "zh".into(),
+            accepts: "zh | en".into(),
+            applies: "下一回合".into(),
+        };
+        // Two readings, then the write, then a host that has no such setting.
+        host.replies.lock().unwrap().extend([
+            Ok(HostReply::Settings {
+                settings: vec![language()],
+            }),
+            Ok(HostReply::Settings {
+                settings: vec![language()],
+            }),
+            Ok(HostReply::Done),
+            Ok(HostReply::Settings {
+                settings: Vec::new(),
+            }),
+        ]);
+        let (app, _client, all) = following(&host);
+
+        // With nothing after it, `/language` says what it is and what it
+        // takes. It used to open `/config`'s value picker; `/config` is the
+        // screen's settings panel now, and a session command cannot open a
+        // screen panel for one row.
+        match all.dispatch("/language", &app.context()).await {
+            Outcome::Said(text) => {
+                assert!(text.contains("zh") && text.contains("zh | en"), "{text}")
+            }
+            other => panic!("{other:?}"),
+        }
+        match all.dispatch("/language en", &app.context()).await {
+            Outcome::Said(text) => assert!(text.contains("en"), "{text}"),
+            other => panic!("{other:?}"),
+        }
+        // A host with no such setting says so rather than pretending.
+        assert!(matches!(
+            all.dispatch("/language en", &app.context()).await,
+            Outcome::Refused(_)
+        ));
+
+        let lead = || "lead".to_string();
+        assert_eq!(
+            *host.asked.lock().unwrap(),
+            vec![
+                HostCommand::Settings { session: lead() },
+                HostCommand::Settings { session: lead() },
+                HostCommand::SetSetting {
+                    session: lead(),
+                    id: "language".into(),
+                    value: "en".into(),
+                },
+                HostCommand::Settings { session: lead() },
+            ],
+            "the named door reads the setting, then writes it"
+        );
+    }
+
+    /// `/diff git` asks the other question, and a row picked out of that
+    /// listing opens the same one.
+    ///
+    /// **The scope has to travel with the row.** Each row's value is the
+    /// command that opens it, so a `git` listing whose rows said `/diff <path>`
+    /// would show the *session's* diff of a file the person picked out of the
+    /// checkout's list — the same file, silently a different answer.
+    #[tokio::test]
+    async fn diff_git_asks_about_the_checkout_and_its_rows_stay_in_that_scope() {
+        use atomcode_host_api::ChangeScope;
+        let host = Arc::new(Recording::default());
+        host.replies.lock().unwrap().extend([
+            Ok(HostReply::Changes {
+                files: vec![atomcode_host_api::ChangedFile {
+                    path: "src/a.rs".into(),
+                    added: 2,
+                    removed: 1,
+                    binary: false,
+                    change: Some(atomcode_host_api::FileChange::Modified),
+                    staged: true,
+                }],
+                diff: None,
+                unavailable: None,
+            }),
+            Ok(HostReply::Changes {
+                files: Vec::new(),
+                diff: Some("@@ -1 +1 @@\n-a\n+b\n".into()),
+                unavailable: None,
+            }),
+        ]);
+        let (app, _client, all) = following(&host);
+
+        let mut sheet = sheet_of(all.dispatch("/diff git", &app.context()).await);
+        assert_eq!(sheet.page.id(), "diff");
+        // The row says what it is and whether it is staged — the difference
+        // between what a commit would take and what it would leave.
+        let drawn = sheet_text(&sheet);
+        assert!(
+            drawn.contains("改过") && drawn.contains("已暂存"),
+            "{drawn}"
+        );
+
+        // **Picking the row is what carries the scope**, and the value is where
+        // it lives — not the label, which is just the path either way. Judged
+        // by pressing Enter on it, because that is the only thing that reads
+        // the value at all.
+        let picked = press(&mut sheet, crate::surface::Key::Enter);
+        assert_eq!(
+            picked,
+            crate::sheet::Step::Chose("/diff git src/a.rs".into()),
+            "a row listed from the checkout opens the checkout's diff of it, \
+             not the session's — same file, silently a different answer"
+        );
+
+        // And that command is the one that asks, and it opens the diff to
+        // read. Going back to the listing is the sheet's (the list it was
+        // picked from stays behind it, cursor and all), so nothing is
+        // re-asked of the host and no scope can be swapped on the way back.
+        let read = sheet_of(all.dispatch("/diff git src/a.rs", &app.context()).await);
+        assert!(matches!(read.page, crate::sheet::Page::Read(_)), "{read:?}");
+        assert_eq!(read.page.id(), "diff");
+        assert_eq!(
+            *host.asked.lock().unwrap(),
+            vec![
+                HostCommand::Changes {
+                    session: "lead".into(),
+                    file: None,
+                    scope: ChangeScope::Workspace,
+                },
+                HostCommand::Changes {
+                    session: "lead".into(),
+                    file: Some("src/a.rs".into()),
+                    scope: ChangeScope::Workspace,
+                },
+            ]
+        );
+    }
+
+    /// Staged **and** changed again since is its own word.
+    ///
+    /// A commit made from that state takes something other than what is on
+    /// screen, and that is the most expensive thing this listing can fail to
+    /// say. Judged as a pure function so the wording needs no host, no
+    /// repository and no session to reach.
+    #[test]
+    fn a_file_staged_and_edited_again_says_both() {
+        use atomcode_host_api::FileChange as C;
+        assert_eq!(change_word(C::Modified, true), Msg::DiffModifiedStaged);
+        assert_eq!(change_word(C::Modified, false), Msg::DiffModified);
+        assert_eq!(change_word(C::Added, true), Msg::DiffAddedStaged);
+        assert_eq!(change_word(C::Deleted, true), Msg::DiffDeletedStaged);
+        // Untracked is neither: git has never heard of the file, so "staged"
+        // has nothing to be true of.
+        assert_eq!(change_word(C::Untracked, false), Msg::DiffUntracked);
+        assert_eq!(change_word(C::Untracked, true), Msg::DiffUntracked);
+        // A letter this build does not know still reads as a change.
+        assert_eq!(change_word(C::Other, false), Msg::DiffModified);
+    }
+
+    /// `/diff` answers the most-asked question of a coding session at two
+    /// depths: which files, then what changed in one.
+    ///
+    /// "Cannot tell" and "nothing changed" are different answers — one is a
+    /// session with no workspace snapshots, the other a session that has not
+    /// touched anything — and a screen that said the same for both would send
+    /// somebody looking for a bug that is not there.
+    #[tokio::test]
+    async fn diff_lists_what_changed_and_then_shows_one_of_them() {
+        let host = Arc::new(Recording::default());
+        host.replies.lock().unwrap().extend([
+            Ok(HostReply::Changes {
+                files: vec![
+                    atomcode_host_api::ChangedFile {
+                        path: "src/parser.rs".into(),
+                        added: 12,
+                        removed: 3,
+                        binary: false,
+                        change: None,
+                        staged: false,
+                    },
+                    atomcode_host_api::ChangedFile {
+                        path: "logo.png".into(),
+                        added: 0,
+                        removed: 0,
+                        binary: true,
+                        change: None,
+                        staged: false,
+                    },
+                ],
+                diff: None,
+                unavailable: None,
+            }),
+            Ok(HostReply::Changes {
+                files: Vec::new(),
+                diff: Some("@@ -1 +1 @@\n-a\n+b\n".into()),
+                unavailable: None,
+            }),
+            Ok(HostReply::Changes {
+                files: Vec::new(),
+                diff: None,
+                unavailable: None,
+            }),
+            Ok(HostReply::Changes {
+                files: Vec::new(),
+                diff: None,
+                unavailable: Some("这个会话不做工作区快照".into()),
+            }),
+        ]);
+        let (app, _client, all) = following(&host);
+
+        let list = sheet_of(all.dispatch("/diff", &app.context()).await);
+        assert_eq!(list.page.id(), "diff");
+        let read = sheet_of(all.dispatch("/diff src/parser.rs", &app.context()).await);
+        let crate::sheet::Page::Read(page) = &read.page else {
+            panic!("a diff to read: {read:?}");
+        };
+        // Numbered and signed the way the classic screen draws a diff, not
+        // the raw `@@` text.
+        let drawn = sheet_text(&read);
+        assert!(!drawn.contains("@@"), "{drawn}");
+        assert!(!page.lines.is_empty(), "{drawn}");
+        // Changed nothing: said, not refused.
+        match all.dispatch("/diff", &app.context()).await {
+            Outcome::Said(text) => assert!(text.contains("还没有改过"), "{text}"),
+            other => panic!("{other:?}"),
+        }
+        // Cannot tell: refused, with the host's own reason.
+        match all.dispatch("/diff", &app.context()).await {
+            Outcome::Refused(why) => assert!(why.contains("工作区快照"), "{why}"),
+            other => panic!("{other:?}"),
+        }
+
+        let lead = || "lead".to_string();
+        assert_eq!(
+            *host.asked.lock().unwrap(),
+            vec![
+                HostCommand::Changes {
+                    session: lead(),
+                    file: None,
+                    scope: atomcode_host_api::ChangeScope::Session,
+                },
+                HostCommand::Changes {
+                    session: lead(),
+                    file: Some("src/parser.rs".into()),
+                    scope: atomcode_host_api::ChangeScope::Session,
+                },
+                HostCommand::Changes {
+                    session: lead(),
+                    file: None,
+                    scope: atomcode_host_api::ChangeScope::Session,
+                },
+                HostCommand::Changes {
+                    session: lead(),
+                    file: None,
+                    scope: atomcode_host_api::ChangeScope::Session,
+                },
+            ]
+        );
+    }
+
+    /// Who is signed in, and the other thinking knob.
+    ///
+    /// `/think` is not `/effort`: one says whether the model thinks at all, the
+    /// other how hard. Both are asked of the host against the session this
+    /// screen follows.
+    #[tokio::test]
+    async fn who_is_signed_in_and_whether_the_model_thinks_at_all() {
+        let host = Arc::new(Recording::default());
+        host.replies.lock().unwrap().extend([
+            Ok(HostReply::Identity {
+                signed_in: true,
+                who: Some("lichao".into()),
+                detail: Some("li@example.com".into()),
+                stored_at: None,
+            }),
+            Ok(HostReply::Identity {
+                signed_in: false,
+                who: None,
+                detail: None,
+                stored_at: None,
+            }),
+            Ok(HostReply::Settings {
+                settings: vec![atomcode_host_api::Setting {
+                    id: "thinking".into(),
+                    label: "思考".into(),
+                    value: "off".into(),
+                    accepts: "on | off".into(),
+                    applies: "下一回合".into(),
+                }],
+            }),
+        ]);
+        let (app, _client, all) = following(&host);
+        assert_eq!(
+            all.dispatch("/whoami", &app.context()).await,
+            Outcome::Said("lichao · li@example.com".into())
+        );
+        // Nobody signed in is an answer, not a refusal.
+        match all.dispatch("/whoami", &app.context()).await {
+            Outcome::Said(text) => assert!(text.contains("没有人登录"), "{text}"),
+            other => panic!("{other:?}"),
+        }
+        match all.dispatch("/think", &app.context()).await {
+            Outcome::Said(text) => assert!(text.contains("off"), "{text}"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(
+            all.dispatch("/think on", &app.context()).await,
+            Outcome::Said("思考:on".into())
+        );
+        assert!(matches!(
+            all.dispatch("/think 一点点", &app.context()).await,
+            Outcome::Refused(_)
+        ));
+        let lead = || "lead".to_string();
+        assert_eq!(
+            *host.asked.lock().unwrap(),
+            vec![
+                HostCommand::WhoAmI { session: lead() },
+                HostCommand::WhoAmI { session: lead() },
+                HostCommand::Thinking { session: lead() },
+                HostCommand::SetThinking {
+                    session: lead(),
+                    on: true,
+                },
+            ],
+            "the refused one asked nothing"
+        );
+    }
+
+    /// A screen following a session the model has answered in, with `answer` as
+    /// its last reply.
+    fn answered(answer: &str) -> (App, Arc<Commands>, Arc<crate::surface::Headless>) {
+        answered_on(answer, Arc::new(Recording::default()))
+    }
+
+    /// A host that says the session `lead` is working in `dir`. The id and the
+    /// directory differ on purpose: a path joined onto the id is then a path
+    /// that does not exist, which is what these commands once did.
+    fn working_in(dir: &std::path::Path) -> Arc<Recording> {
+        let host = Arc::new(Recording::default());
+        host.replies
+            .lock()
+            .unwrap()
+            .push_back(Ok(HostReply::Context {
+                window: 1,
+                used: 0,
+                model: "m".into(),
+                working_dir: dir.display().to_string(),
+                system_prompt: None,
+            }));
+        host
+    }
+
+    fn answered_on(
+        answer: &str,
+        host: Arc<Recording>,
+    ) -> (App, Arc<Commands>, Arc<crate::surface::Headless>) {
+        let app = bare();
+        let client = Arc::new(crate::plugin::AgentClient::default());
+        let (commands, _agent) = tokio::sync::mpsc::unbounded_channel();
+        client.connect(commands, host);
+        client.follow("lead");
+        for (seq, event) in [
+            SessionEvent::UserMessage {
+                turn: 1,
+                text: "写个 hello".into(),
+                images: Vec::new(),
+            },
+            SessionEvent::AssistantMessage {
+                turn: 1,
+                round: 1,
+                text: answer.into(),
+                reasoning: String::new(),
+                tool_calls: Vec::new(),
+                reasoning_blocks: Vec::new(),
+                meta: None,
+            },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            client.keep(&atomcode_kernel::session::Committed {
+                session: "lead".into(),
+                seq: seq as u64 + 1,
+                at: 0,
+                event,
+            });
+        }
+        let surface = crate::surface::Headless::new(80, 24);
+        let ctx = app.context();
+        let _ = ctx.provide::<crate::plugin::AgentClientSvc>(client);
+        let _ = ctx.provide::<crate::plugin::SurfaceSvc>(surface.clone());
+        let all = Arc::new(Commands::new());
+        let _ = all.add(Arc::new(TakeAwayCommands));
+        (app, all, surface)
+    }
+
+    /// `/copy` takes the code out of the last answer and nothing else — not the
+    /// prose around it, not the fences. With more than one block it asks which,
+    /// rather than guessing.
+    #[tokio::test]
+    async fn copy_takes_the_code_out_of_the_last_answer() {
+        let (app, all, surface) =
+            answered("这样写:\n\n```rust\nfn main() {}\n```\n\n或者:\n\n```sh\necho hi\n```\n");
+        match all.dispatch("/copy", &app.context()).await {
+            Outcome::Refused(why) => assert!(why.contains("2"), "{why}"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(surface.clipboard_text(), None, "nothing was copied yet");
+        let _ = all.dispatch("/copy 2", &app.context()).await;
+        assert_eq!(surface.clipboard_text(), Some("echo hi".into()));
+        let _ = all.dispatch("/copy all", &app.context()).await;
+        assert_eq!(
+            surface.clipboard_text(),
+            Some("fn main() {}\n\necho hi".into())
+        );
+        assert!(matches!(
+            all.dispatch("/copy 9", &app.context()).await,
+            Outcome::Refused(_)
+        ));
+
+        // An answer with no code in it says so rather than copying the prose.
+        let (app, all, surface) = answered("没有代码,就这么说说");
+        assert!(matches!(
+            all.dispatch("/copy", &app.context()).await,
+            Outcome::Refused(_)
+        ));
+        assert_eq!(surface.clipboard_text(), None);
+    }
+
+    /// `/view` opens the file beside the code, without sending anything.
+    #[tokio::test]
+    async fn view_opens_a_file_without_putting_it_in_the_conversation() {
+        let (app, all, _surface) = answered("好了");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("main.rs");
+        std::fs::write(&file, "fn main() {}\n").expect("write");
+        match all
+            .dispatch(&format!("/view {}", file.display()), &app.context())
+            .await
+        {
+            Outcome::Do(Action::OpenSheet(sheet)) => {
+                assert_eq!(sheet.page.id(), "view");
+                assert!(sheet_text(&sheet).contains("fn main() {}"));
+            }
+            other => panic!("{other:?}"),
+        }
+        // Nothing was said to the model and nothing was written.
+        assert!(matches!(
+            all.dispatch("/view /nowhere/at/all", &app.context()).await,
+            Outcome::Refused(_)
+        ));
+    }
+
+    /// A relative path is beside the code the session works on — the directory
+    /// the host names, not the session id this screen follows. The two were
+    /// once confused: `/view src/main.rs` read `<id>/src/main.rs`, and only an
+    /// absolute path ever worked.
+    #[tokio::test]
+    async fn view_reads_a_relative_path_in_the_working_directory() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("note.txt"), "IN-THE-WORKING-DIR\n").expect("write");
+        let (app, all, _surface) = answered_on("好了", working_in(dir.path()));
+        let sheet = sheet_of(all.dispatch("/view note.txt", &app.context()).await);
+        assert!(
+            sheet_text(&sheet).contains("IN-THE-WORKING-DIR"),
+            "the file beside the code opens"
+        );
+    }
+
+    /// `/save` with a relative name — or none — writes into the working
+    /// directory, which is what "beside the code" means.
+    #[tokio::test]
+    async fn save_writes_a_relative_name_into_the_working_directory() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (app, all, _surface) = answered_on("写好了", working_in(dir.path()));
+        match all.dispatch("/save 聊天.md", &app.context()).await {
+            Outcome::Said(_) => {}
+            other => panic!("{other:?}"),
+        }
+        assert!(
+            dir.path().join("聊天.md").is_file(),
+            "saved beside the code"
+        );
+
+        let (app, all, _surface) = answered_on("写好了", working_in(dir.path()));
+        match all.dispatch("/save", &app.context()).await {
+            Outcome::Said(_) => {}
+            other => panic!("a bare /save has somewhere to go: {other:?}"),
+        }
+        assert!(
+            dir.path().join("atomcode-lead.md").is_file(),
+            "the default name lands in the working directory too"
+        );
+    }
+
+    /// A path only the host can place is not guessed at: when the host does not
+    /// say where the session works (this one answers `Context` with `Done`), a
+    /// relative name is refused rather than written under whatever the screen
+    /// happens to hold.
+    #[tokio::test]
+    async fn a_relative_path_with_no_one_to_place_it_is_refused() {
+        let (app, all, _surface) = answered("写好了");
+        // The reason, not just a refusal: joined onto the session id the write
+        // fails too, and would be refused for the wrong reason.
+        match all.dispatch("/save 聊天.md", &app.context()).await {
+            Outcome::Refused(why) => assert_eq!(
+                why,
+                t(Msg::HostSaidSomethingElse {
+                    reply: &format!("{:?}", HostReply::Done),
+                }),
+                "{why}"
+            ),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// A host that is there but cannot answer says why — it is not reported as
+    /// no host at all, which would send a person looking for the wrong fault.
+    #[tokio::test]
+    async fn a_host_that_cannot_place_a_path_says_why() {
+        let host = Arc::new(Recording::default());
+        host.replies.lock().unwrap().push_back(Err(HostError::Busy {
+            reason: "rebuilding".into(),
+        }));
+        let (app, all, _surface) = answered_on("好了", host);
+        match all.dispatch("/view note.txt", &app.context()).await {
+            Outcome::Refused(why) => assert_eq!(
+                why,
+                refusal(HostError::Busy {
+                    reason: "rebuilding".into()
+                }),
+                "the host's own reason, not NoHost"
+            ),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// `/status` says where the session works, not which session it is twice.
+    #[tokio::test]
+    async fn status_says_the_working_directory() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (app, _client, all) = following(&working_in(dir.path()));
+        match all.dispatch("/status", &app.context()).await {
+            Outcome::Said(text) => assert!(
+                text.contains(&dir.path().display().to_string()),
+                "the where-line names the working directory:\n{text}"
+            ),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// `/cd pin` with no directory marks the one the session is working in.
+    #[tokio::test]
+    async fn cd_pin_marks_the_working_directory() {
+        #[derive(Default)]
+        struct Kept {
+            pinned: std::sync::Mutex<Vec<String>>,
+            unpinned: std::sync::Mutex<Vec<String>>,
+        }
+        #[async_trait]
+        impl crate::places::Places for Kept {
+            async fn bookmarks(&self) -> Vec<String> {
+                Vec::new()
+            }
+            async fn pin(&self, dir: &str) -> Result<(), String> {
+                self.pinned.lock().unwrap().push(dir.to_string());
+                Ok(())
+            }
+            async fn unpin(&self, dir: &str) -> Result<(), String> {
+                self.unpinned.lock().unwrap().push(dir.to_string());
+                Ok(())
+            }
+        }
+        let dir = tempfile::tempdir().expect("tempdir");
+        // One answer per relative place asked about: bare, `src`, `src` again.
+        let host = working_in(dir.path());
+        for _ in 0..2 {
+            host.replies
+                .lock()
+                .unwrap()
+                .push_back(Ok(HostReply::Context {
+                    window: 1,
+                    used: 0,
+                    model: "m".into(),
+                    working_dir: dir.path().display().to_string(),
+                    system_prompt: None,
+                }));
+        }
+        let (app, _client, all) = following(&host);
+        let kept = Arc::new(Kept::default());
+        let _ = app
+            .context()
+            .provide::<crate::plugin::PlacesSvc>(kept.clone());
+        let _ = all.dispatch("/cd pin", &app.context()).await;
+        // A named directory is placed the way `/view` places a file: a mark
+        // that only means something from wherever the process was started is
+        // not a mark, and `unpin` must name the same string `pin` stored.
+        let _ = all.dispatch("/cd pin src", &app.context()).await;
+        let _ = all.dispatch("/cd unpin src", &app.context()).await;
+        let src = dir.path().join("src").display().to_string();
+        let mut pinned = vec![dir.path().display().to_string(), src.clone()];
+        if let Some(home) = crate::text::home_dir() {
+            let _ = all.dispatch("/cd pin ~/proj", &app.context()).await;
+            pinned.push(home.join("proj").display().to_string());
+        }
+        assert_eq!(
+            *kept.pinned.lock().unwrap(),
+            pinned,
+            "the marks are places, not the session id or the text as typed"
+        );
+        assert_eq!(*kept.unpinned.lock().unwrap(), vec![src]);
+    }
+
+    /// A file too long to show is shown as far as it goes — **and the title
+    /// says so**. A viewer that silently stops at line 1000 is a viewer that
+    /// tells you the file ends there.
+    #[tokio::test]
+    async fn view_clips_a_long_file_and_the_title_says_how_far_it_got() {
+        let (app, all, _surface) = answered("好了");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("long.log");
+        let body: String = (0..VIEW_MAX_LINES + 500)
+            .map(|i| format!("line {i}\n"))
+            .collect();
+        std::fs::write(&file, body).expect("write");
+        match all
+            .dispatch(&format!("/view {}", file.display()), &app.context())
+            .await
+        {
+            Outcome::Do(Action::OpenSheet(sheet)) => {
+                let title = sheet_text(&sheet)
+                    .lines()
+                    .nth(1)
+                    .unwrap_or_default()
+                    .to_string();
+                assert!(
+                    title.contains(&VIEW_MAX_LINES.to_string()),
+                    "the title must say how much is missing: {title}"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// `/view ~/notes.md` means the file in the home directory — the path a
+    /// person types is the path this screen printed at them.
+    ///
+    /// Judged here rather than through a dispatch, because a dispatch would
+    /// have to own the machine's `HOME` to have an opinion.
+    #[test]
+    fn view_resolves_a_typed_tilde_before_deciding_it_is_relative() {
+        let home = std::path::Path::new("/home/me");
+        assert_eq!(
+            view_path("~/notes.md", "/work/proj", Some(home)),
+            std::path::PathBuf::from("/home/me/notes.md"),
+            "an unexpanded ~ is relative, and would land under the working dir"
+        );
+        // The two paths that were already right stay right.
+        assert_eq!(
+            view_path("/etc/hosts", "/work/proj", Some(home)),
+            std::path::PathBuf::from("/etc/hosts")
+        );
+        assert_eq!(
+            view_path("src/main.rs", "/work/proj", Some(home)),
+            std::path::PathBuf::from("/work/proj/src/main.rs")
+        );
+    }
+
+    /// The three caps, each judged against a file of a few bytes rather than
+    /// one of eight megabytes — which is what `view_file_within` is for.
+    #[test]
+    fn each_cap_leaves_its_own_mark() {
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        // Lines: two kept of four, and it admits there were more.
+        let lines = dir.path().join("lines.txt");
+        std::fs::write(&lines, "a\nb\nc\nd\n").expect("write");
+        let seen = view_file_within(&lines, 1024, 2, 100)
+            .expect("read")
+            .expect("text");
+        assert_eq!(seen.body, "a\nb\n");
+        assert!(seen.at_line_cap, "it stopped early and must say so");
+        assert!(!seen.at_byte_cap);
+
+        // Bytes: the read stops, and that is a different notice from the line
+        // cap because the count of what is missing is unknown, not merely large.
+        let big = dir.path().join("big.txt");
+        std::fs::write(&big, "0123456789abcdef").expect("write");
+        let seen = view_file_within(&big, 8, 100, 100)
+            .expect("read")
+            .expect("text");
+        assert_eq!(seen.body, "01234567\n");
+        assert!(seen.at_byte_cap);
+
+        // Columns: the long line is cut, kept, and counted — one line of a
+        // minified bundle must not become the whole screen.
+        let wide = dir.path().join("wide.js");
+        std::fs::write(&wide, "short\n".to_string() + &"x".repeat(50)).expect("write");
+        let seen = view_file_within(&wide, 1024, 100, 10)
+            .expect("read")
+            .expect("text");
+        assert_eq!(seen.long_lines, 1, "the cut lines are counted");
+        assert_eq!(
+            seen.body.lines().last().map(str::len),
+            Some(10),
+            "cut to the cap, not dropped"
+        );
+    }
+
+    /// A binary is refused by name, not drawn. Opening one in a text viewer
+    /// fills the screen with nothing and whatever escapes happened to be in it.
+    #[tokio::test]
+    async fn view_refuses_a_file_that_is_not_text() {
+        let (app, all, _surface) = answered("好了");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("a.png");
+        std::fs::write(&file, [0x89, b'P', b'N', b'G', 0x00, 0x1a, 0x0a]).expect("write");
+        match all
+            .dispatch(&format!("/view {}", file.display()), &app.context())
+            .await
+        {
+            Outcome::Refused(_) => {}
+            other => panic!("a binary must not be drawn: {other:?}"),
+        }
+    }
+
+    /// `/save` writes the conversation as markdown, beside the code the session
+    /// is working on.
+    #[tokio::test]
+    async fn save_writes_the_conversation_as_markdown() {
+        let (app, all, _surface) = answered("写好了");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let into = dir.path().join("聊天.md");
+        match all
+            .dispatch(&format!("/save {}", into.display()), &app.context())
+            .await
+        {
+            Outcome::Said(text) => assert!(text.contains("聊天.md"), "{text}"),
+            other => panic!("{other:?}"),
+        }
+        let written = std::fs::read_to_string(&into).expect("written");
+        assert!(
+            written.contains("## 我") && written.contains("写个 hello"),
+            "{written}"
+        );
+        assert!(
+            written.contains("## 模型") && written.contains("写好了"),
+            "{written}"
+        );
+    }
+
+    /// `/save` does not write over a file it did not write.
+    ///
+    /// The failure this rules out is losing work to a typo: `/save Cargo.toml`
+    /// replaces a source file with a transcript, silently, and the only notice
+    /// is the success line. A `.md` target is a previous save being replaced,
+    /// which is what saving again means.
+    #[tokio::test]
+    async fn save_refuses_to_overwrite_a_file_it_did_not_write() {
+        let (app, all, _surface) = answered("写好了");
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        let source = dir.path().join("Cargo.toml");
+        std::fs::write(&source, "[package]\nname = \"mine\"\n").expect("write");
+        match all
+            .dispatch(&format!("/save {}", source.display()), &app.context())
+            .await
+        {
+            Outcome::Refused(_) => {}
+            other => panic!("a source file must survive a typo: {other:?}"),
+        }
+        assert!(
+            std::fs::read_to_string(&source)
+                .expect("still there")
+                .contains("name = \"mine\""),
+            "and it is untouched"
+        );
+
+        // Saving again over a previous save is the ordinary case and goes
+        // through — refusing that would make the command usable once.
+        let again = dir.path().join("notes.md");
+        std::fs::write(&again, "old").expect("write");
+        match all
+            .dispatch(&format!("/save {}", again.display()), &app.context())
+            .await
+        {
+            Outcome::Said(_) => {}
+            other => panic!("{other:?}"),
+        }
+        assert!(
+            !std::fs::read_to_string(&again)
+                .expect("read")
+                .contains("old"),
+            "the previous save was replaced"
+        );
+
+        // A path that is not there yet is written, whatever its extension.
+        let fresh = dir.path().join("fresh.txt");
+        match all
+            .dispatch(&format!("/save {}", fresh.display()), &app.context())
+            .await
+        {
+            Outcome::Said(_) => {}
+            other => panic!("{other:?}"),
+        }
+        assert!(fresh.exists());
+    }
+
+    /// `/whoami` also says where the credential that says so is kept.
+    ///
+    /// The question this answers is the one asked *after* the name comes back
+    /// wrong — which file do I delete, which one did I copy to the other
+    /// machine. So it is its own line and the last one: pushed onto the first,
+    /// it would cost the name its place for a path nobody reads until
+    /// something is broken.
+    ///
+    /// A host that signs in some other way sends nothing, and then this says
+    /// nothing rather than a line with an empty path in it. The end-to-end
+    /// half is the `stored_at` in the reply reaching the words at all — the
+    /// contract grew a field and a screen that ignored it would look exactly
+    /// like one that did not.
+    #[tokio::test]
+    async fn whoami_says_where_the_credential_is_kept() {
+        let host = Arc::new(Recording::default());
+        host.replies.lock().unwrap().extend([
+            Ok(HostReply::Identity {
+                signed_in: true,
+                who: Some("李超".into()),
+                detail: Some("me@example.com".into()),
+                stored_at: Some("/tmp/nowhere/auth.json".into()),
+            }),
+            Ok(HostReply::Identity {
+                signed_in: true,
+                who: Some("李超".into()),
+                detail: None,
+                stored_at: None,
+            }),
+        ]);
+        let (app, _client, all) = following(&host);
+
+        match all.dispatch("/whoami", &app.context()).await {
+            Outcome::Said(said) => {
+                let (first, rest) = said.split_once('\n').expect("two lines: {said}");
+                assert!(
+                    first.contains("李超") && first.contains("me@example.com"),
+                    "who they are comes first: {said}"
+                );
+                assert!(
+                    rest.contains("/tmp/nowhere/auth.json"),
+                    "and where it is kept is its own line: {said}"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+        // A host with nothing to say about a file says nothing.
+        match all.dispatch("/whoami", &app.context()).await {
+            Outcome::Said(said) => assert_eq!(said, "李超"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// `/copy msg` takes the whole reply, not just the code in it.
+    ///
+    /// The other half of what people do with an answer: a block is for
+    /// running, the message is for pasting into an issue or a review — and
+    /// that is exactly when dragging across a wrapped terminal picks up
+    /// gutters and fold marks.
+    #[tokio::test]
+    async fn copy_msg_takes_the_whole_reply_prose_and_all() {
+        let (app, all, surface) = answered("先说一句,然后:\n\n```rs\nfn main() {}\n```\n");
+        match all.dispatch("/copy msg", &app.context()).await {
+            Outcome::Said(_) => {}
+            other => panic!("{other:?}"),
+        }
+        let copied = surface.clipboard_text().expect("something was copied");
+        assert!(copied.contains("先说一句"), "the prose is in it: {copied}");
+        assert!(copied.contains("fn main"), "and the code: {copied}");
+
+        // And the block form still copies only the block, or the two would be
+        // one command with a confusing argument.
+        match all.dispatch("/copy", &app.context()).await {
+            Outcome::Said(_) => {}
+            other => panic!("{other:?}"),
+        }
+        let block = surface.clipboard_text().expect("copied");
+        assert!(!block.contains("先说一句"), "{block}");
+    }
+
+    /// `/paste` names its source and nothing else.
+    ///
+    /// **Thinner than it was, on purpose.** It used to read the clipboard here
+    /// and hand back `Action::Paste(text)`; that is why the command was
+    /// text-only, and why a clipboard picture had no road on a terminal that
+    /// eats ctrl-v. Resolving the source moved to the handler, where the
+    /// clipboard is read once and a picture can attach — so what is left to
+    /// judge here is the routing and where a named path is, and the substance
+    /// is judged in
+    /// `attach::{from_clipboard, from_file}` and by the two `e2e` judgements
+    /// that press the keys.
+    #[tokio::test]
+    async fn paste_names_its_source_and_leaves_the_reading_to_the_handler() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (app, _client, _) = following(&working_in(dir.path()));
+        let all = Arc::new(Commands::new());
+        let _ = all.add(Arc::new(ScreenCommands));
+
+        assert_eq!(
+            all.dispatch("/paste", &app.context()).await,
+            Outcome::Do(Action::PasteFrom(None)),
+            "no argument is the clipboard"
+        );
+        // A path is placed here, where the host can be asked: the handler is
+        // synchronous and holds only the session id, which is not a directory.
+        if let Some(home) = crate::text::home_dir() {
+            assert_eq!(
+                all.dispatch("/paste ~/shot.png", &app.context()).await,
+                Outcome::Do(Action::PasteFrom(Some(
+                    home.join("shot.png").display().to_string()
+                ))),
+                "`~` is the home directory, and needs no host"
+            );
+        }
+        // The host's one answer is still unspent: `~` did not ask for it.
+        assert_eq!(
+            all.dispatch("/paste shot.png", &app.context()).await,
+            Outcome::Do(Action::PasteFrom(Some(
+                dir.path().join("shot.png").display().to_string()
+            ))),
+            "a relative path is in the working directory, not under the session id"
+        );
+    }
+
+    /// `/team` and `/todo` take a named state, and refuse a word they do not
+    /// know.
+    ///
+    /// **The refusal is the point.** `args` used to be dropped on the floor, so
+    /// `/team stauts` toggled the panel: a typo that did something. The named
+    /// states are the other half — `show` has to mean show, and a toggle means
+    /// the opposite of itself every other time, which is unusable from a script
+    /// or from a session just resumed onto another screen.
+    #[tokio::test]
+    async fn team_and_todo_take_a_named_state_and_refuse_anything_else() {
+        use crate::host::Showing;
+        let app = bare();
+        let all = Arc::new(Commands::new());
+        let _ = all.add(Arc::new(ScreenCommands));
+
+        assert!(
+            matches!(
+                all.dispatch("/team", &app.context()).await,
+                Outcome::Do(Action::ToggleFold(_))
+            ),
+            "/team bare is still the toggle"
+        );
+        // `/todo` bare prints the plan (`todo_prints_the_plan_even_once_it_is_finished`);
+        // its toggle is the named one.
+        assert!(
+            matches!(
+                all.dispatch("/todo toggle", &app.context()).await,
+                Outcome::Do(Action::ToggleFold("todo"))
+            ),
+            "/todo toggle"
+        );
+        for name in ["team", "todo"] {
+            for word in ["show", "open"] {
+                assert!(
+                    matches!(
+                        all.dispatch(&format!("/{name} {word}"), &app.context())
+                            .await,
+                        Outcome::Do(Action::SetFold(_, Showing::Open))
+                    ),
+                    "/{name} {word}"
+                );
+            }
+            for word in ["hide", "fold", "close"] {
+                assert!(
+                    matches!(
+                        all.dispatch(&format!("/{name} {word}"), &app.context())
+                            .await,
+                        Outcome::Do(Action::SetFold(_, Showing::Folded))
+                    ),
+                    "/{name} {word}"
+                );
+            }
+            match all
+                .dispatch(&format!("/{name} stauts"), &app.context())
+                .await
+            {
+                Outcome::Refused(why) => {
+                    assert!(why.contains("show") && why.contains("hide"), "{why}")
+                }
+                other => panic!("a typo must never act: {other:?}"),
+            }
+        }
+    }
+
+    /// **`/todo` prints the plan, finished or not.** Once every item is done
+    /// the panel leaves (`modules::todo`), and `/todo` is how the list is read
+    /// after that — as `atomcode-tuix`'s `/todo` prints it. A toggle there did
+    /// nothing a person could see: the panel it would open was empty.
+    #[tokio::test]
+    async fn todo_prints_the_plan_even_once_it_is_finished() {
+        let app = bare();
+        let client = Arc::new(crate::plugin::AgentClient::default());
+        let (commands, mut agent) = tokio::sync::mpsc::unbounded_channel();
+        client.connect(commands, Arc::new(Recording::default()));
+        client.follow("lead");
+        let ctx = app.context();
+        let _ = ctx.provide::<crate::plugin::AgentClientSvc>(client.clone());
+        let all = Arc::new(Commands::new());
+        let _ = all.add(Arc::new(ScreenCommands));
+
+        match all.dispatch("/todo", &ctx).await {
+            Outcome::Said(said) => {
+                assert_eq!(said, t(Msg::TodoNoPlan).into_owned(), "no plan yet")
+            }
+            other => panic!("{other:?}"),
+        }
+
+        client.keep(&atomcode_kernel::session::Committed {
+            session: "lead".into(),
+            seq: 1,
+            at: 0,
+            event: SessionEvent::AssistantMessage {
+                turn: 1,
+                round: 1,
+                text: String::new(),
+                reasoning: String::new(),
+                tool_calls: vec![atomcode_kernel::tool::ToolCall {
+                    id: "c1".into(),
+                    name: "todowrite".into(),
+                    arguments: r#"{"todos":[{"content":"读代码","status":"completed"},{"content":"跑测试","status":"completed"}]}"#.into(),
+                }],
+                reasoning_blocks: Vec::new(),
+                meta: None,
+            },
+        });
+        match all.dispatch("/todo", &ctx).await {
+            Outcome::Said(said) => {
+                assert!(said.starts_with(&*t(Msg::TodoListed)), "{said}");
+                assert!(said.contains("读代码") && said.contains("跑测试"), "{said}");
+            }
+            other => panic!("{other:?}"),
+        }
+        match all.dispatch("/todo stauts", &ctx).await {
+            Outcome::Refused(why) => assert!(why.contains("toggle"), "{why}"),
+            other => panic!("{other:?}"),
+        }
+
+        // The edits go to the session's own `todo` command, words as typed —
+        // the task keeps its case even though the verb is matched without it.
+        while agent.try_recv().is_ok() {}
+        for line in ["/todo ADD Fix The Bug", "/todo clear"] {
+            assert!(
+                matches!(all.dispatch(line, &ctx).await, Outcome::Quiet),
+                "{line}"
+            );
+        }
+        let invoked: Vec<(String, String)> = std::iter::from_fn(|| agent.try_recv().ok())
+            .filter_map(|command| match command {
+                atomcode_kernel::event::AgentCommand::Invoke { name, args, .. } => {
+                    Some((name, args))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            invoked,
+            [
+                ("todo".to_string(), "ADD Fix The Bug".to_string()),
+                ("todo".to_string(), "clear".to_string()),
+            ]
+        );
+    }
+
+    /// And a named state is flat: asking twice for the same one leaves it
+    /// there, where a toggle would have taken it away again.
+    #[test]
+    fn asking_for_a_state_twice_leaves_it_in_that_state() {
+        use crate::host::{Presentation, Showing};
+        let mut p = Presentation::default_folds();
+        p.show_as("team", Showing::Folded);
+        p.show_as("team", Showing::Folded);
+        assert_eq!(p.showing("team"), Showing::Folded);
+        p.toggle("team");
+        assert_eq!(
+            p.showing("team"),
+            Showing::Open,
+            "and the toggle still steps"
+        );
+    }
+
+    use atomcode_plexus::{App, ConfigTree, PluginRegistry};
+
+    /// `/review`'s compact syntax becomes the tool's explicit schema.
+    ///
+    /// Judged on the prompt rather than through a session: what this command
+    /// *means* is the arguments it names, and the session it goes to is the
+    /// host's business (`/background` and `StartBackground` are judged there).
+    #[test]
+    fn a_review_prompt_names_the_scope_and_depth_the_tool_takes() {
+        let bare = review_prompt("");
+        assert!(
+            bare.contains(r#"{"scope":{"kind":"working_tree"}}"#),
+            "{bare}"
+        );
+        assert!(bare.contains("code_review"), "it names the tool: {bare}");
+        assert!(!bare.contains("depth"), "no depth unless asked: {bare}");
+        assert!(
+            !review_prompt("staged").contains("depth"),
+            "a scope alone is not a depth"
+        );
+
+        assert!(
+            review_prompt("staged").contains(r#"{"scope":{"kind":"staged"}}"#),
+            "{}",
+            review_prompt("staged")
+        );
+
+        // A ref is the committed range, not the legacy top-level `base` field,
+        // whose diff quietly included the working tree as a side effect.
+        let range = review_prompt("release/v5.1.0");
+        assert!(
+            range.contains(r#"{"kind":"range","base":"release/v5.1.0","head":"HEAD"}"#),
+            "{range}"
+        );
+
+        // A ref that needs escaping cannot break the arguments it sits in.
+        let odd = review_prompt("odd\"ref");
+        assert!(odd.contains(r#""base":"odd\"ref""#), "{odd}");
+
+        // Depth is a keyword before the scope, alone or with one.
+        let deep = review_prompt("deep");
+        assert!(
+            deep.contains(r#""depth":"deep""#) && deep.contains(r#""kind":"working_tree""#),
+            "{deep}"
+        );
+        let both = review_prompt("deep+verify staged");
+        assert!(
+            both.contains(r#""depth":"deep+verify""#) && both.contains(r#""kind":"staged""#),
+            "{both}"
+        );
+        // A ref that merely starts with those letters is a ref, not a depth.
+        let named = review_prompt("deeper");
+        assert!(named.contains(r#""base":"deeper""#), "{named}");
+        assert!(!named.contains("depth"), "{named}");
+
+        // Words that cannot be a ref are what to look at, not a base: the
+        // range stays the default, and the words reach the reviewer.
+        let said = review_prompt("下代码改动");
+        assert!(
+            said.contains(r#"{"scope":{"kind":"working_tree"}}"#),
+            "{said}"
+        );
+        assert!(said.contains("下代码改动"), "{said}");
+        assert!(!said.contains(r#""base""#), "{said}");
+        assert_eq!(
+            review_what("下代码改动"),
+            format!("{} · 下代码改动", t(Msg::ReviewWhatUncommitted))
+        );
+        // A ref, then words: both.
+        let both = review_prompt("deep main 看看鉴权");
+        assert!(
+            both.contains(r#""base":"main""#) && both.contains(r#""depth":"deep""#),
+            "{both}"
+        );
+        assert!(both.ends_with("看看鉴权"), "{both}");
+        // An option is never a ref: it would reach git as a flag.
+        let flag = review_prompt("--output=x");
+        assert!(!flag.contains(r#""base""#), "{flag}");
+    }
+
+    /// A set that carries `/review` the way the agent's catalog does — and, like
+    /// it, carries nothing at *mount* time: the description arrives after the
+    /// tree is built, which is why the mount itself never clashes.
+    struct AgentReview {
+        told: std::sync::atomic::AtomicBool,
+    }
+
+    impl AgentReview {
+        fn new() -> Self {
+            Self {
+                told: std::sync::atomic::AtomicBool::new(false),
+            }
+        }
+        /// The description arrived: now its catalog lists `review`.
+        fn described(&self) {
+            self.told.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    #[async_trait]
+    impl CommandSet for AgentReview {
+        fn id(&self) -> &'static str {
+            "cmd-agent-catalog"
+        }
+        fn commands(&self) -> Vec<Command> {
+            if !self.told.load(std::sync::atomic::Ordering::SeqCst) {
+                return Vec::new();
+            }
+            vec![Command::said(
+                "review",
+                "让评审员看一遍现在的改动;只读,不改".into(),
+            )]
+        }
+        async fn run(&self, _name: &str, _args: &str, _ctx: &Context) -> Outcome {
+            Outcome::Said("inline".into())
+        }
+    }
+
+    /// `/review` is the screen's own, and the screen says so out loud.
+    ///
+    /// The agent's catalog carries a `review` too — `atomcode-harness`'s
+    /// `ReviewCommand`, its reviewer run in this conversation — and it mounts
+    /// after this set. `CommandSet::overrides` is the only way a name may be
+    /// claimed twice, so the claim is written down rather than left to mount
+    /// order; the dispatch below is what says whose command actually runs, since
+    /// the screen's refuses for want of a host and the agent's would have said
+    /// `inline`.
+    #[tokio::test]
+    async fn review_takes_the_name_from_the_agent_catalog() {
+        assert_eq!(
+            SessionCommands.overrides(),
+            vec!["review"],
+            "the claim is what makes the overlap legal"
+        );
+
+        let c = Commands::new();
+        c.add(Arc::new(SessionCommands)).unwrap();
+        let agent = Arc::new(AgentReview::new());
+        c.add(agent.clone())
+            .expect("nothing clashes at mount: no description has arrived yet");
+        agent.described();
+
+        assert_eq!(
+            c.all().iter().filter(|x| x.name == "review").count(),
+            1,
+            "one /review, not two"
+        );
+        let app = bare();
+        assert_eq!(
+            c.dispatch("/review", &app.context()).await,
+            Outcome::Refused(t(Msg::NoAgent).into_owned()),
+            "the screen's own /review ran (it refuses for want of an agent), \
+             not the agent's catalog one (which would have said `inline`)"
+        );
+
+        // Mount order is not what decides it. The other order — the agent's
+        // description already in hand when the screen's set arrives, so *this*
+        // set is the incoming one — ends in the same place, and the claim is
+        // what makes it legal: without it `add` refuses the overlap outright.
+        let reversed = Commands::new();
+        let agent = Arc::new(AgentReview::new());
+        agent.described();
+        reversed.add(agent).unwrap();
+        reversed
+            .add(Arc::new(SessionCommands))
+            .expect("the claim makes the overlap legal, whichever mounts first");
+        assert_eq!(
+            reversed.all().iter().filter(|x| x.name == "review").count(),
+            1,
+            "still one /review"
+        );
+    }
+
+    fn bare() -> App {
+        App::new(PluginRegistry::new(), ConfigTree::default())
+    }
+
+    /// The five shipped sets, assembled directly.
+    ///
+    /// Whether these are the sets a real screen gets is not this test's job any
+    /// more — `crate::rows::SCREEN` decides that, and `rows`' own tests check
+    /// that every row it names exists. What is tested here is the property that
+    /// survives either way: the shipped sets do not collide, and `/help`
+    /// renders them.
+    fn builtin_for_test() -> Arc<Commands> {
+        let c = Arc::new(Commands::new());
+        let _ = c.add(Arc::new(ScreenCommands));
+        let _ = c.add(Arc::new(SessionCommands));
+        let _ = c.add(Arc::new(PluginCommands));
+        let _ = c.add(Arc::new(ToolCommands));
+        let _ = c.add(Arc::new(SetupCommands));
+        let _ = c.add(Arc::new(TakeAwayCommands));
+        let _ = c.add(Arc::new(HelpCommands { all: c.clone() }));
+        c
+    }
+
+    #[test]
+    fn the_shipped_set_mounts_without_conflicting_with_itself() {
+        let c = builtin_for_test();
+        let names: Vec<_> = c.all().iter().map(|x| x.name.to_string()).collect();
+        assert!(["help", "compact", "effort"]
+            .iter()
+            .all(|n| names.contains(&n.to_string())));
+        let mut sorted = names.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), names.len(), "no duplicates: {names:?}");
+    }
+
+    #[test]
+    fn effort_offers_its_levels_inline_not_a_modal() {
+        // The levels are a closed set, so the slash menu expands `/effort` into
+        // one row per level (the way `/` shows commands) instead of a modal. The
+        // registry entry carries them as options — every level plus `default` —
+        // and no `takes` sentence, which is what makes the menu expand rather
+        // than complete-with-a-space.
+        let c = builtin_for_test();
+        let effort = c.find("effort").expect("effort is a command");
+        assert!(
+            effort.takes.is_none(),
+            "no arg sentence: the menu expands the levels instead"
+        );
+        let values: Vec<&str> = effort.options.iter().map(|o| o.value.as_ref()).collect();
+        for level in atomcode_harness::REASONING_EFFORT_LEVELS {
+            assert!(values.contains(&level), "offers `{level}`: {values:?}");
+        }
+        assert_eq!(
+            values.last(),
+            Some(&"default"),
+            "`default` is the last row: {values:?}"
+        );
+    }
+
+    /// 菜单是一张表:每一行的描述都在同一格开始。
+    ///
+    /// 判据压在整张已发行命令表上,而不是一个自己造的小列表:会不会破列取决于
+    /// 表里有哪些行、它们的参数说明有多长,而这两件事只有表自己知道 —— `/plugin`
+    /// 的取值清单是一整句用法,`/cd` 的也一样。读的是面板真正画出来的那几行,
+    /// 所以被验证的是看见的东西,不是某个自己算的列宽。
+    #[test]
+    #[allow(
+        clippy::string_slice,
+        reason = "test: `at` is a `find` on the same row, a char boundary"
+    )]
+    fn every_gloss_in_the_shipped_menu_starts_in_one_cell() {
+        let c = builtin_for_test();
+        let items: Vec<crate::menu::Item> = c
+            .matching("")
+            .iter()
+            .map(|command| command.menu_row())
+            .collect();
+        assert!(items.len() > 30, "命令表太薄了: {}", items.len());
+
+        let cells = gloss_cells(&items);
+        assert_eq!(
+            cells.iter().filter(|c| c.is_some()).count(),
+            items.iter().filter(|i| !i.about.is_empty()).count(),
+            "有描述的行没被读全"
+        );
+        let column = cells[0].expect("第一行有描述");
+        assert!(
+            cells.iter().all(|c| *c == Some(column)),
+            "描述没齐在同一格: {cells:?}"
+        );
+        // 而且这一格就在整表最宽的名字后面两个空格:表里没有任何一行把列顶开。
+        // 顶开的那一行,正是这条判据要挡住的东西 —— `/plugin` 的参数说明曾经
+        // 长的就是它。
+        let widest = items
+            .iter()
+            .map(|i| crate::width::str_width(&i.label))
+            .max()
+            .expect("表不是空的");
+        assert_eq!(
+            column,
+            widest + 5,
+            "最宽的名字是 {widest} 格,描述却从 {column} 格开始:有行把这一列顶开了"
+        );
+
+        // 窗口在光标下滚动时这一列不动:列宽是照着整张表量的,不是照着屏幕上那十行。
+        for cursor in [0, 12, items.len() - 1] {
+            let mut list = crate::menu::Slash::new(items.clone());
+            list.move_by(cursor as i32);
+            let start = list.window(10);
+            for (i, row) in list
+                .render(crate::frame::Rect::new(0, 0, 400, 10), 10)
+                .iter()
+                .enumerate()
+            {
+                let item = &items[start + i];
+                if item.about.is_empty() {
+                    continue;
+                }
+                let row = row.plain();
+                let at = row
+                    .find(item.about.as_str())
+                    .unwrap_or_else(|| panic!("/{} 的描述没画在行里: {row}", item.label));
+                assert_eq!(
+                    crate::width::str_width(&row[..at]),
+                    column,
+                    "光标在第 {cursor} 行时 /{} 的描述不在列上: {row}",
+                    item.label
+                );
+            }
+        }
+    }
+
+    /// 每一行的描述从第几格开始(`None` = 这行没有描述),读的是面板画出来的那几行。
+    ///
+    /// 行宽给足,免得面板把行尾切掉:这里问的是列,不是截断。顺带钉住行尾那条规矩 ——
+    /// 参数说明在描述**之后**,两者之间不隔着命令名。
+    #[allow(
+        clippy::string_slice,
+        reason = "test: `at` is a `find` on the same row, a char boundary"
+    )]
+    fn gloss_cells(items: &[crate::menu::Item]) -> Vec<Option<usize>> {
+        let list = crate::menu::Slash::new(items.to_vec());
+        let rows = list.render(
+            crate::frame::Rect::new(0, 0, 400, items.len() as u16),
+            items.len(),
+        );
+        items
+            .iter()
+            .zip(&rows)
+            .map(|(item, line)| {
+                if item.about.is_empty() {
+                    return None;
+                }
+                let row = line.plain();
+                let at = row
+                    .find(item.about.as_str())
+                    .unwrap_or_else(|| panic!("/{} 的描述没画在行里: {row}", item.label));
+                if !item.hint.is_empty() {
+                    let hint = row.find(&item.hint).expect("行尾说明也画在行里");
+                    assert!(hint > at, "/{} 的参数说明跑到了描述前面: {row}", item.label);
+                }
+                Some(crate::width::str_width(&row[..at]))
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn help_lists_everything_including_itself() {
+        let c = builtin_for_test();
+        let app = bare();
+        match c.dispatch("/help", &app.context()).await {
+            Outcome::Said(text) => {
+                assert!(text.contains("/help"));
+                // 参数占位留在斜杠菜单；/help 一行一条命令本身（`/resume`，
+                // 不带 `[会话 id]`），表头之外一行一条。
+                assert!(
+                    text.contains("    /resume"),
+                    "command rows are listed:\n{text}"
+                );
+                assert_eq!(
+                    text.lines().count(),
+                    c.all().len() + 1,
+                    "header + one row per command"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// `/cd` 先给「我要去哪儿」的答案,再给「这儿有什么」:标过的目录排最前,
+    /// 其次是最近在里面干过活的,最后才是当前目录底下的东西。
+    #[tokio::test]
+    async fn cd_offers_marked_places_then_recent_ones() {
+        struct Marked;
+        #[async_trait]
+        impl crate::places::Places for Marked {
+            async fn bookmarks(&self) -> Vec<String> {
+                vec!["/w/marked".to_string()]
+            }
+            async fn pin(&self, _: &str) -> Result<(), String> {
+                Ok(())
+            }
+            async fn unpin(&self, _: &str) -> Result<(), String> {
+                Ok(())
+            }
+        }
+        let here = tempfile::tempdir().unwrap();
+        std::fs::create_dir(here.path().join("under-here")).unwrap();
+        let host = Arc::new(Recording::default());
+        // 先问工作目录,再问会话目录。
+        host.replies
+            .lock()
+            .unwrap()
+            .push_back(Ok(HostReply::Context {
+                window: 1,
+                used: 0,
+                model: "m".into(),
+                working_dir: here.path().display().to_string(),
+                system_prompt: None,
+            }));
+        host.replies
+            .lock()
+            .unwrap()
+            .push_back(Ok(HostReply::Sessions {
+                sessions: vec![
+                    atomcode_host_api::StoredSession {
+                        id: "one".into(),
+                        title: None,
+                        working_dir: Some("/w/recent".into()),
+                        created_at: 0,
+                        updated_at: 2,
+                        turns: 1,
+                        needs_newer_version: false,
+                    },
+                    atomcode_host_api::StoredSession {
+                        id: "two".into(),
+                        title: None,
+                        working_dir: Some("/w/marked".into()),
+                        created_at: 0,
+                        updated_at: 1,
+                        turns: 1,
+                        needs_newer_version: false,
+                    },
+                ],
+            }));
+        let (app, _client, all) = following(&host);
+        let _ = app
+            .context()
+            .provide::<crate::plugin::PlacesSvc>(Arc::new(Marked));
+        let mut sheet = sheet_of(all.dispatch("/cd", &app.context()).await);
+        assert_eq!(sheet.page.id(), "cd");
+        let text = sheet_text(&sheet);
+        let marked = text
+            .find("/w/marked")
+            .unwrap_or_else(|| panic!("标过的在里面:{text}"));
+        let recent = text
+            .find("/w/recent")
+            .unwrap_or_else(|| panic!("最近去过的在里面:{text}"));
+        assert!(marked < recent, "标过的排在最近去过的前面:\n{text}");
+        assert_eq!(
+            text.matches("/w/marked").count(),
+            1,
+            "同一个地方只出现一次——它既是标过的又是最近去过的:\n{text}"
+        );
+        // 而底下浏览的是**宿主说的工作目录**,不是这块屏幕跟着的会话 id:
+        // 裸 `/cd` 曾经拿会话 id 当路径去读,于是只会报「读不了」。
+        assert!(
+            text.contains("under-here"),
+            "浏览的是当前工作目录底下的东西:\n{text}"
+        );
+
+        // 人本来就知道路径的那一半:列表里一条都不匹配时,回车去的就是打出来的
+        // 那个地方。此前这是个死键,只能关掉列表重打一遍命令。
+        for ch in "/srv/deploy".chars() {
+            crate::sheet::key(
+                &mut sheet,
+                crate::surface::KeyPress::ch(ch),
+                crate::sheet::READ_ROWS,
+            );
+        }
+        assert_eq!(
+            press(&mut sheet, crate::surface::Key::Enter),
+            crate::sheet::Step::Chose("/cd /srv/deploy".into()),
+            "打出来的路径就是要去的地方"
+        );
+    }
+
+    /// The classic screen's name for "how do I use this" reaches the listing
+    /// this screen already has, rather than a second help written from the same
+    /// thirteen lines.
+    #[tokio::test]
+    async fn the_classic_name_for_help_reaches_it() {
+        let c = builtin_for_test();
+        let app = bare();
+        match c.dispatch("/guide", &app.context()).await {
+            Outcome::Said(text) => assert!(text.contains("/help"), "{text}"),
+            other => panic!("{other:?}"),
+        }
+        // One row in the menu, annotated — not a second entry competing with it.
+        assert_eq!(c.all().iter().filter(|c| c.name == "help").count(), 1);
+        assert_eq!(
+            c.find("guide").expect("the alias resolves").display_name(),
+            "help (guide)"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_command_whose_seam_is_missing_says_so_instead_of_panicking() {
+        let c = builtin_for_test();
+        let app = bare(); // no session, no control, no tools
+        for line in ["/compact", "/context", "/clear", "/resume", "/effort high"] {
+            match c.dispatch(line, &app.context()).await {
+                Outcome::Refused(m) => assert!(!m.is_empty(), "{line} refused with nothing"),
+                other => panic!("{line} should refuse, got {other:?}"),
+            }
+        }
+    }
+
+    /// `/agents` is how a person reaches a member the team strip no longer has a
+    /// row for: the roster it reads keeps the stopped ones (`docs/adr/0023` §5),
+    /// and picking one asks the screen to look at it rather than switching from
+    /// inside the command.
+    #[tokio::test]
+    async fn agents_lists_stopped_members_and_picking_one_asks_the_screen() {
+        let c = builtin_for_test();
+        let app = bare();
+        let roster = Arc::new(crate::plugin::Roster::default());
+        // One member running, one stopped.
+        roster.note_for_test("lead/scout", "scout", false);
+        roster.note_for_test("lead/lib", "lib", true);
+        let _ = app
+            .context()
+            .provide::<crate::plugin::TeamRosterSvc>(roster.clone());
+        let client = Arc::new(crate::plugin::AgentClient::default());
+        client.follow("lead");
+        let _ = app
+            .context()
+            .provide::<crate::plugin::AgentClientSvc>(client);
+
+        let sheet = sheet_of(c.dispatch("/agents", &app.context()).await);
+        assert_eq!(sheet.page.id(), "agents", "the sheet says what it is");
+
+        // The lead is a row, and so is every member — the stopped one included,
+        // saying that it has stopped so nobody wonders why the strip is bare.
+        let said = sheet_text(&sheet);
+        assert!(said.contains('主'), "the lead is a row:\n{said}");
+        assert!(said.contains("scout"), "the running one:\n{said}");
+        assert!(
+            said.contains("lib") && said.contains("已停"),
+            "the stopped one is listed, and says so:\n{said}"
+        );
+
+        // And the pick is an action, not a switch done here.
+        assert_eq!(
+            c.dispatch("/look lead/lib", &app.context()).await,
+            Outcome::Do(Action::LookAt("lead/lib".into()))
+        );
+        // Not listed: it is what a pick dispatches, not something anyone types.
+        assert!(
+            c.all().iter().all(|x| x.name != "look"),
+            "`/look` is hidden"
+        );
+    }
+
+    #[tokio::test]
+    async fn screen_commands_become_actions_so_a_key_and_a_command_share_one_path() {
+        let c = builtin_for_test();
+        let app = bare();
+        assert_eq!(
+            c.dispatch("/quit", &app.context()).await,
+            Outcome::Do(Action::Quit)
+        );
+        // `/exit` is an alias of `/quit`, not a second command: it resolves to the
+        // same action.
+        assert_eq!(
+            c.dispatch("/exit", &app.context()).await,
+            Outcome::Do(Action::Quit)
+        );
+        assert_eq!(
+            c.dispatch("/reasoning", &app.context()).await,
+            Outcome::Do(Action::ToggleFold("reasoning"))
+        );
+        // `/config` is the settings panel, and it reaches the screen the same
+        // way every other screen command does: as an action, so the command and
+        // any key bound to it later are one implementation.
+        assert_eq!(
+            c.dispatch("/config", &app.context()).await,
+            Outcome::Do(Action::ToggleSettings)
+        );
+        // And `/provider` is the other panel, on the same terms. It used to be a
+        // picker over `HostCommand::Providers` that could only switch between
+        // the legacy `[providers.*]` entries — which is why an account in the
+        // new schema was invisible to it (`docs/adr/0022` §3, and the panel's
+        // own doc).
+        assert_eq!(
+            c.dispatch("/provider", &app.context()).await,
+            Outcome::Do(Action::ToggleProviders)
+        );
+    }
+
+    #[tokio::test]
+    async fn showinject_names_one_injection_the_group_or_all_of_them() {
+        let c = builtin_for_test();
+        let app = bare();
+
+        // Bare: the group, which is the gesture a person forms an opinion about.
+        assert_eq!(
+            c.dispatch("/showinject", &app.context()).await,
+            Outcome::Do(Action::ToggleFolds(
+                crate::content::ENVIRONMENTAL_INJECTIONS.to_vec()
+            ))
+        );
+        // One, by the name that appears in the menu and by the kind that appears
+        // in a fold state. Both spellings, because people name what they see.
+        assert_eq!(
+            c.dispatch("/showinject reminder", &app.context()).await,
+            Outcome::Do(Action::ToggleFold("injected:reminder"))
+        );
+        assert_eq!(
+            c.dispatch("/showinject injected:reminder", &app.context())
+                .await,
+            Outcome::Do(Action::ToggleFold("injected:reminder"))
+        );
+        // The injection a person may want most, since it is the one that is off
+        // the screen and also the one carrying someone else's words.
+        assert_eq!(
+            c.dispatch("/showinject peer", &app.context()).await,
+            Outcome::Do(Action::ToggleFold("injected:peer"))
+        );
+        assert_eq!(
+            c.dispatch("/showinject all", &app.context()).await,
+            Outcome::Do(Action::ToggleFolds(
+                crate::content::INJECTIONS.iter().map(|(_, k)| *k).collect()
+            ))
+        );
+
+        // Case is not the person's problem: the word is lower-cased before it is
+        // looked up, so what arrives from a menu or a paste lands the same way.
+        assert_eq!(
+            c.dispatch("/showinject REMINDER", &app.context()).await,
+            Outcome::Do(Action::ToggleFold("injected:reminder"))
+        );
+
+        // And a refusal names what would have worked. A silent no-op here looks
+        // exactly like the injection not being there.
+        match c.dispatch("/showinject nonsense", &app.context()).await {
+            Outcome::Refused(why) => {
+                assert!(why.contains("reminder"), "{why}");
+                assert!(why.contains("all"), "{why}");
+            }
+            other => panic!("a name nobody has should be refused, not {other:?}"),
+        }
+    }
+}
+
+/// `/plugin`: the panel, and the same jobs from the command line.
+///
+/// A set of its own rather than a line in [`ScreenCommands`], because this one
+/// command is two things: with nothing after it, it pulls the panel up — the
+/// same gesture `/config` and `/provider` are — and with something after it, it
+/// does the job the panel would have done, without the panel. The classic front
+/// end offered both and people type both.
+///
+/// Everything here goes over [`crate::plugins::Plugins`]. What a marketplace is,
+/// where a plugin lands on disk, what `git` has to be run — none of it is here
+/// (`docs/adr/0022` §3). What *is* here is reading what a person typed: a bare
+/// plugin name resolved against what the marketplaces carry, `--scope` read into
+/// a [`Scope`], the four `marketplace` verbs. That is screen work — the same
+/// kind `/model <id>` does — and it needs no more than the rows the port already
+/// hands over.
+/// `/toolbox` — the panel, and the same two switches from the command line.
+///
+/// Not `/tools`: that one is already how tool *output* is shown.
+///
+/// The panel is for looking: forty MCP tools is a list, not a name you
+/// remember. The typed form is for when you already know the name, and for a
+/// pattern (`/tools off mcp__github__*`) that would be a lot of ⏎ in a list.
+pub struct ToolCommands;
+
+fn tools_catalogue() -> Vec<Command> {
+    vec![Command::said_taking(
+        "toolbox",
+        t(Msg::CmdTakesToolbox),
+        t(Msg::CmdAboutToolbox),
+    )]
+}
+
+#[async_trait]
+impl CommandSet for ToolCommands {
+    fn id(&self) -> &'static str {
+        "cmd-tools"
+    }
+    fn commands(&self) -> Vec<Command> {
+        tools_catalogue()
+    }
+    async fn run(&self, _name: &str, args: &str, ctx: &Context) -> Outcome {
+        let args = args.trim();
+        if args.is_empty() {
+            return Outcome::Do(Action::ToggleTools);
+        }
+        let Some(port) = ctx.service::<crate::plugin::ToolCatalogSvc>() else {
+            return Outcome::Refused(t(Msg::NoToolCatalog).into_owned());
+        };
+        let (verb, pattern) = match args.split_once(char::is_whitespace) {
+            Some((verb, rest)) => (verb, rest.trim()),
+            None => (args, ""),
+        };
+        let on = match verb {
+            "on" => true,
+            "off" => false,
+            other => {
+                return Outcome::Refused(t(Msg::ToolboxUnknownVerb { what: other }).into_owned());
+            }
+        };
+        if pattern.is_empty() {
+            return Outcome::Refused(t(Msg::ToolboxNeedsPattern { verb }).into_owned());
+        }
+        // What changed is read off the catalog the port answers with, not
+        // guessed from what was asked: a name the config excluded does not move,
+        // and saying it did would be the one lie this command could tell.
+        let before = port.list().await.unwrap_or_default();
+        match port.switch(pattern, on).await {
+            Ok(after) => {
+                let moved: Vec<String> = after
+                    .tools()
+                    .iter()
+                    .filter(|t| {
+                        before
+                            .tools()
+                            .iter()
+                            .any(|b| b.name == t.name && b.state != t.state)
+                    })
+                    .map(|t| t.name.clone())
+                    .collect();
+                if moved.is_empty() {
+                    return Outcome::Said(t(Msg::ToolboxNothingMoved { pattern }).into_owned());
+                }
+                let names = moved.join(&t(Msg::ToolboxNameJoiner));
+                Outcome::Said(
+                    match on {
+                        true => t(Msg::ToolboxPutBack { names: &names }),
+                        false => t(Msg::ToolboxTurnedOff { names: &names }),
+                    }
+                    .into_owned(),
+                )
+            }
+            Err(why) => Outcome::Refused(why),
+        }
+    }
+}
+
+pub struct PluginCommands;
+
+fn plugin_catalogue() -> Vec<Command> {
+    vec![Command::said_taking(
+        "plugin",
+        t(Msg::CmdTakesPlugin),
+        t(Msg::CmdAboutPlugin),
+    )]
+}
+
+/// What `--scope` was set to, and everything that was not that.
+///
+/// Returns the words with the flag taken out, so the caller reads a plugin name
+/// out of what is left rather than having to skip over a flag that may be
+/// written three ways.
+fn scope_from(args: &str) -> (crate::plugins::Scope, Vec<String>) {
+    use crate::plugins::Scope;
+    let mut scope = Scope::User;
+    let mut rest: Vec<String> = Vec::new();
+    let mut expecting = false;
+    for word in args.split_whitespace() {
+        if expecting {
+            expecting = false;
+            scope = match word.to_lowercase().as_str() {
+                "project" => Scope::Project,
+                "local" => Scope::Local,
+                _ => Scope::User,
+            };
+            continue;
+        }
+        // Three spellings, because all three get typed: `--scope project`,
+        // `--scope=project`, and the bare word after `--scope`.
+        if let Some(value) = word.strip_prefix("--scope=") {
+            scope = match value.to_lowercase().as_str() {
+                "project" => Scope::Project,
+                "local" => Scope::Local,
+                _ => Scope::User,
+            };
+            continue;
+        }
+        if word == "--scope" {
+            expecting = true;
+            continue;
+        }
+        rest.push(word.to_string());
+    }
+    (scope, rest)
+}
+
+/// A `<名字>` or a `<名字>@<市场>`, matched against what is on offer.
+///
+/// `Err` is the sentence to show: nothing by that name, or several and here are
+/// the commands that say which. Ambiguity is never resolved by picking one —
+/// two marketplaces carrying a plugin with one name is exactly the case where
+/// guessing installs the wrong thing.
+fn pick<'a>(
+    rows: &'a [crate::plugins::PluginRow],
+    typed: &str,
+    verb: &str,
+) -> Result<&'a crate::plugins::PluginRow, String> {
+    let (name, market) = match typed.split_once('@') {
+        Some((name, market)) if !name.is_empty() && !market.is_empty() => (name, Some(market)),
+        _ => (typed, None),
+    };
+    let hits: Vec<&crate::plugins::PluginRow> = rows
+        .iter()
+        .filter(|row| row.name == name && market.is_none_or(|m| row.marketplace == m))
+        .collect();
+    match hits.len() {
+        0 => Err(t(Msg::PluginNoSuch { typed }).into_owned()),
+        1 => Ok(hits[0]),
+        _ => {
+            let lines: Vec<String> = hits
+                .iter()
+                .map(|row| format!("  /plugin {verb} {}@{}", row.name, row.marketplace))
+                .collect();
+            Err(t(Msg::PluginAmbiguous {
+                name,
+                lines: &lines.join("\n"),
+            })
+            .into_owned())
+        }
+    }
+}
+
+#[async_trait]
+impl CommandSet for PluginCommands {
+    fn id(&self) -> &'static str {
+        "cmd-plugin"
+    }
+    fn commands(&self) -> Vec<Command> {
+        plugin_catalogue()
+    }
+    async fn run(&self, _name: &str, args: &str, ctx: &Context) -> Outcome {
+        let args = args.trim();
+        // Nothing after it is the panel. Everything below needs the port; this
+        // does not, because a screen with no port still has to say so with the
+        // sentence the action carries rather than one invented here.
+        if args.is_empty() {
+            return Outcome::Do(Action::TogglePlugins);
+        }
+        let Some(port) = ctx.service::<crate::plugin::PluginsSvc>() else {
+            return Outcome::Refused(t(Msg::NoPluginPort).into_owned());
+        };
+        // Said as the job goes out, not after: a clone takes seconds, and a
+        // command that printed nothing until it was over looks like a command
+        // that did nothing.
+        let ui = ctx.service::<atomcode_harness::seams::UiSvc>();
+        let announce = |line: String| {
+            if let Some(ui) = ui.as_ref() {
+                ui.say(&line);
+            }
+        };
+        let (verb, rest) = match args.split_once(char::is_whitespace) {
+            Some((verb, rest)) => (verb, rest.trim()),
+            None => (args, ""),
+        };
+        let view = port.rows();
+        match verb {
+            "list" => {
+                let installed: Vec<String> = view
+                    .plugins()
+                    .iter()
+                    .filter_map(|row| {
+                        row.installed
+                            .map(|scope| format!("  {} ({})", row.id(), scope.label()))
+                    })
+                    .collect();
+                if installed.is_empty() {
+                    return Outcome::Said(t(Msg::PluginNothingInstalled).into_owned());
+                }
+                Outcome::Said(
+                    t(Msg::PluginInstalledList {
+                        lines: &installed.join("\n"),
+                    })
+                    .into_owned(),
+                )
+            }
+            "install" => {
+                let (scope, rest) = scope_from(rest);
+                let Some(typed) = rest.first() else {
+                    return Outcome::Refused(t(Msg::PluginInstallWhich).into_owned());
+                };
+                let row = match pick(view.plugins(), typed, "install") {
+                    Ok(row) => row,
+                    Err(why) => return Outcome::Refused(why),
+                };
+                if row.installed.is_some() {
+                    return Outcome::Refused(
+                        t(Msg::PluginAlreadyInstalled { id: &row.id() }).into_owned(),
+                    );
+                }
+                let (plugin, market) = (row.name.clone(), row.marketplace.clone());
+                announce(
+                    t(Msg::PluginInstalling {
+                        plugin: &plugin,
+                        market: &market,
+                    })
+                    .into_owned(),
+                );
+                match port.install(&plugin, &market, scope).await {
+                    Ok(said) => reload_then(ctx, said).await,
+                    Err(why) => Outcome::Refused(why),
+                }
+            }
+            "uninstall" => {
+                let Some(typed) = rest.split_whitespace().next() else {
+                    return Outcome::Refused(t(Msg::PluginUninstallWhich).into_owned());
+                };
+                let installed: Vec<crate::plugins::PluginRow> = view
+                    .plugins()
+                    .iter()
+                    .filter(|row| row.installed.is_some())
+                    .cloned()
+                    .collect();
+                let row = match pick(&installed, typed, "uninstall") {
+                    Ok(row) => row.clone(),
+                    Err(_) => {
+                        return Outcome::Refused(t(Msg::PluginNotInstalled { typed }).into_owned())
+                    }
+                };
+                let scope = row.installed.unwrap_or(crate::plugins::Scope::User);
+                announce(t(Msg::PluginUninstalling { id: &row.id() }).into_owned());
+                match port.uninstall(&row.name, &row.marketplace, scope).await {
+                    Ok(said) => reload_then(ctx, said).await,
+                    Err(why) => Outcome::Refused(why),
+                }
+            }
+            "update" => {
+                let Some(typed) = rest.split_whitespace().next() else {
+                    return Outcome::Refused(t(Msg::PluginUpdateWhich).into_owned());
+                };
+                let installed: Vec<crate::plugins::PluginRow> = view
+                    .plugins()
+                    .iter()
+                    .filter(|row| row.installed.is_some())
+                    .cloned()
+                    .collect();
+                let row = match pick(&installed, typed, "update") {
+                    Ok(row) => row.clone(),
+                    Err(_) => {
+                        return Outcome::Refused(t(Msg::PluginNotInstalled { typed }).into_owned())
+                    }
+                };
+                let scope = row.installed.unwrap_or(crate::plugins::Scope::User);
+                announce(t(Msg::PluginUpdating { id: &row.id() }).into_owned());
+                match port.update(&row.name, &row.marketplace, scope).await {
+                    Ok(said) => reload_then(ctx, said).await,
+                    Err(why) => Outcome::Refused(why),
+                }
+            }
+            "marketplace" | "market" => {
+                let (action, rest) = match rest.split_once(char::is_whitespace) {
+                    Some((action, rest)) => (action, rest.trim()),
+                    None => (rest, ""),
+                };
+                match action {
+                    "list" | "" => {
+                        if view.markets().is_empty() {
+                            return Outcome::Said(t(Msg::MarketNoneYet).into_owned());
+                        }
+                        let lines: Vec<String> = view
+                            .markets()
+                            .iter()
+                            .map(|m| {
+                                t(Msg::MarketRow {
+                                    name: &m.name,
+                                    source: &m.source,
+                                    plugins: m.plugins,
+                                    installed: m.installed,
+                                })
+                                .into_owned()
+                            })
+                            .collect();
+                        Outcome::Said(
+                            t(Msg::MarketList {
+                                lines: &lines.join("\n"),
+                            })
+                            .into_owned(),
+                        )
+                    }
+                    "add" => {
+                        if rest.is_empty() {
+                            return Outcome::Refused(t(Msg::MarketAddWhich).into_owned());
+                        }
+                        announce(t(Msg::MarketFetching { what: rest }).into_owned());
+                        match port.add_market(rest).await {
+                            Ok(said) => reload_then(ctx, said).await,
+                            Err(why) => Outcome::Refused(why),
+                        }
+                    }
+                    "remove" | "rm" => {
+                        if rest.is_empty() {
+                            return Outcome::Refused(t(Msg::MarketRemoveWhich).into_owned());
+                        }
+                        announce(t(Msg::MarketRemoving { what: rest }).into_owned());
+                        match port.remove_market(rest).await {
+                            Ok(said) => reload_then(ctx, said).await,
+                            Err(why) => Outcome::Refused(why),
+                        }
+                    }
+                    "update" => {
+                        if rest.is_empty() {
+                            return Outcome::Refused(t(Msg::MarketUpdateWhich).into_owned());
+                        }
+                        announce(t(Msg::MarketUpdating { what: rest }).into_owned());
+                        match port.update_market(rest).await {
+                            Ok(said) => reload_then(ctx, said).await,
+                            Err(why) => Outcome::Refused(why),
+                        }
+                    }
+                    other => {
+                        Outcome::Refused(t(Msg::MarketUnknownAction { what: other }).into_owned())
+                    }
+                }
+            }
+            // The same reload `/reload` is, spelled the way the classic front
+            // end spelled it: people who learned `/plugin reload` there keep it.
+            "reload" => match reload(ctx).await {
+                Ok(()) => Outcome::Said(t(Msg::Reloaded).into_owned()),
+                Err(why) => Outcome::Refused(why),
+            },
+            other => Outcome::Refused(t(Msg::PluginUnknownAction { what: other }).into_owned()),
+        }
+    }
+}
+
+/// Say what landed, then build the graph again.
+///
+/// Writing to disk is not making it so: a plugin brings skills, commands and
+/// hooks, and none of them reach the running agent until it is reloaded. A
+/// reload that fails is said *with* the success, not instead of it — the files
+/// really are on disk, and a person told only about the failure would install
+/// the same thing twice.
+async fn reload_then(ctx: &Context, said: String) -> Outcome {
+    match reload(ctx).await {
+        Ok(()) => Outcome::Said(said),
+        Err(why) => Outcome::Said(
+            t(Msg::ReloadFailedAfter {
+                said: &said,
+                why: &why,
+            })
+            .into_owned(),
+        ),
+    }
+}
+
+async fn reload(ctx: &Context) -> Result<(), String> {
+    let Some(client) = ctx.service::<crate::plugin::AgentClientSvc>() else {
+        return Err(t(Msg::NoAgent).into_owned());
+    };
+    let Some(control) = client.control() else {
+        return Err(t(Msg::NoHost).into_owned());
+    };
+    control
+        .call(HostCommand::Reload {
+            session: client.root(),
+        })
+        .await
+        .map(|_| ())
+        .map_err(refusal)
+}
+
+#[cfg(test)]
+mod plugin_tests {
+    use super::*;
+    use crate::plugins::{PluginRow, Scope};
+
+    fn row(name: &str, market: &str) -> PluginRow {
+        PluginRow {
+            name: name.into(),
+            marketplace: market.into(),
+            description: String::new(),
+            installed: None,
+        }
+    }
+
+    /// `--scope` is read out of the words, whichever of the three ways it was
+    /// written, and what is left is the name.
+    ///
+    /// The spaced form is the one that broke in the classic front end: the
+    /// parser stripped `--scope=` only, so `--scope project` installed into the
+    /// user scope and said nothing.
+    #[test]
+    fn the_scope_is_read_out_of_the_words_and_never_left_in_the_name() {
+        for written in [
+            "tidy --scope project",
+            "tidy --scope=project",
+            "--scope project tidy",
+        ] {
+            let (scope, rest) = scope_from(written);
+            assert_eq!(scope, Scope::Project, "`{written}`");
+            assert_eq!(rest, ["tidy"], "`{written}` leaves only the name");
+        }
+        let (scope, rest) = scope_from("tidy");
+        assert_eq!(scope, Scope::User, "nothing said is this machine");
+        assert_eq!(rest, ["tidy"]);
+        let (scope, _) = scope_from("tidy --scope local");
+        assert_eq!(scope, Scope::Local);
+    }
+
+    /// A name two marketplaces carry is never guessed at.
+    ///
+    /// Guessing here installs the wrong thing under the right name, which is
+    /// the one outcome nobody can debug afterwards.
+    #[test]
+    fn an_ambiguous_name_is_refused_with_the_commands_that_settle_it() {
+        let rows = vec![
+            row("lens", "official"),
+            row("lens", "mine"),
+            row("tidy", "official"),
+        ];
+        let Err(why) = pick(&rows, "lens", "install") else {
+            panic!("two marketplaces carrying one name is not a pick");
+        };
+        assert!(why.contains("/plugin install lens@official"), "{why}");
+        assert!(why.contains("/plugin install lens@mine"), "{why}");
+
+        // Said in full, it resolves.
+        let picked = pick(&rows, "lens@mine", "install").expect("a qualified name is unambiguous");
+        assert_eq!(picked.marketplace, "mine");
+
+        // And a name nobody carries is a refusal, not a silent no-op.
+        assert!(pick(&rows, "nope", "install").is_err());
+
+        // One carrier needs no qualifying.
+        assert_eq!(
+            pick(&rows, "tidy", "install")
+                .expect("one carrier")
+                .marketplace,
+            "official"
+        );
+    }
+}
+
+#[cfg(test)]
+mod setup_tests {
+    use super::*;
+    use atomcode_plexus::{App, ConfigTree, PluginRegistry};
+
+    /// A host that keeps what it was asked, and answers `Done`.
+    #[derive(Default)]
+    struct Recording {
+        asked: std::sync::Mutex<Vec<HostCommand>>,
+    }
+
+    #[async_trait]
+    impl atomcode_host_api::HostControl for Recording {
+        async fn call(&self, command: HostCommand) -> Result<HostReply, HostError> {
+            self.asked.lock().unwrap().push(command);
+            Ok(HostReply::Done)
+        }
+        fn subscribe(&self) -> tokio::sync::mpsc::UnboundedReceiver<atomcode_host_api::HostEvent> {
+            tokio::sync::mpsc::unbounded_channel().1
+        }
+    }
+
+    /// A setup port whose answer to "installed?" is `installed`, and which counts
+    /// how many times it was asked to install.
+    #[derive(Default)]
+    struct FakeSetup {
+        installed: bool,
+        installs: std::sync::Mutex<usize>,
+    }
+
+    #[async_trait]
+    impl crate::setup::Setup for FakeSetup {
+        fn installed(&self) -> bool {
+            self.installed
+        }
+        async fn install(&self) -> Result<String, String> {
+            *self.installs.lock().unwrap() += 1;
+            Ok("✅ Setup 完成 — 1 装好, 0 跳过, 0 失败".into())
+        }
+    }
+
+    struct Rig {
+        app: App,
+        host: Arc<Recording>,
+        /// What the screen sent the agent — `Invoke` is how `/setup` is
+        /// forwarded, and this is the only place that can see it.
+        sent: std::sync::Mutex<
+            tokio::sync::mpsc::UnboundedReceiver<atomcode_kernel::event::AgentCommand>,
+        >,
+        port: Arc<FakeSetup>,
+        all: Arc<Commands>,
+    }
+
+    fn rig(installed: bool) -> Rig {
+        let app = App::new(PluginRegistry::new(), ConfigTree::default());
+        let host = Arc::new(Recording::default());
+        let client = Arc::new(crate::plugin::AgentClient::default());
+        let (commands, received) = tokio::sync::mpsc::unbounded_channel();
+        client.connect(commands, host.clone());
+        client.follow("lead");
+        let _ = app
+            .context()
+            .provide::<crate::plugin::AgentClientSvc>(client);
+        let port = Arc::new(FakeSetup {
+            installed,
+            installs: std::sync::Mutex::new(0),
+        });
+        let _ = app
+            .context()
+            .provide::<crate::plugin::SetupSvc>(port.clone());
+        let all = Arc::new(Commands::new());
+        all.add(Arc::new(SetupCommands)).unwrap();
+        Rig {
+            app,
+            host,
+            sent: std::sync::Mutex::new(received),
+            port,
+            all,
+        }
+    }
+
+    impl Rig {
+        /// Everything the screen has sent the agent so far.
+        fn sent(&self) -> Vec<atomcode_kernel::event::AgentCommand> {
+            let mut rx = self.sent.lock().unwrap();
+            let mut out = Vec::new();
+            while let Ok(command) = rx.try_recv() {
+                out.push(command);
+            }
+            out
+        }
+
+        /// The name `/setup` handed over, if it handed one over.
+        fn invoked(&self) -> Option<String> {
+            self.sent().into_iter().find_map(|c| match c {
+                atomcode_kernel::event::AgentCommand::Invoke { name, .. } => Some(name),
+                _ => None,
+            })
+        }
+    }
+
+    /// On a machine that already has the seeds, `/setup` is one thing: hand the
+    /// name to the agent. No unpacking, no file lock, no rebuild.
+    #[tokio::test]
+    async fn a_machine_that_has_the_seeds_only_forwards() {
+        let rig = rig(true);
+        let outcome = rig.all.dispatch("/setup", &rig.app.context()).await;
+        assert!(
+            matches!(outcome, Outcome::Said(_)),
+            "forwarding is not a refusal: {outcome:?}"
+        );
+        assert_eq!(
+            rig.invoked().as_deref(),
+            Some("setup"),
+            "the name went over"
+        );
+        assert_eq!(*rig.port.installs.lock().unwrap(), 0, "nothing to install");
+        assert!(
+            rig.host.asked.lock().unwrap().is_empty(),
+            "no reload for work that did not happen: {:?}",
+            rig.host.asked.lock().unwrap()
+        );
+    }
+
+    /// On a machine that has never run it, the three steps happen in the order
+    /// that makes them work: install, reload, forward. The reload is not
+    /// decoration — handing over a name the agent does not have yet is the
+    /// failure this whole command exists to avoid.
+    #[tokio::test]
+    async fn a_machine_without_the_seeds_installs_reloads_then_forwards() {
+        let rig = rig(false);
+        let outcome = rig.all.dispatch("/setup hooks", &rig.app.context()).await;
+        assert!(matches!(outcome, Outcome::Said(_)), "{outcome:?}");
+        assert_eq!(*rig.port.installs.lock().unwrap(), 1, "installed once");
+        assert_eq!(
+            *rig.host.asked.lock().unwrap(),
+            vec![HostCommand::Reload {
+                session: "lead".into()
+            }],
+            "the graph is rebuilt before the name is handed over"
+        );
+        // And the args the person typed travel with it: the seed skill takes a
+        // focus area, and dropping it would silently answer a narrower question.
+        let sent = rig.sent();
+        assert!(
+            sent.iter().any(|c| matches!(
+                c,
+                atomcode_kernel::event::AgentCommand::Invoke { name, args, .. }
+                    if name == "setup" && args == "hooks"
+            )),
+            "the words after `/setup` are the skill's argument: {sent:?}"
+        );
+    }
+
+    /// The name is claimed whether or not the agent offers it, so a machine with
+    /// the seeds and one without end in the same place.
+    #[test]
+    fn setup_takes_the_name_from_the_agent_catalog() {
+        assert_eq!(SetupCommands.overrides(), vec!["setup"]);
+        assert!(SetupCommands.commands().iter().any(|c| c.name == "setup"));
+    }
+
+    /// A screen with no port says so, rather than claiming to have installed
+    /// something.
+    #[tokio::test]
+    async fn no_port_is_a_refusal_not_a_silent_success() {
+        let app = App::new(PluginRegistry::new(), ConfigTree::default());
+        let client = Arc::new(crate::plugin::AgentClient::default());
+        client.follow("lead");
+        let _ = app
+            .context()
+            .provide::<crate::plugin::AgentClientSvc>(client);
+        let all = Arc::new(Commands::new());
+        all.add(Arc::new(SetupCommands)).unwrap();
+        match all.dispatch("/setup", &app.context()).await {
+            Outcome::Refused(why) => assert!(!why.is_empty(), "refused with nothing"),
+            other => panic!("{other:?}"),
+        }
+    }
+}

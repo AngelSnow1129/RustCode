@@ -45,12 +45,6 @@ cargo run -p atomcode-daemon -- --no-auth
 
 > **无认证模式警告**：`--no-auth` 会让所有 API 接口无需 token 即可访问，并且不会生成 `daemon-<port>.json`。该参数可与任意绑定地址组合；使用者必须自行保证网络隔离。
 
-### 环境变量
-
-| 环境变量 | 说明 |
-|----------|------|
-| `ATOMCODE_DAEMON_ENABLE_DANGEROUS_TOOLS` | 设为 `1` 启用 bash 和写文件的 daemon 工具 |
-
 ## API 接口
 
 所有接口基础路径为 `http://<host>:<port>`，请求和响应均为 JSON 格式。
@@ -66,7 +60,7 @@ cargo run -p atomcode-daemon -- --no-auth
 ```json
 {
   "status": "ok",
-  "version": "5.1.0",
+  "version": "5.2.0",
   "service": "atomcode-daemon"
 }
 ```
@@ -269,6 +263,11 @@ cargo run -p atomcode-daemon -- --no-auth
 #### `POST /chat`
 
 发送聊天消息，以 SSE（Server-Sent Events）流式返回响应。
+
+每个 `/chat` 请求都在**自己的 runtime** 里跑一轮，回合结束即关闭；会话内容按 `session_id`
+从磁盘接续。因此配置了 MCP 时，每个请求都会启动并连接 MCP server，并**等它们就位（最多
+30 秒）后才开始回合**，模型本轮即可调用 `mcp__*` 工具；超时的 server 本轮缺席。MCP 启动
+较慢、又需要多轮对话的场景，每轮都要付这笔启动时间。
 
 **请求体：**
 
@@ -593,38 +592,43 @@ curl -N -X POST http://127.0.0.1:13456/chat \
 
 #### `GET /mcp/status`
 
-获取所有 MCP 服务器的连接状态。
+获取 MCP 服务器的连接状态。
+
+- 当前项目有 live 会话时（`"source": "live"`），报告**该会话 runtime 实际使用的连接**；
+  `tool_count` 是此刻**已挂载到模型面前**的工具数——`connected` 而 `tool_count` 为 0，
+  表示连上了、工具还没挂上（切会话 / reload 期间会短暂出现）。
+- 没有 live 会话时（`"source": "daemon"`），daemon 不持有任何 MCP 连接：配置里的 server
+  逐个列为 `disconnected`，不带 `tool_count`。`/chat` 请求的连接只存在于该请求的回合内，
+  不反映在这里。
+- 被项目信任门拦下的 server 只出现在 `blocked`，不出现在 `servers`。
 
 **响应示例：**
 
 ```json
 {
+  "source": "live",
   "servers": [
-    {
-      "name": "filesystem",
-      "status": "connected",
-      "tool_count": 5,
-      "error": null
-    },
-    {
-      "name": "github",
-      "status": "error",
-      "tool_count": null,
-      "error": "Connection refused"
-    }
-  ]
+    { "name": "filesystem", "status": "connected", "tool_count": 5 },
+    { "name": "github", "status": "error", "error": "Connection refused" }
+  ],
+  "trusted": true,
+  "blocked": []
 }
 ```
 
 #### `POST /mcp/reload`
 
-重新加载 MCP 配置（从 `~/.atomcode/mcp.json`）。
+重新读取 MCP 配置（用户级 `~/.atomcode/mcp.json` 与项目 `.mcp.json`），让当前 live 会话
+重连全部 server，**等工具重新就位（最多 30 秒）后返回**。没有 live 会话时无事可做（下一个
+runtime 启动时会重新读取配置）。
 
 **响应示例：**
 
 ```json
 {
-  "status": "reloading"
+  "ok": true,
+  "status": "reloading",
+  "runtime_reloaded": true
 }
 ```
 
@@ -678,7 +682,10 @@ daemon 默认仅允许来自 loopback 地址的跨域请求：
 
 ## 可用工具
 
-daemon 聊天模式下可用的工具：
+下表是 daemon 聊天模式下**常用的核心工具，并非完整清单**。实际挂载的工具集取决于
+配置、已连接的 MCP server 与已加载的 Skill，通常远多于此（代码智能、todo、任务等还会
+另行挂载）。要拿到某个运行时「此刻实际挂载」的权威清单，**以运行时为准**——不要把本表
+当作白名单或完整枚举。
 
 | 工具名 | 说明 |
 |--------|------|

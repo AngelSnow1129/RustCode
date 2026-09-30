@@ -122,7 +122,8 @@ mod tests {
             "fn leaf() {}\nfn root() { leaf(); }\n",
         )
         .unwrap();
-        let tool = TraceCalleesTool::new(Arc::new(CodeIndex::new()));
+        let tool =
+            TraceCalleesTool::new(Arc::new(CodeIndex::new(&crate::product_dirs::test_dirs())));
         let ctx = ToolContext {
             working_dir: d.path().to_path_buf(),
             cancel: CancellationToken::new(),

@@ -460,10 +460,11 @@ impl ResponsesSseDecoder {
             // Value directly (no serialize→re-parse round-trip).
             out.push(StreamEvent::Error(ProviderError {
                 retryable: false,
-                message: format!(
-                    "provider error: {}",
-                    super::openai_compat::parse_error_obj(err)
-                ),
+                message: {
+                    let detail = super::openai_compat::parse_error_obj(err);
+                    super::content_blocked(&detail)
+                        .unwrap_or_else(|| format!("provider error: {detail}"))
+                },
                 http_status: super::openai_compat::inband_error_http_status(err),
                 code: super::openai_compat::error_code(err),
                 retry_after_secs: None,
@@ -703,6 +704,10 @@ impl LlmProvider for ResponsesProvider {
         self.cfg.context_window
     }
 
+    fn effort_levels(&self) -> Vec<String> {
+        self.cfg.effort_levels.clone()
+    }
+
     fn bind_session_id(&self, session_id: &str) {
         let _ = self.session_id.set(session_id.to_string());
     }
@@ -728,7 +733,7 @@ impl LlmProvider for ResponsesProvider {
             options
         };
         let body = build_request_body(&self.cfg.model, messages, tools, options, &self.cfg);
-        super::wire_dump_request(&self.cfg.model, &body);
+        super::wire_dump_request(self.cfg.wire_dump_dir.as_deref(), &self.cfg.model, &body);
         let body_bytes = match serde_json::to_vec(&body) {
             Ok(b) => b,
             Err(e) => {

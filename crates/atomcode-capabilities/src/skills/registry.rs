@@ -1,31 +1,78 @@
 //! Discover + index skills from a set of directories. Neutral: the caller supplies the
 //! directories (the standard `~/.claude/skills` etc. precedence is a driver concern —
-//! see [`standard_skill_dirs`]). Ported from production `skill.rs` `SkillRegistry`.
+//! see [`standard_skill_dirs`], which takes our own dirs from the caller too). Ported from production `skill.rs` `SkillRegistry`.
 
 use super::skill::{parse_skill_dir, parse_skill_file, Skill};
+use crate::ProductDirs;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 /// Skills indexed by name. `BTreeMap` for deterministic (sorted) order — the skill list
 /// is injected into the system prompt, so a stable order keeps the prompt prefix
 /// byte-identical (prompt-prefix caching), same rationale as the kernel ToolRegistry.
 pub struct SkillRegistry {
-    skills: BTreeMap<String, Arc<Skill>>,
+    /// Behind a lock because skills live on disk and the disk changes under a
+    /// running session: a person writes a skill, or installs a plugin, and then
+    /// reloads. Every holder of this registry has an `Arc` to it — the
+    /// `use_skill` and `list_skills` tools, the `skills` seam, the catalog
+    /// fragment — so re-reading in place is what lets a reload reach all of
+    /// them without rebuilding the tree they are mounted in (`docs/adr/0022`
+    /// §2).
+    skills: RwLock<BTreeMap<String, Arc<Skill>>>,
+    /// Our own trees: a skill under one of them ranks first in the catalog
+    /// ([`super::render::source_rank`]). Handed in by whoever knows where they
+    /// are — [`Self::reload`] takes them from its [`SkillRoots`].
+    native_roots: RwLock<Vec<PathBuf>>,
 }
 
 impl SkillRegistry {
     pub fn new() -> Self {
         Self {
-            skills: BTreeMap::new(),
+            skills: RwLock::new(BTreeMap::new()),
+            native_roots: RwLock::new(Vec::new()),
         }
+    }
+
+    /// Name our own trees, so skills under them rank first in the catalog.
+    /// [`standard_skill_dirs`] callers pass [`SkillRoots::native`].
+    pub fn set_native_roots(&self, roots: Vec<PathBuf>) {
+        *self.native_roots.write().unwrap_or_else(|e| e.into_inner()) = roots;
+    }
+
+    /// The map, for a reader. A poisoned lock is taken over rather than
+    /// propagated: a panic in a catalog render must not take every later skill
+    /// lookup down with it.
+    fn read(&self) -> std::sync::RwLockReadGuard<'_, BTreeMap<String, Arc<Skill>>> {
+        self.skills.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn write(&self) -> std::sync::RwLockWriteGuard<'_, BTreeMap<String, Arc<Skill>>> {
+        self.skills.write().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Read `dirs` again, in place, replacing what is indexed now.
+    ///
+    /// The swap is one write: a reader either sees every skill from before or
+    /// every skill from after, never a half-scanned catalog — which is what a
+    /// model would otherwise be told about mid-reload.
+    pub fn reload_dirs(&self, dirs: &[PathBuf], namespaced: &[(PathBuf, String)]) {
+        let fresh = Self::new();
+        for dir in dirs {
+            fresh.load_dir(dir, None);
+        }
+        for (dir, namespace) in namespaced {
+            fresh.load_dir(dir, Some(namespace));
+        }
+        let next = std::mem::take(&mut *fresh.write());
+        *self.write() = next;
     }
 
     /// Load from `dirs` in LOW→HIGH priority order (a later dir's same-named skill wins).
     /// Each dir is scanned for flat `*.md` files AND `*/SKILL.md` subdirectories; parse
     /// failures are skipped.
     pub fn load(dirs: &[PathBuf]) -> Self {
-        let mut reg = Self::new();
+        let reg = Self::new();
         for dir in dirs {
             reg.load_dir(dir, None);
         }
@@ -33,7 +80,7 @@ impl SkillRegistry {
     }
 
     /// Load one directory, optionally namespacing the skill names (`{ns}:{name}`).
-    pub fn load_dir(&mut self, dir: &Path, namespace: Option<&str>) {
+    pub fn load_dir(&self, dir: &Path, namespace: Option<&str>) {
         self.scan_skill_dir(dir, namespace, 0);
     }
 
@@ -43,7 +90,7 @@ impl SkillRegistry {
     /// recursively, so `skills/GROUP/SUB/SKILL.md` is still found. Flat `*.md`
     /// slash-commands are TOP-LEVEL only (depth 0) — a skill's own `*.md` are resources,
     /// not separate commands. `depth` is bounded to guard against symlink cycles.
-    fn scan_skill_dir(&mut self, dir: &Path, namespace: Option<&str>, depth: usize) {
+    fn scan_skill_dir(&self, dir: &Path, namespace: Option<&str>, depth: usize) {
         const MAX_DEPTH: usize = 8;
         if depth > MAX_DEPTH {
             return;
@@ -57,14 +104,14 @@ impl SkillRegistry {
             if p.is_file() {
                 if depth == 0 && p.extension().and_then(|e| e.to_str()) == Some("md") {
                     if let Ok(s) = parse_skill_file(&p, namespace) {
-                        self.skills.insert(s.name.clone(), Arc::new(s));
+                        self.write().insert(s.name.clone(), Arc::new(s));
                     }
                 }
             } else if p.is_dir() {
                 let skill_md = p.join("SKILL.md");
                 if skill_md.is_file() {
                     if let Ok(s) = parse_skill_dir(&p, &skill_md, namespace) {
-                        self.skills.insert(s.name.clone(), Arc::new(s));
+                        self.write().insert(s.name.clone(), Arc::new(s));
                     }
                 } else {
                     self.scan_skill_dir(&p, namespace, depth + 1);
@@ -93,7 +140,8 @@ impl SkillRegistry {
     /// or several user-invocable matches — returns `None`; the menu shows the
     /// qualified form there, which resolves via the exact-match branch.
     pub fn get(&self, name: &str) -> Option<Arc<Skill>> {
-        if let Some(skill) = self.skills.get(name) {
+        let skills = self.read();
+        if let Some(skill) = skills.get(name) {
             return Some(skill.clone());
         }
         if name.contains(':') {
@@ -104,7 +152,7 @@ impl SkillRegistry {
         let mut last_all: Option<&Arc<Skill>> = None;
         let mut n_invocable = 0usize;
         let mut last_invocable: Option<&Arc<Skill>> = None;
-        for skill in self.skills.values() {
+        for skill in skills.values() {
             if skill.name.ends_with(&suffix) {
                 n_all += 1;
                 last_all = Some(skill);
@@ -125,14 +173,14 @@ impl SkillRegistry {
         None
     }
     pub fn len(&self) -> usize {
-        self.skills.len()
+        self.read().len()
     }
     pub fn is_empty(&self) -> bool {
-        self.skills.is_empty()
+        self.read().is_empty()
     }
     /// `(name, description)` for every skill, sorted by name.
     pub fn list(&self) -> Vec<(String, String)> {
-        self.skills
+        self.read()
             .values()
             .map(|s| (s.name.clone(), s.description.clone()))
             .collect()
@@ -146,10 +194,10 @@ impl SkillRegistry {
     /// `reload` (driver call sites surface them). Currently always empty: this loader
     /// silently skips unparseable skills — the SAME behavior the runtime skill path
     /// uses — so no parse warnings are collected.
-    pub fn reload(&mut self, working_dir: &Path) -> Vec<String> {
-        self.skills.clear();
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        for dir in runtime_skill_dirs(&home, working_dir) {
+    pub fn reload(&self, roots: SkillRoots<'_>) -> Vec<String> {
+        self.write().clear();
+        self.set_native_roots(roots.native());
+        for dir in standard_skill_dirs(roots) {
             self.load_dir(&dir, Some("skills"));
         }
         Vec::new()
@@ -157,22 +205,23 @@ impl SkillRegistry {
 
     /// Skills a user can invoke from the `/` menu (frontmatter `user-invocable` not
     /// `false`), sorted by name.
-    pub fn user_invocable(&self) -> impl Iterator<Item = &Skill> {
-        self.skills
+    pub fn user_invocable(&self) -> Vec<Arc<Skill>> {
+        self.read()
             .values()
-            .map(|s| s.as_ref())
             .filter(|s| s.user_invocable)
+            .cloned()
+            .collect()
     }
 
     /// Insert a skill programmatically (same-name replaces). Mirrors core
     /// `SkillRegistry::register`; used by drivers injecting non-file skills and by tests.
-    pub fn register(&mut self, skill: Skill) {
-        self.skills.insert(skill.name.clone(), Arc::new(skill));
+    pub fn register(&self, skill: Skill) {
+        self.write().insert(skill.name.clone(), Arc::new(skill));
     }
 
     /// Every loaded skill, sorted by name.
-    pub fn all(&self) -> impl Iterator<Item = &Skill> {
-        self.skills.values().map(|s| s.as_ref())
+    pub fn all(&self) -> Vec<Arc<Skill>> {
+        self.read().values().cloned().collect()
     }
 
     /// Render the `=== AVAILABLE SKILLS ===` system-prompt section (budget-gated,
@@ -185,18 +234,22 @@ impl SkillRegistry {
     /// Render the catalog while preserving installed skills whose exact names
     /// appear in the effective project instruction text.
     pub fn render_catalog_prioritizing(&self, instruction_text: &str) -> Option<String> {
-        let entries: Vec<super::render::CatalogEntry> = self
-            .skills
+        let native_roots = self
+            .native_roots
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let skills = self.read();
+        let entries: Vec<super::render::CatalogEntry> = skills
             .values()
             .map(|s| super::render::CatalogEntry {
                 name: s.name.clone(),
                 hint: None, // capabilities skills carry no argument hint
                 description: s.description.clone(),
-                source_rank: super::render::source_rank(&s.source_path),
+                source_rank: super::render::source_rank(&s.source_path, &native_roots),
             })
             .collect();
-        let priority_names = self
-            .skills
+        let priority_names = skills
             .keys()
             .filter(|name| text_mentions_exact_name(instruction_text, name))
             .cloned()
@@ -232,97 +285,131 @@ impl Default for SkillRegistry {
     }
 }
 
+/// The four roots skills are looked up under.
+///
+/// `home` and `project` hold OTHER products' dirs (`.claude`, `.agents`), which
+/// this crate names because they are not ours. Our own two come from `dirs`:
+/// what the product is called — and where a person moved its tree — is the
+/// host's to say, not this crate's to guess.
+#[derive(Clone, Copy, Debug)]
+pub struct SkillRoots<'a> {
+    /// The person's home directory.
+    pub home: &'a Path,
+    /// The project (workspace) root.
+    pub project: &'a Path,
+    /// Our user-level tree and per-project dir name.
+    pub dirs: &'a ProductDirs,
+}
+
+impl SkillRoots<'_> {
+    /// Our two trees — what [`SkillRegistry::set_native_roots`] wants.
+    pub fn native(&self) -> Vec<PathBuf> {
+        vec![
+            self.dirs.user().to_path_buf(),
+            self.dirs.project(self.project),
+        ]
+    }
+}
+
 /// The standard skill directories (LOW→HIGH priority), Claude-Code-compatible. A driver
-/// may pass this to [`SkillRegistry::load`] or supply its own. `home` = user home dir;
-/// `project` = the workspace root.
-pub fn standard_skill_dirs(home: &Path, project: &Path) -> Vec<PathBuf> {
+/// may pass this to [`SkillRegistry::load`] or supply its own.
+pub fn standard_skill_dirs(roots: SkillRoots<'_>) -> Vec<PathBuf> {
+    let SkillRoots {
+        home,
+        project,
+        dirs,
+    } = roots;
+    let user_dir = dirs.user();
+    let project_dir = dirs.project(project);
     vec![
         home.join(".claude/commands"),
-        home.join(".atomcode/commands"),
+        user_dir.join("commands"),
         home.join(".claude/skills"),
         // `.agents/skills` — cross-agent shared convention (opencode et al.). Between
-        // `.claude` and `.atomcode` so atomcode-native skills win a same-name collision.
+        // `.claude` and ours so our native skills win a same-name collision.
         home.join(".agents/skills"),
-        home.join(".atomcode/skills"),
+        user_dir.join("skills"),
         project.join(".claude/commands"),
-        project.join(".atomcode/commands"),
+        project_dir.join("commands"),
         project.join(".claude/skills"),
         project.join(".agents/skills"),
-        project.join(".atomcode/skills"),
+        project_dir.join("skills"),
     ]
 }
 
-/// The standard skill directories with the user-level `.atomcode` root resolved
-/// from `ATOMCODE_HOME` when it is set. `ATOMCODE_HOME` is the config root (the
-/// equivalent of `~/.atomcode`), so EVERY user-level `~/.atomcode/*` entry
-/// (`skills` AND `commands`) is rebased onto it; other products' dirs (`.claude`,
-/// `.agents`) and all project-relative dirs stay put. An empty `ATOMCODE_HOME` is
-/// treated as unset — mirroring [`atomcode_config`]'s `Config::config_dir` — so a
-/// stray `ATOMCODE_HOME=` never rebases skills onto a bogus relative `skills` path.
-pub fn runtime_skill_dirs(home: &Path, project: &Path) -> Vec<PathBuf> {
-    let dirs = standard_skill_dirs(home, project);
-    let Some(atomcode_home) = std::env::var_os("ATOMCODE_HOME")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-    else {
-        return dirs;
-    };
-    let user_atomcode = home.join(".atomcode");
-    dirs.into_iter()
-        .map(|dir| match dir.strip_prefix(&user_atomcode) {
-            Ok(rest) => atomcode_home.join(rest),
-            Err(_) => dir,
-        })
-        .collect()
+/// Where a new skill should be written so [`standard_skill_dirs`] finds it and it
+/// wins a name clash at its level: `(every project, this project)`.
+///
+/// Next to the list it indexes into, so the two cannot drift: the test
+/// `install_dirs_are_the_winning_dirs_of_the_standard_list` pins it.
+pub fn skill_install_dirs(roots: SkillRoots<'_>) -> (PathBuf, PathBuf) {
+    (
+        roots.dirs.user().join("skills"),
+        roots.dirs.project(roots.project).join("skills"),
+    )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
-    #[serial_test::serial]
-    fn runtime_dirs_redirect_every_user_atomcode_dir_and_leave_others() {
-        let home = tempfile::tempdir().unwrap();
-        let project = tempfile::tempdir().unwrap();
-        let config_root = tempfile::tempdir().unwrap();
-        let prev = std::env::var_os("ATOMCODE_HOME");
-        std::env::set_var("ATOMCODE_HOME", config_root.path());
-        let dirs = runtime_skill_dirs(home.path(), project.path());
-        match prev {
-            Some(v) => std::env::set_var("ATOMCODE_HOME", v),
-            None => std::env::remove_var("ATOMCODE_HOME"),
-        }
-
-        // BOTH user-level `.atomcode/*` dirs (skills AND commands) move under ATOMCODE_HOME.
-        assert!(dirs.contains(&config_root.path().join("skills")));
-        assert!(dirs.contains(&config_root.path().join("commands")));
-        // The stale real-home `.atomcode/*` entries are gone.
-        assert!(!dirs.contains(&home.path().join(".atomcode/skills")));
-        assert!(!dirs.contains(&home.path().join(".atomcode/commands")));
-        // Other products' dirs (`.claude`, `.agents`) stay at real home; project dirs unchanged.
-        assert!(dirs.contains(&home.path().join(".claude/skills")));
-        assert!(dirs.contains(&home.path().join(".agents/skills")));
-        assert!(dirs.contains(&project.path().join(".atomcode/skills")));
+    fn install_dirs_are_the_winning_dirs_of_the_standard_list() {
+        let dirs = ProductDirs::new("/custom/tree", ".ours");
+        let roots = SkillRoots {
+            home: Path::new("/home/u"),
+            project: Path::new("/proj"),
+            dirs: &dirs,
+        };
+        let dirs = standard_skill_dirs(roots);
+        let (user, this_project) = skill_install_dirs(roots);
+        let at = |p: &PathBuf| dirs.iter().position(|d| d == p);
+        let user_at = at(&user).expect("the user install dir is scanned");
+        let project_at = at(&this_project).expect("the project install dir is scanned");
+        assert_eq!(
+            project_at,
+            dirs.len() - 1,
+            "the project dir wins every clash"
+        );
+        assert!(
+            dirs[user_at + 1..]
+                .iter()
+                .all(|d| d.starts_with(roots.project)),
+            "the user dir wins every clash at the user level: {dirs:?}"
+        );
     }
 
-    #[test]
-    #[serial_test::serial]
-    fn runtime_dirs_treat_empty_atomcode_home_as_unset() {
-        let home = tempfile::tempdir().unwrap();
-        let project = tempfile::tempdir().unwrap();
-        let prev = std::env::var_os("ATOMCODE_HOME");
-        std::env::set_var("ATOMCODE_HOME", "");
-        let dirs = runtime_skill_dirs(home.path(), project.path());
-        match prev {
-            Some(v) => std::env::set_var("ATOMCODE_HOME", v),
-            None => std::env::remove_var("ATOMCODE_HOME"),
-        }
+    use super::*;
 
-        // Empty ATOMCODE_HOME must be treated as unset — NOT redirected to a bogus
-        // relative `skills` path (regression: `PathBuf::from("").join("skills")`).
-        assert!(!dirs.iter().any(|d| d == std::path::Path::new("skills")));
-        assert_eq!(dirs, standard_skill_dirs(home.path(), project.path()));
+    /// Our dirs are exactly the ones handed in — nothing under the person's
+    /// home is spelled with our name — while other products' dirs stay where
+    /// those products keep them.
+    #[test]
+    fn our_dirs_are_the_ones_handed_in_and_nothing_else_is_ours() {
+        let home = Path::new("/home/u");
+        let project = Path::new("/proj");
+        let product = ProductDirs::new("/elsewhere/fork-tree", ".fork");
+        let user_dir = product.user();
+        let project_dir = product.project(project);
+        let dirs = standard_skill_dirs(SkillRoots {
+            home,
+            project,
+            dirs: &product,
+        });
+
+        for ours in ["skills", "commands"] {
+            assert!(dirs.contains(&user_dir.join(ours)));
+            assert!(dirs.contains(&project_dir.join(ours)));
+        }
+        for dir in &dirs {
+            assert!(
+                dir.starts_with(user_dir)
+                    || dir.starts_with(&project_dir)
+                    || dir.starts_with(home.join(".claude"))
+                    || dir.starts_with(home.join(".agents"))
+                    || dir.starts_with(project.join(".claude"))
+                    || dir.starts_with(project.join(".agents")),
+                "{dir:?} is neither ours (handed in) nor another product's"
+            );
+        }
     }
 
     #[test]
@@ -358,7 +445,7 @@ mod tests {
             "---\nname: atomcode-smoke-test\ndescription: probe\n---\nbody\n",
         )
         .unwrap();
-        let mut reg = SkillRegistry::new();
+        let reg = SkillRegistry::new();
         reg.load_dir(d.path(), Some("skills"));
 
         // Stored under the namespaced key…
@@ -378,7 +465,7 @@ mod tests {
     /// still resolves via exact match).
     #[test]
     fn get_bare_name_is_ambiguous_across_namespaces() {
-        let mut reg = SkillRegistry::new();
+        let reg = SkillRegistry::new();
         reg.register(Skill {
             name: "skills:dup".into(),
             description: "a".into(),
@@ -409,7 +496,7 @@ mod tests {
     /// otherwise the "menu shows it but resolve fails → 未知技能" bug returns.
     #[test]
     fn get_bare_name_prefers_sole_user_invocable_over_hidden() {
-        let mut reg = SkillRegistry::new();
+        let reg = SkillRegistry::new();
         reg.register(Skill {
             name: "skills:review".into(),
             description: "visible".into(),
@@ -455,10 +542,17 @@ mod tests {
     }
 
     #[test]
-    fn standard_dirs_include_agents_skills_between_claude_and_atomcode() {
+    fn standard_dirs_include_agents_skills_between_claude_and_ours() {
         let home = Path::new("/home/u");
         let project = Path::new("/proj");
-        let dirs = standard_skill_dirs(home, project);
+        let product = ProductDirs::new("/home/u/.ours", ".ours");
+        let user_dir = product.user();
+        let project_dir = product.project(project);
+        let dirs = standard_skill_dirs(SkillRoots {
+            home,
+            project,
+            dirs: &product,
+        });
         // `.agents/skills` is the cross-agent shared convention (opencode et al.) —
         // scanned at BOTH user and project level so shared skills load directly.
         assert!(
@@ -469,25 +563,23 @@ mod tests {
             dirs.contains(&project.join(".agents/skills")),
             "project-level .agents/skills"
         );
-        // Precedence (last-wins): .claude < .agents < .atomcode at each level, so a
-        // user's atomcode-native skill still overrides a same-named shared one.
+        // Precedence (last-wins): .claude < .agents < ours at each level, so a
+        // user's native skill still overrides a same-named shared one.
         let pos = |p: PathBuf| dirs.iter().position(|d| *d == p).expect("dir present");
         assert!(pos(home.join(".claude/skills")) < pos(home.join(".agents/skills")));
-        assert!(pos(home.join(".agents/skills")) < pos(home.join(".atomcode/skills")));
+        assert!(pos(home.join(".agents/skills")) < pos(user_dir.join("skills")));
         assert!(pos(project.join(".claude/skills")) < pos(project.join(".agents/skills")));
-        assert!(pos(project.join(".agents/skills")) < pos(project.join(".atomcode/skills")));
+        assert!(pos(project.join(".agents/skills")) < pos(project_dir.join("skills")));
     }
 
     #[test]
-    #[serial_test::serial]
-    fn runtime_dirs_honor_atomcode_home_for_duplicate_directory_skills() {
+    fn duplicate_directory_skills_in_our_user_dir_collapse_to_one() {
         let home = tempfile::tempdir().unwrap();
-        let config_root = tempfile::tempdir().unwrap();
+        let tree = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
-        let previous = std::env::var_os("ATOMCODE_HOME");
-        std::env::set_var("ATOMCODE_HOME", config_root.path());
+        let product = ProductDirs::new(tree.path(), ".ours");
 
-        let skill_root = config_root.path().join("skills");
+        let skill_root = tree.path().join("skills");
         for (dir, body) in [("dedup-a", "from A"), ("dedup-b", "from B")] {
             let skill_dir = skill_root.join(dir);
             std::fs::create_dir_all(&skill_dir).unwrap();
@@ -498,16 +590,16 @@ mod tests {
             .unwrap();
         }
 
-        let dirs = runtime_skill_dirs(home.path(), project.path());
-        match previous {
-            Some(value) => std::env::set_var("ATOMCODE_HOME", value),
-            None => std::env::remove_var("ATOMCODE_HOME"),
-        }
+        let dirs = standard_skill_dirs(SkillRoots {
+            home: home.path(),
+            project: project.path(),
+            dirs: &product,
+        });
         let user_skills = dirs
             .iter()
             .find(|dir| *dir == &skill_root)
             .cloned()
-            .expect("ATOMCODE_HOME skills directory should be scanned");
+            .expect("the handed-in user tree's skills directory should be scanned");
         let reg = SkillRegistry::load(&[user_skills]);
         assert_eq!(reg.len(), 1, "same-name skills must collapse to one entry");
         assert!(reg.get("dedup-skill").is_some());

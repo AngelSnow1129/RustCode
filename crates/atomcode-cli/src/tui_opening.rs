@@ -1,0 +1,257 @@
+//! What this launch has to say for itself, handed to the screen as a row.
+//!
+//! Three things are decided before the screen exists and cannot be asked of the
+//! host afterwards, because none of them is a fact about the session:
+//!
+//! - the configuration file did not parse, and the defaults are in force;
+//! - `resume <id>` named a session belonging to another project, so the working
+//!   directory moved — and with it that project's hooks and MCP servers;
+//! - the session asked for was busy, so this one is a fork of it.
+//!
+//! The previous front end took them as an argument to its `run`
+//! (`atomcode_tuix::run`'s `startup_notice`). This screen is an App apart
+//! (`docs/adr/0022` §3): what a launcher has to contribute, it contributes as a
+//! row, so it takes its place in the tree like every other one — `--audit` sees
+//! it, `[[remove]]` can take it out, and the screen is assembled the same way
+//! with or without it.
+//!
+//! **Why this is not stderr.** It was, briefly, and that is the same as silence:
+//! entering the alternate screen clears what was written before it. A launch
+//! that printed "your config did not parse" and then opened a full-screen UI had
+//! told nobody.
+
+use async_trait::async_trait;
+use atomcode_plexus::{Context, Plugin};
+use atomcode_tui::content::{OpeningNotices, WelcomeNoteSeen};
+use atomcode_tui::plugin::{OpeningNoticesSvc, WelcomeNoteSeenSvc};
+use serde_json::Value;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+/// The row's name.
+pub const ROW: &str = "tui-opening-notices";
+
+pub fn row_layer() -> String {
+    format!("[[insert]]\nname = \"{ROW}\"\n")
+}
+
+/// Carries this launch's notices to [`OpeningNoticesSvc`].
+pub struct OpeningRow {
+    /// The merged notice as the launcher built it, `None` on an ordinary launch.
+    pub notice: Option<String>,
+    /// The first-launch keys line ([`keys_note`]), for the foot of the first
+    /// welcome block. `None` on every launch after the first.
+    pub keys: Option<KeysNote>,
+}
+
+/// The first-launch keys line, and where to record that it was drawn.
+#[derive(Clone, Debug)]
+pub struct KeysNote {
+    pub text: String,
+    pub marker: PathBuf,
+}
+
+/// Records the keys line as shown when the screen says it was drawn — not
+/// when the screen came up, which is before the welcome it rides on.
+struct RememberWhenSeen(PathBuf);
+
+impl WelcomeNoteSeen for RememberWhenSeen {
+    fn seen(&self) {
+        remember_keys_notice(&self.0);
+    }
+}
+
+/// One notice per line.
+///
+/// The launcher joins what it has with `\n` (`merge_startup_notices`), and each
+/// piece is its own sentence about its own thing — a config file, a directory, a
+/// fork. The screen draws one block per notice, so splitting here is what keeps
+/// three unrelated pieces of news from reading as one paragraph. Blank lines are
+/// dropped rather than drawn as empty blocks.
+pub fn notices(notice: Option<&str>) -> OpeningNotices {
+    OpeningNotices {
+        notices: notice
+            .into_iter()
+            .flat_map(|text| text.lines())
+            .map(str::trim_end)
+            .filter(|line| !line.trim().is_empty())
+            .map(str::to_string)
+            .collect(),
+        welcome_note: None,
+    }
+}
+
+/// Where the first-launch keys notice records that it has been said.
+pub fn keys_notice_marker(config_dir: &Path) -> PathBuf {
+    config_dir.join("tui-keys-notice-shown")
+}
+
+/// A line of keys for the foot of the welcome block — on the first launch of
+/// this screen only.
+///
+/// Reasoning is hidden and tool output has its own key, and neither says so on
+/// screen. It is an aside about the screen, so it sits under the working
+/// directory and the model, dim, rather than above the welcome with the news
+/// about this launch (a config that did not parse) — where it read as the
+/// most important thing on the screen.
+///
+/// Only decides: the marker is written by [`remember_keys_notice`] when the
+/// screen reports the line drawn ([`WelcomeNoteSeen`]), so a launch that never
+/// drew it — no welcome yet when it quit, a config that stopped the agent from
+/// describing itself — has not spent it.
+pub fn keys_note(marker: &Path) -> Option<KeysNote> {
+    (!marker.exists()).then(|| KeysNote {
+        text: atomcode_config::i18n::t(atomcode_config::i18n::Msg::TuiKeysHint).into_owned(),
+        marker: marker.to_path_buf(),
+    })
+}
+
+/// Record that the keys notice has been shown. If this cannot be written the
+/// notice comes back next launch, which is the better way to be wrong.
+pub fn remember_keys_notice(marker: &Path) {
+    if let Some(parent) = marker.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(marker, b"");
+}
+
+/// Set by the launcher when it re-executes into a newly installed binary; the
+/// version it came from.
+pub const UPGRADED_FROM_ENV: &str = "ATOMCODE_UPGRADED_FROM";
+
+/// This launch's notice, with "upgraded from vA to vB" added when the launch is
+/// the restart an upgrade made. Last, like any standing news about the launch.
+pub fn with_upgrade_notice(
+    notice: Option<String>,
+    upgraded_from: Option<String>,
+) -> Option<String> {
+    let Some(from) = upgraded_from.filter(|v| !v.trim().is_empty()) else {
+        return notice;
+    };
+    let to = format!("v{}", env!("CARGO_PKG_VERSION"));
+    let said = atomcode_config::i18n::t(atomcode_config::i18n::Msg::UpgradeSuccess {
+        from: &from,
+        to: &to,
+    })
+    .into_owned();
+    Some(match notice {
+        Some(notice) => format!("{notice}\n{said}"),
+        None => said,
+    })
+}
+
+#[async_trait]
+impl Plugin for OpeningRow {
+    fn name(&self) -> &'static str {
+        ROW
+    }
+    fn provides(&self) -> &'static [&'static str] {
+        &["tui-opening-notices", "tui-welcome-note-seen"]
+    }
+    fn description(&self) -> &'static str {
+        "what this launch has to say for itself: a config that did not parse, a working directory that moved, a session that was forked"
+    }
+    async fn apply(&self, ctx: &Context, _config: &Value) -> Result<(), String> {
+        let _ = ctx
+            .provide::<OpeningNoticesSvc>(Arc::new(OpeningNotices {
+                welcome_note: self.keys.as_ref().map(|keys| keys.text.clone()),
+                ..notices(self.notice.as_deref())
+            }))
+            .map_err(|e| e.to_string())?;
+        if let Some(keys) = &self.keys {
+            let _ = ctx
+                .provide::<WelcomeNoteSeenSvc>(Arc::new(RememberWhenSeen(keys.marker.clone())))
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each piece of news is its own notice.
+    ///
+    /// The launcher merges with `\n` and the three producers are unrelated: a
+    /// config file, a working directory, a fork. One block each is what lets a
+    /// person read the one that concerns them; joined, the middle one is the
+    /// line nobody finishes.
+    #[test]
+    fn a_merged_notice_becomes_one_notice_per_piece() {
+        let merged = "resume moved to ~/other\nconfig.toml did not parse\nforked from s-1";
+        assert_eq!(
+            notices(Some(merged)).notices,
+            vec![
+                "resume moved to ~/other",
+                "config.toml did not parse",
+                "forked from s-1",
+            ]
+        );
+    }
+
+    /// The keys line is offered on the first launch only, and for the foot of
+    /// the welcome — not as one more notice over it, where it read as the most
+    /// important thing on the screen.
+    #[test]
+    fn the_keys_line_is_for_the_first_launch_and_the_welcomes_foot() {
+        let dir = std::env::temp_dir().join(format!(
+            "atomcode-keys-notice-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+        ));
+        let marker = keys_notice_marker(&dir);
+
+        let keys = keys_note(&marker).expect("the first launch has it").text;
+        assert!(keys.contains("/keys"), "{keys}");
+        assert!(
+            keys_note(&marker).is_some(),
+            "deciding does not spend it: a launch that never drew says it again"
+        );
+
+        // Carried apart from the news about this launch, never merged into it.
+        let row = OpeningRow {
+            notice: Some("config.toml did not parse".into()),
+            keys: keys_note(&marker),
+        };
+        let said = OpeningNotices {
+            welcome_note: row.keys.as_ref().map(|k| k.text.clone()),
+            ..notices(row.notice.as_deref())
+        };
+        assert_eq!(said.notices, vec!["config.toml did not parse".to_string()]);
+        assert_eq!(said.welcome_note.as_deref(), Some(keys.as_str()));
+
+        assert!(!marker.exists(), "not spent by being handed to the screen");
+        // Spent when the screen says it drew it.
+        RememberWhenSeen(marker.clone()).seen();
+        assert!(marker.exists(), "remembered once it was drawn");
+        assert!(keys_note(&marker).is_none(), "never again");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A launch that is the restart an upgrade made says so, after whatever
+    /// else it has to say; an ordinary launch adds nothing.
+    #[test]
+    fn a_launch_after_an_upgrade_says_where_it_came_from() {
+        assert_eq!(with_upgrade_notice(None, None), None);
+        assert_eq!(
+            with_upgrade_notice(Some("forked from s-1".into()), Some(" ".into())).as_deref(),
+            Some("forked from s-1")
+        );
+        let said = with_upgrade_notice(Some("forked from s-1".into()), Some("v5.1.0".into()))
+            .expect("something to say");
+        let lines: Vec<&str> = said.lines().collect();
+        assert_eq!(lines.len(), 2, "{said}");
+        assert_eq!(lines[0], "forked from s-1");
+        assert!(lines[1].contains("v5.1.0"), "{said}");
+    }
+
+    /// An ordinary launch says nothing, and says it as nothing rather than as an
+    /// empty block: a blank notice is a `⚑` with no words after it.
+    #[test]
+    fn an_ordinary_launch_has_nothing_to_say() {
+        assert_eq!(notices(None).notices, Vec::<String>::new());
+        assert_eq!(notices(Some("")).notices, Vec::<String>::new());
+        assert_eq!(notices(Some("\n  \n")).notices, Vec::<String>::new());
+    }
+}

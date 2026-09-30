@@ -11,7 +11,6 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex as StdMutex};
 
-use atomcode_capabilities::mcp::McpRegistry;
 use atomcode_capabilities::tools::PermissionDecision;
 use atomcode_coding::runtime::{CodingRuntimeEvent, CompactionCompletion};
 use atomcode_config::config::Config;
@@ -52,7 +51,7 @@ pub(crate) struct LiveGoalSnapshot {
 
 /// 读取当前生效的审批模式。`pub(crate)` 以便 `/chat` 路径（非 sync webui）也据此
 /// 选择 PermissionDecider——否则模式 pill 只在 sync 模式生效。
-pub(crate) fn live_current_approval_mode() -> ApprovalMode {
+pub fn live_current_approval_mode() -> ApprovalMode {
     *LIVE_APPROVAL_MODE.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -293,7 +292,11 @@ pub(crate) fn chat_runtime_config(
     // (which no longer lives in `config.providers`) still builds a runtime.
     let resolved = config.provider_config_for_selection(provider_name);
     let p = resolved.as_ref();
+    let (permission_rules, startup_warnings) =
+        atomcode_coding::config::permission_rules_from_config(&config.permissions);
     atomcode_coding::CodingRuntimeConfig {
+        startup_warnings,
+        dirs: atomcode_coding::config::product_dirs_from_env(),
         api_key: p.and_then(|p| p.api_key.clone()).unwrap_or_default(),
         base_url: p.and_then(|p| p.base_url.clone()).unwrap_or_default(),
         model: p.map(|p| p.model.clone()).unwrap_or_default(),
@@ -303,6 +306,11 @@ pub(crate) fn chat_runtime_config(
             config.language,
         )),
         todo: config.tools.todo.clone(),
+        atomgit_enabled: atomcode_config::config::atomgit_enabled_from_env(
+            std::env::var("ATOMCODE_ATOMGIT").ok().as_deref(),
+            config.tools.atomgit.enabled,
+        ),
+        tool_output_threshold_bytes: config.tools.output.threshold_bytes,
         provider_name: provider_name.to_string(),
         working_dir: working_dir.to_path_buf(),
         context_window: p.map(|p| p.context_window as u32).unwrap_or(128_000),
@@ -329,9 +337,7 @@ pub(crate) fn chat_runtime_config(
         credential_shell_policy: atomcode_coding::config::credential_shell_policy_from_config(
             config.coding.shell_guard_policy,
         ),
-        permission_rules: std::sync::Arc::new(
-            atomcode_coding::config::permission_rules_from_config(&config.permissions),
-        ),
+        permission_rules: std::sync::Arc::new(permission_rules),
         user_agent: p.and_then(|p| p.user_agent.clone()),
         skip_tls_verify: p.map(|p| p.skip_tls_verify).unwrap_or(false),
         retry_max_attempts: p.and_then(|p| p.retry_max_attempts),
@@ -353,6 +359,8 @@ pub(crate) fn chat_runtime_config(
         // auxiliary model request until that driver renders the suggestion.
         next_prompt_suggestions: false,
         lsp: atomcode_coding::config::lsp_settings_from_config(&config.lsp),
+        web_search_provider: atomcode_coding::config::web_search_from_config(&config.web_search).0,
+        web_search_api_key: atomcode_coding::config::web_search_from_config(&config.web_search).1,
     }
 }
 
@@ -379,6 +387,7 @@ fn send_chat_runtime_error(
             http_status: None,
             code: None,
             retryable: None,
+            ends_turn: false,
         },
     ));
 }
@@ -407,7 +416,7 @@ pub(crate) async fn run_chat_turn_v2(
     runtime_event_tx: mpsc::UnboundedSender<CodingRuntimeEvent>,
     cancel: CancellationToken,
     runtime_cfg: atomcode_coding::CodingRuntimeConfig,
-    mut perm_rx: Option<mpsc::UnboundedReceiver<PermissionDecision>>,
+    mut perm_rx: Option<mpsc::UnboundedReceiver<crate::permission_bridge::ChatPermission>>,
     user_input_responders: Option<crate::permission_bridge::UserInputResponders>,
     approval_mode: ApprovalMode,
 ) {
@@ -438,8 +447,10 @@ pub(crate) async fn run_chat_turn_v2(
         &user_images,
     );
     let naming_session_id = session_id.clone();
-    let naming_project_bucket =
-        atomcode_capabilities::session::SessionManager::project_hash(&runtime_cfg.working_dir);
+    let naming_project_bucket = atomcode_capabilities::session::SessionManager::project_hash(
+        &runtime_cfg.working_dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let (runtime, coding_cfg) = match crate::start_native_runtime_with_session(
         runtime_cfg,
         atomcode_coding::SessionMode::ExternalSnapshot {
@@ -471,6 +482,17 @@ pub(crate) async fn run_chat_turn_v2(
     if let Err(error) = handle.set_mode(native_runtime_mode(approval_mode)).await {
         send_chat_runtime_error(&runtime_event_tx, format!("切换模式失败：{error}"));
         return;
+    }
+    // A headless surface waits for MCP before its first submit (`docs/adr/0002`),
+    // as `atomcode -p` and the daemon's headless live runtime do. Every `/chat`
+    // request is its own runtime, so every turn is that runtime's first: without
+    // this wait a server slower than the first model request was never offered on
+    // `/chat` at all, turn after turn. Bounded, and a timeout only lets the turn
+    // start without the slow server. A stop while waiting goes to the turn's own
+    // cancel path below rather than a second one here.
+    tokio::select! {
+        _ = handle.wait_mcp_ready(atomcode_capabilities::mcp::CONNECT_TIMEOUT) => {}
+        _ = cancel.cancelled() => {}
     }
     let input = atomcode_coding::UserInput {
         text: user_text,
@@ -504,25 +526,37 @@ pub(crate) async fn run_chat_turn_v2(
             }
             CodingRuntimeEvent::Request(request) if request.kind == APPROVAL_KIND => {
                 let _ = runtime_event_tx.send(CodingRuntimeEvent::Request(request.clone()));
-                if serde_json::from_value::<ApprovalRequest>(request.payload).is_err() {
+                let Ok(approval) = serde_json::from_value::<ApprovalRequest>(request.payload)
+                else {
                     let _ = handle.respond(request.id, serde_json::Value::Null).await;
                     continue;
-                }
-                let decision = match &mut perm_rx {
-                    None => fallback_approval_decision(approval_mode),
+                };
+                let answer = match &mut perm_rx {
+                    None => fallback_approval_decision(approval_mode).into(),
                     Some(rx) => tokio::select! {
                         _ = cancel.cancelled(), if !cancelled => {
                             cancelled = true;
                             let _ = handle.cancel().await;
-                            PermissionDecision::Deny
+                            PermissionDecision::Deny.into()
                         }
-                        decision = rx.recv() => decision.unwrap_or(PermissionDecision::Deny),
+                        answer = rx.recv() => answer.unwrap_or(PermissionDecision::Deny.into()),
                     },
                 };
+                // "Always allow this MCP tool" is carried out by this runtime — the
+                // one the call belongs to — and names the tool the request is for,
+                // not whatever the client sent alongside its answer.
+                if answer.persist_mcp_tool && approval.tool.starts_with("mcp__") {
+                    persist_mcp_tool_approval(&handle, approval.tool.clone()).await;
+                }
+                let decision = answer.decision;
                 let response = match decision {
                     PermissionDecision::AllowOnce => ApprovalResponse::allow(),
                     PermissionDecision::AllowAlways => ApprovalResponse::allow_always(),
-                    _ => ApprovalResponse::deny(),
+                    // The session-wide blanket must re-encode as itself, not fall to
+                    // the `_ => deny` arm — otherwise "allow all Bash" becomes a denial
+                    // on the sync `/chat` path (the `/live` handler mirrors this).
+                    PermissionDecision::AllowAlwaysAll => ApprovalResponse::allow_all_bash(),
+                    PermissionDecision::Deny => ApprovalResponse::deny(),
                 };
                 let value = serde_json::to_value(response).unwrap_or(serde_json::Value::Null);
                 let _ = handle.respond(request.id, value).await;
@@ -750,6 +784,10 @@ pub(crate) enum LiveWireEvent {
         reason: String,
         call_id: String,
         arguments: String,
+        /// Whether the client may show the session-wide "allow all Bash" button
+        /// for this call. Omitted (false) for everything but a non-sensitive bash.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        allow_all_bash: bool,
     },
     #[serde(rename = "user_input_request")]
     UserInputRequest {
@@ -870,7 +908,7 @@ impl NativeLiveWireProjector {
                 }
             }
             crate::live_hub::LiveViewEvent::Runtime(Runtime::Agent(event)) => match event {
-                Kernel::TurnStarted => LiveWireEvent::State {
+                Kernel::TurnStarted { .. } => LiveWireEvent::State {
                     running: true,
                     stop_reason: None,
                     message: None,
@@ -983,6 +1021,7 @@ impl NativeLiveWireProjector {
                         reason: "Requires approval".into(),
                         call_id: approval.call_id,
                         arguments: approval.args,
+                        allow_all_bash: approval.allow_all_bash,
                     }
                 } else if request.kind == REQUEST_USER_INPUT_KIND {
                     LiveWireEvent::UserInputRequest {
@@ -1313,15 +1352,20 @@ pub(crate) async fn live_stream(
     {
         Ok(join) => join,
         Err(error) => {
+            // `error` is the same string it always was; `occupant` says which
+            // runtime holds the binding and in what phase, when one does.
             return (
                 StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "error": error })),
+                Json(serde_json::json!({ "error": error, "occupant": error.occupant() })),
             )
-                .into_response()
+                .into_response();
         }
     };
     let snapshot_wd = join.binding.working_dir.clone();
-    let project_hash = atomcode_capabilities::session::SessionManager::project_hash(&snapshot_wd);
+    let project_hash = atomcode_capabilities::session::SessionManager::project_hash(
+        &snapshot_wd,
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let (session_name, session_meta, turn_timestamps) = {
         match crate::legacy_convert::load_catalog_session_view_in_project(
             &project_hash,
@@ -1645,7 +1689,11 @@ fn stash_vl_display_images(
     // before any snapshot save has created the dir — without this the sidecar write would
     // silently fail and the image would still be lost after refresh.
     let _ = std::fs::create_dir_all(
-        atomcode_capabilities::session::SessionManager::for_project(working_dir).root(),
+        atomcode_capabilities::session::SessionManager::for_project(
+            working_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        )
+        .root(),
     );
     let display: Vec<crate::ImageData> = original_images
         .iter()
@@ -1790,9 +1838,14 @@ pub(crate) async fn live_message(
     let original_images: Vec<ImageContent> = req
         .images
         .into_iter()
-        .map(|image| ImageContent {
-            media_type: image.media_type,
-            data: image.data,
+        .map(|image| {
+            // Downscale/re-encode oversized attachments before they enter the
+            // conversation (a big image is re-sent every turn — see image_normalize).
+            let (media_type, data) = atomcode_capabilities::image_normalize::normalize_image_base64(
+                &image.media_type,
+                &image.data,
+            );
+            ImageContent { media_type, data }
         })
         .collect();
     let runtime_text = preprocess_live_caption(
@@ -1843,6 +1896,17 @@ pub(crate) async fn live_message(
             "provider": provider_name,
             "provider_change_applied": provider_change_applied,
         })),
+        Ok(atomcode_coding::SubmitReceipt::NotSent {
+            generation,
+            turn_id,
+        }) => Json(serde_json::json!({
+            "accepted": false,
+            "disposition": "not_sent",
+            "generation": generation,
+            "turn_id": turn_id,
+            "provider": provider_name,
+            "provider_change_applied": provider_change_applied,
+        })),
         Err(error) => Json(serde_json::json!({
             "accepted": false,
             "error": format!("live submit rejected: {error:?}"),
@@ -1883,6 +1947,18 @@ fn split_live_inputs(
 pub(crate) async fn live_stop() -> impl IntoResponse {
     let accepted = crate::native_live::cancel_confirmed().await.is_ok();
     Json(serde_json::json!({ "accepted": accepted }))
+}
+
+/// POST /live/release — force-tear-down a wedged/orphaned headless runtime so a
+/// subsequent `GET /live?session_id=` can bind again. Unlike `/live/stop`
+/// (`cancel_confirmed`, which is gated on `turn_active` and refuses a runtime the
+/// hub no longer counts as mid-turn), this is unconditional. See
+/// `native_live::force_release`. (Feedback B12.)
+pub(crate) async fn live_release() -> impl IntoResponse {
+    match crate::native_live::force_release().await {
+        Ok(released) => Json(serde_json::json!({ "released": released })),
+        Err(reason) => Json(serde_json::json!({ "released": false, "error": reason })),
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -2246,9 +2322,50 @@ pub(crate) async fn live_reasoning_effort(
 #[derive(serde::Deserialize)]
 pub(crate) struct LivePermissionReq {
     pub decision: String, // "allow" | "deny" | "always_allow" | "allow_persist"
-    /// Full MCP tool name (`mcp__{server}__{tool}`); required for `allow_persist`.
+    /// Full MCP tool name (`mcp__{server}__{tool}`) the client believes it is
+    /// answering. Informational only: `allow_persist` grants the tool named by
+    /// the pending approval itself, never this field.
     #[serde(default)]
     pub tool_name: Option<String>,
+}
+
+/// Carry out "always allow this MCP tool" through `handle` — the runtime the
+/// call belongs to — and say what happened.
+pub(crate) async fn persist_mcp_tool_approval(
+    handle: &atomcode_coding::CodingRuntimeHandle,
+    alias: String,
+) {
+    match handle.approve_mcp_tool(alias.clone()).await {
+        Ok(approval) => report_mcp_tool_approval(&alias, approval),
+        Err(error) => tracing::warn!(
+            target: "atomcode::mcp",
+            tool = %alias,
+            %error,
+            "\"always allow\" not applied"
+        ),
+    }
+}
+
+fn report_mcp_tool_approval(alias: &str, approval: Option<atomcode_coding::McpToolApproval>) {
+    match approval {
+        None => tracing::warn!(
+            target: "atomcode::mcp",
+            tool = %alias,
+            "\"always allow\" not applied: no connected server offers this tool"
+        ),
+        Some(atomcode_coding::McpToolApproval {
+            server,
+            tool,
+            persist_error: Some(error),
+        }) => tracing::warn!(
+            target: "atomcode::mcp",
+            %server,
+            %tool,
+            %error,
+            "allowed for this session, but not written to autoApprove"
+        ),
+        Some(_) => {}
+    }
 }
 
 /// POST /live/permission — Deliver a permission decision for a pending live-session tool-approval
@@ -2258,24 +2375,44 @@ pub(crate) struct LivePermissionReq {
 ///   "allow"        → PermissionDecision::AllowOnce
 ///   "always_allow" → PermissionDecision::AllowAlways (persisted for the session)
 ///   anything else  → PermissionDecision::Deny
-pub(crate) async fn live_permission(
-    State(state): State<AppState>,
-    Json(req): Json<LivePermissionReq>,
-) -> impl IntoResponse {
-    use atomcode_capabilities::tools::{parse_permission_decision, PermissionDecision};
+pub(crate) async fn live_permission(Json(req): Json<LivePermissionReq>) -> impl IntoResponse {
+    use atomcode_capabilities::tools::{
+        parse_permission_decision, ApprovalRequest, PermissionDecision, APPROVAL_KIND,
+    };
+    // Answer the approval the runtime is actually waiting on — nothing pending,
+    // nothing to answer and nothing to grant. A stale tab replaying an answer
+    // must not leave a lasting "always allow" behind.
+    let Some((id, payload)) = crate::native_live::pending_of_kind(APPROVAL_KIND) else {
+        return Json(serde_json::json!({ "accepted": false }));
+    };
     let decision = if req.decision == "allow_persist" {
-        if let Some(full) = req.tool_name.as_deref() {
-            let reg = state.mcp_registry.read().await.clone();
-            if let Some((server, tool)) = reg.split_tool_name(full).await {
-                let project_dir = state.project.read().await.working_dir.clone();
-                if let Err(e) = atomcode_capabilities::mcp::config::add_auto_approved_tool(
-                    &project_dir,
-                    &server,
-                    &tool,
-                ) {
-                    tracing::warn!("[permission] persist autoApprove failed: {e}");
-                }
-                reg.mark_tool_auto_approved(full);
+        // "Always allow this MCP tool" names the tool the request is for, not
+        // whatever the client sent alongside its answer (same as /chat).
+        let asked = serde_json::from_value::<ApprovalRequest>(payload)
+            .ok()
+            .map(|approval| approval.tool)
+            .filter(|tool| tool.starts_with("mcp__"));
+        if let Some(full) = asked {
+            if req
+                .tool_name
+                .as_deref()
+                .is_some_and(|claimed| claimed != full)
+            {
+                tracing::warn!(
+                    target: "atomcode::mcp",
+                    tool = %full,
+                    claimed = ?req.tool_name,
+                    "\"always allow\" names a different tool than the pending approval; using the pending one"
+                );
+            }
+            match crate::native_live::approve_mcp_tool(full.clone()).await {
+                Ok(approval) => report_mcp_tool_approval(&full, approval),
+                Err(error) => tracing::warn!(
+                    target: "atomcode::mcp",
+                    tool = %full,
+                    error = ?error,
+                    "\"always allow\" not applied: no live runtime to apply it"
+                ),
             }
         }
         PermissionDecision::AllowOnce
@@ -2287,15 +2424,15 @@ pub(crate) async fn live_permission(
         PermissionDecision::AllowAlways => {
             atomcode_capabilities::tools::ApprovalResponse::allow_always()
         }
-        _ => atomcode_capabilities::tools::ApprovalResponse::deny(),
+        PermissionDecision::AllowAlwaysAll => {
+            atomcode_capabilities::tools::ApprovalResponse::allow_all_bash()
+        }
+        PermissionDecision::Deny => atomcode_capabilities::tools::ApprovalResponse::deny(),
     };
     let value = serde_json::to_value(response).unwrap_or(serde_json::Value::Null);
-    let ok = crate::native_live::respond_pending_kind_confirmed(
-        atomcode_capabilities::tools::APPROVAL_KIND,
-        value,
-    )
-    .await
-    .is_ok();
+    let ok = crate::native_live::respond_confirmed(id, value)
+        .await
+        .is_ok();
     Json(serde_json::json!({ "accepted": ok }))
 }
 
@@ -2435,7 +2572,8 @@ pub(crate) async fn live_goal_start(
         return Json(serde_json::json!({"accepted": false, "error": error}));
     }
     let accepted =
-        crate::native_live::dispatch(atomcode_coding::DriverCommand::StartGoal(condition)).is_ok();
+        crate::native_live::dispatch(atomcode_coding::DriverCommand::StartGoal(condition.into()))
+            .is_ok();
     Json(serde_json::json!({"accepted": accepted}))
 }
 
@@ -2478,10 +2616,11 @@ pub(crate) async fn live_compact(State(_state): State<AppState>) -> impl IntoRes
 pub(crate) async fn live_mcp_trust(State(state): State<AppState>) -> impl IntoResponse {
     let fallback = { state.project.read().await.working_dir.clone() };
     let working_dir = live_current_working_dir(&fallback);
-    match atomcode_capabilities::mcp::trust::trust_project(&working_dir) {
+    match atomcode_capabilities::mcp::trust::trust_project(
+        &working_dir,
+        atomcode_coding::config::product_dirs_from_env().user(),
+    ) {
         Ok(()) => {
-            let new_registry = Arc::new(McpRegistry::from_config_background(&working_dir));
-            crate::replace_project_mcp_registry(&state, &working_dir, new_registry).await;
             // Re-prepare the persistent native runtime so it mounts the newly
             // trusted project servers immediately. Best-effort: before the first
             // turn there is no runtime yet, and its first prepare reads trust
@@ -2639,10 +2778,9 @@ mod tests {
     }
 
     /// Trust round-trip at the daemon layer: trust_project → is_project_trusted → partition_by_trust
-    /// clears blocked list.  Uses ATOMCODE_MCP_TRUST_STORE as the test seam so we never touch the
-    /// developer's real trust store.
+    /// clears blocked list. The store is a temp user tree handed in, so the
+    /// developer's real trust store is never touched.
     #[test]
-    #[serial_test::serial]
     fn mcp_trust_round_trip_clears_blocked() {
         use atomcode_capabilities::mcp::config::{
             McpConfigSource, McpServerConfig, McpTransportConfig,
@@ -2652,13 +2790,7 @@ mod tests {
         };
 
         let store_dir = tempfile::tempdir().unwrap();
-        // SAFETY: test seam; serial attribute prevents concurrent mutation.
-        unsafe {
-            std::env::set_var(
-                "ATOMCODE_MCP_TRUST_STORE",
-                store_dir.path().join("mcp_trust_daemon_test.json"),
-            );
-        }
+        let tree = store_dir.path().join("tree");
 
         let proj = store_dir.path().join("fake-project");
 
@@ -2676,7 +2808,7 @@ mod tests {
             trust: false,
             auto_approve: vec![],
         };
-        let part_before = partition_by_trust(vec![project_cfg.clone()], &proj);
+        let part_before = partition_by_trust(vec![project_cfg.clone()], &proj, &tree);
         assert_eq!(
             part_before.blocked.len(),
             1,
@@ -2684,19 +2816,19 @@ mod tests {
         );
         assert!(part_before.allowed.is_empty());
         assert!(
-            !is_project_trusted(&proj),
+            !is_project_trusted(&proj, &tree),
             "fresh store: project must be untrusted"
         );
 
         // Trust the project.
-        trust_project(&proj).expect("trust_project must not fail");
+        trust_project(&proj, &tree).expect("trust_project must not fail");
         assert!(
-            is_project_trusted(&proj),
+            is_project_trusted(&proj, &tree),
             "after trust_project: project must be trusted"
         );
 
         // After trust: same config yields empty blocked.
-        let part_after = partition_by_trust(vec![project_cfg], &proj);
+        let part_after = partition_by_trust(vec![project_cfg], &proj, &tree);
         assert!(
             part_after.blocked.is_empty(),
             "trusted project: blocked must be empty"
@@ -2704,7 +2836,6 @@ mod tests {
         assert_eq!(part_after.allowed.len(), 1);
 
         // Cleanup env so other serial tests see a clean state.
-        unsafe { std::env::remove_var("ATOMCODE_MCP_TRUST_STORE") };
     }
 
     #[test]
@@ -3345,8 +3476,14 @@ mod tests {
         std::fs::create_dir_all(&proj1_dir).unwrap();
         std::fs::create_dir_all(&proj2_dir).unwrap();
 
-        let bucket1 = SessionManager::project_hash(&proj1_dir);
-        let bucket2 = SessionManager::project_hash(&proj2_dir);
+        let bucket1 = SessionManager::project_hash(
+            &proj1_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
+        let bucket2 = SessionManager::project_hash(
+            &proj2_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
 
         let mgr2 = SessionManager::with_root(root.path().join(&bucket2));
         let lease2 = mgr2.acquire_lease("session-in-proj2").unwrap();

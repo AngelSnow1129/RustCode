@@ -13,13 +13,8 @@ use atomcode_kernel::conformance;
 use atomcode_kernel::tool::{ProgressSink, RiskLevel, Tool, ToolContext};
 use tokio_util::sync::CancellationToken;
 
-// Redirect ATOMCODE_HOME to a throwaway temp dir before any test in this binary runs,
-// so a test that resolves the user mcp.json without setting its own ATOMCODE_HOME never
-// touches the developer's real home. Inherited shell values are replaced.
-#[ctor::ctor]
-fn _isolate_atomcode_home() {
-    atomcode_kernel::test_support::isolate_home();
-}
+/// A user tree nothing here reads: these tests add servers directly.
+const NO_TREE: &str = "/nonexistent/user-tree";
 
 /// A stdio server config pointing at the in-tree `mcp-test-server` fixture binary.
 fn test_server_config(name: &str) -> McpServerConfig {
@@ -70,7 +65,7 @@ fn ctx() -> ToolContext {
 /// always-`Risky` classification, and the round-tripped echo output.
 #[tokio::test]
 async fn registry_connect_discover_and_call_echo() {
-    let registry = McpRegistry::new();
+    let registry = McpRegistry::new(NO_TREE);
     registry
         .add_server(test_server_config("testsrv"))
         .await
@@ -110,7 +105,7 @@ async fn stdio_reconnects_once_after_server_exit_for_concurrent_calls() {
         ),
     ]);
 
-    let registry = McpRegistry::new();
+    let registry = McpRegistry::new(NO_TREE);
     registry
         .add_server(test_server_config_with_env("recover", env))
         .await
@@ -180,7 +175,7 @@ async fn stdio_timeout_uses_one_deadline_without_replaying_tool() {
             "300".to_string(),
         ),
     ]);
-    let registry = McpRegistry::new();
+    let registry = McpRegistry::new(NO_TREE);
     registry
         .add_server(test_server_config_with_env_and_timeout(
             "shared-deadline",
@@ -256,7 +251,7 @@ async fn stdio_marks_server_failed_when_retry_connection_also_dies() {
         ),
     ]);
 
-    let registry = McpRegistry::new();
+    let registry = McpRegistry::new(NO_TREE);
     registry
         .add_server(test_server_config_with_env("always-dies", env))
         .await
@@ -293,7 +288,7 @@ async fn concurrent_failures_reconnect_the_generation_that_actually_failed() {
         ),
     ]);
 
-    let registry = McpRegistry::new();
+    let registry = McpRegistry::new(NO_TREE);
     registry
         .add_server(test_server_config_with_env("two-exits", env))
         .await
@@ -342,7 +337,7 @@ async fn status_detects_an_exited_child_before_the_next_request() {
         "MCP_TEST_EXIT_AFTER_INITIALIZED".to_string(),
         "1".to_string(),
     )]);
-    let registry = McpRegistry::new();
+    let registry = McpRegistry::new(NO_TREE);
     registry
         .add_server(test_server_config_with_env("already-exited", env))
         .await
@@ -369,7 +364,7 @@ async fn status_detects_an_exited_child_before_the_next_request() {
 /// panic — the kernel PANIC CONTRACT.
 #[tokio::test]
 async fn adapter_maps_bad_arguments_to_tool_error() {
-    let registry = McpRegistry::new();
+    let registry = McpRegistry::new(NO_TREE);
     registry
         .add_server(test_server_config("testsrv"))
         .await
@@ -391,7 +386,7 @@ async fn adapter_maps_bad_arguments_to_tool_error() {
 /// panicking). This is the gate the spec requires for each surfaced tool.
 #[tokio::test]
 async fn adapter_passes_kernel_tool_conformance() {
-    let registry = McpRegistry::new();
+    let registry = McpRegistry::new(NO_TREE);
     registry
         .add_server(test_server_config("conf"))
         .await
@@ -421,24 +416,13 @@ fn write_trusted_store(store_path: &std::path::Path, project_dir: &std::path::Pa
 /// Background config loading discovers a trusted project's tools without imposing
 /// session-transition policy on the capability layer.
 #[tokio::test]
-#[serial_test::serial]
 async fn background_registry_reads_project_mcp_json() {
+    // An empty user tree (no user mcp.json), handed in.
     let home = tempfile::tempdir().unwrap();
-    // SAFETY: edition 2021; this is the only test that reads global MCP config, and
-    // it only ever points ATOMCODE_HOME at an empty dir (no user mcp.json), so a
-    // concurrent `load_mcp_config` still resolves to "no user servers".
-    std::env::set_var("ATOMCODE_HOME", home.path());
-
     let project = tempfile::tempdir().unwrap();
 
-    // Pre-trust the project so the security gate allows its servers through.
-    // Point ATOMCODE_MCP_TRUST_STORE at a store inside our isolated home dir.
+    // Pre-trust the project in that tree's store so the security gate allows it.
     let trust_store = home.path().join("mcp_trust.json");
-    // SAFETY: test-only env mutation; #[serial] prevents concurrent tests from
-    // racing on this variable.
-    unsafe {
-        std::env::set_var("ATOMCODE_MCP_TRUST_STORE", &trust_store);
-    }
     write_trusted_store(&trust_store, project.path());
 
     let server = env!("CARGO_BIN_EXE_mcp-test-server");
@@ -447,7 +431,7 @@ async fn background_registry_reads_project_mcp_json() {
     });
     std::fs::write(project.path().join(".mcp.json"), mcp_json.to_string()).unwrap();
 
-    let registry = McpRegistry::from_config_background(project.path()).share();
+    let registry = McpRegistry::from_config_background(project.path(), home.path()).share();
     registry.wait_for_initial_connections(CONNECT_TIMEOUT).await;
     let adapters: Vec<Arc<dyn Tool>> = registry
         .list_all_tools()

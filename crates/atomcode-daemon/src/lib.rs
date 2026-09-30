@@ -54,6 +54,9 @@ pub use runtime_host::{
     gather_plugin_skill_dirs_for, installed_plugin_hook_source,
 };
 pub(crate) mod live_api;
+// 远端那一侧的「模式」徽标就是这个值。启动器(新 tui 的共享)要能核对它确实跟着
+// 这台机器上的会话走——读得到才判得了。
+pub use live_api::live_current_approval_mode;
 pub use live_api::live_set_mode;
 pub use live_api::live_set_working_dir;
 pub use live_api::live_switch_session;
@@ -136,7 +139,6 @@ use tokio_util::sync::CancellationToken;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use atomcode_auth as auth;
-use atomcode_capabilities::mcp::McpRegistry;
 use atomcode_capabilities::session::{SessionManager as NativeSessionManager, SessionStoreError};
 use atomcode_coding::CodingRuntimeEvent;
 use atomcode_config::config::Config;
@@ -638,8 +640,6 @@ impl ActiveChatRegistry {
     }
 }
 
-const DANGEROUS_TOOLS_ENV: &str = "ATOMCODE_DAEMON_ENABLE_DANGEROUS_TOOLS";
-
 /// RAII guard that decrements `active_connections` on drop, ensuring the counter
 /// is always decremented even if the SSE client disconnects abruptly (TCP RST).
 struct SseConnectionGuard(Arc<std::sync::atomic::AtomicUsize>);
@@ -655,10 +655,6 @@ pub struct AppState {
     pub project: ProjectStateStore,
     /// Admitted background chat operations and their session/request aliases.
     active_chats: ActiveChatRegistry,
-    /// MCP server registry (global, used for /mcp/status backward compat)
-    pub mcp_registry: Arc<RwLock<Arc<McpRegistry>>>,
-    /// Per-project MCP registry cache (keyed by working_dir)
-    pub mcp_cache: Arc<RwLock<HashMap<PathBuf, CachedMcpRegistry>>>,
     /// In-flight OAuth login sessions (login_id -> entry)
     pub(crate) login_sessions: LoginSessionsStore,
     /// Serializes external OAuth attempt creation with capacity accounting.
@@ -699,15 +695,6 @@ pub struct AppState {
     /// [`auth_token::webui_cookie_name`].
     pub webui_cookie_name: String,
 }
-
-/// Cached MCP registry for a specific project directory.
-pub struct CachedMcpRegistry {
-    pub registry: Arc<McpRegistry>,
-    pub last_used: std::time::Instant,
-}
-
-/// Maximum number of per-project MCP registries to cache.
-const MCP_CACHE_MAX: usize = 5;
 
 /// Get default working directory
 fn default_working_dir() -> PathBuf {
@@ -1265,9 +1252,6 @@ fn short_path(path: &str) -> String {
         _ => format!(".../{}/{}", parts[1], parts[0]),
     }
 }
-fn dangerous_tools_enabled() -> bool {
-    std::env::var(DANGEROUS_TOOLS_ENV).ok().as_deref() == Some("1")
-}
 
 fn cors_layer() -> CorsLayer {
     CorsLayer::new()
@@ -1456,7 +1440,7 @@ fn approval_mode_requires_responder(mode: crate::approval_mode::ApprovalMode) ->
 /// Delegates to the native store so API project ids and physical buckets stay
 /// byte-for-byte identical.
 pub(crate) fn hash_path(path: &std::path::Path) -> String {
-    NativeSessionManager::project_hash(path)
+    NativeSessionManager::project_hash(path, &atomcode_coding::config::product_dirs_from_env())
 }
 
 fn response_project_hash(path: &std::path::Path) -> String {
@@ -1491,10 +1475,13 @@ fn is_system_temp_dir(path: &std::path::Path) -> bool {
 
 /// List all projects (scans sessions directory)
 fn list_projects() -> std::io::Result<Vec<ProjectInfo>> {
-    let scan = catalog_scan_in_root(&NativeSessionManager::sessions_root())?;
+    let scan = catalog_scan_in_root(&NativeSessionManager::sessions_root(
+        atomcode_coding::config::product_dirs_from_env().user(),
+    ))?;
     let mut by_project = std::collections::BTreeMap::<String, ProjectInfo>::new();
     for entry in scan.entries {
-        if is_system_temp_dir(&entry.working_dir) {
+        // A project is counted by what its session list shows.
+        if is_system_temp_dir(&entry.working_dir) || entry.delegated() {
             continue;
         }
         let created_at = u64::try_from(entry.created_at_ms.max(0)).unwrap_or(0) / 1_000;
@@ -1549,7 +1536,35 @@ fn catalog_scan_in_root(
     root: &std::path::Path,
 ) -> std::io::Result<atomcode_capabilities::session::CatalogScan> {
     let scan = atomcode_capabilities::session::SessionManager::scan_catalog(root);
-    for diagnostic in &scan.diagnostics {
+    warn_catalog_diagnostics(&scan.diagnostics);
+    Ok(scan)
+}
+
+/// Each skipped catalog entry, logged once per process.
+///
+/// The web UI refreshes the session list every few seconds, and a stale file on
+/// disk is the same stale file on every refresh. Logging all of them each time
+/// put ~30,000 identical warnings into one minute of log, burying anything new.
+/// A problem not seen before is still reported the moment it appears.
+///
+/// The per-call detail is also capped: a large history with orphaned sidecars or
+/// corrupt legacy files can produce THOUSANDS of *distinct* diagnostics on the
+/// first scan, and each `tracing::warn!` is a synchronous write to the log file —
+/// that alone was a measurable chunk of `-c`/resume startup. A bounded sample is
+/// logged, then one summary line.
+pub(crate) fn warn_catalog_diagnostics(
+    diagnostics: &[atomcode_capabilities::session::CatalogDiagnostic],
+) {
+    static REPORTED: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashSet<(PathBuf, String)>>,
+    > = std::sync::OnceLock::new();
+    let mut reported = REPORTED
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fresh = first_reports(&mut reported, diagnostics);
+    const MAX_DETAIL: usize = 20;
+    for diagnostic in fresh.iter().take(MAX_DETAIL) {
         tracing::warn!(
             path = %diagnostic.path.display(),
             kind = ?diagnostic.kind,
@@ -1557,7 +1572,58 @@ fn catalog_scan_in_root(
             "session catalog entry was skipped"
         );
     }
-    Ok(scan)
+    if fresh.len() > MAX_DETAIL {
+        tracing::warn!(
+            skipped = fresh.len(),
+            shown = MAX_DETAIL,
+            "session catalog skipped {} entries ({} shown above)",
+            fresh.len(),
+            MAX_DETAIL,
+        );
+    }
+}
+
+/// The diagnostics in `diagnostics` that `reported` has not seen, recording them.
+fn first_reports<'a>(
+    reported: &mut std::collections::HashSet<(PathBuf, String)>,
+    diagnostics: &'a [atomcode_capabilities::session::CatalogDiagnostic],
+) -> Vec<&'a atomcode_capabilities::session::CatalogDiagnostic> {
+    diagnostics
+        .iter()
+        .filter(|diagnostic| reported.insert((diagnostic.path.clone(), diagnostic.message.clone())))
+        .collect()
+}
+
+#[cfg(test)]
+mod catalog_diagnostic_log_tests {
+    use super::first_reports;
+    use atomcode_capabilities::session::{CatalogDiagnostic, CatalogDiagnosticKind};
+
+    fn diagnostic(path: &str, message: &str) -> CatalogDiagnostic {
+        CatalogDiagnostic {
+            project_bucket: None,
+            path: path.into(),
+            kind: CatalogDiagnosticKind::InvalidId,
+            message: message.into(),
+        }
+    }
+
+    #[test]
+    fn a_refresh_repeats_nothing_already_reported_but_a_new_problem_still_is() {
+        let mut reported = Default::default();
+        let first = [diagnostic("/s/a", "bad"), diagnostic("/s/b", "bad")];
+        assert_eq!(first_reports(&mut reported, &first).len(), 2);
+        assert!(
+            first_reports(&mut reported, &first).is_empty(),
+            "the same scan again reports nothing"
+        );
+        let later = [diagnostic("/s/a", "bad"), diagnostic("/s/c", "bad")];
+        let new: Vec<_> = first_reports(&mut reported, &later)
+            .into_iter()
+            .map(|d| d.path.clone())
+            .collect();
+        assert_eq!(new, vec![std::path::PathBuf::from("/s/c")]);
+    }
 }
 
 fn catalog_entry_to_session_summary(
@@ -1629,12 +1695,17 @@ fn catalog_entry_is_visible(
     entry: &atomcode_capabilities::session::CatalogEntry,
     active: Option<&atomcode_capabilities::session::CatalogLocation>,
 ) -> bool {
-    if entry.message_count > 0 {
-        return true;
-    }
     if active.is_some_and(|location| {
         location.id == entry.id && location.project_bucket == entry.project_bucket
     }) {
+        return true;
+    }
+    // Background work done for another conversation (a review): its result
+    // went back there, and it is not listed beside it.
+    if entry.delegated() {
+        return false;
+    }
+    if entry.message_count > 0 {
         return true;
     }
     if entry.presence == atomcode_capabilities::session::CatalogPresence::LegacyOnly {
@@ -1667,10 +1738,14 @@ where
 
 /// List sessions for a project
 fn list_sessions(project_hash: &str) -> std::io::Result<Vec<SessionSummary>> {
-    let scan = catalog_scan_in_root(&NativeSessionManager::sessions_root())?;
+    let scan = catalog_scan_in_root(&NativeSessionManager::sessions_root(
+        atomcode_coding::config::product_dirs_from_env().user(),
+    ))?;
     let active = active_catalog_location(&scan.entries);
     list_sessions_in_root(
-        &NativeSessionManager::sessions_root(),
+        &NativeSessionManager::sessions_root(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        ),
         project_hash,
         active.as_ref(),
     )
@@ -1699,9 +1774,16 @@ fn list_sessions_in_root(
 
 /// List all sessions across all projects
 fn list_all_sessions() -> std::io::Result<Vec<SessionMetaWithProject>> {
-    let scan = catalog_scan_in_root(&NativeSessionManager::sessions_root())?;
+    let scan = catalog_scan_in_root(&NativeSessionManager::sessions_root(
+        atomcode_coding::config::product_dirs_from_env().user(),
+    ))?;
     let active = active_catalog_location(&scan.entries);
-    list_all_sessions_in_root(&NativeSessionManager::sessions_root(), active.as_ref())
+    list_all_sessions_in_root(
+        &NativeSessionManager::sessions_root(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        ),
+        active.as_ref(),
+    )
 }
 
 fn list_all_sessions_in_root(
@@ -1749,7 +1831,12 @@ fn resolve_session_in_root(
 fn resolve_session_by_id(
     id_prefix: &str,
 ) -> atomcode_capabilities::session::SessionResult<Option<SessionMetaWithProject>> {
-    resolve_session_in_root(&NativeSessionManager::sessions_root(), id_prefix)
+    resolve_session_in_root(
+        &NativeSessionManager::sessions_root(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        ),
+        id_prefix,
+    )
 }
 
 // ============== HTTP Handlers ==============
@@ -2219,8 +2306,12 @@ async fn get_session_transcript(Path((hash, id)): Path<(String, String)>) -> imp
     let task_hash = hash.clone();
     let task_id = id.clone();
     let loaded = tokio::task::spawn_blocking(move || {
-        let manager =
-            NativeSessionManager::with_root(NativeSessionManager::sessions_root().join(&task_hash));
+        let manager = NativeSessionManager::with_root(
+            NativeSessionManager::sessions_root(
+                atomcode_coding::config::product_dirs_from_env().user(),
+            )
+            .join(&task_hash),
+        );
         manager.load_transcript_records(&task_id)
     })
     .await;
@@ -2259,9 +2350,12 @@ pub(crate) struct ImageSidecar {
 }
 
 fn image_sidecar_path(working_dir: &std::path::Path, session_id: &str) -> PathBuf {
-    atomcode_capabilities::session::SessionManager::for_project(working_dir)
-        .root()
-        .join(format!("{session_id}.images.json"))
+    atomcode_capabilities::session::SessionManager::for_project(
+        working_dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    )
+    .root()
+    .join(format!("{session_id}.images.json"))
 }
 
 /// Append a VL-preprocessed message's ORIGINAL images to the session's display-only
@@ -2335,8 +2429,12 @@ pub(crate) struct TurnTimestamp {
 pub(crate) type TurnTimestamps = std::collections::BTreeMap<u64, TurnTimestamp>;
 
 fn load_turn_timestamps_blocking(project_hash: &str, session_id: &str) -> TurnTimestamps {
-    let manager =
-        NativeSessionManager::with_root(NativeSessionManager::sessions_root().join(project_hash));
+    let manager = NativeSessionManager::with_root(
+        NativeSessionManager::sessions_root(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        )
+        .join(project_hash),
+    );
     match manager.load_transcript_timestamps(session_id) {
         Ok(timestamps) => timestamps
             .into_iter()
@@ -2443,6 +2541,7 @@ fn read_todo_sidecar_for_detail(
 ) -> Vec<atomcode_capabilities::session::manager::TodoSidecarItem> {
     let manager = atomcode_capabilities::session::SessionManager::for_project(
         std::path::Path::new(&session.meta.working_dir),
+        &atomcode_coding::config::product_dirs_from_env(),
     );
     manager
         .read_todo_sidecar(&session.meta.id)
@@ -2613,7 +2712,10 @@ async fn create_session(
     }
 
     let id = uuid::Uuid::new_v4().to_string();
-    let manager = atomcode_capabilities::session::SessionManager::for_project(&working_dir);
+    let manager = atomcode_capabilities::session::SessionManager::for_project(
+        &working_dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let lease = match manager.acquire_lease(&id) {
         Ok(lease) => lease,
         Err(error) => {
@@ -2714,7 +2816,12 @@ async fn append_session_messages(
 
 /// Search sessions by name across all projects
 fn search_sessions_by_name(keyword: &str) -> std::io::Result<Vec<SessionMetaWithProject>> {
-    search_sessions_by_name_in_root(&NativeSessionManager::sessions_root(), keyword)
+    search_sessions_by_name_in_root(
+        &NativeSessionManager::sessions_root(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        ),
+        keyword,
+    )
 }
 
 fn search_sessions_by_name_in_root(
@@ -2725,7 +2832,7 @@ fn search_sessions_by_name_in_root(
     let mut entries: Vec<_> = catalog_scan_in_root(sessions_root)?
         .entries
         .into_iter()
-        .filter(|entry| entry.message_count > 0)
+        .filter(|entry| entry.message_count > 0 && !entry.delegated())
         .collect();
     crate::legacy_convert::repair_catalog_names_for_display_in_root(sessions_root, &mut entries);
     Ok(entries
@@ -2857,8 +2964,12 @@ fn repair_session_file(
     session_id: &str,
     apply: bool,
 ) -> Result<RepairSessionResponse, RepairSessionFailure> {
-    let manager =
-        NativeSessionManager::with_root(NativeSessionManager::sessions_root().join(project_hash));
+    let manager = NativeSessionManager::with_root(
+        NativeSessionManager::sessions_root(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        )
+        .join(project_hash),
+    );
     repair_session_with_manager(&manager, session_id, apply).map_err(|error| RepairSessionFailure {
         transcript: transcript_state(&manager, session_id),
         error,
@@ -3080,7 +3191,9 @@ async fn delete_session(
             .filter(|binding| binding.session_id == id)
         {
             Some(binding) => {
-                let sessions_root = NativeSessionManager::sessions_root();
+                let sessions_root = NativeSessionManager::sessions_root(
+                    atomcode_coding::config::product_dirs_from_env().user(),
+                );
                 match run_session_catalog_io(move || catalog_scan_in_root(&sessions_root)).await {
                     Ok(scan)
                         if binding_targets_catalog_location(
@@ -3483,6 +3596,10 @@ pub enum ChatEvent {
         reason: String,
         call_id: String,
         arguments: String,
+        /// Whether the client may show the session-wide "allow all Bash" button
+        /// for this call. Omitted (false) for everything but a non-sensitive bash.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        allow_all_bash: bool,
     },
     /// The model asks the user a structured question. The browser answers through
     /// `/chat/user-input`, correlated by session and native request id.
@@ -3806,6 +3923,7 @@ mod chat_event_type_tests {
                 http_status: Some(500),
                 code: None,
                 retryable: Some(true),
+                ends_turn: false,
             }),
             "session-1",
         );
@@ -4197,6 +4315,7 @@ impl ChatRuntimeProjector {
                     reason: "Requires approval".into(),
                     call_id: approval.call_id,
                     arguments: approval.args,
+                    allow_all_bash: approval.allow_all_bash,
                 }]
             }
             // Silent, cache-friendly tool-output folding is invisible transcript
@@ -4411,7 +4530,7 @@ impl ChatRuntimeProjector {
                 auto_resuming,
                 server_message,
             }],
-            Agent::TurnStarted
+            Agent::TurnStarted { .. }
             | Agent::ToolCallStreaming { .. }
             | Agent::ToolBatchCompleted { .. }
             | Agent::Request { .. }
@@ -4534,7 +4653,6 @@ async fn chat_stream(
 
     // Clone state for the spawned task
     let active_chats = state.active_chats.clone();
-    let mcp_cache = state.mcp_cache.clone();
     let telemetry = state.telemetry.clone();
     let pending_permissions = state.pending_permissions.clone();
     let pending_user_inputs = state.pending_user_inputs.clone();
@@ -4574,7 +4692,6 @@ async fn chat_stream(
                     cancel_token,
                     operation_id,
                     active_chats,
-                    mcp_cache,
                     telemetry,
                     pending_permissions,
                     pending_user_inputs,
@@ -4707,7 +4824,10 @@ fn resolve_chat_session(
             effective_working_dir: working_dir.to_path_buf(),
         });
     };
-    let project_bucket = NativeSessionManager::project_hash(working_dir);
+    let project_bucket = NativeSessionManager::project_hash(
+        working_dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
     let session = match crate::legacy_convert::load_catalog_session_view_in_project(
         &project_bucket,
         session_id_str,
@@ -4757,9 +4877,6 @@ async fn process_chat_request(
     cancel_token: CancellationToken,
     operation_id: String,
     active_chats: ActiveChatRegistry,
-    // CodingRuntime builds its own MCP; this per-project cache is warmed by
-    // the /context, /compact and /live paths, not the chat turn.
-    _mcp_cache: Arc<RwLock<HashMap<PathBuf, CachedMcpRegistry>>>,
     telemetry: Arc<Telemetry>,
     pending_permissions: permission_bridge::PermissionResponders,
     pending_user_inputs: permission_bridge::UserInputResponders,
@@ -4832,9 +4949,15 @@ async fn process_chat_request(
         let images: Vec<ImageContent> = req
             .images
             .iter()
-            .map(|i| ImageContent {
-                media_type: i.media_type.clone(),
-                data: i.data.clone(),
+            .map(|i| {
+                // Downscale/re-encode oversized attachments before they enter the
+                // conversation (a big image is re-sent every turn — see image_normalize).
+                let (media_type, data) =
+                    atomcode_capabilities::image_normalize::normalize_image_base64(
+                        &i.media_type,
+                        &i.data,
+                    );
+                ImageContent { media_type, data }
             })
             .collect();
         let runtime_text = live_api::preprocess_image_caption(
@@ -4916,8 +5039,7 @@ async fn process_chat_request(
         // Interactive approval: route /chat/permission decisions to the native runtime
         // request waiting for this turn.
         let perm_rx = if registered_permission_responder {
-            let (tx, rx) =
-                mpsc::unbounded_channel::<atomcode_capabilities::tools::PermissionDecision>();
+            let (tx, rx) = mpsc::unbounded_channel::<permission_bridge::ChatPermission>();
             pending_permissions.register(perm_session_key.clone(), tx);
             Some(rx)
         } else {
@@ -4998,7 +5120,10 @@ fn publish_chat_session_assignment(
     event_tx: &mpsc::UnboundedSender<ChatEvent>,
 ) -> anyhow::Result<()> {
     if is_new_session {
-        let manager = NativeSessionManager::for_project(working_dir);
+        let manager = NativeSessionManager::for_project(
+            working_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
         let lease = manager.acquire_lease(session_id)?;
         let now = atomcode_capabilities::session::now_ms();
         let mut meta = atomcode_capabilities::session::SessionMeta::new(
@@ -5100,7 +5225,9 @@ pub struct PermissionDecisionRequest {
     pub session_id: String,
     /// "allow" | "deny" | "always_allow" | "allow_persist"
     pub decision: String,
-    /// Full MCP tool name (`mcp__{server}__{tool}`); required for `allow_persist`.
+    /// Full MCP tool name (`mcp__{server}__{tool}`). Accepted for compatibility and
+    /// ignored here: `allow_persist` applies to the tool the pending request names,
+    /// which the runtime that asked already knows.
     #[serde(default)]
     pub tool_name: Option<String>,
 }
@@ -5111,23 +5238,15 @@ async fn chat_permission(
 ) -> impl IntoResponse {
     use atomcode_capabilities::tools::{parse_permission_decision, PermissionDecision};
     if req.decision == "allow_persist" {
-        if let Some(full) = req.tool_name.as_deref() {
-            let reg = state.mcp_registry.read().await.clone();
-            if let Some((server, tool)) = reg.split_tool_name(full).await {
-                let project_dir = state.project.read().await.working_dir.clone();
-                if let Err(e) = atomcode_capabilities::mcp::config::add_auto_approved_tool(
-                    &project_dir,
-                    &server,
-                    &tool,
-                ) {
-                    tracing::warn!("[permission] persist autoApprove failed: {e}");
-                }
-                reg.mark_tool_auto_approved(full);
-            }
-        }
-        let ok = state
-            .pending_permissions
-            .deliver(&req.session_id, PermissionDecision::AllowOnce);
+        // The runtime waiting on this answer carries it out, through its own
+        // registry and for the tool its request names (`run_chat_turn_v2`).
+        let ok = state.pending_permissions.deliver(
+            &req.session_id,
+            permission_bridge::ChatPermission {
+                decision: PermissionDecision::AllowOnce,
+                persist_mcp_tool: true,
+            },
+        );
         return Json(serde_json::json!({ "success": ok }));
     }
     let decision = parse_permission_decision(&req.decision);
@@ -5172,6 +5291,12 @@ struct McpServerStatus {
 
 #[derive(Serialize)]
 struct McpStatusResponse {
+    /// Who answered: `"live"` — the live session's runtime in this project, whose
+    /// `tool_count` is the tools its model is offered right now (a connected
+    /// server showing 0 has not had its tools published yet) — or `"daemon"`
+    /// when no live session runs here, and every configured server is listed
+    /// `disconnected` because nothing is connected.
+    source: &'static str,
     servers: Vec<McpServerStatus>,
     /// Whether the current project's `.mcp.json` has been explicitly trusted by
     /// the user.  False means project-source servers are withheld.
@@ -5203,54 +5328,76 @@ fn merge_configured_mcp_statuses(
 }
 
 async fn mcp_status(State(state): State<AppState>) -> Json<McpStatusResponse> {
-    // Prefer the per-project `/chat` registry when it exists; otherwise report
-    // the daemon registry. Live runtime capability changes use the awaitable
-    // CodingRuntime boundary and are reported on the live event stream.
     let working_dir = state.project.read().await.working_dir.clone();
-    let registry = if let Some(reg) = state
-        .mcp_cache
-        .read()
-        .await
-        .get(&working_dir)
-        .map(|c| c.registry.clone())
-    {
-        reg
-    } else {
-        state.mcp_registry.read().await.clone()
-    };
-
-    let statuses = registry.server_statuses().await;
-
-    let all_cfgs = atomcode_capabilities::mcp::load_mcp_config(&working_dir).unwrap_or_default();
+    let all_cfgs = atomcode_capabilities::mcp::load_mcp_config(
+        &working_dir,
+        atomcode_coding::config::product_dirs_from_env().user(),
+    )
+    .unwrap_or_default();
 
     // Trust / blocked enrichment: compute blocked FIRST so we can exclude them from the
-    // "connecting" synthetic entries below. Blocked (untrusted-project) servers are withheld
-    // — they never connect — so they must NOT appear as "connecting" in the status list while
-    // simultaneously appearing in `blocked[]` (a contradiction the webui rendered).
-    let trusted = atomcode_capabilities::mcp::trust::is_project_trusted(&working_dir);
-    let blocked: Vec<String> =
-        atomcode_capabilities::mcp::trust::partition_by_trust(all_cfgs.clone(), &working_dir)
-            .blocked
-            .into_iter()
-            .map(|c| c.name)
-            .collect();
-
-    // Surface configured-but-not-yet-connected servers as `connecting` so a slow
-    // handshake (especially remote HTTP) renders as "connecting", not an empty
-    // panel. Names come from the same user + project mcp.json the registry loads.
-    // Blocked servers are excluded: they aren't "connecting", they're withheld, and they
-    // already appear in the `blocked[]` list above.
+    // server rows. Blocked (untrusted-project) servers are withheld — they never
+    // connect — so they appear in `blocked[]` only, never also as a row (a
+    // contradiction the webui rendered).
+    let trusted = atomcode_capabilities::mcp::trust::is_project_trusted(
+        &working_dir,
+        atomcode_coding::config::product_dirs_from_env().user(),
+    );
+    let blocked: Vec<String> = atomcode_capabilities::mcp::trust::partition_by_trust(
+        all_cfgs.clone(),
+        &working_dir,
+        atomcode_coding::config::product_dirs_from_env().user(),
+    )
+    .blocked
+    .into_iter()
+    .map(|c| c.name)
+    .collect();
     let configured_names: Vec<String> = all_cfgs
         .iter()
         .map(|c| c.name.clone())
         .filter(|n| !blocked.contains(n))
         .collect();
-    let statuses = merge_configured_mcp_statuses(statuses, &configured_names);
 
-    // Fetch the tool list once (was previously re-fetched per connected server).
-    let tools = registry.list_all_tools().await;
-    let servers = build_mcp_server_rows(statuses, &tools);
+    // The only MCP connections are a runtime's own. A live session in this
+    // project answers from its registry — the one its model's tools come from —
+    // and each server's count is the tools the model is offered right now, so a
+    // connected server showing 0 is one whose tools are not in front of the model
+    // yet (a switch or reload reconnects). A configured server the registry has
+    // not reported yet shows as `connecting`, so a slow handshake reads as one.
+    let live = match crate::native_live::mcp_servers().await {
+        Ok((live_dir, servers)) if live_dir == working_dir => Some(servers),
+        _ => None,
+    };
+    let (source, statuses, counts) = match live {
+        Some(servers) => {
+            let counts: HashMap<String, usize> = servers
+                .iter()
+                .map(|server| (server.name.clone(), server.published_tools))
+                .collect();
+            let statuses = servers
+                .into_iter()
+                .map(|server| (server.name, server.status))
+                .collect();
+            let statuses = merge_configured_mcp_statuses(statuses, &configured_names);
+            ("live", statuses, counts)
+        }
+        // No live session here: nothing is connected — a `/chat` turn starts its
+        // own runtime and connects for the length of the turn. The configured
+        // servers are listed as such, rather than connecting every one of them a
+        // second time only to report on them (and not as `connecting`, which a
+        // front end polls on).
+        None => {
+            let statuses = configured_names
+                .into_iter()
+                .map(|name| (name, atomcode_capabilities::mcp::ServerStatus::Disconnected))
+                .collect();
+            ("daemon", statuses, HashMap::new())
+        }
+    };
+
+    let servers = build_mcp_server_rows(statuses, |name| counts.get(name).copied().unwrap_or(0));
     Json(McpStatusResponse {
+        source,
         servers,
         trusted,
         blocked,
@@ -5266,7 +5413,7 @@ async fn mcp_status(State(state): State<AppState>) -> Json<McpStatusResponse> {
 /// "blocked" status row here and once in the blocked banner.
 fn build_mcp_server_rows(
     statuses: Vec<(String, atomcode_capabilities::mcp::ServerStatus)>,
-    tools: &[atomcode_capabilities::mcp::McpToolInfo],
+    tool_count: impl Fn(&str) -> usize,
 ) -> Vec<McpServerStatus> {
     use atomcode_capabilities::mcp::ServerStatus;
     let mut servers = Vec::new();
@@ -5280,7 +5427,7 @@ fn build_mcp_server_rows(
             ServerStatus::BlockedUntrusted => continue,
         };
         let tool_count = if matches!(status, ServerStatus::Connected) {
-            Some(tools.iter().filter(|t| t.server_name == name).count())
+            Some(tool_count(&name))
         } else {
             None
         };
@@ -5294,41 +5441,10 @@ fn build_mcp_server_rows(
     servers
 }
 
-/// Replace the daemon fallback registry and invalidate the per-project cache
-/// under one cache write barrier. The replacement also occupies the cache key
-/// so a concurrent cache-miss build cannot resurrect its stale registry after
-/// this cutover.
-pub(crate) async fn replace_project_mcp_registry(
-    state: &AppState,
-    project_dir: &std::path::Path,
-    replacement: Arc<McpRegistry>,
-) {
-    let mut cache = state.mcp_cache.write().await;
-    if !cache.contains_key(project_dir) && cache.len() >= MCP_CACHE_MAX {
-        if let Some(oldest_key) = cache
-            .iter()
-            .min_by_key(|(_, value)| value.last_used)
-            .map(|(key, _)| key.clone())
-        {
-            cache.remove(&oldest_key);
-        }
-    }
-    cache.insert(
-        project_dir.to_path_buf(),
-        CachedMcpRegistry {
-            registry: replacement.clone(),
-            last_used: std::time::Instant::now(),
-        },
-    );
-    *state.mcp_registry.write().await = replacement;
-}
-
-async fn mcp_reload(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let project = state.project.read().await;
-    let project_dir = project.working_dir.clone();
-    drop(project);
-    let new_registry = Arc::new(McpRegistry::from_config_background(&project_dir));
-    replace_project_mcp_registry(&state, &project_dir, new_registry).await;
+/// Reconnect the live session's MCP servers and wait for their tools. With no
+/// live session nothing is connected, so there is nothing to reload: the next
+/// runtime reads the config fresh when it starts.
+async fn mcp_reload() -> Json<serde_json::Value> {
     let runtime_reloaded = match crate::native_live::binding() {
         Ok(_) => crate::native_live::reload_capabilities().await.is_ok(),
         Err(_) => true,
@@ -5537,13 +5653,15 @@ fn primary_lan_ipv4() -> Option<String> {
     }
 }
 
-/// 进程内 webui server 的默认端口。**刻意区别于独立守护进程的 13456**。
+/// 进程内 webui server 的默认端口。**刻意区别于 IDE 守护进程的 13456**。
 ///
-/// 进程内 webui（TUI `/webui`、`atomcode webui`）以 `enforce_token=true` 启动，而
-/// VSCode 扩展自带的守护进程以 `enforce_token=false`（不带 token）在 13456 上工作。
-/// 二者若共用 13456，会互相踩端口：webui 抢到后，VSCode 的 `/project`、`/models`、
-/// `/chat` 乃至 `/shutdown` 都会因缺 token 返回 401，扩展既用不了也停不掉它，表现为
-/// “daemon started but not responding”。让 webui 默认错开到 13457 即可彻底分离
+/// 进程内 webui（TUI `/webui`、`atomcode webui`）与 IDE（VSCode/JetBrains）自带的
+/// 守护进程**都默认 `enforce_token=true`**，各自把本地 token 写到按端口命名的
+/// `daemon-<port>.json`。二者若共用 13456，既会争抢同一个 socket，又会让两侧写入
+/// 同一个 token 文件、相互覆盖：后起的实例要么 bind 失败，要么让客户端携带到另一个
+/// 实例的 token，于是 `/project`、`/models`、`/chat` 乃至 `/shutdown` 都因 token 不匹配
+/// 返回 401，扩展既用不了也停不掉它，表现为“daemon started but not responding”。
+/// 让 webui 默认错开到 13457，端口与 token 文件一起分离，即可彻底避免
 /// （webui 的访问 URL 是生成的，端口号对用户无感；被占时仍会向上扫描）。
 pub const WEBUI_DEFAULT_PORT: u16 = atomcode_config::distribution::WEBUI_PORT;
 
@@ -6012,9 +6130,14 @@ async fn get_skills(State(state): State<AppState>) -> impl IntoResponse {
     // Keep this composition in the plugin integration layer so the shared
     // SkillRegistry remains independent of plugin storage.
     let mut registry = atomcode_capabilities::skills::SkillRegistry::new();
-    atomcode_capabilities::plugin::loader::reload_skill_registry(&mut registry, &working_dir);
+    atomcode_capabilities::plugin::loader::reload_skill_registry(
+        &mut registry,
+        &atomcode_coding::config::product_dirs_from_env(),
+        &working_dir,
+    );
     let skills: Vec<SkillInfo> = registry
         .user_invocable()
+        .into_iter()
         .map(|s| SkillInfo {
             name: s.name.clone(),
             description: s.description.clone(),
@@ -6116,10 +6239,15 @@ pub struct FsSearchQuery {
 /// what guarantees the webui `@`-mention picker matches the CLI exactly.
 fn search_at_mention(dir: &std::path::Path, token: &str) -> Vec<serde_json::Value> {
     let (scope, filter) = atomcode_capabilities::file_index::split_token(token);
-    atomcode_capabilities::file_index::FileIndex::search_blocking(dir, &scope, &filter)
-        .into_iter()
-        .map(|e| serde_json::json!({ "path": e.rel_path, "is_dir": e.is_dir }))
-        .collect()
+    atomcode_capabilities::file_index::FileIndex::search_blocking(
+        dir,
+        &scope,
+        &filter,
+        atomcode_coding::config::product_dirs_from_env().project_dir_name(),
+    )
+    .into_iter()
+    .map(|e| serde_json::json!({ "path": e.rel_path, "is_dir": e.is_dir }))
+    .collect()
 }
 
 /// Recursive, gitignore-aware `@`-mention search for the webui picker. Mirrors
@@ -6237,7 +6365,9 @@ async fn fs_open(
     let active_binding = crate::native_live::binding().ok();
     let resolved = tokio::task::spawn_blocking(move || {
         resolve_session_workspace_file(
-            &NativeSessionManager::sessions_root(),
+            &NativeSessionManager::sessions_root(
+                atomcode_coding::config::product_dirs_from_env().user(),
+            ),
             &current_root,
             &requested,
             session_id.as_deref(),
@@ -6345,12 +6475,14 @@ pub struct ServerOpts {
 /// while it exited). Non-collision errors keep the plain form.
 fn daemon_bind_failure_message(addr: &str, port: u16, err: &std::io::Error) -> String {
     if err.kind() == std::io::ErrorKind::AddrInUse {
+        let marker = crate::daemon_token_file::token_file_path(port);
+        let marker = marker.display();
         format!(
             "Fatal: 端口 {addr} 已被占用,daemon 未能启动。\n\
              很可能是 JetBrains/VSCode 插件的 daemon 已占用该端口(常驻 13456)。\n\
              处理:改用其它端口 `--port <PORT>`(并让客户端 / 飞书 daemonBaseUrl 指向同一端口),\n\
              或退出占用 {port} 的程序后重试。\n\
-             提示:若用 `&` 后台启动,这行报错会被吞掉——请确认 `~/.atomcode/daemon-{port}.json` \
+             提示:若用 `&` 后台启动,这行报错会被吞掉——请确认 `{marker}` \
              是否真的生成,以判断 daemon 是否启动成功。\n\
              (底层错误:{err})"
         )
@@ -6421,7 +6553,8 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
     atomcode_config::config::offline::seed_offline_from_config(startup_config.as_ref());
     // Step 2: Resolve telemetry state (R1.2, R2.1-R2.3, R2.5)
     let resolved = resolve(
-        &cfg_telemetry,
+        cfg_telemetry.enabled,
+        cfg_telemetry.endpoint.as_deref(),
         &cli_override,
         Config::config_dir(),
         &ProcessEnv,
@@ -6463,11 +6596,10 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
     let repo_origin = detect_repo_origin(&project_state.working_dir);
 
     // Step 6: Seed account_id from stored auth (R4.3)
-    telemetry.set_account_id(auth::get_stored_auth().map(|a| a.user.id));
-
-    // Initialize MCP registry from project working directory config
-    // This reads both $ATOMCODE_HOME/mcp.json (user-level) and <project>/.mcp.json (project-level)
-    let mcp_registry = McpRegistry::from_config_background(&project_state.working_dir);
+    telemetry.set_account_id(
+        auth::get_stored_auth(atomcode_coding::config::product_dirs_from_env().user())
+            .map(|a| a.user.id),
+    );
 
     // Step 7: Build AppState (R1.4)
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -6479,8 +6611,6 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
     let state = AppState {
         project: project_store,
         active_chats: ActiveChatRegistry::default(),
-        mcp_registry: Arc::new(RwLock::new(Arc::new(mcp_registry))),
-        mcp_cache: Arc::new(RwLock::new(HashMap::new())),
         login_sessions: Arc::new(RwLock::new(HashMap::new())),
         login_start_lock: Arc::new(Mutex::new(())),
         daemon_instance_id: Arc::from(uuid::Uuid::new_v4().to_string()),
@@ -6514,8 +6644,10 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         .route("/", axum::routing::get(serve_webui_index))
         .fallback(webui::serve_webui);
 
-    // 受保护路由：所有数据/API 端点。仅 webui 模式（enforce_token=true）强制 token 鉴权；
-    // 独立 daemon/VSCode（enforce_token=false）中间件直接放行（见 auth_token.rs）。
+    // 受保护路由：所有数据/API 端点。默认下独立 daemon 与 IDE 守护进程同为
+    // enforce_token=true（自持 token、写 `daemon-<port>.json`，客户端读该文件后作为
+    // Bearer 携带）；只有 `--no-auth` 或 App 中继路径（webui_tokens=None）才
+    // enforce_token=false，此时 auth_token.rs 的中间件直接放行。
     let protected = Router::new()
         // Shutdown endpoint (R7.1)
         .route("/shutdown", post(shutdown_handler))
@@ -6562,6 +6694,7 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
         .route("/live", get(live_api::live_stream))
         .route("/live/message", post(live_api::live_message))
         .route("/live/stop", post(live_api::live_stop))
+        .route("/live/release", post(live_api::live_release))
         .route("/live/permission", post(live_api::live_permission))
         .route("/live/user-input", post(live_api::live_user_input))
         .route(
@@ -6695,12 +6828,6 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
             The daemon exposes sensitive endpoints (chat, file-edit, tool-execution). \
             Ensure the network is trusted or use a reverse proxy with authentication.",
             host
-        );
-    }
-    if dangerous_tools_enabled() {
-        eprintln!(
-            "Warning: {}=1 enables bash and write-capable daemon tools.",
-            DANGEROUS_TOOLS_ENV
         );
     }
     // 启动横幅（监听地址 + API 端点清单）仅在非 quiet 模式打印。TUI 内 `/webui`
@@ -7549,8 +7676,6 @@ mod tests {
                 name: "chat-test".into(),
             })),
             active_chats: ActiveChatRegistry::default(),
-            mcp_registry: Arc::new(RwLock::new(Arc::new(McpRegistry::new()))),
-            mcp_cache: Arc::new(RwLock::new(HashMap::new())),
             login_sessions: Arc::new(RwLock::new(HashMap::new())),
             login_start_lock: Arc::new(Mutex::new(())),
             daemon_instance_id: Arc::from("chat-test-instance"),
@@ -7580,7 +7705,10 @@ mod tests {
 
         publish_chat_session_assignment(&working_dir, session_id, true, &event_tx).unwrap();
 
-        let manager = NativeSessionManager::for_project(&working_dir);
+        let manager = NativeSessionManager::for_project(
+            &working_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
         let loaded = manager.load_native_session(session_id).unwrap();
         assert!(loaded.snapshot.messages.is_empty());
         assert!(matches!(
@@ -7594,7 +7722,9 @@ mod tests {
         let home = ScopedChatHome::new();
         let working_dir = home._dir.path().join("project");
         std::fs::create_dir_all(&working_dir).unwrap();
-        let sessions_root = NativeSessionManager::sessions_root();
+        let sessions_root = NativeSessionManager::sessions_root(
+            atomcode_coding::config::product_dirs_from_env().user(),
+        );
         std::fs::write(&sessions_root, b"block session directory creation").unwrap();
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
 
@@ -7609,34 +7739,38 @@ mod tests {
         assert!(event_rx.try_recv().is_err());
     }
 
+    /// With no live session nothing is connected, and `/mcp/status` says so: the
+    /// configured servers are listed `disconnected` (not `connecting`, which a front
+    /// end polls on), and a server withheld by project trust stays out of the rows.
+    /// It used to connect every server a second time, on a registry of its own,
+    /// only to report on them.
     #[tokio::test(flavor = "current_thread")]
-    async fn replacing_project_mcp_registry_invalidates_the_cached_registry() {
+    async fn mcp_status_without_a_live_session_connects_nothing() {
         let home = ScopedChatHome::new();
         let state = chat_test_state(&home);
-        let working_dir = state.project.read().await.working_dir.clone();
-        let stale = Arc::new(McpRegistry::new());
-        state.mcp_cache.write().await.insert(
-            working_dir.clone(),
-            CachedMcpRegistry {
-                registry: stale,
-                last_used: std::time::Instant::now(),
-            },
-        );
-        let replacement = Arc::new(McpRegistry::new());
+        let dir = state.project.read().await.working_dir.clone();
+        std::fs::write(
+            dir.join("mcp.json"),
+            r#"{"mcpServers":{"user-srv":{"command":"/bin/true"}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".mcp.json"),
+            r#"{"mcpServers":{"project-srv":{"command":"/bin/true"}}}"#,
+        )
+        .unwrap();
 
-        replace_project_mcp_registry(&state, &working_dir, replacement.clone()).await;
+        let Json(status) = mcp_status(State(state)).await;
 
-        let cached = state
-            .mcp_cache
-            .read()
-            .await
-            .get(&working_dir)
-            .expect("replacement must occupy the cache key")
-            .registry
-            .clone();
-        assert!(Arc::ptr_eq(&cached, &replacement));
-        let current = state.mcp_registry.read().await;
-        assert!(Arc::ptr_eq(&*current, &replacement));
+        assert_eq!(status.source, "daemon");
+        let rows: Vec<(&str, &str)> = status
+            .servers
+            .iter()
+            .map(|row| (row.name.as_str(), row.status.as_str()))
+            .collect();
+        assert_eq!(rows, vec![("user-srv", "disconnected")]);
+        assert!(status.servers.iter().all(|row| row.tool_count.is_none()));
+        assert_eq!(status.blocked, vec!["project-srv".to_string()]);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -7926,7 +8060,10 @@ mod tests {
         config.save(&Config::default_path()).unwrap();
 
         let session_id = "33333333-3333-4333-8333-333333333333";
-        let manager = SessionManager::for_project(&working_dir);
+        let manager = SessionManager::for_project(
+            &working_dir,
+            &atomcode_coding::config::product_dirs_from_env(),
+        );
         let lease = manager.acquire_lease(session_id).unwrap();
         let mut meta = SessionMeta::new(session_id, working_dir.to_string_lossy(), 1);
         meta.owner = StorageOwner::Native;
@@ -7957,7 +8094,6 @@ mod tests {
             admission.cancellation,
             admission.operation_id,
             active_chats.clone(),
-            Arc::new(RwLock::new(HashMap::new())),
             chat_test_telemetry(&home),
             permission_bridge::PermissionResponders::new(),
             permission_bridge::UserInputResponders::new(),
@@ -8157,7 +8293,7 @@ mod tests {
                 ("ok".to_string(), ServerStatus::Connected),
                 ("evil".to_string(), ServerStatus::BlockedUntrusted),
             ],
-            &[],
+            |_| 0,
         );
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].name, "ok");
@@ -8284,7 +8420,13 @@ mod tests {
             )
             .unwrap();
 
-        let hook = SnapshotHook::new(manager.clone(), session_id, "/project").with_lease(lease);
+        let hook = SnapshotHook::new(
+            manager.clone(),
+            session_id,
+            "/project",
+            &atomcode_coding::config::product_dirs_from_env(),
+        )
+        .with_lease(lease);
         let mut conversation = Conversation::default();
         conversation.push(Message::user("正在执行的首轮任务"));
         hook.turn_start(&mut conversation).await;
@@ -8328,7 +8470,10 @@ mod tests {
         let historical_bucket = "0123456789abcdef";
         assert_ne!(
             historical_bucket,
-            atomcode_capabilities::session::SessionManager::project_hash(&working_dir)
+            atomcode_capabilities::session::SessionManager::project_hash(
+                &working_dir,
+                &atomcode_coding::config::product_dirs_from_env()
+            )
         );
         let entry = CatalogEntry {
             id: "resumed-session".into(),
@@ -8341,6 +8486,8 @@ mod tests {
             message_count: 0,
             turn_count: 0,
             presence: CatalogPresence::NativeOnly,
+            needs_newer_version: false,
+            origin: Default::default(),
         };
 
         let entries = [entry];
@@ -8636,7 +8783,10 @@ mod tests {
             use atomcode_capabilities::session::{
                 PresentationFile, SessionManager, SessionMeta, StorageOwner,
             };
-            let manager = SessionManager::for_project(dir_b.path());
+            let manager = SessionManager::for_project(
+                dir_b.path(),
+                &atomcode_coding::config::product_dirs_from_env(),
+            );
             let lease = manager.acquire_lease(id).unwrap();
             let snapshot = atomcode_kernel::message::SessionSnapshot::new(vec![
                 atomcode_kernel::message::Message::user("history from B"),
@@ -8748,7 +8898,6 @@ mod tests {
             admission.cancellation,
             admission.operation_id,
             active_chats.clone(),
-            Arc::new(RwLock::new(HashMap::new())),
             telemetry,
             permission_bridge::PermissionResponders::new(),
             permission_bridge::UserInputResponders::new(),
@@ -8779,6 +8928,99 @@ mod tests {
 
         main_task.await.expect("main provider task");
         vl_task.await.expect("VL provider task");
+    }
+
+    /// `/chat` offers the MCP tools on its first — which is every — turn.
+    ///
+    /// Reported against v5.1.0: `/mcp/status` said connected, `/live` and
+    /// `atomcode -p` offered `mcp__*`, and `/chat` never did, turn after turn.
+    /// Each `/chat` request starts its own runtime and submitted at once, before
+    /// its servers had connected. The fixture server takes a second to start, so
+    /// without the wait the request below goes out with no MCP tool.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn chat_offers_the_mcp_tools_on_its_first_turn() {
+        let home = ScopedChatHome::new();
+        let dir = home._dir.path().to_path_buf();
+        let script = dir.join("mcp-server.sh");
+        std::fs::write(
+            &script,
+            r#"#!/bin/sh
+sleep 1
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"t","version":"0"}}}\n' "$id" ;;
+    *'"method":"tools/list"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"echo","description":"echo back","inputSchema":{"type":"object","properties":{}}}]}}\n' "$id" ;;
+    *'"id":'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{}}\n' "$id" ;;
+  esac
+done
+"#,
+        )
+        .unwrap();
+        // User-level config: no project trust gate.
+        std::fs::write(
+            dir.join("mcp.json"),
+            serde_json::json!({
+                "mcpServers": { "t": { "command": "sh", "args": [script.to_string_lossy()] } }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let (main_url, main_request, main_task) = spawn_openai_sse("done").await;
+        let mut config = Config::with_default_provider("main");
+        config
+            .providers
+            .insert("main".into(), test_provider("deepseek-v4-flash", main_url));
+        config
+            .save(&Config::default_path())
+            .expect("save chat test config");
+
+        let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel();
+        let active_chats = ActiveChatRegistry::default();
+        let admission = active_chats
+            .admit(None, Some("chat-mcp-first-turn"))
+            .await
+            .unwrap();
+        let operation_id = admission.operation_id.clone();
+        process_chat_request(
+            ChatRequest {
+                message: "which tools do you have".into(),
+                working_dir: Some(dir.clone()),
+                provider: Some("main".into()),
+                session_id: None,
+                request_id: Some("chat-mcp-first-turn".into()),
+                images: Vec::new(),
+                approval_mode: Some(crate::approval_mode::ApprovalMode::Auto),
+            },
+            event_tx,
+            admission.cancellation,
+            admission.operation_id,
+            active_chats.clone(),
+            chat_test_telemetry(&home),
+            permission_bridge::PermissionResponders::new(),
+            permission_bridge::UserInputResponders::new(),
+            false,
+            false,
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )
+        .await
+        .expect("chat request succeeds");
+        active_chats.complete(&operation_id).await;
+
+        let request = tokio::time::timeout(std::time::Duration::from_secs(10), main_request)
+            .await
+            .expect("the provider must be called")
+            .expect("request captured");
+        assert!(
+            request.contains("mcp__t__echo"),
+            "the first /chat turn went out without the MCP tool"
+        );
+        main_task.await.expect("provider task");
     }
 
     // 回归：限流事件必须作为独立的 `rate_limited` ChatEvent 下发（非 error/warning），

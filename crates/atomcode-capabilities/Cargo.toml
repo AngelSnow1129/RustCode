@@ -66,7 +66,6 @@ httpdate = { version = "1", optional = true }
 hyper = { version = "1", optional = true }
 getrandom = { version = "0.2", optional = true }
 tracing = { version = "0.1", optional = true }
-bytes = { version = "1", optional = true }
 async-stream = { version = "0.3", optional = true }
 # `tools` capability deps. gitignore-aware file walking (grep/glob), regex (grep),
 # glob matching (glob). Optional so a provider-only embedder skips them.
@@ -119,9 +118,13 @@ sha2 = { version = "0.10", optional = true }
 # base64 is non-optional: `read_file` always needs it to hand an image file to a
 # vision model (encode bytes → data URL). Also used by the `mcp` OAuth PKCE flow.
 base64 = { version = "0.22" }
+# Image downscale/re-encode for oversized user attachments (read_file image + clipboard
+# paste) so a huge screenshot can't blow the per-request body. Optional — pulled in by
+# `tools` (read_file lives there); decoders kept to the common paste/screenshot formats.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "webp"], optional = true }
 uuid = { version = "1", features = ["v4"], optional = true }
 dirs = { version = "6", optional = true }
-toml = { version = "0.8", optional = true }
+toml = { version = "1", optional = true }
 # `session` capability deps: chrono for epoch↔ISO + local-time date math (transcript
 # timestamps, current-date injection, recall date filtering). dirs resolves
 # $ATOMCODE_HOME/sessions; fs2 serializes per-session meta read-modify-write.
@@ -147,10 +150,10 @@ tar = { version = "0.4", optional = true }
 default = ["provider", "tools"]
 # Real LlmProvider adapters (OpenAI-compatible: GLM / DeepSeek / …). `dirs` resolves the
 # wire-dump output dir (config_dir()/wire-dump) for the byte-level ATOMCODE_WIRE_DUMP.
-provider = ["dep:reqwest", "dep:rustls-native-certs", "dep:rustls", "dep:bytes", "dep:async-stream", "dep:dirs", "dep:httpdate", "dep:atomcode-auth", "dep:atomcode-config", "dep:getrandom", "dep:tracing", "dep:fs2", "dep:hyper"]
+provider = ["dep:reqwest", "dep:rustls-native-certs", "dep:rustls", "dep:async-stream", "dep:dirs", "dep:httpdate", "dep:atomcode-auth", "dep:atomcode-config", "dep:getrandom", "dep:tracing", "dep:fs2", "dep:hyper"]
 # Real neutral coding Tools (fs read/write/edit/list + bash + grep/glob) + a generic
 # approval middleware. Pulls fs/process/io tokio features + the search stack.
-tools = ["dep:ignore", "dep:regex", "dep:grep", "dep:globset", "dep:encoding_rs", "dep:chardetng", "dep:tokio-util", "dep:similar", "dep:tree-sitter", "dep:tree-sitter-bash", "dep:sha2", "dep:dirs", "tokio/fs", "tokio/process", "tokio/io-util"]
+tools = ["dep:ignore", "dep:regex", "dep:grep", "dep:globset", "dep:encoding_rs", "dep:chardetng", "dep:tokio-util", "dep:similar", "dep:tree-sitter", "dep:tree-sitter-bash", "dep:sha2", "dep:dirs", "dep:image", "tokio/fs", "tokio/process", "tokio/io-util"]
 # Network tools (web_fetch / web_search). Opt-in on top of `tools` — pulls the HTTP stack
 # (reqwest + url + tokio/net for SSRF DNS checks). NOT in default: a tools-only embedder
 # that wants no network egress skips it.
@@ -209,7 +212,14 @@ mcp = [
 # coexist) — a per-turn compacted <id>.snapshot for RESUME + an append-only,
 # never-compacted <id>.jsonl transcript for RECALL — plus the SnapshotHook /
 # TranscriptHook / recall tool / current-date hook that drive it. Opt-in (NOT default).
-session = ["dep:dirs", "dep:chrono", "dep:fs2", "dep:atomcode-config", "dep:sha2"]
+# The project-instructions loader alone (AGENTS.md / CLAUDE.md / .atomcode.md).
+# Zero dependencies — the module is pure path-in/string-out — so any stack can
+# read a repository's standing instructions without the session subsystem.
+instructions = []
+# Keyword ranking only (tokenizer + scoring). Zero dependencies; `session` needs
+# it because `recall` ranks with it.
+search = []
+session = ["dep:dirs", "dep:chrono", "dep:fs2", "dep:atomcode-config", "instructions", "search", "dep:sha2"]
 # User-driven persistent memory: the production memory.md store (global
 # $ATOMCODE_HOME/memory.md + per-project <root>/.atomcode/memory.md + machine-local
 # <root>/.atomcode/local/memory.md, same files so old/new coexist) + a MemoryHook
@@ -235,7 +245,10 @@ plugin = [
 # Askpass (the `askpass` module): a Unix-socket server + wrapper script that route
 # sudo/ssh password prompts to the host UI. Unix-only — `*_ASKPASS` has no Windows
 # analogue. Needs the UDS server (tokio net/io-util, unioned onto the base tokio
-# features above), `umask`/`/dev/urandom` (libc), and a zeroized password cache.
+# features above) and a zeroized password cache; the token comes from
+# `/dev/urandom` via std. `libc` serves the crate's other unix callers
+# (O_NOFOLLOW, geteuid, getpwnam_r) — askpass guards its socket with a 0700
+# parent dir, not a process-wide umask.
 tokio = { version = "1", features = ["net", "io-util"] }
 libc = "0.2"
 zeroize = "1"

@@ -16,7 +16,7 @@
     <img src="https://cdn-news.gitcode.com/news/atomcode-icon1.png" alt="AtomCode">
     <span>AtomCode</span>
     <span class="dhdr-badge" data-i18n="badge.docs">DOCS</span>
-    <span class="dhdr-ver">v5.1.0</span>
+    <span class="dhdr-ver">v5.2.0</span>
   </a>
   <div class="dhdr-right">
     <button class="search-trigger" data-open-search data-i18n-aria="aria.search" aria-label="搜索文档">
@@ -102,14 +102,15 @@
       <pre><code>/session</code></pre>
       <p>Spin up a fresh context without changing the working directory. Good for "the previous task is wrapped — onto something totally unrelated".</p>
 
-      <h2 id="bg">Background sessions (<code>/bg</code>)</h2>
-      <p>Need to juggle multiple tasks without losing the current conversation? <code>/bg</code> parks the current session in the background and opens a fresh foreground — switch back any time. Up to <strong>16 concurrent background slots</strong>.</p>
+      <h2 id="bg">Background sessions (<code>/background</code> · <code>/bg</code>)</h2>
+      <p>Need to juggle multiple tasks without losing the current conversation? <code>/background</code> (alias <code>/bg</code>; the two are equivalent) parks the current session in the background and opens a fresh foreground — switch back any time. Up to <strong>16 concurrent background slots</strong>.</p>
       <table>
         <thead>
           <tr><th>Command</th><th>What it does</th></tr>
         </thead>
         <tbody>
           <tr><td><code>/bg</code></td><td>Send the current session to the background and open a new foreground</td></tr>
+          <tr><td><code>/background &lt;task&gt;</code> (same as <code>/bg &lt;task&gt;</code>)</td><td>Start a one-shot task in a background slot without swapping foreground (see below)</td></tr>
           <tr><td><code>/bg list</code> (alias <code>/bg ls</code>)</td><td>List all background sessions: slot, ID, state, created, summary</td></tr>
           <tr><td><code>/bg &lt;N&gt;</code></td><td>Resume slot N as foreground (the current foreground is swapped to background)</td></tr>
           <tr><td><code>/bg drop &lt;N&gt;</code></td><td>Drop background slot N</td></tr>
@@ -128,7 +129,7 @@
       <p>So <code>/bg</code> isn't just "suspend" — the model actually keeps working in the background; when you switch back, the result is already there.</p>
 
       <h3 id="background-task-one-shot-dispatch"><code>/background &lt;task&gt;</code> — one-shot dispatch</h3>
-      <p>If you don't want to swap foreground/background manually and just want to "have it look something up real quick", use the <code>/background</code> compatibility entry:</p>
+      <p>If you don't want to swap foreground/background manually and just want to "have it look something up real quick", just pass a task (both names work) — <code>/background &lt;task&gt;</code> or <code>/bg &lt;task&gt;</code>:</p>
       <pre><code>/background list every unused dependency under src</code></pre>
       <p>It starts a one-shot task in a <code>/bg</code> slot (configured with a read-only tool subset by default so the main conversation context isn't polluted). When done, check <code>/bg list</code>, use <code>/bg &lt;N&gt;</code> to read the result, <code>/bg drop &lt;N&gt;</code> to discard.</p>
 

@@ -22,7 +22,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Instant;
 
 use async_trait::async_trait;
-use atomcode_config::config::{Config, DatalogConfig};
+use atomcode_config::config::DatalogConfig;
 use atomcode_kernel::event::StopReason;
 use atomcode_kernel::hook::{LifecycleHooks, TurnCtx};
 use atomcode_kernel::message::{Conversation, Message};
@@ -147,6 +147,8 @@ pub fn rehydrate_record(
 /// observability must never change a turn's behavior or terminal.
 pub struct DatalogHook {
     working_dir: PathBuf,
+    /// The user tree: the default root is its `datalog/`.
+    user_dir: PathBuf,
     configured_dir: Option<String>,
     model: String,
     context_window: u32,
@@ -206,17 +208,29 @@ enum WriteOp {
     Barrier {
         reply: tokio::sync::oneshot::Sender<()>,
     },
+    /// The same wait, for a caller with no `await` to spend.
+    ///
+    /// Tearing a tree down is synchronous (`Context::effect`), and that is the
+    /// last moment anything can make sure what was queued is on disk. Without
+    /// it the final turn's log is whatever the writer thread happened to get
+    /// through before the process went away.
+    BarrierSync {
+        reply: mpsc::Sender<()>,
+    },
 }
 
 impl DatalogHook {
+    /// `user_dir` is the user tree — the default root is its `datalog/`.
     pub fn new(
         working_dir: impl Into<PathBuf>,
+        user_dir: impl Into<PathBuf>,
         config: &DatalogConfig,
         model: impl Into<String>,
         context_window: u32,
     ) -> Option<Self> {
         config.enabled.then(|| Self {
             working_dir: working_dir.into(),
+            user_dir: user_dir.into(),
             configured_dir: config.dir.clone(),
             model: model.into(),
             context_window,
@@ -227,11 +241,22 @@ impl DatalogHook {
     }
 
     /// Resolve `<configured-root>/<project-basename>-<hash8>`.
-    pub fn resolve_log_dir(working_dir: &Path, configured_dir: Option<&str>) -> PathBuf {
+    ///
+    /// The default root is `user_dir/datalog`. `DatalogConfig::default`
+    /// materializes a spelling of it into config.toml; that exact value is read
+    /// back as the default — compared against the same function, never a
+    /// copied literal — so the logs follow the tree the host handed in.
+    pub fn resolve_log_dir(
+        working_dir: &Path,
+        configured_dir: Option<&str>,
+        user_dir: &Path,
+    ) -> PathBuf {
+        let materialized_default = DatalogConfig::default().dir;
         let root = match configured_dir.filter(|value| !value.trim().is_empty()) {
-            // `DatalogConfig::default` materializes this value into config.toml.
-            // Treat it as the semantic default so ATOMCODE_HOME keeps working.
-            None | Some("~/.atomcode/datalog") => Config::config_dir().join("datalog"),
+            None => user_dir.join("datalog"),
+            Some(value) if Some(value) == materialized_default.as_deref() => {
+                user_dir.join("datalog")
+            }
             Some("~") => {
                 atomcode_config::util::real_home_dir().unwrap_or_else(|| PathBuf::from("."))
             }
@@ -308,7 +333,11 @@ impl DatalogHook {
             std::process::id(),
             self.instance_id
         );
-        let directory = Self::resolve_log_dir(&self.working_dir, self.configured_dir.as_deref());
+        let directory = Self::resolve_log_dir(
+            &self.working_dir,
+            self.configured_dir.as_deref(),
+            &self.user_dir,
+        );
         let build_id = option_env!("ATOMCODE_BUILD_ID").unwrap_or("dev");
         let mut markdown = String::new();
         let _ = writeln!(markdown, "# Turn {display_timestamp} [build:{build_id}]");
@@ -347,14 +376,30 @@ impl DatalogHook {
     }
 }
 
-#[async_trait]
-impl LifecycleHooks for DatalogHook {
-    async fn user_prompt_submit(&self, text: &mut String) -> Result<(), String> {
-        self.start_turn(text);
-        Ok(())
+/// The datalog as a SINK, apart from the seams that drive it.
+///
+/// `DatalogHook` was written as one struct wearing two kernel traits, with every
+/// decision inlined in the trait methods. The harness reaches the same moments
+/// through entirely different seams (`turn/start`, `agent/request`,
+/// `tool/result`, `turn/end`), so the `datalog` row drives these directly.
+///
+/// Same split as the approval gates and the verify cadence before it: what to
+/// write is decided once, and how it is delivered is the assembly's business.
+impl DatalogHook {
+    /// A new turn opened, with the text that opened it.
+    pub fn begin_turn(&self, prompt: &str) {
+        self.start_turn(prompt);
     }
 
-    async fn on_request(
+    /// A request is about to go to the model — the JSONL record.
+    ///
+    /// The reason this row cannot be a plain session-log listener: the log
+    /// holds FACTS (a user message, an assistant message, a tool result), and
+    /// this record is the ASSEMBLED REQUEST — the system prompt as sent, every
+    /// message, the tools, the options, the cache epoch. That is exactly what a
+    /// prompt-cache or "did the model actually see it" investigation needs, and
+    /// it exists nowhere else.
+    pub async fn record_request(
         &self,
         messages: &[Message],
         tools: &[ToolDef],
@@ -401,7 +446,7 @@ impl LifecycleHooks for DatalogHook {
         let record = serde_json::json!({
             "v": RECORD_FORMAT_VERSION,
             "step": ctx.round,
-            "session_id": ctx.session_id.as_deref().map(|id| id.as_ref()).unwrap_or(""),
+            "session_id": ctx.session_id.as_deref().unwrap_or(""),
             "turn_id": ctx.turn_id,
             "request_id": ctx.request_id,
             "model": self.model,
@@ -438,7 +483,8 @@ impl LifecycleHooks for DatalogHook {
         self.append_markdown(markdown);
     }
 
-    async fn on_model_response(&self, response: &mut Message) {
+    /// What the model answered.
+    pub fn record_response(&self, response: &Message) {
         let mut state = self.lock();
         if !state.active {
             return;
@@ -490,64 +536,28 @@ impl LifecycleHooks for DatalogHook {
         self.append_markdown(markdown);
     }
 
-    async fn on_error(&self, error: &str) {
+    /// Something went wrong mid-turn.
+    pub fn record_error(&self, error: &str) {
         if !self.lock().active {
             return;
         }
         self.append_markdown(format!("**Error:** {error}\n\n"));
     }
 
-    async fn turn_complete(&self, _convo: &Conversation, reason: &StopReason, _ctx: &TurnCtx) {
-        let markdown = {
-            let mut state = self.lock();
-            if !state.active {
-                return;
-            }
-            let duration = state
-                .started
-                .map(|started| started.elapsed().as_secs_f64())
-                .unwrap_or_default();
-            let rounds = state.rounds;
-            let tool_calls = state.tool_calls;
-            let total_tokens = state.total_tokens;
-            let mut markdown = String::new();
-            let _ = writeln!(
-                markdown,
-                "---\n**Stats:** {rounds} turns, {tool_calls} tool calls, {duration:.1}s, {total_tokens} tokens\n\
-                 **End:** reason={reason:?}",
-            );
-            state.active = false;
-            markdown
-        };
-        self.append_markdown(markdown);
-        self.writer.barrier().await;
-    }
-}
-
-#[async_trait]
-impl ToolMiddleware for DatalogHook {
-    async fn before(
-        &self,
-        call: &mut ToolCall,
-        _tool: &Arc<dyn Tool>,
-        _rt: &RequestCtx,
-    ) -> atomcode_kernel::middleware::BeforeOutcome {
+    /// Remember a call id's tool name, so its result can be labelled.
+    pub fn note_tool_call(&self, id: &str, name: &str) {
         let mut state = self.lock();
         if state.active {
-            state.tool_names.insert(call.id.clone(), call.name.clone());
-            state.tool_started.insert(call.id.clone(), Instant::now());
+            state.tool_names.insert(id.to_string(), name.to_string());
+            state.tool_started.insert(id.to_string(), Instant::now());
         }
-        atomcode_kernel::middleware::BeforeOutcome::Proceed
     }
 
-    async fn after(
-        &self,
-        result: &mut ToolResult,
-        _tool: Option<&std::sync::Arc<dyn atomcode_kernel::tool::Tool>>,
-    ) -> AfterOutcome {
+    /// One tool result.
+    pub fn record_tool_result(&self, result: &ToolResult) {
         let mut state = self.lock();
         if !state.active {
-            return AfterOutcome::Proceed;
+            return;
         }
         let name = state
             .tool_names
@@ -565,6 +575,114 @@ impl ToolMiddleware for DatalogHook {
             "**Tool result:** `{name}` (`{}`, {status}{dur})\n```\n{}\n```\n\n",
             result.call_id, result.content
         ));
+    }
+
+    /// Wait until everything queued has actually been written.
+    ///
+    /// Separate from [`Self::finish_turn`] because the write is a channel push
+    /// and the wait is not: a sync listener can do the first and spawn the
+    /// second, while the kernel hook does both in order as it always did.
+    pub async fn flush(&self) {
+        self.writer.barrier().await;
+    }
+
+    /// The same, for a caller with no `await` — a teardown, in practice.
+    ///
+    /// The gap this closes: the turn-end listener is synchronous, so the flush
+    /// it asks for is *spawned*, and nothing after that waits for it. In a
+    /// process that keeps running, the writer thread gets there on its own and
+    /// the only cost is when. In one that ends right after a turn — a `-p` run,
+    /// a test reading the file it just asked for — the tail of the log is
+    /// whatever the thread happened to finish first.
+    pub fn flush_blocking(&self) {
+        self.writer.barrier_blocking();
+    }
+
+    /// The turn ended; write the stats.
+    pub fn finish_turn(&self, reason: &StopReason) {
+        self.finish_turn_named(&format!("{reason:?}"));
+    }
+
+    /// As [`Self::finish_turn`], for a caller whose stop reason is its own type.
+    ///
+    /// The harness has a `StopReason` of its own, and the datalog only ever
+    /// rendered this value with `{:?}` — so taking the rendering keeps the two
+    /// crates from having to agree on an enum neither of them owns.
+    pub fn finish_turn_named(&self, reason: &str) {
+        let markdown = {
+            let mut state = self.lock();
+            if !state.active {
+                return;
+            }
+            let duration = state
+                .started
+                .map(|started| started.elapsed().as_secs_f64())
+                .unwrap_or_default();
+            let rounds = state.rounds;
+            let tool_calls = state.tool_calls;
+            let total_tokens = state.total_tokens;
+            let mut markdown = String::new();
+            let _ = writeln!(
+                markdown,
+                "---\n**Stats:** {rounds} turns, {tool_calls} tool calls, {duration:.1}s, {total_tokens} tokens\n\
+                 **End:** reason={reason}",
+            );
+            state.active = false;
+            markdown
+        };
+        self.append_markdown(markdown);
+    }
+}
+
+#[async_trait]
+impl LifecycleHooks for DatalogHook {
+    async fn user_prompt_submit(&self, text: &mut String) -> Result<(), String> {
+        self.begin_turn(text);
+        Ok(())
+    }
+
+    async fn on_request(
+        &self,
+        messages: &[Message],
+        tools: &[ToolDef],
+        options: &ChatOptions,
+        ctx: &TurnCtx,
+    ) {
+        self.record_request(messages, tools, options, ctx).await;
+    }
+
+    async fn on_model_response(&self, response: &mut Message) {
+        self.record_response(response);
+    }
+
+    async fn on_error(&self, error: &str) {
+        self.record_error(error);
+    }
+
+    async fn turn_complete(&self, _convo: &Conversation, reason: &StopReason, _ctx: &TurnCtx) {
+        self.finish_turn(reason);
+        self.flush().await;
+    }
+}
+
+#[async_trait]
+impl ToolMiddleware for DatalogHook {
+    async fn before(
+        &self,
+        call: &mut ToolCall,
+        _tool: &Arc<dyn Tool>,
+        _rt: &RequestCtx,
+    ) -> atomcode_kernel::middleware::BeforeOutcome {
+        self.note_tool_call(&call.id, &call.name);
+        atomcode_kernel::middleware::BeforeOutcome::Proceed
+    }
+
+    async fn after(
+        &self,
+        result: &mut ToolResult,
+        _tool: Option<&std::sync::Arc<dyn atomcode_kernel::tool::Tool>>,
+    ) -> AfterOutcome {
+        self.record_tool_result(result);
         AfterOutcome::Proceed
     }
 }
@@ -604,12 +722,29 @@ impl DatalogWriter {
         let _ = self.tx.send(WriteOp::Append { path, content });
     }
 
+    /// Wait, without an `await`, for at most [`SYNC_BARRIER_WAIT`].
+    ///
+    /// Bounded because this runs while something is being torn down: a writer
+    /// that has gone away must not hold the teardown open, and what is at stake
+    /// is the tail of a log rather than anything the program needs next.
+    fn barrier_blocking(&self) {
+        let (reply, receive) = mpsc::channel();
+        if self.tx.send(WriteOp::BarrierSync { reply }).is_err() {
+            return;
+        }
+        let _ = receive.recv_timeout(SYNC_BARRIER_WAIT);
+    }
+
     async fn barrier(&self) {
         let (reply, receive) = tokio::sync::oneshot::channel();
         let _ = self.tx.send(WriteOp::Barrier { reply });
         let _ = tokio::time::timeout(IO_WAIT_TIMEOUT, receive).await;
     }
 }
+
+/// How long a teardown waits for the log to land. Long enough for a queue of
+/// turn markdown, short enough that a wedged writer cannot hold a shutdown.
+const SYNC_BARRIER_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 
 fn writer_loop(rx: mpsc::Receiver<WriteOp>) {
     while let Ok(operation) = rx.recv() {
@@ -631,6 +766,9 @@ fn writer_loop(rx: mpsc::Receiver<WriteOp>) {
                 if let Ok(mut file) = open_private_append(&path) {
                     let _ = file.write_all(content.as_bytes());
                 }
+            }
+            WriteOp::BarrierSync { reply } => {
+                let _ = reply.send(());
             }
             WriteOp::Barrier { reply } => {
                 let _ = reply.send(());
@@ -780,13 +918,21 @@ mod tests {
             enabled: false,
             dir: None,
         };
-        assert!(DatalogHook::new("/repo", &config, "model", 128_000).is_none());
+        assert!(DatalogHook::new("/repo", "/tree", &config, "model", 128_000).is_none());
     }
 
     #[test]
     fn relative_roots_are_project_scoped_and_collision_safe() {
-        let first = DatalogHook::resolve_log_dir(Path::new("/work/foo"), Some("logs"));
-        let second = DatalogHook::resolve_log_dir(Path::new("/personal/foo"), Some("logs"));
+        let first = DatalogHook::resolve_log_dir(
+            Path::new("/work/foo"),
+            Some("logs"),
+            Path::new("/the/tree"),
+        );
+        let second = DatalogHook::resolve_log_dir(
+            Path::new("/personal/foo"),
+            Some("logs"),
+            Path::new("/the/tree"),
+        );
         assert!(first.starts_with("/work/foo/logs"));
         assert!(second.starts_with("/personal/foo/logs"));
         assert_ne!(first.file_name(), second.file_name());
@@ -812,40 +958,35 @@ mod tests {
 
         let working_dir = Path::new("/work/foo");
         assert_eq!(
-            DatalogHook::resolve_log_dir(working_dir, materialized.as_deref()),
-            DatalogHook::resolve_log_dir(working_dir, None),
+            DatalogHook::resolve_log_dir(
+                working_dir,
+                materialized.as_deref(),
+                Path::new("/the/tree")
+            ),
+            DatalogHook::resolve_log_dir(working_dir, None, Path::new("/the/tree")),
             "the string written to config.toml ({:?}) is no longer the one \
              `resolve_log_dir` treats as the default — the two crates have drifted",
             materialized
         );
     }
 
-    /// The default root is `$ATOMCODE_HOME`-relative, not `$HOME`-relative.
-    /// The harness `#[ctor]` points `$ATOMCODE_HOME` at a temp dir for the whole
-    /// binary, so this asserts against a location that is provably not the
-    /// built-in `~/.atomcode` — the case the `resolve_log_dir` special-case
-    /// exists for.
+    /// The default root is the user tree handed in, not `$HOME`-relative —
+    /// the case the `resolve_log_dir` special-case exists for.
     #[test]
-    fn the_default_root_follows_atomcode_home() {
-        let configured = Config::config_dir();
-        assert!(
-            !configured.ends_with(".atomcode"),
-            "precondition: the harness must have moved the config dir off the \
-             default, else this test cannot tell the two roots apart — got {}",
-            configured.display()
-        );
-
+    fn the_default_root_is_the_tree_handed_in() {
+        let tree = Path::new("/elsewhere/fork-tree");
         let resolved = DatalogHook::resolve_log_dir(
             Path::new("/work/foo"),
             DatalogConfig::default().dir.as_deref(),
+            tree,
         );
         assert!(
-            resolved.starts_with(configured.join("datalog")),
-            "datalogs must land under $ATOMCODE_HOME, got {}",
+            resolved.starts_with(tree.join("datalog")),
+            "datalogs must land under the user tree, got {}",
             resolved.display()
         );
         // The project slug is still appended, so two projects never share a bucket.
-        assert_ne!(resolved, configured.join("datalog"));
+        assert_ne!(resolved, tree.join("datalog"));
     }
 
     /// The special case is exact-match on purpose: any OTHER `~/…` value is a
@@ -857,7 +998,11 @@ mod tests {
         let Some(home) = atomcode_config::util::real_home_dir() else {
             return; // no resolvable home on this box; nothing to compare against
         };
-        let resolved = DatalogHook::resolve_log_dir(Path::new("/work/foo"), Some("~/elsewhere"));
+        let resolved = DatalogHook::resolve_log_dir(
+            Path::new("/work/foo"),
+            Some("~/elsewhere"),
+            Path::new("/the/tree"),
+        );
         assert!(
             resolved.starts_with(home.join("elsewhere")),
             "an explicit `~/…` must expand against $HOME, got {}",
@@ -865,10 +1010,14 @@ mod tests {
         );
 
         // Same string as the default but with a trailing space: NOT the sentinel.
-        let sloppy =
-            DatalogHook::resolve_log_dir(Path::new("/work/foo"), Some("~/.atomcode/datalog "));
+        let sloppy_value = format!("{} ", DatalogConfig::default().dir.unwrap());
+        let sloppy = DatalogHook::resolve_log_dir(
+            Path::new("/work/foo"),
+            Some(&sloppy_value),
+            Path::new("/the/tree"),
+        );
         assert!(
-            sloppy.starts_with(home.join(".atomcode")),
+            !sloppy.starts_with("/the/tree"),
             "only the exact literal is the sentinel, got {}",
             sloppy.display()
         );
@@ -884,7 +1033,14 @@ mod tests {
             enabled: true,
             dir: Some(output.display().to_string()),
         };
-        let hook = DatalogHook::new(&project, &config, "test-model", 128_000).unwrap();
+        let hook = DatalogHook::new(
+            &project,
+            root.path().join("tree"),
+            &config,
+            "test-model",
+            128_000,
+        )
+        .unwrap();
 
         let mut prompt = "inspect this".to_string();
         hook.user_prompt_submit(&mut prompt).await.unwrap();
@@ -1048,8 +1204,10 @@ mod tests {
             enabled: true,
             dir: Some(output.display().to_string()),
         };
-        let first = DatalogHook::new(&project, &config, "model", 128_000).unwrap();
-        let second = DatalogHook::new(&project, &config, "model", 128_000).unwrap();
+        let first =
+            DatalogHook::new(&project, "/nonexistent/tree", &config, "model", 128_000).unwrap();
+        let second =
+            DatalogHook::new(&project, "/nonexistent/tree", &config, "model", 128_000).unwrap();
         let ctx = TurnCtx {
             session_id: Some(Arc::from("shared/session")),
             turn_id: 1,
@@ -1105,7 +1263,8 @@ mod tests {
             enabled: true,
             dir: Some(output.display().to_string()),
         };
-        let hook = DatalogHook::new(&project, &config, "model", 128_000).unwrap();
+        let hook =
+            DatalogHook::new(&project, "/nonexistent/tree", &config, "model", 128_000).unwrap();
         hook.user_prompt_submit(&mut "prompt".to_string())
             .await
             .unwrap();

@@ -5,9 +5,8 @@
 //! which `recall` cannot do.
 //!
 //! Reads the per-project `<project_hash>` bucket's `<id>.meta` files (the same
-//! catalog `/resume` shows) — derived from `ToolContext.working_dir`, so the
-//! tool needs no session wiring, or PINNED to an assembly's
-//! `SessionManager::root()` (see [`ListSessionsTool::with_sessions_dir`]).
+//! catalog `/resume` shows) under the assembly's `SessionManager::root()`,
+//! handed in at construction ([`ListSessionsTool::new`]).
 //! Read-only ⇒ `risk = Safe`.
 
 use std::path::{Path, PathBuf};
@@ -32,30 +31,19 @@ struct ListArgs {
 
 /// The `list_sessions` tool.
 pub struct ListSessionsTool {
-    /// PINNED sessions dir — same rationale as [`super::recall::RecallTool`]: the
-    /// live `ToolContext.working_dir` MOVES when the model runs `cd`, so an
-    /// assembly that owns a `SessionManager` pins its `root()` here to stay on the
-    /// bucket the session hooks actually write.
-    sessions_dir: Option<PathBuf>,
-}
-
-impl Default for ListSessionsTool {
-    fn default() -> Self {
-        Self { sessions_dir: None }
-    }
+    /// The sessions dir this tool lists — same rationale as
+    /// [`super::recall::RecallTool`]: the live `ToolContext.working_dir` MOVES
+    /// when the model runs `cd`, so the assembly's `SessionManager::root()` is
+    /// handed in and the tool stays on the bucket the session hooks write.
+    sessions_dir: PathBuf,
 }
 
 impl ListSessionsTool {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Pin the sessions dir this tool lists (an assembly passes its
-    /// `SessionManager::root()`), instead of re-deriving it from the live —
-    /// `cd`-movable — working dir at each call.
-    pub fn with_sessions_dir(mut self, dir: impl Into<PathBuf>) -> Self {
-        self.sessions_dir = Some(dir.into());
-        self
+    /// List the sessions under `sessions_dir`.
+    pub fn new(sessions_dir: impl Into<PathBuf>) -> Self {
+        Self {
+            sessions_dir: sessions_dir.into(),
+        }
     }
 
     /// The testable core: list the sessions under `sessions_dir`, optionally
@@ -85,9 +73,9 @@ impl ListSessionsTool {
         }
 
         format!(
-            "{} session(s) in this project, most recent first:\n{}\n\n(To read the \
-             actual content/decisions of any of these, use `recall` with keywords \
-             from its title.)",
+            "{} session(s) in this project, most recent first:\n{}\n\n(To read one of \
+             these, call `recall` with `session` set to its id and no `query`; add \
+             `query` only to search within it.)",
             rows.len(),
             rows.join("\n")
         )
@@ -115,10 +103,9 @@ impl Tool for ListSessionsTool {
     fn description(&self) -> &str {
         "List THIS project's past conversation sessions — their titles, when they \
          were last active, and size — so you can tell the user what exists or decide \
-         which one to pull from. This only ENUMERATES sessions; to read the actual \
-         content/decisions of one, use `recall` (keyword/topic search across the same \
-         sessions). Read-only. Optional `query` filters by a case-insensitive \
-         substring of the session title."
+         which one to pull from. This only ENUMERATES sessions; to read what was said \
+         in one, use `recall` with `session` set to its id. Read-only. Optional `query` \
+         filters by a case-insensitive substring of the session title."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -135,7 +122,7 @@ impl Tool for ListSessionsTool {
         RiskLevel::Safe
     }
 
-    async fn execute(&self, args: &str, ctx: &ToolContext) -> ToolResult {
+    async fn execute(&self, args: &str, _ctx: &ToolContext) -> ToolResult {
         let a: ListArgs = match serde_json::from_str(args) {
             Ok(a) => a,
             Err(e) => {
@@ -147,14 +134,8 @@ impl Tool for ListSessionsTool {
                 }
             }
         };
-        let sessions_dir = match &self.sessions_dir {
-            Some(d) => d.clone(),
-            None => SessionManager::for_project(&ctx.working_dir)
-                .root()
-                .to_path_buf(),
-        };
         let content = self.list_dir(
-            &sessions_dir,
+            &self.sessions_dir,
             a.query.as_deref(),
             a.limit.unwrap_or(DEFAULT_LIMIT),
         );
@@ -186,7 +167,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         seed(dir.path(), "old", "fix login bug", 1_000, 3);
         seed(dir.path(), "new", "refactor parser", 2_000, 7);
-        let out = ListSessionsTool::new().list_dir(dir.path(), None, 20);
+        let out = ListSessionsTool::new(dir.path()).list_dir(dir.path(), None, 20);
         assert!(out.contains("fix login bug"), "out: {out}");
         assert!(out.contains("refactor parser"), "out: {out}");
         let i_new = out.find("refactor parser").unwrap();
@@ -199,7 +180,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         seed(dir.path(), "a", "Fix Login Bug", 1_000, 1);
         seed(dir.path(), "b", "refactor parser", 2_000, 1);
-        let out = ListSessionsTool::new().list_dir(dir.path(), Some("login"), 20);
+        let out = ListSessionsTool::new(dir.path()).list_dir(dir.path(), Some("login"), 20);
         assert!(out.contains("Fix Login Bug"), "out: {out}");
         assert!(!out.contains("refactor parser"), "filtered out: {out}");
     }
@@ -216,7 +197,7 @@ mod tests {
                 1,
             );
         }
-        let out = ListSessionsTool::new().list_dir(dir.path(), None, 2);
+        let out = ListSessionsTool::new(dir.path()).list_dir(dir.path(), None, 2);
         let rows = out.matches("  • ").count();
         assert_eq!(rows, 2, "limit must cap rows: {out}");
     }
@@ -224,7 +205,7 @@ mod tests {
     #[test]
     fn empty_project_reports_none() {
         let dir = tempfile::tempdir().unwrap();
-        let out = ListSessionsTool::new().list_dir(dir.path(), None, 20);
+        let out = ListSessionsTool::new(dir.path()).list_dir(dir.path(), None, 20);
         assert!(
             out.to_lowercase().contains("no sessions"),
             "empty dir must say so: {out}"

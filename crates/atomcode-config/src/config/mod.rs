@@ -1,5 +1,4 @@
 pub mod instructions;
-pub mod memory;
 pub mod offline;
 pub mod prompt_sections;
 pub mod provider;
@@ -13,8 +12,19 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::proxy::ProxyConfig;
-use atomcode_telemetry::TelemetryConfig;
 use provider::{ModelProfileConfig, ProviderAccountConfig, ProviderConfig, ResolvedModelConfig};
+
+/// The `[telemetry]` section of `config.toml`: what the person said about
+/// telemetry, `None` where they said nothing.
+///
+/// The schema is this crate's — it is a section of the file this crate reads.
+/// `atomcode-telemetry` takes the two answers (`atomcode_telemetry::config::resolve`)
+/// and knows nothing of the file, so neither crate depends on the other.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TelemetryConfig {
+    pub enabled: Option<bool>,
+    pub endpoint: Option<String>,
+}
 
 // DEFAULT_SYSTEM_PROMPT removed — single source of truth is now
 // config/prompt_sections.rs::UNIFIED_PROMPT (~500 tok).
@@ -106,11 +116,93 @@ impl Default for TodoToolConfig {
     }
 }
 
+/// `[tools.atomgit]` policy — runtime switch for the AtomGit typed REST tools
+/// (`atomgit_repo` / `atomgit_pr` / `atomgit_issue` / `atomgit_api`).
+///
+/// Default is `enabled: true` so production builds keep exposing the tools without
+/// a recompile. The switch is ADDITIVE: old config files without `[tools.atomgit]`
+/// parse identically to before.
+///
+/// NOT covered by this switch (contract behavior, not implementation detail):
+/// - AtomGit OAuth login / signed-in state / CodingPlan claim — the login flow
+///   lives in `atomcode-auth::oauth` and is decoupled from this coding-assembly
+///   gate. Signed-in accounts keep using the OAuth signer for CodingPlan
+///   providers, and `/login` / `atomcode login` / TUI `/login` all work under
+///   both switch states. Users who want zero AtomGit interaction must
+///   additionally `atomcode logout`, avoid setting `ATOMGIT_TOKEN`, and (optionally)
+///   use `permissions.deny = ["Bash(curl https://api.atomgit.com*)"]` to block
+///   raw REST via `bash`.
+/// - `GitPushLabelMiddleware` — post-push `atomcode` label is non-model-facing,
+///   occupies no prompt tokens, and disabling it would silently drop labels.
+/// - Raw AtomGit REST calls via the `bash` tool — intentionally not gated here;
+///   credential exposure risk is covered by `CredentialBashGate` (`$ATOMGIT_TOKEN`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AtomGitToolConfig {
+    pub enabled: bool,
+}
+
+impl Default for AtomGitToolConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+/// Which screen `atomcode` opens (`[ui] screen`).
+///
+/// Two screens exist while the row-assembled one replaces the other
+/// (`docs/adr/0012`, `docs/tui-replaces-tuix-plan.md` M6): same runtime, same
+/// sessions, same configuration — only what draws them differs. The setting is
+/// what makes the switch a decision a person makes once, rather than a flag
+/// they have to remember on every launch, and it is what keeps an escape hatch
+/// after the default moves.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Screen {
+    /// The screen this build opens by default. Since 2026-09-22 that is the
+    /// row-assembled one; the classic one stays behind `--classic`.
+    #[default]
+    Default,
+    /// The screen assembled from plugin rows (`atomcode --tui`).
+    Rows,
+    /// The classic screen.
+    Classic,
+}
+
 /// Tool-specific policies. Persisted as `[tools.*]` tables.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ToolsConfig {
     pub todo: TodoToolConfig,
+    pub atomgit: AtomGitToolConfig,
+    #[serde(skip_serializing_if = "OutputToolConfig::is_default")]
+    pub output: OutputToolConfig,
+}
+
+/// `[tools.output]` — how an oversized tool result reaches the model.
+///
+/// A result over `threshold_bytes` is kept whole as an artifact and shown as a
+/// head + tail preview that names the range it leaves out; `fetch_output` reads
+/// the rest. Unset is the built-in default (50 KiB). Out-of-range values are
+/// clamped where they are applied, and `ATOMCODE_TOOL_OUTPUT_THRESHOLD_BYTES`
+/// wins — the file is for a deployment that cannot set the process's
+/// environment, such as a daemon an editor extension starts.
+///
+/// ```toml
+/// [tools.output]
+/// threshold_bytes = 204800
+/// ```
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OutputToolConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threshold_bytes: Option<usize>,
+}
+
+impl OutputToolConfig {
+    fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
 }
 
 /// `[permissions]` — user-declared pre-authorization for tool calls, so the common
@@ -169,29 +261,20 @@ impl Default for LoopConfig {
     }
 }
 
-/// `[subagent]` execution policy for the `task` subagent tool.
+/// `[subagent]` execution policy for the `task` and `team` tools.
 ///
-/// `max_concurrent` and `max_rounds` are the LIVE knobs: `coding::parts` reads them via
-/// `subagent_runtime_knobs` and wires them into `TaskTool`.
-/// The tool's master ON/OFF is the env gate `ATOMCODE_SUBAGENT`
-/// (default ON, opt out with `ATOMCODE_SUBAGENT=0`) — NOT `enabled` here; `enabled`,
-/// `initial_turns`, and `max_turns` are vestigial from the retired `parallel_edit` dispatch
-/// path and are not currently consulted.
+/// `max_concurrent` and `max_rounds` are the live knobs: `coding::parts` reads them
+/// and wires them into `TaskTool` and the team manager. Whether the tools are
+/// mounted at all is the driver's `SubagentPolicy` first, then the env gate
+/// `ATOMCODE_SUBAGENT` (`0`/`false`/`off` turns them off) — there is no config key
+/// for it. The old `enabled`, `initial_turns`, `max_turns` and `timeout_secs` keys
+/// were read by nothing and are gone; a file that still has them parses unchanged
+/// (see `legacy_dead_keys_still_parse`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SubAgentConfig {
-    /// Vestigial: the live master switch is the env gate `ATOMCODE_SUBAGENT` (default ON),
-    /// not this field. Kept for config back-compat.
-    pub enabled: bool,
-    /// Vestigial (retired resilience path); not currently read.
-    pub initial_turns: usize,
-    /// Vestigial (retired resilience path); not currently read.
-    pub max_turns: usize,
     /// Max parallel subagents the `task` tool runs at once (floored to 1). Default 3.
     pub max_concurrent: usize,
-    /// Deprecated compatibility field. Subtasks no longer have a total wall-clock limit;
-    /// provider idle timeouts, `max_rounds`, and explicit cancellation own liveness.
-    pub timeout_secs: u64,
     /// Per-subtask model-round high-water mark. Default 200; `0` means unbounded.
     /// Overridden by `ATOMCODE_SUBAGENT_MAX_ROUNDS` when set.
     pub max_rounds: u32,
@@ -220,12 +303,7 @@ fn default_subagent_level() -> String {
 impl Default for SubAgentConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
-            initial_turns: 4,
-            max_turns: 12,
             max_concurrent: 3,
-            // Retained only so existing config files continue to deserialize unchanged.
-            timeout_secs: 900,
             max_rounds: 200,
             codex: default_subagent_level(),
             claude: default_subagent_level(),
@@ -271,7 +349,10 @@ pub struct Config {
     /// Falls back to `default_provider` when not set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evaluator_provider: Option<String>,
-    /// Default working directory. Saved on /cd, restored on startup.
+    /// The daemon's default working directory: written by a `/cd` request that
+    /// asks for `set_default`, read when the daemon starts (a launch-time
+    /// directory, as `atomcode webui` passes, wins over it). The terminal UI
+    /// neither reads nor writes it.
     pub default_workdir: Option<String>,
     /// Legacy flattened providers. `#[serde(default)]` so a pure new-schema
     /// config (accounts + models only, no `[providers]`) loads (design §4).
@@ -322,10 +403,6 @@ pub struct Config {
     /// LSP integration configuration.
     #[serde(default)]
     pub lsp: LspConfig,
-    /// Automatically commit edited files after each agent turn completes.
-    /// Only applies when working inside a git repository.
-    #[serde(default)]
-    pub auto_commit: bool,
     /// `task` subagent tool policy. Missing from older configs uses the defaults in
     /// [`SubAgentConfig`], including a configurable 200-round high-water mark.
     #[serde(default)]
@@ -503,6 +580,23 @@ pub struct UiConfig {
     /// configs see no behaviour change.
     #[serde(default)]
     pub theme: UiTheme,
+    /// Which screen `atomcode` opens. Missing means this build's default, so
+    /// nobody's launch changes by upgrading into this field; `--tui` and
+    /// `--classic` still win over it for one launch.
+    #[serde(default)]
+    pub screen: Screen,
+    /// Report the pointer for in-app mouse — click-to-fold a tool call, the copy
+    /// menu, drag-select, and wheel-scroll. `false` hands the pointer to the
+    /// terminal so PLAIN click-drag does the terminal's OWN selection (spans the
+    /// scrollback, copies clean) — at the cost of ALL in-app mouse: no
+    /// click-to-fold, no copy menu, and the wheel becomes the terminal's (native
+    /// scrollback where the emulator keeps it, otherwise scroll with
+    /// PageUp/PageDown). Most people are better off leaving this ON and holding
+    /// Shift to drag-select natively when they want to. Read once at startup (like
+    /// `theme`); `--no-mouse` overrides it off for one launch, Ctrl+O toggles it
+    /// live. Default on.
+    #[serde(default = "default_true")]
+    pub mouse: bool,
     /// Auto-copy a rendered code block's raw source to the clipboard when the
     /// AI finishes emitting it. OFF by default — it silently overwrote the
     /// user's clipboard on every code-block reply (issue #699 feedback). Env
@@ -549,12 +643,22 @@ pub struct UiConfig {
     /// change takes effect immediately.
     #[serde(default)]
     pub mode_switch_key: ModeSwitchKey,
+    /// Directories a person marked to come back to, newest first — what `/cd`
+    /// offers before it offers anything it found by looking around.
+    ///
+    /// A list rather than a settings-catalogue entry: the catalogue is one
+    /// value per key (a person types it), and this one is written by the
+    /// gesture that marks a directory, never by hand.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cd_bookmarks: Vec<String>,
 }
 
 impl Default for UiConfig {
     fn default() -> Self {
         Self {
             theme: UiTheme::default(),
+            screen: Screen::default(),
+            mouse: true,
             auto_copy_code_blocks: default_auto_copy_code_blocks(),
             ai_session_naming: default_ai_session_naming(),
             terminal_status_glyph: default_terminal_status_glyph(),
@@ -563,6 +667,7 @@ impl Default for UiConfig {
             brand_name: default_brand_name(),
             oauth_provider_name: default_oauth_provider_name(),
             mode_switch_key: ModeSwitchKey::default(),
+            cd_bookmarks: Vec::new(),
         }
     }
 }
@@ -736,7 +841,6 @@ impl Default for Config {
             auto_update: true,
             telemetry: Default::default(),
             lsp: Default::default(),
-            auto_commit: false,
             subagent: Default::default(),
             loop_config: Default::default(),
             coding: CodingConfig::default(),
@@ -1015,6 +1119,34 @@ impl Config {
         Ok(())
     }
 
+    /// What it takes to reach an account's endpoint, resolved the way a request
+    /// resolves it: the preset's base URL when none is stored, the key with its
+    /// environment fallbacks. Covers a legacy `[providers.*]` entry by its id too.
+    /// `None` for an id this file does not have.
+    pub fn account_endpoint(&self, id: &str) -> Option<AccountEndpoint> {
+        if let Some(account) = self.provider_accounts.get(id) {
+            let preset = provider_preset::preset_or_compatible(&account.provider);
+            return Some(AccountEndpoint {
+                provider_type: preset.provider_type.wire().to_string(),
+                base_url: account
+                    .base_url
+                    .clone()
+                    .or_else(|| preset.default_base_url.map(str::to_string)),
+                api_key: resolve_account_api_key(account, preset),
+                user_agent: account.user_agent.clone(),
+                skip_tls_verify: account.skip_tls_verify,
+            });
+        }
+        let legacy = self.providers.get(id)?;
+        Some(AccountEndpoint {
+            provider_type: legacy.provider_type.clone(),
+            base_url: legacy.base_url.clone(),
+            api_key: legacy.resolved_api_key(),
+            user_agent: legacy.user_agent.clone(),
+            skip_tls_verify: legacy.skip_tls_verify,
+        })
+    }
+
     /// THE single provider/model resolution boundary (design §3.4, §10). Given a
     /// selection id (or `None` for the active [`Self::effective_model_selection`]),
     /// resolve the model profile, its account, the preset, environment API keys,
@@ -1188,6 +1320,27 @@ pub struct ReasoningFieldsMut<'a> {
     pub thinking_keep: &'a mut Option<String>,
     pub reasoning_history: &'a mut Option<String>,
     pub reasoning_effort: &'a mut Option<String>,
+}
+
+/// See [`Config::account_endpoint`]. `Debug` redacts the key.
+#[derive(Clone)]
+pub struct AccountEndpoint {
+    /// The wire type (`openai`, `responses`, `anthropic`, `ollama`).
+    pub provider_type: String,
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+    pub user_agent: Option<String>,
+    pub skip_tls_verify: bool,
+}
+
+impl std::fmt::Debug for AccountEndpoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AccountEndpoint")
+            .field("provider_type", &self.provider_type)
+            .field("base_url", &self.base_url)
+            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+            .finish()
+    }
 }
 
 /// Resolve an account's API key with environment fallbacks, mirroring
@@ -1530,6 +1683,9 @@ fn project_legacy_model(account_id: &str, p: &ProviderConfig) -> ModelProfileCon
         context_window: p.context_window,
         max_tokens: p.max_tokens,
         capable_model: p.capable_model,
+        // A legacy `[providers.*]` entry has nowhere to write one; the new-schema
+        // `[models.*]` form does.
+        note: None,
         thinking_type: p.thinking_type.clone(),
         thinking_keep: p.thinking_keep.clone(),
         reasoning_history: p.reasoning_history.clone(),
@@ -1538,6 +1694,8 @@ fn project_legacy_model(account_id: &str, p: &ProviderConfig) -> ModelProfileCon
         thinking_enabled: p.thinking_enabled,
         thinking_budget: p.thinking_budget,
         retry_max_attempts: p.retry_max_attempts,
+        origin: None,
+        rank: None,
     }
 }
 
@@ -1749,6 +1907,21 @@ pub fn todo_enabled_from_env(env: Option<&str>, cfg_value: bool) -> bool {
     }
 }
 
+/// Resolve the effective AtomGit typed-tools switch: env `ATOMCODE_ATOMGIT`
+/// (0/false/off vs 1/true/on) overrides the config value; absent/empty env → config value.
+/// Priority semantics are identical to [`todo_enabled_from_env`].
+///
+/// Called by `atomcode-coding`'s persona gate (`atomgit_tool_switch_enabled_for`)
+/// and the `parts.rs` prepare path — both read the SAME resolved value so the tool
+/// catalog and the persona guidance block stay in sync (no phantom tool calls).
+pub fn atomgit_enabled_from_env(env: Option<&str>, cfg_value: bool) -> bool {
+    match env.map(|s| s.trim().to_ascii_lowercase()) {
+        Some(v) if v == "0" || v == "false" || v == "off" => false,
+        Some(v) if v == "1" || v == "true" || v == "on" => true,
+        _ => cfg_value,
+    }
+}
+
 /// Resolve the effective `request_user_input` tool switch: DEFAULT-ON semantics.
 /// Returns `false` only when `env` is `Some("")`/`"0"`/`"false"`/`"off"` (case-insensitive,
 /// trimmed).  `None` (unset) or any other value → `true`.
@@ -1770,15 +1943,25 @@ pub fn request_user_input_enabled_from_env(env: Option<&str>) -> bool {
     }
 }
 
+/// The `[datalog] dir` written into a fresh config.toml: `~/<HOME_DIR_NAME>/datalog`.
+///
+/// A readable spelling of "the user tree's `datalog/`", not a path to expand:
+/// the resolver (`atomcode_capabilities::datalog`) recognises this exact value
+/// as the default and puts logs under the tree it was handed — so a person who
+/// relocated the tree with `ATOMCODE_HOME` still gets them there.
+pub fn default_datalog_dir() -> String {
+    format!("~/{}/datalog", crate::distribution::HOME_DIR_NAME)
+}
+
 impl Default for DatalogConfig {
     fn default() -> Self {
         Self {
             enabled: false,
             // Pre-fill the default root so it round-trips into config.toml on
             // first save — users see exactly where logs go without having to
-            // discover that "unset == ~/.atomcode/datalog". Resolver still
+            // discover that "unset == the user tree's datalog". Resolver still
             // treats this string the same as `None` (project slug appended).
-            dir: Some("~/.atomcode/datalog".to_string()),
+            dir: Some(default_datalog_dir()),
         }
     }
 }
@@ -1799,7 +1982,7 @@ impl Default for NotificationConfig {
 /// Serialize the `[datalog]` section with help comments so users editing
 /// config.toml by hand can discover the options without reading the source.
 /// `enabled` and `dir` are always emitted as real values — the default `dir`
-/// (`~/.atomcode/datalog`) is shown explicitly so users see exactly where
+/// ([`default_datalog_dir`]) is shown explicitly so users see exactly where
 /// logs go without having to discover that "unset == default".
 fn render_datalog_section(cfg: &DatalogConfig) -> String {
     let mut out = String::new();
@@ -1814,14 +1997,17 @@ fn render_datalog_section(cfg: &DatalogConfig) -> String {
     out.push_str("# A per-project subdirectory is always appended under `dir` so multiple\n");
     out.push_str("# projects never share a bucket.\n");
     out.push_str("# - enabled = false        -> disable logging entirely\n");
-    out.push_str(
-        "# - dir = \"~/.atomcode/datalog\" -> default (follows $ATOMCODE_HOME, ignores /cd)\n",
-    );
+    out.push_str(&format!(
+        "# - dir = \"{}\" -> default (follows ${}, ignores /cd)\n",
+        default_datalog_dir(),
+        crate::distribution::HOME_ENV,
+    ));
     out.push_str("# - dir = \"/abs/path\"      -> absolute, fixed (unaffected by /cd)\n");
     out.push_str("# - dir = \"rel/path\"       -> joined with current working_dir, follows /cd\n");
     out.push_str("[datalog]\n");
     out.push_str(&format!("enabled = {}\n", cfg.enabled));
-    let dir_value = cfg.dir.as_deref().unwrap_or("~/.atomcode/datalog");
+    let default_dir = default_datalog_dir();
+    let dir_value = cfg.dir.as_deref().unwrap_or(&default_dir);
     let escaped = dir_value.replace('\\', "\\\\").replace('"', "\\\"");
     out.push_str(&format!("dir = \"{}\"\n", escaped));
     out
@@ -1946,7 +2132,10 @@ fn render_instructions_section() -> String {
     out.push_str("\n# Project instructions — customize AI behavior via Markdown files.\n");
     out.push_str("# AtomCode loads instructions from three levels (low → high priority):\n");
     out.push_str("#\n");
-    out.push_str("#   1. ~/.atomcode/ATOMCODE.md           (global — your personal defaults)\n");
+    let home = crate::distribution::HOME_DIR_NAME;
+    out.push_str(&format!(
+        "#   1. ~/{home}/ATOMCODE.md           (global — your personal defaults)\n"
+    ));
     out.push_str(
         "#   2. <project>/.atomcode.md            (project — team-shared, commit to git)\n",
     );
@@ -1962,7 +2151,7 @@ fn render_instructions_section() -> String {
         "# Use /status to see which files are loaded. Use /init to generate a template.\n",
     );
     out.push_str("#\n");
-    out.push_str("# Example ~/.atomcode/ATOMCODE.md:\n");
+    out.push_str(&format!("# Example ~/{home}/ATOMCODE.md:\n"));
     out.push_str("#   ## Global Preferences\n");
     out.push_str("#   - Reply in Chinese\n");
     out.push_str("#   - Don't add AI co-author tags to commits\n");
@@ -1978,15 +2167,18 @@ fn render_instructions_section() -> String {
 fn render_hooks_json_section() -> String {
     let mut out = String::new();
     out.push_str("\n# Lifecycle hooks — configure in separate JSON files:\n");
-    out.push_str("#   ~/.atomcode/hooks.json       (global hooks)\n");
-    out.push_str("#   <project>/.hooks.json         (project hooks, override global by name)\n");
+    let home = crate::distribution::HOME_DIR_NAME;
+    out.push_str(&format!("#   ~/{home}/hooks.json       (global hooks)\n"));
+    out.push_str("#   <project>/.hooks.json         (project hooks — loaded as well; both files' hooks run)\n");
     out.push_str("#\n");
     out.push_str("# Example hooks.json:\n");
     out.push_str("#   {\n");
     out.push_str("#     \"hooks\": {\n");
     out.push_str("#       \"audit-all\": {\n");
     out.push_str("#         \"event\": \"pre_tool_use\",\n");
-    out.push_str("#         \"command\": \"echo \\\"$(date) $ATOMCODE_TOOL_NAME\\\" >> ~/.atomcode/audit.log\"\n");
+    out.push_str(&format!(
+        "#         \"command\": \"jq -c '{{tool_name, tool_input}}' >> ~/{home}/audit.log\"\n",
+    ));
     out.push_str("#       },\n");
     out.push_str("#       \"block-rm\": {\n");
     out.push_str("#         \"event\": \"pre_tool_use\",\n");
@@ -1997,9 +2189,18 @@ fn render_hooks_json_section() -> String {
     out.push_str("#     }\n");
     out.push_str("#   }\n");
     out.push_str("#\n");
-    out.push_str("# Events: pre_tool_use, post_tool_use, session_start, session_end\n");
-    out.push_str("# Env vars: ATOMCODE_HOOK_EVENT, ATOMCODE_TOOL_NAME, ATOMCODE_HOOK_CONTEXT\n");
-    out.push_str("# PreToolUse stdout: {\"action\":\"allow\"} or {\"action\":\"block\",\"reason\":\"...\"}\n");
+    out.push_str(
+        "# Events (PascalCase or snake_case): PreToolUse, PostToolUse, PostToolUseFailure,\n",
+    );
+    out.push_str("#   SessionStart, SessionEnd, UserPromptSubmit, Stop, StopFailure\n");
+    out.push_str("# matcher: tool names, `|`-separated, `*` as a wildcard (e.g. \"Edit|Write\", \"mcp__github__*\")\n");
+    out.push_str(
+        "# Input: a JSON object on stdin — hook_event_name, session_id, cwd, and tool_name /\n",
+    );
+    out.push_str("#   tool_input for tool events (Claude Code's hook payload)\n");
+    out.push_str("# PreToolUse stdout: {\"action\":\"allow\"} or {\"action\":\"block\",\"reason\":\"...\"},\n");
+    out.push_str("#   or Claude Code's {\"hookSpecificOutput\":{\"permissionDecision\":\"allow|deny|ask\"}};\n");
+    out.push_str("#   exiting with code 2 and a reason also blocks\n");
     out
 }
 
@@ -2283,6 +2484,24 @@ pub enum SeedOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Which screen opens is a setting, and a config that does not mention it
+    /// keeps this build's default — an upgrade must not move anyone's screen
+    /// (`docs/tui-replaces-tuix-plan.md` M6.2).
+    #[test]
+    fn the_screen_is_a_setting_and_a_config_that_says_nothing_keeps_the_default() {
+        let silent: Config = toml::from_str("").unwrap();
+        assert_eq!(silent.ui.screen, Screen::Default);
+
+        let chosen: Config = toml::from_str("[ui]\nscreen = \"rows\"\n").unwrap();
+        assert_eq!(chosen.ui.screen, Screen::Rows);
+        let back: Config = toml::from_str("[ui]\nscreen = \"classic\"\n").unwrap();
+        assert_eq!(back.ui.screen, Screen::Classic);
+
+        // And a `[ui]` about something else does not drag the screen with it.
+        let other: Config = toml::from_str("[ui]\ntheme = \"dark\"\n").unwrap();
+        assert_eq!(other.ui.screen, Screen::Default);
+    }
 
     #[test]
     fn subagent_external_entries_deserialize_with_defaults() {
@@ -3247,7 +3466,7 @@ model = "missing-type"
         assert!(rendered.contains("[datalog]"));
         assert!(rendered.contains("enabled = false"));
         assert!(
-            rendered.contains("\ndir = \"~/.atomcode/datalog\"\n"),
+            rendered.contains(&format!("\ndir = \"{}\"\n", default_datalog_dir())),
             "default must emit the resolved dir as a real, uncommented value: {}",
             rendered
         );
@@ -3269,7 +3488,7 @@ model = "missing-type"
             dir: None,
         };
         let rendered = render_datalog_section(&cfg);
-        assert!(rendered.contains("\ndir = \"~/.atomcode/datalog\"\n"));
+        assert!(rendered.contains(&format!("\ndir = \"{}\"\n", default_datalog_dir())));
     }
 
     #[test]
@@ -3303,7 +3522,6 @@ model = "missing-type"
             auto_update: true,
             telemetry: Default::default(),
             lsp: Default::default(),
-            auto_commit: false,
             subagent: Default::default(),
             loop_config: Default::default(),
             coding: CodingConfig::default(),
@@ -3311,6 +3529,10 @@ model = "missing-type"
                 todo: TodoToolConfig {
                     enabled: false,
                     eager: TodoEagerness::Always,
+                },
+                atomgit: Default::default(),
+                output: OutputToolConfig {
+                    threshold_bytes: Some(204_800),
                 },
             },
             vision_preprocessor_provider: None,
@@ -3360,6 +3582,7 @@ model = "missing-type"
         assert_eq!(reloaded.datalog.dir.as_deref(), Some("/var/log/ac"));
         assert!(!reloaded.tools.todo.enabled);
         assert_eq!(reloaded.tools.todo.eager, TodoEagerness::Always);
+        assert_eq!(reloaded.tools.output.threshold_bytes, Some(204_800));
         assert!(reloaded.notifications.enabled);
         assert_eq!(
             reloaded.network.proxy.mode,
@@ -3847,6 +4070,27 @@ reflection_cadence = 7
     }
 
     #[test]
+    fn legacy_dead_keys_still_parse() {
+        // Keys that were parsed and then read by nothing, removed from the schema.
+        // Files in the wild still carry them — config.example.toml shipped them —
+        // and the live values beside them must keep their meaning.
+        let toml_text = r#"
+auto_commit = true
+[providers]
+[subagent]
+enabled = false
+initial_turns = 4
+max_turns = 12
+timeout_secs = 900
+max_concurrent = 5
+max_rounds = 42
+"#;
+        let cfg: Config = toml::from_str(toml_text).expect("dead keys are ignored");
+        assert_eq!(cfg.subagent.max_concurrent, 5);
+        assert_eq!(cfg.subagent.max_rounds, 42);
+    }
+
+    #[test]
     fn notifications_default_when_missing_from_toml() {
         let toml_text = r#"
 default_provider = "claude"
@@ -4009,7 +4253,10 @@ capable_model = 5
                 context_window: 128_000,
                 max_tokens: None,
                 capable_model: None,
+                note: None,
                 retry_max_attempts: None,
+                origin: None,
+                rank: None,
                 thinking_type: None,
                 thinking_keep: None,
                 reasoning_history: None,
@@ -4059,7 +4306,10 @@ capable_model = 5
                 context_window: 0, // zero window → error
                 max_tokens: None,
                 capable_model: None,
+                note: None,
                 retry_max_attempts: None,
+                origin: None,
+                rank: None,
                 thinking_type: None,
                 thinking_keep: None,
                 reasoning_history: None,
@@ -4585,5 +4835,102 @@ base_url = "https://b.invalid/v1"
             toml::from_str("[tools.todo]\nenabled = false\neager = \"always\"\n").unwrap();
         assert!(!configured.tools.todo.enabled);
         assert_eq!(configured.tools.todo.eager, TodoEagerness::Always);
+    }
+
+    #[test]
+    fn atomgit_tool_policy_defaults_and_parses() {
+        // Default: enabled, absent [tools.atomgit] section.
+        let defaulted: Config = toml::from_str("").unwrap();
+        assert!(defaulted.tools.atomgit.enabled);
+
+        // Explicit enabled = true.
+        let enabled: Config = toml::from_str("[tools.atomgit]\nenabled = true\n").unwrap();
+        assert!(enabled.tools.atomgit.enabled);
+
+        // Explicit enabled = false.
+        let disabled: Config = toml::from_str("[tools.atomgit]\nenabled = false\n").unwrap();
+        assert!(!disabled.tools.atomgit.enabled);
+
+        // Existing fields (todo) are unaffected by the new section.
+        let both: Config =
+            toml::from_str("[tools.todo]\nenabled = false\n[tools.atomgit]\nenabled = false\n")
+                .unwrap();
+        assert!(!both.tools.todo.enabled);
+        assert!(!both.tools.atomgit.enabled);
+    }
+
+    /// An account's endpoint resolves as a request would: a stored base_url and
+    /// key as given, the preset's base URL when none is stored, and a legacy
+    /// `[providers.*]` entry by its id.
+    #[test]
+    fn an_accounts_endpoint_resolves_like_a_request() {
+        let config: Config = toml::from_str(
+            r#"
+[provider_accounts.gw]
+provider = "openai-compatible"
+base_url = "https://gw.example.com"
+api_key = "sk-literal"
+
+[provider_accounts.ds]
+provider = "deepseek"
+api_key = "sk-ds"
+
+[providers.old]
+type = "openai"
+model = "m"
+base_url = "https://old.example.com/v1"
+api_key = "sk-old"
+"#,
+        )
+        .unwrap();
+        let gw = config.account_endpoint("gw").unwrap();
+        assert_eq!(gw.provider_type, "openai");
+        assert_eq!(gw.base_url.as_deref(), Some("https://gw.example.com"));
+        assert_eq!(gw.api_key.as_deref(), Some("sk-literal"));
+        let ds = config.account_endpoint("ds").unwrap();
+        assert!(
+            ds.base_url.is_some(),
+            "the preset's base URL fills in: {ds:?}"
+        );
+        let old = config.account_endpoint("old").unwrap();
+        assert_eq!(old.base_url.as_deref(), Some("https://old.example.com/v1"));
+        assert_eq!(old.api_key.as_deref(), Some("sk-old"));
+        assert!(config.account_endpoint("nobody").is_none());
+    }
+
+    /// `[tools.output] threshold_bytes` is read when present, absent when not —
+    /// and a file that never set it is not written back with an empty table.
+    #[test]
+    fn output_tool_threshold_parses_and_stays_out_of_an_unset_file() {
+        let defaulted: Config = toml::from_str("").unwrap();
+        assert_eq!(defaulted.tools.output.threshold_bytes, None);
+        let written = toml::to_string(&defaulted).unwrap();
+        assert!(!written.contains("[tools.output]"), "{written}");
+
+        let configured: Config =
+            toml::from_str("[tools.output]\nthreshold_bytes = 204800\n").unwrap();
+        assert_eq!(configured.tools.output.threshold_bytes, Some(204_800));
+        let written = toml::to_string(&configured).unwrap();
+        assert!(written.contains("threshold_bytes = 204800"), "{written}");
+    }
+
+    #[test]
+    fn atomgit_enabled_from_env_priority() {
+        // env overrides config in both directions.
+        assert!(!super::atomgit_enabled_from_env(Some("0"), true));
+        assert!(!super::atomgit_enabled_from_env(Some("false"), true));
+        assert!(!super::atomgit_enabled_from_env(Some("off"), true));
+        assert!(!super::atomgit_enabled_from_env(Some("OFF"), true));
+        assert!(!super::atomgit_enabled_from_env(Some("  off  "), true));
+        assert!(super::atomgit_enabled_from_env(Some("1"), false));
+        assert!(super::atomgit_enabled_from_env(Some("true"), false));
+        assert!(super::atomgit_enabled_from_env(Some("on"), false));
+        assert!(super::atomgit_enabled_from_env(Some("ON"), false));
+        // absent / empty / unknown → config value.
+        assert!(super::atomgit_enabled_from_env(None, true));
+        assert!(!super::atomgit_enabled_from_env(None, false));
+        assert!(super::atomgit_enabled_from_env(Some(""), true));
+        assert!(super::atomgit_enabled_from_env(Some("maybe"), true));
+        assert!(!super::atomgit_enabled_from_env(Some("maybe"), false));
     }
 }

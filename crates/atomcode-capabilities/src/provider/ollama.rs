@@ -82,6 +82,13 @@ pub struct OllamaConfig {
     /// Disable TLS certificate verification (self-signed / internal gateways).
     /// Mirrors core's `ProviderConfig::skip_tls_verify`. Default false.
     pub skip_tls_verify: bool,
+    /// Reasoning-effort levels this endpoint exposes; empty = no such control.
+    /// Coding assembly fills it from config, reported via
+    /// [`LlmProvider::effort_levels`].
+    pub effort_levels: Vec<String>,
+    /// Where `ATOMCODE_WIRE_DUMP=1` writes the exact request bodies (the host
+    /// passes `<user tree>/wire-dump`). `None` ⇒ no dump even with the switch on.
+    pub wire_dump_dir: Option<std::path::PathBuf>,
 }
 
 impl OllamaConfig {
@@ -102,6 +109,8 @@ impl OllamaConfig {
             retry: RetryPolicy::default(),
             user_agent: None,
             skip_tls_verify: false,
+            effort_levels: Vec::new(),
+            wire_dump_dir: None,
         }
     }
 }
@@ -156,6 +165,15 @@ impl LlmProvider for OllamaProvider {
         self.cfg.context_window
     }
 
+    /// The same flag `format_messages_with_vision` gates the `images` array on.
+    fn supports_vision(&self) -> bool {
+        self.cfg.supports_vision
+    }
+
+    fn effort_levels(&self) -> Vec<String> {
+        self.cfg.effort_levels.clone()
+    }
+
     fn bind_session_id(&self, session_id: &str) {
         let _ = self.session_id.set(session_id.to_string());
     }
@@ -167,7 +185,7 @@ impl LlmProvider for OllamaProvider {
         options: &ChatOptions,
     ) -> Result<BoxStream<'static, StreamEvent>, ProviderError> {
         let body = build_request_body(&self.cfg.model, messages, tools, options, &self.cfg);
-        super::wire_dump_request(&self.cfg.model, &body); // byte-level dump (ATOMCODE_WIRE_DUMP=1)
+        super::wire_dump_request(self.cfg.wire_dump_dir.as_deref(), &self.cfg.model, &body); // byte-level dump (ATOMCODE_WIRE_DUMP=1)
 
         // Open the stream. A hard failure here returns `Err` so the kernel's
         // agent-layer open retry still applies.
@@ -539,6 +557,11 @@ struct OllamaNdjsonDecoder {
     tool_index: u32,
     truncated: bool,
     done: bool,
+    /// A model served here without think-parsing writes its reasoning into
+    /// `content` as `<think>…</think>` — Ollama's own `thinking` field below is
+    /// the parsed path, and this is the unparsed one. Per decoder, so an
+    /// unclosed block cannot reach the next response.
+    think: super::reasoning::InlineThink,
 }
 
 impl OllamaNdjsonDecoder {
@@ -548,6 +571,7 @@ impl OllamaNdjsonDecoder {
             tool_index: 0,
             truncated: false,
             done: false,
+            think: super::reasoning::InlineThink::new(),
         }
     }
 
@@ -572,10 +596,28 @@ impl OllamaNdjsonDecoder {
     fn finish(&mut self) -> Vec<StreamEvent> {
         let mut out = Vec::new();
         if !self.done {
+            out.extend(self.held_back());
             out.push(StreamEvent::Done {
                 truncated: self.truncated,
             });
             self.done = true;
+        }
+        out
+    }
+
+    /// Whatever the stripper is still holding, on the way out.
+    ///
+    /// Both ways a stream ends go through here: a `done:true` line and a
+    /// transport EOF. An unclosed `<think>` means the block never ended, and
+    /// showing nothing at all would be worse than showing it as thinking.
+    fn held_back(&mut self) -> Vec<StreamEvent> {
+        let held = self.think.flush();
+        let mut out = Vec::new();
+        if !held.visible.is_empty() {
+            out.push(StreamEvent::TextDelta(held.visible));
+        }
+        if !held.reasoning.is_empty() {
+            out.push(StreamEvent::Reasoning(held.reasoning));
         }
         out
     }
@@ -600,7 +642,13 @@ impl OllamaNdjsonDecoder {
         if let Some(msg) = v.get("message") {
             if let Some(c) = msg.get("content").and_then(|c| c.as_str()) {
                 if !c.is_empty() {
-                    out.push(StreamEvent::TextDelta(c.to_string()));
+                    let split = self.think.feed(c);
+                    if !split.visible.is_empty() {
+                        out.push(StreamEvent::TextDelta(split.visible));
+                    }
+                    if !split.reasoning.is_empty() {
+                        out.push(StreamEvent::Reasoning(split.reasoning));
+                    }
                 }
             }
             // Thinking models: plain-text reasoning, no signature.
@@ -650,6 +698,7 @@ impl OllamaNdjsonDecoder {
                     cached: 0,
                 }));
             }
+            out.extend(self.held_back());
             out.push(StreamEvent::Done {
                 truncated: self.truncated,
             });
@@ -881,6 +930,51 @@ mod tests {
 
     fn nd(v: Value) -> String {
         format!("{v}\n")
+    }
+
+    /// A model served without think-parsing writes its reasoning into
+    /// `content`. It must come out of the reasoning channel all the same —
+    /// otherwise the tags are simply printed in the middle of the answer.
+    ///
+    /// Judged through the decoder, not through `InlineThink`: the stripper has
+    /// its own tests, and those stay green whether or not this adapter ever
+    /// calls it.
+    #[test]
+    fn a_think_block_in_content_arrives_as_reasoning() {
+        let mut d = OllamaNdjsonDecoder::new();
+        let mut ev = Vec::new();
+        // Split mid-tag, the way a stream really arrives.
+        for chunk in ["<think>weigh", "ing it up</th", "ink>the answer"] {
+            ev.extend(d.feed(
+                nd(json!({"message":{"role":"assistant","content":chunk},"done":false})).as_bytes(),
+            ));
+        }
+        ev.extend(
+            d.feed(nd(json!({"message":{"role":"assistant","content":""},"done":true})).as_bytes()),
+        );
+        // Not an exact event sequence: reasoning streams out a delta per chunk,
+        // and how the chunks fall is the network's business, not this
+        // judgement's. What matters is which channel each part came out of.
+        assert!(
+            !kinds(&ev).contains(&"malformed"),
+            "nothing was mangled: {ev:?}"
+        );
+        let said: String = ev
+            .iter()
+            .filter_map(|e| match e {
+                StreamEvent::TextDelta(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect();
+        let thought: String = ev
+            .iter()
+            .filter_map(|e| match e {
+                StreamEvent::Reasoning(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(said, "the answer", "no tags reach the answer");
+        assert_eq!(thought, "weighing it up", "and the thinking is kept");
     }
 
     #[test]

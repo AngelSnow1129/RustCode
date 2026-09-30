@@ -92,6 +92,10 @@ pub async fn handle_list_sessions(
             // restore it, so it must not be advertised as resumable history.
             continue;
         }
+        if entry.delegated() {
+            // Background work done for another conversation, not one of its own.
+            continue;
+        }
         let title = (!entry.name.is_empty()
             && !SessionMeta::name_needs_fallback(&entry.name, &entry.id))
         .then_some(entry.name);
@@ -148,7 +152,7 @@ pub async fn handle_list_sessions(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_client_protocol::schema::v1::{ListSessionsRequest, SessionId};
+    use agent_client_protocol::schema::v1::ListSessionsRequest;
     use atomcode_capabilities::session::{CatalogEntry, CatalogPresence};
 
     use crate::acp::sessions::test_support::{catalog_entry, empty_scan, sessions_with};

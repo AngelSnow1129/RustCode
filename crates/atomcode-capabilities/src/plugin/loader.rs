@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use super::manifest::{load_plugin_manifest, CCHooksMap, PluginManifest};
 use super::paths;
 use super::state::{load_installed_plugins_file, InstallScope};
+use crate::ProductDirs;
 
 #[derive(Debug, Clone)]
 pub struct InstalledPluginAssets {
@@ -180,10 +181,10 @@ fn plugin_all_cc_hooks(assets: &InstalledPluginAssets) -> Vec<PluginCcHook> {
 /// Flatten every installed plugin's CC hooks (inline + file) — but ONLY for
 /// plugins whose current hook-set hash the user has trusted. Untrusted plugins'
 /// hooks are withheld (see `installed_plugin_hook_trust_status` for surfacing).
-pub fn installed_plugin_cc_hooks() -> Vec<PluginCcHook> {
-    let trust = crate::plugin::hook_trust::load_trust();
+pub fn installed_plugin_cc_hooks(dirs: &ProductDirs) -> Vec<PluginCcHook> {
+    let trust = crate::plugin::hook_trust::load_trust(dirs.user());
     let mut out = Vec::new();
-    for assets in iter_installed_plugin_assets() {
+    for assets in iter_installed_plugin_assets(dirs) {
         let hooks = plugin_all_cc_hooks(&assets);
         if hooks.is_empty() {
             continue;
@@ -212,10 +213,10 @@ pub struct PluginHookTrust {
     pub trusted: bool,
 }
 
-pub fn installed_plugin_hook_trust_status() -> Vec<PluginHookTrust> {
-    let trust = crate::plugin::hook_trust::load_trust();
+pub fn installed_plugin_hook_trust_status(dirs: &ProductDirs) -> Vec<PluginHookTrust> {
+    let trust = crate::plugin::hook_trust::load_trust(dirs.user());
     let mut out = Vec::new();
-    for assets in iter_installed_plugin_assets() {
+    for assets in iter_installed_plugin_assets(dirs) {
         let hooks = plugin_all_cc_hooks(&assets);
         if hooks.is_empty() {
             continue;
@@ -242,9 +243,9 @@ pub fn installed_plugin_hook_trust_status() -> Vec<PluginHookTrust> {
 /// Iterate over every installed plugin across all scopes. Returns empty Vec when state file is
 /// missing or the plugin home is not configured. Skips entries whose
 /// plugin_dir does not exist on disk (keeps reload resilient to deletions).
-pub fn iter_installed_plugin_assets() -> Vec<InstalledPluginAssets> {
+pub fn iter_installed_plugin_assets(dirs: &ProductDirs) -> Vec<InstalledPluginAssets> {
     let working_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    iter_installed_plugin_assets_for(&working_dir)
+    iter_installed_plugin_assets_for(dirs, &working_dir)
 }
 
 /// Iterate over installed plugins visible from `working_dir`.
@@ -252,13 +253,16 @@ pub fn iter_installed_plugin_assets() -> Vec<InstalledPluginAssets> {
 /// User-scoped plugins are global. Project/local plugins are resolved from the
 /// supplied directory rather than the process current directory, so a driver
 /// can reload capabilities after `/cd` without discovering the wrong project.
-pub fn iter_installed_plugin_assets_for(working_dir: &Path) -> Vec<InstalledPluginAssets> {
+pub fn iter_installed_plugin_assets_for(
+    dirs: &ProductDirs,
+    working_dir: &Path,
+) -> Vec<InstalledPluginAssets> {
     let mut result = Vec::new();
 
     // User scope (global).
-    if let Some(state_path) = paths::installed_plugins_file() {
+    if let Some(state_path) = paths::installed_plugins_file(dirs.user()) {
         if let Ok(state) = load_installed_plugins_file(&state_path) {
-            if let Some(plugins_root) = paths::plugins_root() {
+            if let Some(plugins_root) = paths::plugins_root(dirs.user()) {
                 for e in state.plugins.into_values() {
                     let abs = plugins_root.join(&e.plugin_dir);
                     if !abs.exists() {
@@ -291,11 +295,13 @@ pub fn iter_installed_plugin_assets_for(working_dir: &Path) -> Vec<InstalledPlug
         // When `working_dir` is the plugin home itself (e.g. running from
         // `$HOME`), the project scope's installed_plugins.json IS the user
         // scope's file — enumerating it again would duplicate every plugin.
-        if paths::scope_state_file_aliases_user_scope(working_dir, &scope) {
+        if paths::scope_state_file_aliases_user_scope(dirs, working_dir, &scope) {
             continue;
         }
-        if let Some(project_root) = paths::project_plugins_root(working_dir, &scope) {
-            if let Some(state_path) = paths::project_installed_plugins_file(working_dir, &scope) {
+        if let Some(project_root) = paths::project_plugins_root(dirs, working_dir, &scope) {
+            if let Some(state_path) =
+                paths::project_installed_plugins_file(dirs, working_dir, &scope)
+            {
                 if state_path.exists() {
                     if let Ok(state) = load_installed_plugins_file(&state_path) {
                         for e in state.plugins.into_values() {
@@ -327,11 +333,30 @@ pub fn iter_installed_plugin_assets_for(working_dir: &Path) -> Vec<InstalledPlug
 
 /// Plugin skill directories visible from `working_dir`, paired with the
 /// namespace used by [`crate::skills::SkillRegistry::load_dir`].
-pub fn installed_plugin_skill_dirs(working_dir: &Path) -> Vec<(PathBuf, String)> {
+///
+/// **`commands/` as well as `skills/`.** A plugin's `commands/*.md` are the
+/// same thing under another name — that is already how this build reads
+/// `~/.claude/commands` and `<project dir>/commands`
+/// ([`crate::skills::SkillRegistry`]'s standard directories), and how the
+/// plugins were written for the front end that came before. Reading only
+/// `skills/` meant a plugin whose whole contribution was a `commands/` folder
+/// installed cleanly, reported its files, and contributed nothing that could
+/// be run.
+pub fn installed_plugin_skill_dirs(
+    dirs: &ProductDirs,
+    working_dir: &Path,
+) -> Vec<(PathBuf, String)> {
     let mut out = Vec::new();
-    for assets in iter_installed_plugin_assets_for(working_dir) {
-        for dir in assets.skills_dirs() {
-            if dir.exists() {
+    for assets in iter_installed_plugin_assets_for(dirs, working_dir) {
+        for dir in assets
+            .skills_dirs()
+            .into_iter()
+            .chain(std::iter::once(assets.commands_dir()))
+        {
+            // A plugin may name the same folder twice (`skills = "commands"`),
+            // and loading it twice would make every skill in it ambiguous
+            // against itself.
+            if dir.exists() && !out.iter().any(|(had, _): &(PathBuf, String)| had == &dir) {
                 out.push((dir, assets.plugin.clone()));
             }
         }
@@ -345,10 +370,16 @@ pub fn installed_plugin_skill_dirs(working_dir: &Path) -> Vec<(PathBuf, String)>
 /// [`crate::skills::SkillRegistry`] remains source-neutral.
 pub fn reload_skill_registry(
     registry: &mut crate::skills::SkillRegistry,
+    dirs: &ProductDirs,
     working_dir: &Path,
 ) -> Vec<String> {
-    let warnings = registry.reload(working_dir);
-    for (dir, namespace) in installed_plugin_skill_dirs(working_dir) {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    let warnings = registry.reload(crate::skills::SkillRoots {
+        home: &home,
+        project: working_dir,
+        dirs,
+    });
+    for (dir, namespace) in installed_plugin_skill_dirs(dirs, working_dir) {
         registry.load_dir(&dir, Some(&namespace));
     }
     warnings
@@ -512,10 +543,11 @@ mod tests {
     #[serial_test::serial]
     fn iter_yields_installed() {
         let _home = isolated_home();
+        let dirs = _home.dirs();
         let repo = make_repo("p");
-        add_marketplace(&format!("file://{}", repo.display())).unwrap();
-        install("p", "p", InstallScope::User).unwrap();
-        let assets = iter_installed_plugin_assets();
+        add_marketplace(&dirs, &format!("file://{}", repo.display())).unwrap();
+        install(&dirs, "p", "p", InstallScope::User).unwrap();
+        let assets = iter_installed_plugin_assets(&dirs);
         assert_eq!(assets.len(), 1);
         assert_eq!(assets[0].plugin, "p");
         assert!(assets[0].skills_dir().exists());
@@ -526,6 +558,7 @@ mod tests {
     #[serial_test::serial]
     fn cc_hooks_filtered_by_trust() {
         let _home = crate::plugin::test_support::isolated_home();
+        let dirs = _home.dirs();
         // repo with a CC file-based SessionStart hook
         let work = tempfile::tempdir().unwrap().keep();
         let repo = work.join("hp");
@@ -562,12 +595,13 @@ mod tests {
             .current_dir(&repo)
             .status()
             .unwrap();
-        crate::plugin::marketplace::add_marketplace(&format!("file://{}", repo.display())).unwrap();
-        crate::plugin::installer::install("hp", "hp", InstallScope::User).unwrap();
+        crate::plugin::marketplace::add_marketplace(&dirs, &format!("file://{}", repo.display()))
+            .unwrap();
+        crate::plugin::installer::install(&dirs, "hp", "hp", InstallScope::User).unwrap();
 
         // Untrusted by default → no hooks loaded, but status reports it.
-        assert!(installed_plugin_cc_hooks().is_empty());
-        let status = installed_plugin_hook_trust_status();
+        assert!(installed_plugin_cc_hooks(&dirs).is_empty());
+        let status = installed_plugin_hook_trust_status(&dirs);
         let e = status
             .iter()
             .find(|s| s.plugin == "hp")
@@ -577,8 +611,8 @@ mod tests {
         assert_eq!(e.events, vec!["SessionStart".to_string()]);
 
         // Trust → hooks load.
-        crate::plugin::hook_trust::trust(&e.plugin_id, &e.hash).unwrap();
-        assert_eq!(installed_plugin_cc_hooks().len(), 1);
+        crate::plugin::hook_trust::trust(dirs.user(), &e.plugin_id, &e.hash).unwrap();
+        assert_eq!(installed_plugin_cc_hooks(&dirs).len(), 1);
     }
 
     #[test]
@@ -586,6 +620,7 @@ mod tests {
     fn grandfather_blesses_existing_then_new_installs_stay_untrusted() {
         use crate::plugin::hook_trust::ensure_migrated;
         let _home = crate::plugin::test_support::isolated_home();
+        let dirs = _home.dirs();
         // helper: a git repo shipping a file-based SessionStart hook
         let mk_hook_repo = |name: &str, cmd: &str| {
             let work = tempfile::tempdir().unwrap().keep();
@@ -615,29 +650,29 @@ mod tests {
         };
         // Existing plugin installed BEFORE migration.
         let repo1 = mk_hook_repo("hp1", "echo one");
-        crate::plugin::marketplace::add_marketplace(&format!("file://{}", repo1.display()))
+        crate::plugin::marketplace::add_marketplace(&dirs, &format!("file://{}", repo1.display()))
             .unwrap();
-        crate::plugin::installer::install("hp1", "hp1", InstallScope::User).unwrap();
+        crate::plugin::installer::install(&dirs, "hp1", "hp1", InstallScope::User).unwrap();
         assert!(
-            installed_plugin_cc_hooks().is_empty(),
+            installed_plugin_cc_hooks(&dirs).is_empty(),
             "untrusted before migration"
         );
 
         // Upgrade boundary → grandfather blesses the existing plugin.
-        ensure_migrated();
+        ensure_migrated(&dirs);
         assert_eq!(
-            installed_plugin_cc_hooks().len(),
+            installed_plugin_cc_hooks(&dirs).len(),
             1,
             "existing plugin grandfathered"
         );
 
         // A NEW plugin installed AFTER migration stays untrusted (marker set).
         let repo2 = mk_hook_repo("hp2", "echo two");
-        crate::plugin::marketplace::add_marketplace(&format!("file://{}", repo2.display()))
+        crate::plugin::marketplace::add_marketplace(&dirs, &format!("file://{}", repo2.display()))
             .unwrap();
-        crate::plugin::installer::install("hp2", "hp2", InstallScope::User).unwrap();
-        ensure_migrated(); // idempotent no-op (marker exists)
-        let loaded = installed_plugin_cc_hooks();
+        crate::plugin::installer::install(&dirs, "hp2", "hp2", InstallScope::User).unwrap();
+        ensure_migrated(&dirs); // idempotent no-op (marker exists)
+        let loaded = installed_plugin_cc_hooks(&dirs);
         assert_eq!(
             loaded.len(),
             1,
@@ -650,6 +685,7 @@ mod tests {
     #[serial_test::serial]
     fn custom_hooks_path_from_manifest_is_honored() {
         let _home = crate::plugin::test_support::isolated_home();
+        let dirs = _home.dirs();
         let work = tempfile::tempdir().unwrap().keep();
         let repo = work.join("cp");
         std::fs::create_dir_all(repo.join("cfg")).unwrap();
@@ -676,12 +712,13 @@ mod tests {
                 .status()
                 .unwrap();
         }
-        crate::plugin::marketplace::add_marketplace(&format!("file://{}", repo.display())).unwrap();
-        crate::plugin::installer::install("cp", "cp", InstallScope::User).unwrap();
-        let status = installed_plugin_hook_trust_status();
+        crate::plugin::marketplace::add_marketplace(&dirs, &format!("file://{}", repo.display()))
+            .unwrap();
+        crate::plugin::installer::install(&dirs, "cp", "cp", InstallScope::User).unwrap();
+        let status = installed_plugin_hook_trust_status(&dirs);
         let e = status.iter().find(|s| s.plugin == "cp").expect("has hooks");
-        crate::plugin::hook_trust::trust(&e.plugin_id, &e.hash).unwrap();
-        let loaded = installed_plugin_cc_hooks();
+        crate::plugin::hook_trust::trust(dirs.user(), &e.plugin_id, &e.hash).unwrap();
+        let loaded = installed_plugin_cc_hooks(&dirs);
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].command, "echo custom");
     }
@@ -689,7 +726,8 @@ mod tests {
     /// Debug test: dump the real-world installed plugins + skill loading.
     #[test]
     fn debug_real_world_plugins() {
-        let assets = iter_installed_plugin_assets();
+        let dirs = crate::product_dirs::test_dirs();
+        let assets = iter_installed_plugin_assets(&dirs);
         eprintln!("=== DEBUG: {} installed plugin assets ===", assets.len());
         for a in &assets {
             eprintln!(
@@ -743,10 +781,11 @@ mod tests {
     #[serial_test::serial]
     fn plugin_skill_dirs_use_the_supplied_project_directory() {
         let _home = isolated_home();
+        let dirs = _home.dirs();
         let project = tempfile::tempdir().unwrap();
         let other = tempfile::tempdir().unwrap();
         let scope = InstallScope::Project;
-        let project_root = paths::project_plugins_root(project.path(), &scope).unwrap();
+        let project_root = paths::project_plugins_root(&dirs, project.path(), &scope).unwrap();
         let plugin_dir = project_root.join("installed/mp/probe");
         std::fs::create_dir_all(plugin_dir.join("skills/check")).unwrap();
         std::fs::write(
@@ -766,19 +805,23 @@ mod tests {
                 scope: scope.clone(),
             },
         );
-        let state_path = paths::project_installed_plugins_file(project.path(), &scope).unwrap();
+        let state_path =
+            paths::project_installed_plugins_file(&dirs, project.path(), &scope).unwrap();
         super::super::state::save_installed_plugins_file(&state_path, &state).unwrap();
 
-        let dirs = installed_plugin_skill_dirs(project.path());
-        assert_eq!(dirs, vec![(plugin_dir.join("skills"), "probe".into())]);
+        let skill_dirs = installed_plugin_skill_dirs(&dirs, project.path());
+        assert_eq!(
+            skill_dirs,
+            vec![(plugin_dir.join("skills"), "probe".into())]
+        );
         let mut registry = crate::skills::SkillRegistry::new();
-        assert!(reload_skill_registry(&mut registry, project.path()).is_empty());
+        assert!(reload_skill_registry(&mut registry, &dirs, project.path()).is_empty());
         assert!(
             registry.get("probe:check").is_some(),
             "production reload composition omitted the project plugin skill"
         );
         assert!(
-            installed_plugin_skill_dirs(other.path()).is_empty(),
+            installed_plugin_skill_dirs(&dirs, other.path()).is_empty(),
             "project plugin leaked into a different working directory"
         );
     }
@@ -787,13 +830,13 @@ mod tests {
     #[serial_test::serial]
     fn iter_assets_dedup_when_working_dir_is_home() {
         let _home = isolated_home();
-        // ATOMCODE_HOME 指向 <home>/.atomcode；cwd == <home> 时 project scope 与
-        // user scope 指向同一 installed_plugins.json（复现真实 `cd ~` 场景）。
+        // 用户树是 <home>/.ours；cwd == <home> 时 project scope 与 user scope
+        // 指向同一 installed_plugins.json（复现真实 `cd ~` 场景）。
         let home_dir = _home.path().join("home");
-        std::env::set_var("ATOMCODE_HOME", home_dir.join(".atomcode"));
+        let dirs = crate::ProductDirs::new(home_dir.join(".ours"), ".ours");
 
         // 构造 user scope 安装记录 + 真实插件目录。
-        let plugins_root = paths::plugins_root().unwrap();
+        let plugins_root = paths::plugins_root(dirs.user()).unwrap();
         let plugin_dir = plugins_root.join("installed/mp/probe");
         std::fs::create_dir_all(plugin_dir.join("skills/check")).unwrap();
         std::fs::write(
@@ -812,12 +855,12 @@ mod tests {
                 scope: InstallScope::User,
             },
         );
-        let state_path = paths::installed_plugins_file().unwrap();
+        let state_path = paths::installed_plugins_file(dirs.user()).unwrap();
         super::super::state::save_installed_plugins_file(&state_path, &state).unwrap();
 
         // 修复前：home 目录下 user + project scope 读同一文件，插件被枚举两次；
         // 修复后只应出现一次。
-        let assets = iter_installed_plugin_assets_for(&home_dir);
+        let assets = iter_installed_plugin_assets_for(&dirs, &home_dir);
         assert_eq!(
             assets.len(),
             1,
@@ -828,8 +871,84 @@ mod tests {
 
         // 其他工作目录不受影响，同样只枚举一次。
         let other = _home.path().join("projects/other");
-        let assets2 = iter_installed_plugin_assets_for(&other);
+        let assets2 = iter_installed_plugin_assets_for(&dirs, &other);
         assert_eq!(assets2.len(), 1);
         assert_eq!(assets2[0].plugin, "probe");
+    }
+
+    /// A plugin's `commands/` counts, the same as its `skills/`.
+    ///
+    /// The two words are one thing in this build: `~/.claude/commands` and
+    /// `<project>/.atomcode/commands` are already standard skill directories,
+    /// and plugins were written for a front end that read theirs. Only the
+    /// plugin path was left out — so a plugin whose whole contribution is a
+    /// `commands/` folder installed cleanly, listed its files, and contributed
+    /// nothing anyone could run.
+    #[test]
+    #[serial_test::serial]
+    fn a_plugin_that_ships_commands_contributes_them_like_skills() {
+        let _home = isolated_home();
+        let dirs = _home.dirs();
+        let plugins_root = paths::plugins_root(dirs.user()).unwrap();
+        let plugin_dir = plugins_root.join("installed/mp/pair");
+        for (folder, name) in [("skills", "check"), ("commands", "tidy")] {
+            std::fs::create_dir_all(plugin_dir.join(folder)).unwrap();
+            std::fs::write(
+                plugin_dir.join(folder).join(format!("{name}.md")),
+                format!("---\nname: {name}\ndescription: the {name} one\n---\nbody\n"),
+            )
+            .unwrap();
+        }
+        // A second plugin that points `skills` **at** its commands folder — a
+        // legal manifest, and the one shape where the two lists overlap.
+        let twice_dir = plugins_root.join("installed/mp/twice");
+        std::fs::create_dir_all(twice_dir.join("commands")).unwrap();
+        std::fs::write(
+            twice_dir.join("commands/only.md"),
+            "---\nname: only\ndescription: the only one\n---\nbody\n",
+        )
+        .unwrap();
+        std::fs::write(
+            twice_dir.join("plugin.json"),
+            r#"{"name":"twice","skills":"commands"}"#,
+        )
+        .unwrap();
+
+        let mut state = super::super::state::InstalledPluginsFile::default();
+        for name in ["pair", "twice"] {
+            state.plugins.insert(
+                super::super::state::plugin_id(name, "mp"),
+                super::super::state::InstalledPluginEntry {
+                    marketplace: "mp".into(),
+                    plugin: name.into(),
+                    plugin_dir: format!("installed/mp/{name}"),
+                    installed_at: "now".into(),
+                    scope: InstallScope::User,
+                },
+            );
+        }
+        let state_path = paths::installed_plugins_file(dirs.user()).unwrap();
+        super::super::state::save_installed_plugins_file(&state_path, &state).unwrap();
+
+        let dirs = installed_plugin_skill_dirs(&dirs, &_home.path().join("projects/any"));
+        let of = |plugin: &str| -> Vec<String> {
+            dirs.iter()
+                .filter(|(_, ns)| ns == plugin)
+                .map(|(dir, _)| dir.file_name().unwrap().to_string_lossy().into_owned())
+                .collect()
+        };
+        let pair = of("pair");
+        assert!(pair.contains(&"skills".to_string()), "{pair:?}");
+        assert!(
+            pair.contains(&"commands".to_string()),
+            "the commands folder is contributed too: {pair:?}"
+        );
+        // A folder named twice is listed once: loading it twice would make
+        // every skill in it ambiguous against itself.
+        assert_eq!(
+            of("twice"),
+            vec!["commands".to_string()],
+            "a manifest pointing `skills` at `commands` still contributes it once"
+        );
     }
 }
