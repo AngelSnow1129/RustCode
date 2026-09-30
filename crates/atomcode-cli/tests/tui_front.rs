@@ -19,8 +19,9 @@ use atomcode_kernel::stream::{ProviderError, StreamEvent, TokenUsage};
 use atomcode_kernel::tool::ToolDef;
 use atomcode_tui::launch::Screen;
 
+/// How many requests, and what the last one carried.
 #[derive(Default)]
-struct Count(AtomicUsize);
+struct Count(AtomicUsize, std::sync::Mutex<Vec<Message>>);
 
 /// `answer N`, for every request.
 struct Scripted(Arc<Count>);
@@ -32,10 +33,11 @@ impl LlmProvider for Scripted {
     }
     async fn chat_stream(
         &self,
-        _messages: &[Message],
+        messages: &[Message],
         _tools: &[ToolDef],
         _options: &ChatOptions,
     ) -> Result<futures::stream::BoxStream<'static, StreamEvent>, ProviderError> {
+        *self.0 .1.lock().unwrap() = messages.to_vec();
         let n = self.0 .0.fetch_add(1, Ordering::SeqCst) + 1;
         Ok(Box::pin(futures::stream::iter(vec![
             StreamEvent::TextDelta(format!("answer {n}")),
@@ -862,6 +864,138 @@ async fn scheduled_tasks_are_listed_here() {
         count.0.load(Ordering::SeqCst),
         0,
         "nothing was sent as a prompt"
+    );
+
+    term.press(atomcode_tui::surface::KeyPress::ctrl('d'));
+    let _ = tokio::time::timeout(Duration::from_secs(5), running).await;
+}
+
+/// Wait for the screen to read as `done` says, or fail naming `what`.
+async fn until_text(
+    term: &atomcode_tui::surface::Headless,
+    what: &str,
+    done: impl Fn(&str) -> bool,
+) {
+    let mut text = String::new();
+    for _ in 0..400 {
+        text = term.text();
+        if done(&text) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("{what}:\n{text}");
+}
+
+/// **`/todo add` and `/todo clear` edit the plan without a turn.** The whole
+/// way down: the screen hands the words to the session's `todo` command, the
+/// harness writes a `todowrite` call and its result into the log between turns,
+/// and the panel folds the list from there — nothing is sent as a prompt.
+#[tokio::test]
+async fn a_person_edits_the_plan_with_todo_add_and_clear() {
+    let home = tempfile::tempdir().unwrap();
+    std::env::set_var("ATOMCODE_HOME", home.path());
+    let project = tempfile::tempdir().unwrap();
+    let count = Arc::new(Count::default());
+    let config_path = home.path().join("config.toml");
+    let _locale = atomcode_config::i18n::test_lock();
+    atomcode_config::i18n::set_locale(atomcode_config::locale::Locale::ZhCn);
+
+    let front_end = FrontEnd::new();
+    let (start, config) = start(
+        project.path(),
+        &count,
+        SessionMode::Fresh,
+        Some(front_end.clone()),
+    );
+    let runtime = CodingRuntime::start(start).await.expect("starts");
+    let screen = Screen {
+        headless: Some((140, 40)),
+        ..Screen::default()
+    };
+    let mounted = tui_front::mount(
+        runtime,
+        front_end,
+        config,
+        None,
+        &screen,
+        config_path,
+        None,
+        None,
+    )
+    .await
+    .expect("the screen mounts");
+    let term = mounted
+        .app
+        .context()
+        .service::<atomcode_tui::plugin::SurfaceSvc>()
+        .and_then(|surface| surface.as_any_headless())
+        .expect("a headless surface");
+    let ui = mounted.ui.clone();
+    let ctx = mounted.app.context();
+    let running = tokio::spawn(async move {
+        let _ = ui.run(&ctx, None).await;
+    });
+    term.type_line("/todo add 补上回归测试");
+    until_text(&term, "the task is added", |text| {
+        text.contains("Added task: 补上回归测试")
+    })
+    .await;
+    term.type_line("/todo add 跑一遍全量");
+    until_text(&term, "the panel counts both", |text| {
+        text.contains("补上回归测试") && text.contains("跑一遍全量") && text.contains("2 待办")
+    })
+    .await;
+    assert_eq!(
+        count.0.load(Ordering::SeqCst),
+        0,
+        "no edit was sent as a prompt"
+    );
+
+    // The next turn's request carries each edit as a call immediately followed
+    // by its result — the pairing a provider rejects a request without.
+    term.type_line("继续");
+    until_text(&term, "the turn answered", |text| text.contains("answer 1")).await;
+    let sent = count.1.lock().unwrap().clone();
+    let edits: Vec<usize> = sent
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m.tool_calls.iter().any(|c| c.name == "todowrite"))
+        .map(|(at, _)| at)
+        .collect();
+    assert_eq!(edits.len(), 2, "both edits reach the model: {sent:#?}");
+    for &at in &edits {
+        let call = &sent[at].tool_calls[0];
+        let result = &sent[at + 1];
+        assert_eq!(
+            result.tool_call_id.as_deref(),
+            Some(call.id.as_str()),
+            "a call and its result, next to each other: {sent:#?}"
+        );
+    }
+    let said = sent
+        .iter()
+        .rposition(|m| m.text == "继续")
+        .expect("the person's words were sent");
+    assert!(
+        edits.iter().all(|&at| at + 1 < said),
+        "the person's words come after the edits: {sent:#?}"
+    );
+
+    term.type_line("/todo clear");
+    until_text(&term, "the list is cleared", |text| {
+        text.contains("(no tasks)")
+    })
+    .await;
+    term.type_line("/todo");
+    until_text(&term, "and /todo says there is none", |text| {
+        text.contains("这段对话里还没有计划清单")
+    })
+    .await;
+    assert_eq!(
+        count.0.load(Ordering::SeqCst),
+        1,
+        "the clear was not sent as a prompt either"
     );
 
     term.press(atomcode_tui::surface::KeyPress::ctrl('d'));

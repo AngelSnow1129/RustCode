@@ -440,6 +440,13 @@ pub struct StoodDown {
     pub receipts: Vec<atomcode_kernel::event::CommandId>,
 }
 
+/// Why [`Agent::commit_between_turns`] wrote nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BetweenTurns {
+    /// A turn is open (or stopping): the facts would land inside it.
+    TurnOpen,
+}
+
 /// The single door into an agent.
 #[derive(Default)]
 pub struct Inbox {
@@ -1004,6 +1011,33 @@ impl Agent {
     pub fn end_turn(&self) {
         *self.cancel.write().expect("cancel token poisoned") = CancellationToken::new();
         self.set_status(AgentStatus::Idle);
+    }
+
+    /// Commit `events` to this agent's log between turns, or not at all.
+    ///
+    /// For what a person does to a conversation that is not a turn — a task
+    /// added to the plan, the plan cleared (`tool-todo`'s `todo` command). The
+    /// facts must not land inside a turn: a pair written between a turn's call
+    /// and its result would break the pairing every request is projected from.
+    /// A turn opens by moving the status (`begin_turn`) before it commits
+    /// anything, and closes by committing its `TurnEnd` before moving it back,
+    /// so holding the status still while checking for [`AgentStatus::Idle`] and
+    /// committing keeps a turn from opening half way through. Anything but idle
+    /// is refused; nothing is written then. `facts` is asked under the same
+    /// hold, so what it reads of the log (the latest turn) is what the facts
+    /// land after.
+    pub fn commit_between_turns(
+        &self,
+        facts: impl FnOnce(&SessionLog) -> Vec<SessionEvent>,
+    ) -> Result<(), BetweenTurns> {
+        let _moving = self.moving.lock().expect("agent status poisoned");
+        if self.status() != AgentStatus::Idle {
+            return Err(BetweenTurns::TurnOpen);
+        }
+        for event in facts(&self.session) {
+            crate::session::commit(&self.ctx, &self.session, event);
+        }
+        Ok(())
     }
 
     /// The log this agent writes to — its own if its realm provides one, else
