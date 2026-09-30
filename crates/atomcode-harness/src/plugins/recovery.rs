@@ -80,6 +80,16 @@ fn default_fallback() -> u64 {
 /// meant to inform, and a state that only exists on stderr cannot be rendered
 /// by a panel, replayed on resume, or constructed in a test.
 pub(super) fn notice(ctx: &Context, notice: crate::session::NoticeKind, detail: String) {
+    notice_with(ctx, notice, detail, None);
+}
+
+/// [`notice`], with where a retry stands when it is one.
+pub(super) fn notice_with(
+    ctx: &Context,
+    notice: crate::session::NoticeKind,
+    detail: String,
+    retry: Option<crate::session::RetryAttempt>,
+) {
     if let Some(session) = crate::agent::scoped(ctx).service::<SessionSvc>() {
         crate::session::commit(
             ctx,
@@ -88,6 +98,7 @@ pub(super) fn notice(ctx: &Context, notice: crate::session::NoticeKind, detail: 
                 turn: session.current_turn(),
                 notice,
                 detail,
+                retry,
             },
         );
     }

@@ -332,15 +332,22 @@ impl Waterfall<AgentRequest> for Retry {
                     // A silent re-issue reads as "nothing happened" to a person
                     // watching a stalled turn. Logged, so every front end can
                     // show it and a replay can explain the gap.
-                    super::recovery::notice(
+                    //
+                    // The provider's error verbatim, and the numbers apart from
+                    // it: each screen says "retrying in 3s (1/2)" in its own
+                    // language, and nobody has to parse it back out of a
+                    // sentence. The error itself is the one thing that tells a
+                    // dead proxy from a silent gateway, so it is never reduced
+                    // to a category here.
+                    super::recovery::notice_with(
                         &self.ctx,
                         crate::session::NoticeKind::ProviderRetry,
-                        format!(
-                            "{}; retrying in {}s ({attempt}/{})",
-                            error.message,
-                            wait.as_secs(),
-                            self.attempts.saturating_sub(1)
-                        ),
+                        error.message.clone(),
+                        Some(crate::session::RetryAttempt {
+                            attempt,
+                            max_attempts: self.attempts.saturating_sub(1),
+                            backoff_secs: wait.as_secs(),
+                        }),
                     );
                     tokio::time::sleep(wait).await;
                     attempt += 1;

@@ -235,6 +235,9 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::TranscriptShortened { count } => {
             format!("{count} tool outputs were shortened for the model; what is shown here is still the original").into()
         }
+        Msg::TranscriptProviderRetry { reason, seconds, attempt, max } => {
+            format!("request failed: {reason} — retrying in {seconds}s ({attempt}/{max})").into()
+        }
         Msg::InjectedFromBackground => "from the background".into(),
         Msg::TranscriptDropped { through } => {
             format!("tool results through #{through} are no longer sent to the model").into()

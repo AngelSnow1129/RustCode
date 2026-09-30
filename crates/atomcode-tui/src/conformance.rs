@@ -118,6 +118,7 @@ pub fn facts() -> Vec<SessionEvent> {
             turn: 1,
             notice: NoticeKind::RateLimited,
             detail: "rate limited; waiting 30s (1/5)".into(),
+            retry: None,
         },
         SessionEvent::Injected {
             turn: 1,

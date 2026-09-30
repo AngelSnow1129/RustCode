@@ -2979,6 +2979,24 @@ impl CodingRuntime {
                     },
                     event = kernel_events.recv(), if kernel_open => match event {
                         Some(event) => {
+                            // The screen shows a retry and moves on; the log is
+                            // where the provider's error is still there to be read
+                            // when someone asks why their requests kept failing.
+                            if let AgentEvent::ProviderRetry {
+                                attempt,
+                                max_attempts,
+                                backoff_secs,
+                                reason,
+                            } = &event
+                            {
+                                tracing::warn!(
+                                    attempt,
+                                    max_attempts,
+                                    backoff_secs,
+                                    error = %reason,
+                                    "provider request failed; retrying"
+                                );
+                            }
                             let envelope = SequencedRuntimeEvent {
                                 generation: task_handle.status().generation,
                                 sequence,

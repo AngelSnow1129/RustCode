@@ -341,6 +341,14 @@ pub enum Msg<'a> {
     TranscriptShortened {
         count: usize,
     },
+    /// A provider request failed and is being sent again. `reason` is the
+    /// provider's own error, verbatim.
+    TranscriptProviderRetry {
+        reason: &'a str,
+        seconds: u64,
+        attempt: u32,
+        max: u32,
+    },
     /// The chip on an injected block: another session — one this tree has never
     /// held — reporting back (`modules/transcript.rs`).
     InjectedFromBackground,

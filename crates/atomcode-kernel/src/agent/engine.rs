@@ -382,7 +382,10 @@ fn retry_reason(e: &crate::stream::ProviderError) -> &'static str {
         Some(500 | 502 | 503 | 504 | 529) => "上游服务暂时不可用",
         _ => {
             let m = e.message.to_ascii_lowercase();
-            if m.contains("timeout") || m.contains("timed out") {
+            if e.code.as_deref() == Some(crate::stream::OPEN_TIMEOUT_CODE)
+                || m.contains("timeout")
+                || m.contains("timed out")
+            {
                 "模型响应超时"
             } else {
                 "网络连接失败"
@@ -418,6 +421,27 @@ fn provider_retry_backoff_secs(attempt: u32, retry_after_secs: Option<u64>) -> u
 #[cfg(test)]
 mod provider_retry_backoff_tests {
     use super::provider_retry_backoff_secs;
+
+    /// A gateway that took the request and never answered is a timeout, not a
+    /// failed connection — told by its code, since the message is written in
+    /// Chinese for a person and has no `timeout` in it to find.
+    #[test]
+    fn a_silent_gateway_is_called_a_timeout_not_a_connection_failure() {
+        use crate::stream::{ProviderError, OPEN_TIMEOUT_CODE};
+        let silent = ProviderError {
+            retryable: true,
+            message: "open failed: 等待首字节超过 90s(网关无响应)".into(),
+            code: Some(OPEN_TIMEOUT_CODE.into()),
+            ..Default::default()
+        };
+        assert_eq!(super::retry_reason(&silent), "模型响应超时");
+        let refused = ProviderError {
+            retryable: true,
+            message: "error sending request: connection refused".into(),
+            ..Default::default()
+        };
+        assert_eq!(super::retry_reason(&refused), "网络连接失败");
+    }
 
     #[test]
     fn exponential_backoff_grows_and_caps_at_30s() {

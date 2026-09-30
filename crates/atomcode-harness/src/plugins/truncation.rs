@@ -164,6 +164,7 @@ impl OnTruncation {
                 turn: session.current_turn(),
                 notice: crate::session::NoticeKind::OutputLeftCutOff,
                 detail: LEFT_CUT_OFF.to_string(),
+                retry: None,
             },
         );
         false
@@ -238,6 +239,7 @@ impl Waterfall<AgentRequest> for OnTruncation {
                         "输出被截断，正在请模型接着写（第 {seen}/{} 次）",
                         self.max_continuations
                     ),
+                    retry: None,
                 },
             );
             crate::session::commit(

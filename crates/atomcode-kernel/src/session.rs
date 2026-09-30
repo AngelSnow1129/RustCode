@@ -111,6 +111,18 @@ pub enum NoticeKind {
     MemberNotRestored,
 }
 
+/// Where a [`NoticeKind::ProviderRetry`] stands, as numbers a screen can say in
+/// its own language — rather than a sentence it would have to parse.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetryAttempt {
+    /// This retry, from 1.
+    pub attempt: u32,
+    /// How many retries there will be at most.
+    pub max_attempts: u32,
+    /// How long before it is sent.
+    pub backoff_secs: u64,
+}
+
 /// One durable fact about a session.
 ///
 /// `#[non_exhaustive]` because adding a fact must not break a consumer that
@@ -320,6 +332,11 @@ pub enum SessionEvent {
         /// `kind` already — a field by that name would shadow the tag.
         notice: NoticeKind,
         detail: String,
+        /// Set on a [`NoticeKind::ProviderRetry`], whose `detail` is then the
+        /// provider's own error, verbatim. A log written before this field
+        /// existed has `None` and an English sentence in `detail` instead.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        retry: Option<RetryAttempt>,
     },
     /// The session was named. A fact rather than a header field because a name
     /// changes: the first-prompt guess, then a model's summary, then whatever

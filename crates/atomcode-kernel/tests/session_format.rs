@@ -55,3 +55,47 @@ fn a_note_from_outside_says_so_and_round_trips() {
         outside
     );
 }
+
+/// `Notice` grew `retry` the same way: a notice an older build wrote reads
+/// with none, and one without numbers is written exactly as before — so an
+/// older build reading this one's log meets only a field it ignores.
+#[test]
+fn a_notice_from_an_older_build_still_reads_and_one_without_numbers_is_unchanged() {
+    use atomcode_kernel::session::{NoticeKind, SessionEvent};
+
+    let old = r#"{"kind":"notice","turn":2,"notice":"provider_retry","detail":"x; retrying in 3s (1/2)"}"#;
+    let read: SessionEvent = serde_json::from_str(old).expect("an older log still reads");
+    assert_eq!(
+        read,
+        SessionEvent::Notice {
+            turn: 2,
+            notice: NoticeKind::ProviderRetry,
+            detail: "x; retrying in 3s (1/2)".into(),
+            retry: None,
+        }
+    );
+    assert_eq!(serde_json::to_string(&read).unwrap(), old);
+}
+
+/// A retry's numbers round-trip beside its error.
+#[test]
+fn a_retry_notice_round_trips_with_its_numbers() {
+    use atomcode_kernel::session::{NoticeKind, RetryAttempt, SessionEvent};
+
+    let notice = SessionEvent::Notice {
+        turn: 1,
+        notice: NoticeKind::ProviderRetry,
+        detail: "connection refused".into(),
+        retry: Some(RetryAttempt {
+            attempt: 1,
+            max_attempts: 2,
+            backoff_secs: 3,
+        }),
+    };
+    let json = serde_json::to_string(&notice).unwrap();
+    assert!(
+        json.contains(r#""retry":{"attempt":1,"max_attempts":2,"backoff_secs":3}"#),
+        "{json}"
+    );
+    assert_eq!(serde_json::from_str::<SessionEvent>(&json).unwrap(), notice);
+}

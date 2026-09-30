@@ -414,6 +414,7 @@ async fn open_stream(
                         "open failed: 等待首字节超过 {}s(网关无响应)",
                         open_timeout.as_secs()
                     ),
+                    code: Some(atomcode_kernel::stream::OPEN_TIMEOUT_CODE.to_string()),
                     ..Default::default()
                 });
             }

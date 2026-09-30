@@ -1757,6 +1757,7 @@ impl RateLimitCoding {
                     turn: log.current_turn(),
                     notice: atomcode_harness::session::NoticeKind::RateLimited,
                     detail,
+                    retry: None,
                 },
             );
         }

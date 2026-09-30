@@ -1031,6 +1031,7 @@ impl TeamTool {
                         turn: log.current_turn(),
                         notice: crate::session::NoticeKind::MemberNotRestored,
                         detail: format!("team member `{name}` was not brought back: {e}"),
+                        retry: None,
                     },
                 );
             }
@@ -1739,6 +1740,7 @@ impl Plugin for TeamPlugin {
                                 turn: log.current_turn(),
                                 notice: crate::session::NoticeKind::ConfigSkipped,
                                 detail: format!("team role `{id}` was left out: {why}"),
+                                retry: None,
                             },
                         );
                     }

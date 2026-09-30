@@ -436,14 +436,30 @@ impl Producer for Transcript {
                 }
             }
 
-            SessionEvent::Notice { notice, detail, .. } => {
+            SessionEvent::Notice {
+                notice,
+                detail,
+                retry,
+                ..
+            } => {
                 // The runtime writes its rate-limit wait as an English sentence
                 // (`host_rows::RateLimitCoding`); said here in the person's
-                // language, as the classic screen says it. Anything else is
-                // shown as it was written.
-                let detail = match notice {
-                    atomcode_harness::session::NoticeKind::RateLimited => {
+                // language, as the classic screen says it. A provider retry
+                // carries its numbers apart from the provider's error, so it is
+                // said the same way. Anything else — and a retry logged before
+                // the numbers were kept — is shown as it was written.
+                let detail = match (notice, retry) {
+                    (atomcode_harness::session::NoticeKind::RateLimited, _) => {
                         rate_limit_wait(detail).unwrap_or_else(|| detail.clone())
+                    }
+                    (atomcode_harness::session::NoticeKind::ProviderRetry, Some(retry)) => {
+                        t(Msg::TranscriptProviderRetry {
+                            reason: detail,
+                            seconds: retry.backoff_secs,
+                            attempt: retry.attempt,
+                            max: retry.max_attempts,
+                        })
+                        .into_owned()
                     }
                     _ => detail.clone(),
                 };
@@ -922,6 +938,46 @@ mod tests {
         assert!(
             drawn.contains("#9") && drawn.contains("没有再发给模型"),
             "and where results stopped being sent:\n{drawn}"
+        );
+    }
+
+    /// A retry is said once, in the person's language, around the provider's
+    /// own error; a retry logged before its numbers were kept apart is shown as
+    /// it was written.
+    #[test]
+    fn a_provider_retry_says_the_error_and_when_it_tries_again() {
+        use atomcode_harness::session::{NoticeKind, RetryAttempt};
+        let s = fold(&[
+            SessionEvent::TurnStart { turn: 1 },
+            SessionEvent::Notice {
+                turn: 1,
+                notice: NoticeKind::ProviderRetry,
+                detail: "connection refused".into(),
+                retry: Some(RetryAttempt {
+                    attempt: 1,
+                    max_attempts: 2,
+                    backoff_secs: 3,
+                }),
+            },
+            SessionEvent::Notice {
+                turn: 1,
+                notice: NoticeKind::ProviderRetry,
+                detail: "gateway reset; retrying in 6s (2/2)".into(),
+                retry: None,
+            },
+        ]);
+        let drawn = said(&s);
+        let said_once = t(Msg::TranscriptProviderRetry {
+            reason: "connection refused",
+            seconds: 3,
+            attempt: 1,
+            max: 2,
+        })
+        .into_owned();
+        assert!(drawn.contains(&said_once), "{drawn}");
+        assert!(
+            drawn.contains("gateway reset; retrying in 6s (2/2)"),
+            "{drawn}"
         );
     }
 

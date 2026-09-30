@@ -206,6 +206,9 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::TranscriptShortened { count } => {
             format!("模型看到的 {count} 处工具输出被就地换短了;这里显示的仍是原文").into()
         }
+        Msg::TranscriptProviderRetry { reason, seconds, attempt, max } => {
+            format!("请求失败:{reason} —— {seconds} 秒后重试({attempt}/{max})").into()
+        }
         Msg::InjectedFromBackground => "来自后台".into(),
         Msg::TranscriptDropped { through } => {
             format!("到 #{through} 为止的工具结果没有再发给模型").into()

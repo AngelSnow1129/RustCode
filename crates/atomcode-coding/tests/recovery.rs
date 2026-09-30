@@ -201,6 +201,50 @@ async fn a_recovery_a_person_should_know_about_is_logged_not_printed() {
     );
 }
 
+/// A retry is logged with the provider's error as it came and the numbers apart
+/// from it.
+///
+/// The failure this pins: the notice was one English sentence
+/// (`"<error>; retrying in 3s (1/2)"`) and the driver's `ProviderRetry` had its
+/// numbers zeroed, so every screen that wrote its own "N 秒后重试(a/b)" around
+/// it said `…; retrying in 3s (1/2)，0 秒后重试(0/0)`.
+#[tokio::test]
+async fn a_provider_retry_keeps_the_error_and_its_numbers_apart() {
+    let dir = scratch("provider-retry");
+    let fast = "[[patch]]\nid = \"llm-retry\"\nconfig = { attempts = 3, backoff_ms = 1 }";
+    let app = start(tree(&dir, &[fast])).await;
+    let transient = RequestError {
+        retryable: true,
+        ..RequestError::message("open failed: 等待首字节超过 90s(网关无响应)")
+    };
+    let run = run_with(&app, 2, transient).await;
+    assert_eq!(run.text, "recovered");
+
+    let retries: Vec<_> = app
+        .context()
+        .only_session()
+        .unwrap()
+        .events()
+        .into_iter()
+        .filter_map(|e| match e.event {
+            SessionEvent::Notice {
+                notice: atomcode_harness::session::NoticeKind::ProviderRetry,
+                detail,
+                retry,
+                ..
+            } => Some((detail, retry)),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(retries.len(), 2, "one per retry: {retries:?}");
+    for (i, (detail, retry)) in retries.iter().enumerate() {
+        assert_eq!(detail, "open failed: 等待首字节超过 90s(网关无响应)");
+        let retry = retry.expect("the numbers are kept");
+        assert_eq!((retry.attempt, retry.max_attempts), (i as u32 + 1, 2));
+    }
+}
+
 #[tokio::test]
 async fn a_real_retry_after_is_honoured_over_any_guess() {
     let dir = scratch("retry-after");

@@ -284,6 +284,7 @@ pub fn apply_compaction(
                 turn,
                 notice: NoticeKind::CompactionDegraded,
                 detail: note,
+                retry: None,
             },
         );
     }

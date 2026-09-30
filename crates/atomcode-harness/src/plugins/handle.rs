@@ -357,7 +357,12 @@ impl Projector {
             // all as `Warning(String)` hands the driver prose to parse, and
             // parsing prose is how a UI ends up wrong in a language nobody
             // tested.
-            SessionEvent::Notice { notice, detail, .. } => {
+            SessionEvent::Notice {
+                notice,
+                detail,
+                retry,
+                ..
+            } => {
                 vec![match notice {
                     crate::session::NoticeKind::RateLimited => AgentEvent::RateLimited {
                         reset_at_display: detail.clone(),
@@ -366,11 +371,18 @@ impl Projector {
                         auto_resuming: true,
                         server_message: Some(detail.clone()),
                     },
-                    crate::session::NoticeKind::ProviderRetry => AgentEvent::ProviderRetry {
-                        attempt: 0,
-                        max_attempts: 0,
-                        backoff_secs: 0,
-                        reason: detail.clone(),
+                    // `reason` is the provider's own error; the numbers are the
+                    // numbers. A log from before they were kept apart has a
+                    // finished English sentence and no numbers — shown as it
+                    // was written rather than wrapped in a second "retrying".
+                    crate::session::NoticeKind::ProviderRetry => match retry {
+                        Some(retry) => AgentEvent::ProviderRetry {
+                            attempt: retry.attempt,
+                            max_attempts: retry.max_attempts,
+                            backoff_secs: retry.backoff_secs,
+                            reason: detail.clone(),
+                        },
+                        None => AgentEvent::Warning(detail.clone()),
                     },
                     crate::session::NoticeKind::StreamRecovered => AgentEvent::StreamRecovery {
                         attempt: 0,

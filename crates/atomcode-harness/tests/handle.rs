@@ -1363,6 +1363,58 @@ fn a_failure_never_projects_as_a_clean_stop() {
     ));
 }
 
+/// A retry reaches a driver with its numbers, and the provider's error as its
+/// reason — so a screen that says "N 秒后重试(a/b)" around it says it once. A
+/// log written before the numbers were kept has a finished sentence and none:
+/// that is shown as it was written, not wrapped in a second "retrying" with
+/// zeros in it.
+#[test]
+fn a_provider_retry_reaches_a_driver_with_its_numbers() {
+    use atomcode_harness::plugins::handle::replay as project;
+    use atomcode_harness::session::{NoticeKind, RetryAttempt, SessionEvent as Fact};
+
+    let events = project(
+        &[Fact::Notice {
+            turn: 1,
+            notice: NoticeKind::ProviderRetry,
+            detail: "connection refused".into(),
+            retry: Some(RetryAttempt {
+                attempt: 1,
+                max_attempts: 2,
+                backoff_secs: 3,
+            }),
+        }],
+        1000,
+    );
+    assert!(
+        matches!(
+            events.as_slice(),
+            [AgentEvent::ProviderRetry {
+                attempt: 1,
+                max_attempts: 2,
+                backoff_secs: 3,
+                reason,
+            }] if reason == "connection refused"
+        ),
+        "{events:?}"
+    );
+
+    let old = "connection refused; retrying in 3s (1/2)";
+    let events = project(
+        &[Fact::Notice {
+            turn: 1,
+            notice: NoticeKind::ProviderRetry,
+            detail: old.into(),
+            retry: None,
+        }],
+        1000,
+    );
+    assert!(
+        matches!(events.as_slice(), [AgentEvent::Warning(w)] if w == old),
+        "{events:?}"
+    );
+}
+
 /// The `handle` profile, but with a store and a session that can be resumed.
 fn resumable(
     home: &std::path::Path,
