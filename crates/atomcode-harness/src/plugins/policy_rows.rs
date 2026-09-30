@@ -166,6 +166,26 @@ fn todo_edit(
     } else {
         latest
     };
+    // The round after every round this turn already has. Where a todo call
+    // stands is `(turn, round, index)` in its message's `meta`, and the plan
+    // the next turn is reminded of lays only the calls after the sidecar's
+    // `through` over it once a compaction has folded the plan away
+    // (`atomcode-coding`'s `todo::current_todos`). A call with no position is
+    // read as older than that — the edit would reach the screen and never the
+    // model — and one at round 0 would sort before the turn's own calls.
+    let round = events
+        .iter()
+        .filter_map(|e| match &e.event {
+            SessionEvent::AssistantMessage { turn: t, round, .. }
+            | SessionEvent::ToolResultLogged { turn: t, round, .. }
+                if *t == turn =>
+            {
+                Some(*round)
+            }
+            _ => None,
+        })
+        .max()
+        .map_or(1, |last| last.saturating_add(1));
     // Unique within the log: a gateway rejects a repeated call id.
     let call_id = format!(
         "todo-{}-{}",
@@ -175,7 +195,7 @@ fn todo_edit(
     vec![
         SessionEvent::AssistantMessage {
             turn,
-            round: 0,
+            round,
             text: String::new(),
             reasoning: String::new(),
             tool_calls: vec![atomcode_kernel::tool::ToolCall {
@@ -184,11 +204,16 @@ fn todo_edit(
                 arguments: call_args,
             }],
             reasoning_blocks: Vec::new(),
-            meta: None,
+            // No tokens: nothing was asked of a model. Only where it stands.
+            meta: Some(atomcode_kernel::message::MessageMeta {
+                turn_id: turn,
+                round,
+                ..Default::default()
+            }),
         },
         SessionEvent::ToolResultLogged {
             turn,
-            round: 0,
+            round,
             call_id,
             content: result,
             is_error: false,

@@ -176,3 +176,56 @@ async fn an_edit_after_an_undo_is_not_filed_under_the_undone_turn() {
     );
     assert_eq!(plan(&agent).len(), 1, "and the model reads it");
 }
+
+/// Once a compaction has folded the plan away, the list the next turn is
+/// reminded of is the sidecar plus the todo calls positioned after its
+/// `through` (`atomcode-coding`'s `todo::current_todos`). An edit with no
+/// position — or one that sorts before the turn's own calls — was dropped
+/// there: on screen, never told to the model. Each edit stands after every
+/// round of its turn, and a second after the first.
+#[tokio::test]
+async fn an_edit_stands_after_the_turns_own_todo_calls() {
+    let (app, agent) = started("position").await;
+    let log = agent.session();
+    let turn = log.next_turn();
+    log.append(SessionEvent::TurnStart { turn });
+    log.append(SessionEvent::AssistantMessage {
+        turn,
+        round: 3,
+        text: String::new(),
+        reasoning: String::new(),
+        tool_calls: vec![atomcode_kernel::tool::ToolCall {
+            id: "model-plan".into(),
+            name: "todowrite".into(),
+            arguments: r#"{"todos":[{"content":"读代码","status":"pending"}]}"#.into(),
+        }],
+        reasoning_blocks: Vec::new(),
+        meta: Some(atomcode_kernel::message::MessageMeta {
+            turn_id: turn,
+            round: 3,
+            ..Default::default()
+        }),
+    });
+    log.append(SessionEvent::TurnEnd {
+        turn,
+        stop: atomcode_harness::seams::StopReason::Stopped,
+        error: None,
+    });
+
+    todo(&app, &agent, "add 第一项").await.expect("add");
+    todo(&app, &agent, "add 第二项").await.expect("add");
+    let positions: Vec<(u64, u32)> = log
+        .events()
+        .iter()
+        .filter_map(|e| match &e.event {
+            SessionEvent::AssistantMessage {
+                tool_calls, meta, ..
+            } if tool_calls.iter().any(|c| c.id.starts_with("todo-")) => {
+                let meta = meta.as_ref().expect("an edit carries its position");
+                Some((meta.turn_id, meta.round))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(positions, [(turn, 4), (turn, 5)]);
+}
