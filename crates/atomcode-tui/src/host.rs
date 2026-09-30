@@ -2588,6 +2588,14 @@ impl Host {
         }
     }
 
+    /// Open the settings panel on `tab`, opening it if it is not already up.
+    pub fn open_settings_on(&self, tab: crate::settings::Tab) {
+        if !self.settings_open() {
+            self.toggle_settings();
+        }
+        self.show_settings_tab(tab);
+    }
+
     /// Put the settings panel away. True when it was up.
     pub fn close_settings(&self) -> bool {
         self.moment
@@ -8125,6 +8133,28 @@ mod tests {
             set(&mut h.moment.write().unwrap(), false);
             assert_eq!(rows(), before, "closing the {name} panel lost the line");
         }
+    }
+
+    /// `/usage` lands on the Usage page: opening the panel if it is down, and
+    /// moving it there — not closing it — if it is up on another page.
+    #[test]
+    fn usage_opens_the_settings_panel_on_its_usage_page() {
+        use crate::settings::Tab;
+        let h = host();
+        let tab = || {
+            h.moment
+                .read()
+                .unwrap()
+                .settings_panel
+                .as_ref()
+                .map(|panel| panel.tab)
+        };
+        h.open_settings_on(Tab::Usage);
+        assert_eq!(tab(), Some(Tab::Usage), "opened, on the page");
+
+        h.show_settings_tab(Tab::Config);
+        h.open_settings_on(Tab::Usage);
+        assert_eq!(tab(), Some(Tab::Usage), "moved there, not put away");
     }
 
     #[test]

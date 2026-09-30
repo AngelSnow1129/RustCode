@@ -145,6 +145,12 @@ pub enum Action {
     /// key is bound to it later are one implementation, and the panel is
     /// screen state, which only the screen may write.
     ToggleSettings,
+    /// Open the settings panel on its Usage page, opening the panel if it is
+    /// not already up. What `/usage` lands on: the allowance is drawn there,
+    /// with the session's context and the plan beside it — one surface, not a
+    /// second answer printed into the conversation. Opening, not toggling: a
+    /// `/usage` typed while the panel is up moves it to the page.
+    OpenUsage,
     /// Pull the providers panel up over the composer, or put it away.
     ///
     /// Its own action rather than a parameter on [`Action::ToggleSettings`]:

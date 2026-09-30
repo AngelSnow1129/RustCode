@@ -2088,77 +2088,12 @@ impl CommandSet for SessionCommands {
             // always-on status line would want the push instead; that is the
             // part still owed (B2-13's second half).
             // What `/cost` cannot answer: that one is this conversation's
-            // token bill, this is the account's remaining allowance. Two
-            // questions that sound alike and have different answers — a person
-            // can be cheap this session and still be locked out until 14:30.
-            "usage" => {
-                let control = match host(control) {
-                    Ok(control) => control,
-                    Err(refusal) => return refusal,
-                };
-                match control
-                    .call(HostCommand::Usage {
-                        session: root,
-                        windows_only: false,
-                    })
-                    .await
-                {
-                    // 问不到 ≠ 不计额度。两者的窗口都是空的,而说错的那一次,
-                    // 正在被额度挡住的人会读到「这个宿主不计额度」,然后去
-                    // 别处找原因。
-                    Ok(HostReply::Usage {
-                        unavailable: Some(why),
-                        ..
-                    }) => Outcome::Refused(t(Msg::UsageUnknown { why: &why }).into_owned()),
-                    Ok(HostReply::Usage { windows, .. }) if windows.is_empty() => {
-                        Outcome::Said(t(Msg::UsageNotCounted).into_owned())
-                    }
-                    Ok(HostReply::Usage { windows, .. }) => Outcome::Said(
-                        windows
-                            .into_iter()
-                            .map(|w| {
-                                let cap = w
-                                    .call_limit
-                                    .map(|n| t(Msg::UsageCallLimit { n }).into_owned())
-                                    .unwrap_or_default();
-                                if w.exhausted {
-                                    // The one line a person actually needs, and
-                                    // the reason this is not `/cost`.
-                                    let when = if w.resets_at.is_empty() {
-                                        t(Msg::UsageResetsIn {
-                                            duration: &crate::text::spoken_duration(
-                                                w.resets_in_seconds.max(0) as u64,
-                                            ),
-                                        })
-                                    } else {
-                                        t(Msg::UsageResetsAt { at: &w.resets_at })
-                                    };
-                                    t(Msg::UsageExhausted {
-                                        label: &w.label,
-                                        when: &when,
-                                        cap: &cap,
-                                    })
-                                    .into_owned()
-                                } else {
-                                    t(Msg::UsageLeft {
-                                        label: &w.label,
-                                        cap: &cap,
-                                    })
-                                    .into_owned()
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\n"),
-                    ),
-                    Ok(other) => Outcome::Refused(
-                        t(Msg::HostSaidSomethingElse {
-                            reply: &format!("{other:?}"),
-                        })
-                        .into_owned(),
-                    ),
-                    Err(error) => Outcome::Refused(refusal(error)),
-                }
-            }
+            // token bill, this is the account's remaining allowance. Answered
+            // by the settings panel's Usage page — the allowance, the session's
+            // context and the plan together, the page `/config` shows — rather
+            // than a second rendering of the same windows printed into the
+            // conversation.
+            "usage" => Outcome::Do(Action::OpenUsage),
             "autonomy" => {
                 let control = match host(control) {
                     Ok(control) => control,
@@ -4175,104 +4110,20 @@ mod tests {
         }
     }
 
-    /// `/usage` answers what `/cost` cannot: not what this conversation spent,
-    /// but what the account may still do and when a spent window comes back.
-    ///
-    /// The distinction is the point of the command — a person can be cheap this
-    /// session and still be locked out — so the criterion checks the exhausted
-    /// window says *when*, which is the only part they can act on.
+    /// `/usage` opens the settings panel on its Usage page, where the
+    /// allowance is drawn — what is left, when a spent window comes back, and
+    /// "not metered" said differently from "could not ask" (the page's own
+    /// criteria in `modules::settings`). It asks the host nothing itself: the
+    /// panel does, as it opens.
     #[tokio::test]
-    async fn usage_says_what_is_left_and_when_a_spent_window_comes_back() {
+    async fn usage_opens_the_usage_page() {
         let host = Arc::new(Recording::default());
-        host.replies.lock().unwrap().extend([
-            Ok(HostReply::Usage {
-                plan: None,
-                stats: None,
-                unavailable: None,
-                windows: vec![
-                    atomcode_host_api::UsageWindow {
-                        label: "5 小时".into(),
-                        exhausted: true,
-                        resets_at: "14:30".into(),
-                        resets_in_seconds: 3600,
-                        call_limit: Some(1000),
-                        window_seconds: 0,
-                        used_percent: None,
-                        calls_used: None,
-                    },
-                    atomcode_host_api::UsageWindow {
-                        label: "每周".into(),
-                        exhausted: false,
-                        resets_at: String::new(),
-                        resets_in_seconds: 0,
-                        call_limit: None,
-                        window_seconds: 0,
-                        used_percent: None,
-                        calls_used: None,
-                    },
-                ],
-            }),
-            Ok(HostReply::Usage {
-                plan: None,
-                stats: None,
-                unavailable: None,
-                windows: Vec::new(),
-            }),
-            // Asked, and the meter did not answer. The windows are empty here
-            // too — which is exactly why this third reply has to read
-            // differently from the second.
-            Ok(HostReply::Usage {
-                plan: None,
-                stats: None,
-                unavailable: Some("timed out".into()),
-                windows: Vec::new(),
-            }),
-        ]);
         let (app, _client, all) = following(&host);
-
-        match all.dispatch("/usage", &app.context()).await {
-            Outcome::Said(text) => {
-                assert!(text.contains("5 小时") && text.contains("用完了"), "{text}");
-                // When it comes back is the only actionable part.
-                assert!(text.contains("14:30"), "{text}");
-                assert!(text.contains("1000"), "{text}");
-                assert!(text.contains("每周") && text.contains("还有"), "{text}");
-            }
-            other => panic!("{other:?}"),
-        }
-        // A host that meters nothing says so. Not a refusal: there is nothing
-        // wrong, there is just no meter.
-        match all.dispatch("/usage", &app.context()).await {
-            Outcome::Said(text) => assert!(text.contains("不计额度"), "{text}"),
-            other => panic!("{other:?}"),
-        }
-        // 而问不到的那一次,**不能**说成同一句话。两次的窗口都是空的,所以
-        // 只钉上面那一半的话,把两者合并回去照样全绿 —— 而合并之后,一个正
-        // 被额度挡住的人读到的是「这个宿主不计额度」。
-        match all.dispatch("/usage", &app.context()).await {
-            Outcome::Refused(text) => {
-                assert!(!text.contains("不计额度"), "这是问不到,不是不计:{text}");
-                assert!(text.contains("timed out"), "而且说得出为什么:{text}");
-            }
-            other => panic!("{other:?}"),
-        }
-        assert_eq!(
-            *host.asked.lock().unwrap(),
-            vec![
-                HostCommand::Usage {
-                    session: "lead".into(),
-                    windows_only: false,
-                },
-                HostCommand::Usage {
-                    session: "lead".into(),
-                    windows_only: false,
-                },
-                HostCommand::Usage {
-                    session: "lead".into(),
-                    windows_only: false,
-                },
-            ]
-        );
+        assert!(matches!(
+            all.dispatch("/usage", &app.context()).await,
+            Outcome::Do(Action::OpenUsage)
+        ));
+        assert!(host.asked.lock().unwrap().is_empty());
     }
 
     /// `pin` / `unpin` 是整词,不是前缀。

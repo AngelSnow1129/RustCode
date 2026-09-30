@@ -6440,6 +6440,17 @@ impl Tui {
                 }
                 return false;
             }
+            // `/usage`: the same settings panel, on its Usage page. Refreshed
+            // like `/config` does, so the allowance is asked now rather than
+            // whatever the page last showed.
+            Action::OpenUsage => {
+                drop(m);
+                self.host.open_settings_on(crate::settings::Tab::Usage);
+                self.refresh_settings();
+                self.fetch_usage();
+                self.fetch_status();
+                return false;
+            }
             // Put another session on screen. The lock goes first: `switch_to`
             // draws that session and writes the moment, which is a lock this
             // guard still holds.
