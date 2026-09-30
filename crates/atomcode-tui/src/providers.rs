@@ -129,6 +129,13 @@ pub struct ProvidersView {
     models: Arc<Vec<ModelRow>>,
     protocols: Arc<Vec<Protocol>>,
     efforts: Arc<Vec<String>>,
+    /// The row [`Self::with_current`] resolved the session to, when it could.
+    ///
+    /// Not the same as the row marked `current`: a name no row or two rows
+    /// answer to leaves the file's own mark standing (so `model_after` has
+    /// somewhere to step from), and that mark says what the *next* session
+    /// starts on — nothing about which account this one is on.
+    live: Option<usize>,
 }
 
 impl ProvidersView {
@@ -143,6 +150,7 @@ impl ProvidersView {
             models: Arc::new(models),
             protocols: Arc::new(protocols),
             efforts: Arc::new(efforts),
+            live: None,
         }
     }
 
@@ -229,7 +237,15 @@ impl ProvidersView {
             models: Arc::new(models),
             protocols: self.protocols.clone(),
             efforts: self.efforts.clone(),
+            live: Some(at),
         }
+    }
+
+    /// The row the session is known to be on — resolved from its own model by
+    /// [`Self::with_current`], never read off the file's mark. `None` when the
+    /// list was never marked from a session, or the name could not pick one row.
+    pub fn live_row(&self) -> Option<&ModelRow> {
+        self.live.and_then(|at| self.models.get(at))
     }
 
     /// Which row `live` names: by selection id when that is what it is, else the

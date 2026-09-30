@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use async_trait::async_trait;
+use atomcode_capabilities::session::manager::SessionOrigin;
 use atomcode_coding::front_end::FrontEnd;
 use atomcode_coding::runtime::{RuntimePhase, UserInput};
 use atomcode_coding::{CodingAgentConfig, CodingRuntime};
@@ -132,6 +133,26 @@ struct Live {
     /// 是替哪个会话干活的(会话 id)。等于它自己 = 不是替谁干活,没有第二个读者 ——
     /// `/bg` 把当前会话放到后台接着跑就是这种。
     origin: String,
+    /// 替别的对话干活的会话,在盘上标没标、标到了哪一步。见 [`Mark`]。
+    mark: Arc<Mutex<Mark>>,
+}
+
+/// 一个替别的对话干活的后台会话,在盘上怎么记。
+///
+/// 结果**真的落进**发起它的那段对话的日志之后,才标成 `SessionOrigin::Delegated`
+/// (不进 /resume、--continue)。在那之前它就是个普通会话:还在跑、没投到、投了但那段
+/// 对话还没收下就退出了、或者进程崩了 —— 它都得在 /resume 里、或退出那一行里找得回来。
+/// 投递成功只说明「排上了队」:那段对话正忙时它是一次 steer,退出时可能被丢掉。
+#[derive(Debug)]
+enum Mark {
+    /// 不是替谁干活(`/bg` 挪过来的那种),没什么要标的。
+    Own,
+    /// 替别的对话干活,结果还没落进那段对话。`PathBuf` 是它的会话库所在的项目。
+    Pending(PathBuf),
+    /// 结果已在那段对话里,盘上标成了 `Delegated`。
+    Home(PathBuf),
+    /// 人接手了(叫到前台、对它说话):它是人的对话了,不再标。
+    TakenUp,
 }
 
 /// 从一个 runtime 的事件里记下的、面板要说的那几件事。
@@ -396,6 +417,7 @@ fn attach(
             track: track.clone(),
             since: now_ms(),
             origin: own,
+            mark: Arc::new(Mutex::new(Mark::Own)),
         },
         Pumps {
             id,
@@ -455,8 +477,12 @@ fn in_turn(live: &Live) -> bool {
 /// 但「这次活干多久」要看首尾两个时刻 —— 而那是**这次活**的跨度,不是这个槽位开了
 /// 多久(它可能先空着,也可能中途在等一个回答)。
 fn log_of(live: &Live) -> Vec<LoggedEvent> {
-    let session = live.control.session_id();
-    live.control
+    log_of_control(&live.control)
+}
+
+fn log_of_control(control: &RuntimeControl) -> Vec<LoggedEvent> {
+    let session = control.session_id();
+    control
         .front_end()
         .app()
         .and_then(|app| Feed::find(&app, &session))
@@ -614,6 +640,75 @@ fn describe(live: &Live) -> BackgroundSession {
     }
 }
 
+/// Record how `session` was created in its index, in the store of the project
+/// at `dir`.
+fn set_origin(dir: &std::path::Path, session: &str, origin: SessionOrigin) -> Result<(), String> {
+    atomcode_capabilities::session::SessionManager::for_project(
+        dir,
+        &atomcode_coding::config::product_dirs_from_env(),
+    )
+    .update_meta(session, |meta| meta.origin = origin)
+    .map_err(|error| error.to_string())
+}
+
+/// A person took up a session that was working for another conversation: from
+/// now on it is one of theirs, offered in `/resume` like any other, and never
+/// marked again. Called without the slot table's lock: it may write the index.
+fn take_up(mark: &Mutex<Mark>, session: &str) {
+    let mut mark = mark.lock().expect("mark poisoned");
+    if let Mark::Home(dir) = &*mark {
+        if let Err(error) = set_origin(dir, session, SessionOrigin::Manual) {
+            tracing::warn!(%session, %error, "a background session taken up is still left out of /resume");
+        }
+    }
+    if !matches!(*mark, Mark::Own) {
+        *mark = Mark::TakenUp;
+    }
+}
+
+/// The result of `session` is in `home`'s log: `home` took the note in.
+fn holds_note_from(home: &RuntimeControl, session: &str) -> bool {
+    use atomcode_kernel::session::InjectionOrigin;
+    log_of_control(home).iter().any(|logged| {
+        matches!(
+            &logged.event,
+            SessionEvent::Injected {
+                origin: InjectionOrigin::Peer { from, .. },
+                ..
+            } if from == session
+        )
+    })
+}
+
+/// The result of `session` reached the conversation it worked for: mark it on
+/// disk as that conversation's, not one of the person's own. Only from
+/// [`Mark::Pending`] — one a person took up in the meantime stays theirs.
+fn came_home_now(mark: &Mutex<Mark>, session: &str) {
+    let mut mark = mark.lock().expect("mark poisoned");
+    let Mark::Pending(dir) = &*mark else {
+        return;
+    };
+    match set_origin(dir, session, SessionOrigin::Delegated) {
+        Ok(()) => *mark = Mark::Home(dir.clone()),
+        Err(error) => {
+            tracing::warn!(%session, %error, "a background session whose result came home is still offered in /resume")
+        }
+    }
+}
+
+/// Whether the exit has nothing to say about this background session: it
+/// worked for another conversation, its result is there, and it is marked so.
+/// Anything else — still running, not taken in, taken up by a person — gets
+/// its line.
+fn came_home(live: &Live) -> bool {
+    matches!(*live.mark.lock().expect("mark poisoned"), Mark::Home(_)) && !in_turn(live)
+}
+
+/// How long a background session's result is watched for, once handed over,
+/// to see it taken in: half-second looks, ten minutes in all — a conversation
+/// in a long tool call takes the note in when that call returns.
+const SETTLE_TRIES: u32 = 1_200;
+
 /// 一个会话里有没有人说过话。没有的话它不值得占一个槽位。
 fn has_conversation(live: &Live) -> bool {
     log_of(live)
@@ -676,7 +771,7 @@ impl Background {
     /// 指令不跟着投:核实与否由那段对话自己定(`Msg::BackgroundResult`)。
     fn deliver_home(&self, id: u64) {
         use atomcode_i18n::screen::{t as tr, Msg as SMsg};
-        let (origin, sender, frame) = {
+        let (origin, sender, frame, mark) = {
             let state = self.state.lock().expect("background poisoned");
             let Some(live) = state.slots.iter().find(|slot| slot.id == id) else {
                 return;
@@ -694,7 +789,12 @@ impl Background {
                 answer: &answer,
             })
             .into_owned();
-            (live.origin.clone(), live.control.session_id(), frame)
+            (
+                live.origin.clone(),
+                live.control.session_id(),
+                frame,
+                live.mark.clone(),
+            )
         };
         // 发起它的那个会话可能已经被丢了、或被换掉了:那就不投 —— 面板里还有它。
         let handle = {
@@ -707,9 +807,10 @@ impl Background {
                     .iter()
                     .find(|slot| slot.control.session_id() == origin)
             };
-            live.map(|live| live.control.runtime().clone())
+            live.map(|live| live.control.clone())
         };
-        let Some(handle) = handle else { return };
+        let Some(home) = handle else { return };
+        let handle = home.runtime().clone();
         tokio::spawn(async move {
             // 一条注,不是一次用户提交:日志里说话的是那个后台会话,不是人。屏上的内容
             // 一字不少 —— 变的只是**谁说的**。
@@ -720,7 +821,19 @@ impl Background {
             const TRIES: u32 = 10;
             for attempt in 1..=TRIES {
                 match handle.note(sender.clone(), frame.clone()).await {
-                    Ok(_) => return,
+                    Ok(_) => {
+                        // 排上队不等于收下了:那段对话正忙时这是一次 steer。等它真进了
+                        // 那段对话的日志再标。等不到(退出了、那段对话没了)就不标 ——
+                        // 退出前 `shutdown_all` 还会再看一眼。
+                        for _ in 0..SETTLE_TRIES {
+                            if holds_note_from(&home, &sender) {
+                                came_home_now(&mark, &sender);
+                                return;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        }
+                        return;
+                    }
                     Err(atomcode_coding::RuntimeError::Busy) if attempt < TRIES => {
                         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                     }
@@ -736,6 +849,36 @@ impl Background {
                 }
             }
         });
+    }
+
+    /// Settle, before the exit reads them, the background sessions whose result
+    /// was taken in by the conversation they worked for but not yet marked.
+    fn settle_before_exit(&self) {
+        let pending: Vec<(Arc<Mutex<Mark>>, String, Arc<RuntimeControl>)> = {
+            let state = self.state.lock().expect("background poisoned");
+            state
+                .slots
+                .iter()
+                .filter(|slot| {
+                    matches!(*slot.mark.lock().expect("mark poisoned"), Mark::Pending(_))
+                })
+                .filter_map(|slot| {
+                    let home = std::iter::once(&state.front)
+                        .chain(state.slots.iter())
+                        .find(|live| live.control.session_id() == slot.origin)?;
+                    Some((
+                        slot.mark.clone(),
+                        slot.control.session_id(),
+                        home.control.clone(),
+                    ))
+                })
+                .collect()
+        };
+        for (mark, session, home) in pending {
+            if holds_note_from(&home, &session) {
+                came_home_now(&mark, &session);
+            }
+        }
     }
 
     /// 一个 runtime 的宿主事件到了。只有前台那个的才是屏幕上那个会话的事。
@@ -900,11 +1043,15 @@ impl Background {
         // A screen that closed without saying so never sent the stop; the
         // front is still up, so it can still be read here.
         self.record_exit_front();
+        self.settle_before_exit();
         let slots = std::mem::take(&mut self.state.lock().expect("background poisoned").slots);
+        // Work done for another conversation whose result is there leaves
+        // nothing to come back to (and is not offered in /resume); one still
+        // running, or whose result was never taken in, is named.
         self.left.lock().expect("left poisoned").extend(
             slots
                 .iter()
-                .filter(|slot| has_conversation(slot))
+                .filter(|slot| has_conversation(slot) && !came_home(slot))
                 .map(|slot| slot.control.session_id()),
         );
         futures::future::join_all(slots.into_iter().map(stop)).await;
@@ -1036,7 +1183,7 @@ impl Background {
 
     async fn foreground(&self, session: String, target: String) -> Result<HostReply, HostError> {
         let _op = self.op.lock().await;
-        let closed = {
+        let (closed, mark) = {
             let mut state = self.state.lock().expect("background poisoned");
             if state.front.control.session_id() != session {
                 return Err(HostError::NotFound);
@@ -1049,14 +1196,17 @@ impl Background {
             Self::may_move(&state.front)?;
             let keep = has_conversation(&state.front) || in_turn(&state.front);
             let incoming = state.slots.remove(at);
+            let mark = incoming.mark.clone();
             let outgoing = self.put_in_front(&mut state, incoming);
-            if keep {
+            let closed = if keep {
                 state.slots.insert(at, outgoing);
                 None
             } else {
                 Some(outgoing)
-            }
+            };
+            (closed, mark)
         };
+        take_up(&mark, &target);
         self.announce(HostEvent::SessionChanged {
             session: target.clone(),
             previous: Some(session),
@@ -1127,9 +1277,11 @@ impl Background {
         let files = scope
             .as_deref()
             .and_then(|scope| changed_files(&working_dir, scope));
-        let mut live = self.spawn_at(working_dir, false).await?;
+        let mut live = self.spawn_at(working_dir.clone(), false).await?;
         // 它是替**前台那个**干的:干完把结果投回去,而不是留在这里等人来读。
         live.origin = control.session_id();
+        // 结果落进那段对话之后,盘上才标它不是人的一段对话(见 `Mark`)。
+        live.mark = Arc::new(Mutex::new(Mark::Pending(working_dir)));
         if let Err(error) = live.control.runtime().submit(UserInput::from(text)).await {
             // 没接下任务的会话不留槽:它只会是一行什么都不做的空会话。
             stop(live).await;
@@ -1150,15 +1302,20 @@ impl Background {
     }
 
     async fn tell(&self, target: String, text: String) -> Result<HostReply, HostError> {
-        let (handle, track) = {
+        let (handle, track, mark) = {
             let state = self.state.lock().expect("background poisoned");
             let slot = state
                 .slots
                 .iter()
                 .find(|slot| slot.control.session_id() == target)
                 .ok_or(HostError::NotFound)?;
-            (slot.control.runtime().clone(), slot.track.clone())
+            (
+                slot.control.runtime().clone(),
+                slot.track.clone(),
+                slot.mark.clone(),
+            )
         };
+        take_up(&mark, &target);
         handle
             .submit(UserInput::from(text))
             .await

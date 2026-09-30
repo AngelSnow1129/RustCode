@@ -232,6 +232,11 @@ impl Presentation {
             // conversation that started it answers right under it in its own
             // words, so the report itself is a click away, not said twice.
             ("injected:background", Showing::Folded),
+            // An answered question — an approval most of all — folds to
+            // `● bash … → 允许一次`: the command was read in full while it was
+            // being asked (an unanswered one never folds, `ChoiceBlock::
+            // always_open`), and afterwards it is a record, a click away.
+            ("choice", Showing::Folded),
         ];
         by_kind.extend(
             crate::content::ENVIRONMENTAL_INJECTIONS
@@ -570,15 +575,20 @@ impl Presentation {
 /// behind it are the VL helper's about a picture, not words a person wrote, so
 /// opening it on a click is not the prose case above.
 ///
+/// An answered question (`choice`) — an approval, most often — folds to
+/// `● bash … → 允许一次` once answered, and the click is how the
+/// whole command is read again.
+///
 /// A background job's report (`injected:background`) is the same lid: folded
 /// by default to `● 后台「…」的结果回来了  点击展开`, with the conversation that
 /// started the job answering under it — and, left out of this list, a row that
 /// promised a click and answered none.
-const CLICKABLE: [&str; 4] = [
+const CLICKABLE: [&str; 5] = [
     "tool_call",
     "reasoning",
     "vl_caption",
     "injected:background",
+    "choice",
 ];
 
 /// How many rows the slash menu may take, margin aside.
@@ -12555,7 +12565,7 @@ mod tests {
         assert!(
             kinds.iter().all(|k| matches!(
                 *k,
-                "tool_call" | "reasoning" | "vl_caption" | "injected:background"
+                "tool_call" | "reasoning" | "vl_caption" | "injected:background" | "choice"
             )),
             "these answer a click too: {kinds:?}"
         );
@@ -12703,6 +12713,62 @@ mod tests {
         assert_eq!(
             h.compose(size).rows().join("\n"),
             folded,
+            "clicking it again folds it back"
+        );
+    }
+
+    /// An approval is read whole while it is asked, and afterwards folds to
+    /// `● bash … → 允许一次`; a click opens the whole command again.
+    #[test]
+    fn an_answered_approval_folds_and_a_click_opens_it() {
+        let h = host();
+        let card = |answer: Option<&str>, marker: &str| crate::content::ChoiceBlock {
+            question: format!("bash  git commit -F - <<'EOF'\n{marker}\nEOF"),
+            options: vec!["允许一次".into(), "拒绝".into()],
+            answer: answer.map(str::to_string),
+        };
+        {
+            let mut stream = h.stream.write().unwrap();
+            let mut w = stream.writer("asks");
+            w.emit(
+                crate::block::Coord::default(),
+                Arc::new(card(Some("允许一次"), "ANSWERED-BODY")),
+            );
+            w.open(
+                crate::block::Coord::default(),
+                Arc::new(card(None, "ASKING-BODY")),
+            );
+        }
+        let size = (80, 40);
+        let shown = h.compose(size).rows().join("\n");
+        assert!(
+            shown.contains("ASKING-BODY"),
+            "one being asked is whole:\n{shown}"
+        );
+        assert!(
+            !shown.contains("ANSWERED-BODY"),
+            "an answered one folds:\n{shown}"
+        );
+        assert!(shown.contains("● bash"), "{shown}");
+        assert!(shown.contains("→ 允许一次"), "{shown}");
+        assert!(!shown.contains("点击展开"), "no click hint on it:\n{shown}");
+
+        let rect = h.compose(size).part("stream").unwrap().rect;
+        let (id, kind) = (rect.y..rect.bottom())
+            .filter_map(|y| h.block_at(2, y))
+            .find(|(_, kind)| *kind == "choice")
+            .expect("the folded approval answers a click");
+        h.toggle_block(id, kind);
+        let open = h.compose(size).rows().join("\n");
+        assert!(
+            open.contains("ANSWERED-BODY"),
+            "the click opened it:\n{open}"
+        );
+
+        h.toggle_block(id, kind);
+        assert_eq!(
+            h.compose(size).rows().join("\n"),
+            shown,
             "clicking it again folds it back"
         );
     }

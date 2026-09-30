@@ -669,6 +669,7 @@ mod pin_tests {
             turn_count: 1,
             presence: CatalogPresence::NativeOnly,
             needs_newer_version: false,
+            origin: Default::default(),
         }
     }
 
@@ -1567,10 +1568,12 @@ impl RuntimeControl {
         // runtime 同时接着一段对话跑(自动分叉的成因就是这个)时,两条都往前走了,
         // 藏掉哪条都是从选择器里再也选不回来。两行同名的麻烦是能读出来的,选不回来
         // 的会话是看不见的——选择器宁可多列一行。
+        // Work done in the background for another conversation (a review) is
+        // not offered: its result went back to that conversation.
         let all: Vec<(String, StoredSession)> = scan
             .entries
             .into_iter()
-            .filter(|entry| entry.message_count > 0)
+            .filter(|entry| entry.message_count > 0 && !entry.delegated())
             .map(|entry| {
                 (
                     entry.project_bucket,

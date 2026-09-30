@@ -2026,13 +2026,23 @@ impl InjectedBlock {
         (head, body.trim_start_matches('\n'))
     }
 
-    /// `● 后台「…」的结果回来了`, in the terminal's own foreground — white on a
-    /// dark screen — the way an answer's text is: it says "this is a result",
-    /// it is neither chrome to recede nor an accent to shout.
+    /// `● 后台「…」的结果回来了`: the words in the terminal's own foreground —
+    /// white on a dark screen — the way an answer's text is (it says "this is a
+    /// result", neither chrome to recede nor an accent to shout), and the `●`
+    /// in the success green a finished call's mark has. It is work that came
+    /// back done; a job that stopped short is said elsewhere (`BgFailedTip`),
+    /// so this mark is never green over a failure.
     fn result_head(&self, ctx: &RenderCtx) -> Line {
         let (head, _) = self.result_parts();
-        let head = format!("{} {head}", ctx.caps.g(Glyph::ToolMark));
-        Line::styled(width::take_width(&head, ctx.width as usize), Style::new())
+        let w = ctx.width as usize;
+        let mark = width::take_width(ctx.caps.g(Glyph::ToolMark), w);
+        let room = w.saturating_sub(width::str_width(&mark));
+        let mut line = Line::styled(mark, ok());
+        line.push(Span::styled(
+            width::take_width(&format!(" {head}"), room),
+            Style::new(),
+        ));
+        line
     }
 }
 
@@ -2175,8 +2185,14 @@ impl ChoiceBlock {
             None => ask,
         };
         let mut out: Vec<Line> = Vec::new();
+        // `?` while it is being asked; once answered it is a record of what
+        // was decided, and marked like one (`●`), the way its folded row is.
+        let mark = match self.answer {
+            Some(_) => "● ",
+            None => "? ",
+        };
         for (i, piece) in text.lines().enumerate() {
-            let lead = if i == 0 { "? " } else { "  " };
+            let lead = if i == 0 { mark } else { "  " };
             out.extend(wrapped(piece, w, style, lead));
         }
         match &self.answer {
@@ -2229,13 +2245,32 @@ impl Content for ChoiceBlock {
     fn lines(&self, ctx: &RenderCtx) -> Vec<Line> {
         self.rows(ctx, &self.question)
     }
+    /// While it is being asked it is never folded: the person is reading it to
+    /// decide. Once answered it folds like any record (`Presentation`), and a
+    /// click opens the whole of it again.
+    fn always_open(&self) -> bool {
+        self.answer.is_none()
+    }
+    /// `● bash (…)  cd … → 允许一次`: what was asked, cut to the row, and what
+    /// was answered. The answer is kept whatever the width, since it is the
+    /// half a person scrolling back looks for. No `点击展开` tail (the user's
+    /// call, 2026-09-30): a folded tool call opens on a click without saying so,
+    /// and this row reads the same way.
     fn summary(&self, ctx: &RenderCtx) -> Line {
-        let w = ctx.width;
-        let head = match &self.answer {
-            Some(a) => format!("? {} → {a}", first_line(&self.question)),
-            None => format!("? {}", first_line(&self.question)),
+        let w = ctx.width as usize;
+        let Some(answer) = &self.answer else {
+            let head = format!("? {}", first_line(&self.question));
+            return Line::styled(width::take_width(&head, w), muted());
         };
-        Line::styled(width::take_width(&head, w as usize), muted())
+        let tail = format!(" → {answer}");
+        let room = w.saturating_sub(width::str_width(&tail));
+        let head = width::take_width(&format!("● {}", first_line(&self.question)), room);
+        let mut line = Line::styled(head, muted());
+        line.push(Span::styled(" → ", muted()));
+        line.push(Span::styled(answer.clone(), ok()));
+        // On a row too narrow even for the answer, the row still ends at the
+        // edge: the answer is cut there rather than drawn past it.
+        line.truncate(w)
     }
 }
 
@@ -4938,6 +4973,14 @@ mod tests {
 
         let open: Vec<String> = b.lines(&ctx).iter().map(|l| l.plain()).collect();
         assert_eq!(open[0], "● 后台「审查」的结果回来了");
+
+        // The mark is a finished call's green, folded or open; the words keep
+        // the plain foreground.
+        for head in [b.summary(&ctx), b.lines(&ctx).remove(0)] {
+            assert_eq!(head.spans[0].text, "●");
+            assert_eq!(head.spans[0].style, ok());
+            assert_eq!(head.spans[1].style, Style::new());
+        }
         assert!(
             open.iter()
                 .any(|l| l.contains("没有发现问题") && !l.contains("**")),

@@ -752,6 +752,175 @@ async fn the_models_code_review_runs_in_a_background_session() {
     rig.quit().await;
 }
 
+/// A git repository in `dir` with one uncommitted change: something for a
+/// review to look at.
+fn changed_repo(dir: &std::path::Path) {
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .output()
+            .expect("git runs");
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.email", "t@example.com"]);
+    git(&["config", "user.name", "t"]);
+    std::fs::write(dir.join("a.rs"), "fn main() {}\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-qm", "init"]);
+    std::fs::write(dir.join("a.rs"), "fn main() { changed(); }\n").unwrap();
+}
+
+/// The sessions `/resume` offers, by id.
+async fn listed(rig: &Rig) -> Vec<String> {
+    match rig
+        .control()
+        .call(HostCommand::ListSessions { working_dir: None })
+        .await
+    {
+        Ok(HostReply::Sessions { sessions }) => sessions.into_iter().map(|s| s.id).collect(),
+        other => panic!("the session list: {other:?}"),
+    }
+}
+
+/// Wait until `/resume` does (`true`) or does not (`false`) offer `session`.
+async fn until_listed(rig: &Rig, session: &str, offered: bool) {
+    for _ in 0..100 {
+        if listed(rig).await.iter().any(|id| id == session) == offered {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("{session} offered in /resume should be {offered}");
+}
+
+/// The review started for the conversation in front, once its result is back.
+async fn review_came_home(rig: &Rig) -> String {
+    changed_repo(rig.project.path());
+    let first = rig.client.root();
+    rig.term.type_line("review it");
+    rig.until_screen("结果回来了").await;
+    assert_eq!(rig.client.root(), first, "the foreground never moved");
+    rig.background()
+        .await
+        .into_iter()
+        .find(|s| s.origin.as_deref() == Some(first.as_str()))
+        .expect("the review's background session")
+        .session
+}
+
+/// **Quitting after a review came home names the conversation, not the review.**
+/// The review ran in a background session for the conversation in front and its
+/// result is in that conversation: the review is not one of the person's
+/// conversations in `/resume` (it still opens by id), and the `resume` line
+/// printed on the way out is the conversation's alone.
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn quitting_after_a_review_came_home_names_the_conversation() {
+    let rig = Rig::new().await;
+    let first = rig.client.root();
+    let review = review_came_home(&rig).await;
+
+    until_listed(&rig, &review, false).await;
+    assert!(listed(&rig).await.contains(&first), "the conversation is");
+    assert!(
+        rig.read_stored(&review).await.is_ok(),
+        "the review still opens by id"
+    );
+
+    let host = rig.host.clone();
+    rig.term.press(KeyPress::ctrl('d'));
+    rig.until("the screen quit", |rig| rig.running.is_finished())
+        .await;
+    host.shutdown_all().await;
+
+    assert_eq!(
+        host.front_at_exit().as_deref(),
+        Some(first.as_str()),
+        "the line on the way out is for the conversation in front"
+    );
+    let lines = atomcode::exit_resume_hints(
+        "atomcode",
+        host.front_at_exit().as_deref(),
+        &host.left_behind(),
+        false,
+    );
+    assert_eq!(
+        lines,
+        vec![atomcode::resume_hint_line("atomcode", &first, false, false)],
+        "one line, for the conversation — none for the review that worked for it"
+    );
+}
+
+/// **A review a person takes up is theirs.** Brought to the front, the
+/// session that worked for another conversation is one of the person's own:
+/// offered in `/resume` again.
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn a_review_brought_to_the_front_is_offered_again() {
+    let rig = Rig::new().await;
+    let review = review_came_home(&rig).await;
+    until_listed(&rig, &review, false).await;
+
+    rig.term.type_line("/bg 1");
+    rig.until("the review is in front", |rig| rig.client.root() == review)
+        .await;
+    until_listed(&rig, &review, true).await;
+    rig.quit().await;
+}
+
+/// **Work for a conversation that has not come home stays within reach.**
+/// Until its result is in the conversation it worked for, a background task
+/// is an ordinary session on disk — a crash leaves it in `/resume` — and
+/// quitting while it runs names it, as a background one.
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial(atomcode_home)]
+async fn quitting_before_a_task_came_home_names_it() {
+    use atomcode_capabilities::session::manager::SessionOrigin;
+    let rig = Rig::new().await;
+    let first = rig.client.root();
+    rig.term.type_line("/bg slow job");
+    rig.until("the task reached the model", |rig| {
+        rig.script.started.load(Ordering::SeqCst) == 1
+    })
+    .await;
+    let task = rig
+        .background()
+        .await
+        .into_iter()
+        .find(|s| s.origin.as_deref() == Some(first.as_str()))
+        .expect("the task's background session")
+        .session;
+    let store = atomcode_capabilities::session::SessionManager::for_project(
+        rig.project.path(),
+        &atomcode_coding::config::product_dirs_from_env(),
+    );
+    assert_eq!(
+        store.read_meta(&task).unwrap().origin,
+        SessionOrigin::Manual,
+        "not marked while its result is not home"
+    );
+
+    let question = t(Msg::BgQuitQuestion { count: 1 }).into_owned();
+    rig.term.press(KeyPress::ctrl('d'));
+    rig.until_screen(&question).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    rig.term.press(KeyPress::plain(Key::Enter));
+    rig.until("the screen quit", |rig| rig.running.is_finished())
+        .await;
+    rig.until_background("the background runtime was stopped", |list| list.is_empty())
+        .await;
+
+    assert_eq!(rig.host.left_behind(), vec![task.clone()]);
+    assert_eq!(
+        atomcode::exit_resume_hints("atomcode", None, &rig.host.left_behind(), false),
+        vec![atomcode::background_resume_hint_line(
+            "atomcode", &task, false
+        )],
+    );
+}
+
 /// **Taking `/review`'s menu row stops on the line.** The bare form is worth
 /// having — it means the working tree — but not worth firing on the pick: this
 /// row starts a whole session, and somebody who opened the menu and took it is
@@ -1214,8 +1383,10 @@ async fn quitting_says_how_to_resume_the_background_sessions_it_stopped() {
     );
     assert_eq!(
         lines,
-        vec![atomcode::resume_hint_line("atomcode", &first, false, false)],
-        "the stopped background session's line, in the foreground's words"
+        vec![atomcode::background_resume_hint_line(
+            "atomcode", &first, false
+        )],
+        "the stopped background session's line, said as a background one"
     );
     assert!(
         lines[0].contains(&format!("atomcode resume {first}")),
@@ -1278,9 +1449,9 @@ async fn the_resume_line_on_exit_names_the_session_in_front_then() {
         lines,
         vec![
             atomcode::resume_hint_line("atomcode", &fresh, false, false),
-            atomcode::resume_hint_line("atomcode", &first, false, false),
+            atomcode::background_resume_hint_line("atomcode", &first, false),
         ],
-        "the session in front at exit first, then the background one"
+        "the session in front at exit first, then the background one, said as one"
     );
 }
 

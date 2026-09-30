@@ -20,10 +20,17 @@ pub struct State {
     pub model: String,
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
-    /// The cached part of the last request's context. Read off the same reading
-    /// as `prompt_tokens` so the hit rate the row shows (`cache 96%`) is a share
-    /// of the request it came from, not two figures from different requests.
+    /// The cached part of the last request's context, read off the same reading
+    /// as `prompt_tokens`. The row's `cache NN%` is the session's rate
+    /// (`session_cached` over `session_prompt`), not this one request's.
     pub cached_tokens: u32,
+    /// Every request's prompt and cached tokens, summed over the session — what
+    /// the row's `cache NN%` is a share of, the way the classic screen's footer
+    /// reads it: how well the cache is doing for this conversation, not for the
+    /// last request (which the turn's own summary line already says). A resumed
+    /// session's log is replayed through `absorb`, so its history counts too.
+    pub session_prompt: u64,
+    pub session_cached: u64,
     pub tool_calls: u32,
     pub last_stop: Option<String>,
 }
@@ -38,10 +45,13 @@ pub struct Status;
 /// `deepseek-flash` everywhere else. The same rule tuix applies to its
 /// `(Channel)` suffix, asked of the same list.
 ///
-/// The row that is `current` is the session's own; a name no row answers to, or
-/// one that is unique, says nothing and the bare model name stands.
+/// The row asked is the one the session was resolved to, not the one marked
+/// `current`: where the name alone is ambiguous the file's own mark stays up,
+/// and that says which account the *next* session starts on. A session no row
+/// was resolved for, or a name that is unique, says nothing and the bare model
+/// name stands.
 fn provider_prefix(providers: &crate::providers::ProvidersView, model: &str) -> String {
-    let Some(row) = providers.models().iter().find(|m| m.current) else {
+    let Some(row) = providers.live_row() else {
         return String::new();
     };
     if row.model != model
@@ -92,6 +102,8 @@ impl View for Status {
                 // reading rather than a max: a hit rate is only meaningful against
                 // the context it was measured on.
                 state.cached_tokens = usage.cached;
+                state.session_prompt += u64::from(usage.prompt);
+                state.session_cached += u64::from(usage.cached);
             }
             SessionEvent::StepEnd { tool_calls, .. } => state.tool_calls += tool_calls,
             SessionEvent::TurnEnd { stop, .. } => state.last_stop = Some(format!("{stop:?}")),
@@ -325,7 +337,7 @@ impl View for Status {
             String::new()
         };
         let cache_str =
-            cache_indicator(state.cached_tokens, state.prompt_tokens).unwrap_or_default();
+            cache_indicator(state.session_cached, state.session_prompt).unwrap_or_default();
 
         let budget = (w as usize).saturating_sub(reserved);
         let segs = fit_status_segments(
@@ -507,9 +519,9 @@ fn gauge_tokens(state: &State, moment: &Moment) -> u32 {
 /// The cache-hit segment (`cache 96%`), or `None` when the provider reported no
 /// caching — a `cache 0%` would state a fact we do not have, the same rule the
 /// zero token counter follows.
-fn cache_indicator(cached: u32, prompt: u32) -> Option<String> {
+fn cache_indicator(cached: u64, prompt: u64) -> Option<String> {
     (cached > 0 && prompt > 0).then(|| {
-        let pct = (cached as u64 * 100 / prompt as u64).min(100);
+        let pct = (cached * 100 / prompt).min(100);
         format!("cache {pct}%")
     })
 }
@@ -1362,6 +1374,31 @@ mod tests {
         );
     }
 
+    /// The cache rate is the session's, as tuix shows it: a background review's
+    /// cold first request must not drag the footer down to its own 0%.
+    #[test]
+    fn the_cache_rate_is_the_sessions_not_the_last_requests() {
+        use atomcode_kernel::stream::TokenUsage;
+        let usage = |prompt, cached| SessionEvent::Usage {
+            turn: 1,
+            round: 1,
+            usage: TokenUsage {
+                prompt,
+                completion: 10,
+                cached,
+            },
+        };
+        let mut st = State::default();
+        Status::absorb(&mut st, &usage(10_000, 9_000));
+        Status::absorb(&mut st, &usage(10_000, 0)); // a cold request
+        let m = Moment {
+            ctx_window: 1_000_000,
+            ..Default::default()
+        };
+        let line = Status::render(&st, &Viewport::new(Rect::sized(120, 1), &m))[0].plain();
+        assert!(line.contains("cache 45%"), "{line:?}");
+    }
+
     /// A compaction is not a request, so the row cannot wait for one to report
     /// the drop: it stands on the fold's own byte ratio until a reading lands.
     #[test]
@@ -1675,7 +1712,9 @@ mod tests {
             providers,
             ..Moment::default()
         };
-        let shared = ProvidersView::new(
+        // The file's own mark is on AtomGit's row in every case below: it says
+        // what the next session starts on, and must not be what is named.
+        let file = ProvidersView::new(
             vec![account("AtomGit"), account("TaoToken")],
             vec![
                 row("atomgit/ds", "AtomGit", "deepseek-flash", true),
@@ -1684,6 +1723,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
         );
+        let shared = file.with_current(Some("atomgit/ds"));
 
         // Two accounts, one name: the bare name cannot say which is live.
         let line = draw::<Status>(
@@ -1694,18 +1734,24 @@ mod tests {
         assert!(line.contains("AtomGit/deepseek-flash"), "{line:?}");
 
         // The same name with the *other* account on: the label follows the
-        // session, not the first row that happens to match.
-        let other = ProvidersView::new(
-            vec![account("AtomGit"), account("TaoToken")],
-            vec![
-                row("atomgit/ds", "AtomGit", "deepseek-flash", false),
-                row("taotoken/ds", "TaoToken", "deepseek-flash", true),
-            ],
-            Vec::new(),
-            Vec::new(),
-        );
+        // session, not the file's mark or the first row that happens to match.
+        let other = file.with_current(Some("taotoken/ds"));
         let line = draw::<Status>(&State::default(), 120, &moment_of("deepseek-flash", other));
         assert!(line.contains("TaoToken/deepseek-flash"), "{line:?}");
+
+        // Only the wire name known — a session resumed, or switched from
+        // somewhere this screen did not see: it cannot pick one of the two, so
+        // the file's mark stays up for the picker, and the line names no
+        // account rather than the one the file happens to start on.
+        for unresolved in [file.with_current(Some("deepseek-flash")), file.clone()] {
+            let line = draw::<Status>(
+                &State::default(),
+                120,
+                &moment_of("deepseek-flash", unresolved),
+            );
+            assert!(line.contains("deepseek-flash"), "{line:?}");
+            assert!(!line.contains("/deepseek-flash"), "{line:?}");
+        }
 
         // A name only one account has says nothing: the prefix would be noise
         // on the common single-account case.
@@ -1714,7 +1760,8 @@ mod tests {
             vec![row("atomgit/glm", "AtomGit", "glm5.3-flash-pro", true)],
             Vec::new(),
             Vec::new(),
-        );
+        )
+        .with_current(Some("glm5.3-flash-pro"));
         let line = draw::<Status>(
             &State::default(),
             120,
@@ -1754,6 +1801,8 @@ mod tests {
             model: "glm5.3-flash-pro".into(),
             prompt_tokens: 49_000,
             cached_tokens: 47_040, // 96% of 49_000
+            session_prompt: 49_000,
+            session_cached: 47_040,
             ..Default::default()
         };
         let m = Moment {
@@ -1815,6 +1864,8 @@ mod tests {
             model: "glm5.3-flash-pro".into(),
             prompt_tokens: 49_000,
             cached_tokens: 47_040,
+            session_prompt: 49_000,
+            session_cached: 47_040,
             ..Default::default()
         };
         let m = Moment {
@@ -1841,6 +1892,8 @@ mod tests {
             model: "glm".into(),
             prompt_tokens: 100, // 10% of the window — well below the warn threshold
             cached_tokens: 50,
+            session_prompt: 100,
+            session_cached: 50,
             ..Default::default()
         };
         let m = Moment {
@@ -1909,6 +1962,8 @@ mod tests {
             model: "some-extremely-long-model-name-v2.5-preview".into(),
             prompt_tokens: 123_456,
             cached_tokens: 120_000,
+            session_prompt: 123_456,
+            session_cached: 120_000,
             ..Default::default()
         };
         for w in 1u16..80 {
