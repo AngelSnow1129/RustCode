@@ -1306,6 +1306,16 @@ impl UserInterface for Tui {
                 tokio::spawn(async move { read_input(keys_tx, move || !surface.mouse()).await })
             }
         };
+        // `[ui] mouse = false`: the pointer is the terminal's from the first
+        // frame, so ↑/↓ scroll and the history is on ctrl-p/ctrl-n — said once,
+        // on the tip row, where nobody has to have pressed ctrl-g to learn it.
+        if !self.surface.mouse() {
+            self.host.say_for(
+                t(Msg::MouseHandedBackAtStart).into_owned(),
+                false,
+                MOUSE_NOTICE_MS * 2,
+            );
+        }
 
         // Before anything is typed: would a turn be taken at all?
         //
@@ -1781,7 +1791,10 @@ impl UserInterface for Tui {
                 // else (a panel, a menu, a question: things whose list the
                 // arrows walk) they are the keys they were, taken again in order.
                 Wake::Input(Input::ArrowBurst { up, n }) => {
-                    if !self.surface.mouse() && self.arrows_reach_the_composer() {
+                    if !self.surface.mouse()
+                        && self.arrows_reach_the_composer()
+                        && !(n == 1 && self.caret_moves_within_draft(up))
+                    {
                         let lines = n.min(i32::MAX as usize) as i32;
                         quit = self.act(Action::Scroll(if up { -lines } else { lines }), &client);
                     } else {
@@ -2515,6 +2528,21 @@ impl UserInterface for Tui {
 }
 
 impl Tui {
+    /// Whether one ↑/↓ would move the caret inside a draft of several rows
+    /// rather than leave it — so that, with the mouse handed back, a lone arrow
+    /// still edits a multi-line draft and only an arrow with nowhere to go in it
+    /// scrolls the conversation.
+    fn caret_moves_within_draft(&self, up: bool) -> bool {
+        let m = self.host.moment.read().expect("moment poisoned");
+        let w = self.surface.size().0;
+        let (row, _, rows) = crate::modules::input::caret_row(&m.input, m.caret, w);
+        if up {
+            row > 0
+        } else {
+            row + 1 < rows
+        }
+    }
+
     /// Whether an arrow key pressed now would reach the composer — nothing
     /// ahead of it in the key routing below would take it first. The same
     /// order as the routing, arm for arm; a new owner of the keyboard added
@@ -6370,7 +6398,33 @@ impl Tui {
                 } else {
                     t(Msg::MouseHandedBack).into_owned()
                 };
-                self.say(&text);
+                // On the tip row, above the box at the right, for a few seconds:
+                // it is how the keys behave now, not something that happened in
+                // the conversation. Written into the conversation it stacked up,
+                // one long paragraph per ctrl-g.
+                self.host.say_for(text, false, MOUSE_NOTICE_MS);
+                return false;
+            }
+            Action::HistoryBack => {
+                // Same as ↑ at the top of the box, including fetching the
+                // project's older lines the first time.
+                let first = m.history_at.is_none();
+                recall_back(&mut m);
+                drop(m);
+                // The line changed under whatever menu it had open: a slash or
+                // `@` menu still showing the old line's rows would take the
+                // next Enter for its lit row instead of sending the recalled
+                // prompt.
+                self.refresh_menu();
+                if first {
+                    self.ask_for_older_history();
+                }
+                return false;
+            }
+            Action::HistoryForward => {
+                recall_forward(&mut m);
+                drop(m);
+                self.refresh_menu();
                 return false;
             }
             Action::ToggleSettings => {
@@ -7960,11 +8014,12 @@ async fn pump_input<S>(
                     _ => break,
                 }
             }
-            let sent = if n >= 2 {
-                wake.send(Wake::Input(Input::ArrowBurst { up, n })).is_ok()
-            } else {
-                forward(event)
-            };
+            // Every arrow, one or many, while the pointer is the terminal's: a
+            // slow swipe arrives as lone arrows, which timing cannot tell from
+            // a keypress. The loop decides what they do (scroll the
+            // conversation where they would reach the composer, the keys they
+            // were anywhere else); the history is on ctrl-p/ctrl-n meanwhile.
+            let sent = wake.send(Wake::Input(Input::ArrowBurst { up, n })).is_ok();
             if !sent {
                 break;
             }
@@ -8017,6 +8072,10 @@ async fn pump_input<S>(
         next_up = after;
     }
 }
+
+/// How long the mouse notices stay on the tip row: long enough to read the
+/// keys in them, short enough that they are gone before they are furniture.
+const MOUSE_NOTICE_MS: u64 = 5_000;
 
 // ---- the rows -----------------------------------------------------------
 
@@ -9576,9 +9635,10 @@ mod paste_burst_tests {
 
     /// **The wheel, turned into arrows by the terminal.** With the pointer
     /// handed back, a notch is the same arrow several times in one write —
-    /// gathered into one burst, so the screen can scroll instead of stepping
-    /// the input history once per arrow. And only then: with the pointer ours
-    /// an arrow is a key and nothing waits for a second one.
+    /// gathered into one burst — or, swiped slowly, one at a time; either way
+    /// it reaches the loop as a burst, so the screen can scroll instead of
+    /// stepping the input history. And only then: with the pointer ours an
+    /// arrow is a key and nothing waits for a second one.
     #[tokio::test]
     async fn arrows_the_wheel_sent_are_one_burst_only_while_the_pointer_is_handed_back() {
         let notch = || vec![(0, arrow(true)), (0, arrow(true)), (0, arrow(true))];
@@ -9591,11 +9651,13 @@ mod paste_burst_tests {
             vec![Input::Key(KeyPress::plain(Key::Up)); 3],
             "the pointer is ours: the wheel is a mouse event, and these are keys"
         );
-        // A person holding ↓: key repeat is tens of milliseconds apart at its
-        // fastest — keys, not a wheel.
+        // Lone arrows too — a slow swipe, or a person's key repeat, which are
+        // the same bytes: while the pointer is handed back each one is a burst
+        // of one, and the loop decides what it does (scroll where it would
+        // reach the composer; the key it was anywhere else).
         assert_eq!(
             pumped_with(vec![(0, arrow(false)), (35, arrow(false))], true).await,
-            vec![Input::Key(KeyPress::plain(Key::Down)); 2]
+            vec![Input::ArrowBurst { up: false, n: 1 }; 2]
         );
         // The wheel reversed: the first arrow of the other way ends the burst,
         // and is itself looked at again — the start of the next burst, not one

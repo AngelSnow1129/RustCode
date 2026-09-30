@@ -44,6 +44,13 @@ pub enum Action {
     /// The mirror: down a row, or forward through the history and out the far
     /// side to the draft that was set aside.
     CaretDown,
+    /// Back through what was said, wherever the caret is. `ctrl-p`: the way to
+    /// the history while the mouse is handed back, when ↑ scrolls instead —
+    /// the terminal sends the wheel as ↑/↓ then, and a notch and a keypress
+    /// are the same bytes.
+    HistoryBack,
+    /// Forward through it, and out to the draft. `ctrl-n`.
+    HistoryForward,
     /// Stop the running turn. Cooperative.
     Cancel,
     Quit,
@@ -467,6 +474,8 @@ impl Keymap for Default_ {
             // one of the few control keys neither a terminal nor a shell's line
             // editor claims.
             (KeyPress::ctrl('g'), Action::ToggleMouse),
+            (KeyPress::ctrl('p'), Action::HistoryBack),
+            (KeyPress::ctrl('n'), Action::HistoryForward),
             // ctrl-l is "redraw" in every terminal there has ever been, and
             // that is the reflex to serve: it is the key a person reaches for
             // when the screen is wrong.

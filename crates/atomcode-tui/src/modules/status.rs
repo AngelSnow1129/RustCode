@@ -265,10 +265,6 @@ impl View for Status {
         if let Some(text) = &shell_hint {
             reserved += width::str_width(text) + sep_w;
         }
-        let pointer = vp
-            .moment
-            .mouse_handed_back
-            .then(|| t(Msg::StatusMouseHandedBack).into_owned());
         // How much allowance is left, but only once it is close enough to
         // change what a person does. Below that it is a number nobody acts on,
         // and a row that always carries one has that much less room for the
@@ -343,8 +339,8 @@ impl View for Status {
         let segs = fit_status_segments(
             &model_str, &cwd_full, &cwd_base, &ctx_str, &cache_str, budget, sep_w,
         );
-        // What the row takes before the pointer marker, to know whether the
-        // marker fits after it.
+        // What the row takes before the update nudge, to know whether the nudge
+        // fits after it.
         let taken = reserved
             + segs
                 .iter()
@@ -406,14 +402,6 @@ impl View for Status {
         // A newer build: a nudge, so last and only in the room left over — the
         // way tuix gives it the lowest place in its footer. Never pushes the
         // model or the directory off the row.
-        let mut taken = taken;
-        if let Some(text) = pointer {
-            if taken + sep_w + width::str_width(&text) <= w as usize {
-                taken += sep_w + width::str_width(&text);
-                row.push(El::styled(sep_text.clone(), dim));
-                row.push(El::styled(text, dim));
-            }
-        }
         if let Some(text) = &vp.moment.update {
             if taken + sep_w + width::str_width(text) <= w as usize {
                 row.push(El::styled(sep_text.clone(), dim));
@@ -900,33 +888,19 @@ mod tests {
         assert!(narrow.contains("glm-5"), "the model stays: {narrow}");
     }
 
-    /// The mouse handed back is said on the row — at the end, and only where it
-    /// fits: for someone who chose `mouse = false` it is a standing state, and
-    /// it must never push the model or the directory off a narrow row.
+    /// Where the pointer is, is not the row's to say (2026-09-30, the user's
+    /// call): handing it back is said once, on the tip row, and fades.
     #[test]
-    fn a_mouse_handed_back_is_said_only_in_the_room_left_over() {
-        let marker = t(Msg::StatusMouseHandedBack).into_owned();
+    fn a_mouse_handed_back_leaves_the_row_alone() {
         let moment = |back: bool| Moment {
             cwd: "~/work/project".into(),
             model: "glm-5".into(),
             mouse_handed_back: back,
             ..Moment::default()
         };
-        let wide = draw::<Status>(&State::default(), 120, &moment(true));
-        assert!(wide.contains(&marker), "{wide}");
-        assert!(
-            wide.trim_end().ends_with(&marker),
-            "last on the row: {wide}"
-        );
-        assert!(
-            !draw::<Status>(&State::default(), 120, &moment(false)).contains(&marker),
-            "ours: nothing to say"
-        );
-        let narrow = draw::<Status>(&State::default(), 24, &moment(true));
-        assert!(!narrow.contains(&marker), "no room: {narrow}");
-        assert!(
-            narrow.contains("glm-5"),
-            "and the model keeps its place: {narrow}"
+        assert_eq!(
+            draw::<Status>(&State::default(), 120, &moment(true)),
+            draw::<Status>(&State::default(), 120, &moment(false))
         );
     }
 

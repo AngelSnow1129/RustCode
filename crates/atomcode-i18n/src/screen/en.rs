@@ -152,7 +152,6 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         // ── the status bar ──
         Msg::StatusMember { name } => format!("member {name}").into(),
         Msg::StatusStopping => "stopping".into(),
-        Msg::StatusMouseHandedBack => "mouse: terminal ctrl+g".into(),
         Msg::StatusGoal => "goal".into(),
         Msg::StatusLoop => "loop".into(),
         Msg::StatusRoundsHeld { kind, rounds, why } => {
@@ -361,6 +360,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
     Ctrl+W                          delete the previous word
     Ctrl+D                          quit
     Up / Down                       move the caret, and page through history once at the end
+    Ctrl+P / Ctrl+N                 page through history (with the mouse handed back, ↑↓ scroll instead)
     click the composer              put the caret where you clicked
     Ctrl+R                          search what you have typed in this project before; type to narrow, ctrl-r again for older, enter takes it, esc gives your draft back
 
@@ -380,7 +380,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
     Ctrl+O / Alt+R                  reasoning: one line / in full / folded, cycles
     Ctrl+T                          tool output: all / one summary each / summarised in groups, cycles
     Ctrl+L                          redraw the screen
-    Ctrl+G / /mouse                 hand the mouse back to the terminal (use its own selection instead)
+    Ctrl+G / /mouse                 hand the mouse back to the terminal (use its own selection; wheel/↑↓ then scroll)
 
   ── Modes & injections ──
     Shift+Tab                       step to the next execution mode (plan / ask / edits / auto; with no completion menu up; ui.mode_switch_key=tab in /config moves it to Tab, leaving Tab for completion)
@@ -863,8 +863,9 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::NoOpener => "this front end cannot open files".into(),
         Msg::ImageGone => "that image is no longer available".into(),
         Msg::ImageCorrupt => "the image data is corrupt".into(),
-        Msg::MouseTaken => "the mouse is taken: drag to select and copy, click a thought or a tool call to fold it, wheel to scroll, esc to drop the selection".into(),
-        Msg::MouseHandedBack => "the mouse is the terminal's: use its own selection (which reaches into the scrollback). The terminal may now turn the wheel into arrow keys, which step through the input history — scroll with pgup/pgdn. Fold with ctrl-t, reasoning with ctrl-o (hidden by default), ctrl-g takes the mouse back".into(),
+        Msg::MouseTaken => "mouse taken back · ctrl+g hands it to the terminal".into(),
+        Msg::MouseHandedBack => "mouse handed to the terminal to select and copy · wheel/↑↓ scroll · ctrl+p/n history · ctrl+g takes it back".into(),
+        Msg::MouseHandedBackAtStart => "the terminal has the mouse ([ui] mouse = false): wheel/↑↓ scroll · ctrl+p/n history · ctrl+g takes it".into(),
         Msg::ReasoningHiddenHint => "this turn's reasoning is hidden · ctrl-o shows it (or /reasoning)".into(),
         Msg::NoProviderPanel => "this screen has no provider panel: the launcher provided no `tui-panel-providers`".into(),
         Msg::NoPluginPanel => "this screen has no plugin panel: the launcher provided no `tui-panel-plugins`".into(),

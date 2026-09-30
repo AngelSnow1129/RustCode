@@ -9377,29 +9377,61 @@ impl atomcode_host_api::HostControl for WorksIn {
     }
 }
 
+/// Ctrl+P over an open slash menu: the recalled prompt replaces the line and
+/// the menu goes with the line it was for — Enter then sends the prompt, not
+/// the menu's lit row.
+#[tokio::test]
+async fn ctrl_p_over_the_slash_menu_recalls_and_closes_it() {
+    let dir = scratch("ctrl-p-menu");
+    let s = start(tree(&dir, &replay(r#"{ text = "ok" }"#), &[])).await;
+    let task = s.open().await;
+    s.term.type_line("RECALL-ME");
+    until(&s, "ok").await;
+    s.quiet().await;
+
+    s.term.type_text("/co");
+    until(&s, "/compact").await;
+    assert!(
+        s.term.last().unwrap().part("menu").is_some(),
+        "{}",
+        s.screen()
+    );
+
+    s.term.press(KeyPress::ctrl('p'));
+    s.quiet().await;
+    assert!(
+        s.term.last().unwrap().part("menu").is_none(),
+        "the menu went with the line it was for:\n{}",
+        s.screen()
+    );
+    assert!(
+        composer_text(&s).contains("RECALL-ME"),
+        "the recalled prompt is on the line:\n{}",
+        s.screen()
+    );
+
+    s.term.press(KeyPress::ctrl('d'));
+    let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+}
+
 /// **The wheel with the mouse handed back scrolls, it does not step the input
 /// history.** With the pointer the terminal's (ctrl+g), iTerm2 and Terminal.app
 /// send the wheel as arrow keys, and ↑ in an empty composer recalls the last
-/// prompt — every notch put an old line in the box. The reader gathers a notch
-/// into one burst (`Input::ArrowBurst`); where it would have reached the
-/// composer it scrolls instead, and the status row says the mouse is handed
-/// back for as long as it is. With the mouse ours, the same burst is the keys
-/// it was, and ↑ recalls as it always did.
+/// prompt — every notch put an old line in the box. A slow swipe arrives as
+/// lone arrows, the same bytes as a keypress, so while the pointer is handed
+/// back every ↑/↓ that would reach the composer scrolls, and the history moves
+/// to ctrl-p/ctrl-n; the tip row says so once and fades, the status row says
+/// nothing. With the mouse ours, ↑ recalls as it always did.
 #[tokio::test]
 async fn the_wheel_as_arrows_scrolls_while_the_mouse_is_handed_back() {
     let dir = scratch("wheel-arrows");
     let s = start(tree(&dir, &replay(r#"{ text = "ok" }"#), &[])).await;
-    // Room on the status row: the marker is drawn only in what the model, the
-    // directory and the usage leave over (`status.rs`, by design), and the
-    // directory here is wherever the tests run — at 80 columns a long checkout
-    // path left none, and the marker was never drawn.
     s.term.resize(200, 24);
     let task = s.open().await;
     s.term.type_line("REMEMBERED-PROMPT");
     until(&s, "ok").await;
     s.quiet().await;
-    let marker =
-        atomcode_i18n::screen::t(atomcode_i18n::screen::Msg::StatusMouseHandedBack).into_owned();
+    let handed = atomcode_i18n::screen::t(atomcode_i18n::screen::Msg::MouseHandedBack).into_owned();
     let composer = |s: &Session| {
         s.term
             .text()
@@ -9409,10 +9441,21 @@ async fn the_wheel_as_arrows_scrolls_while_the_mouse_is_handed_back() {
     };
     let before = composer(&s);
 
-    // Handed back: the notch scrolls, the box stays empty, the row says why.
+    // Handed back: said once, on the tip row — not the status row — and a
+    // notch scrolls, whether it arrives as a burst or as a lone arrow (a slow
+    // swipe), because the two are the same bytes as a keypress.
     s.term.press(KeyPress::ctrl('g'));
-    until(&s, &marker).await;
+    until(&s, &handed).await;
+    assert!(
+        s.term
+            .last()
+            .and_then(|f| f.part("status").cloned())
+            .is_none_or(|p| !p.lines.iter().any(|l| l.plain().contains("ctrl+g"))),
+        "the status row does not carry it:\n{}",
+        s.screen()
+    );
     s.term.arrows(true, 3);
+    s.term.arrows(true, 1);
     s.quiet().await;
     assert_eq!(
         composer(&s),
@@ -9421,14 +9464,30 @@ async fn the_wheel_as_arrows_scrolls_while_the_mouse_is_handed_back() {
         s.screen()
     );
 
-    // Ours again: the marker goes, and the same burst is ↑ three times.
-    s.term.press(KeyPress::ctrl('g'));
-    until_gone(&s, &marker).await;
-    s.term.arrows(true, 3);
+    // The history is still one chord away.
+    s.term.press(KeyPress::ctrl('p'));
     s.quiet().await;
     assert!(
         composer(&s) > before,
-        "with the mouse ours an arrow is a key, and ↑ recalls:\n{}",
+        "ctrl-p recalls while ↑ scrolls:\n{}",
+        s.screen()
+    );
+    s.term.press(KeyPress::ctrl('n'));
+    s.quiet().await;
+    assert_eq!(composer(&s), before, "ctrl-n goes back to the draft");
+
+    // Ours again: an arrow is a key, and ↑ recalls.
+    s.term.press(KeyPress::ctrl('g'));
+    until(
+        &s,
+        &atomcode_i18n::screen::t(atomcode_i18n::screen::Msg::MouseTaken).into_owned(),
+    )
+    .await;
+    s.term.press(KeyPress::plain(Key::Up));
+    s.quiet().await;
+    assert!(
+        composer(&s) > before,
+        "with the mouse ours ↑ recalls:\n{}",
         s.screen()
     );
 

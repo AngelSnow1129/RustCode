@@ -129,7 +129,6 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         // ── 状态栏 ──
         Msg::StatusMember { name } => format!("成员 {name}").into(),
         Msg::StatusStopping => "停止中".into(),
-        Msg::StatusMouseHandedBack => "鼠标:终端 ctrl+g".into(),
         Msg::StatusGoal => "目标".into(),
         Msg::StatusLoop => "循环".into(),
         Msg::StatusRoundsHeld { kind, rounds, why } => {
@@ -328,6 +327,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
     Ctrl+W                          删除前一个单词
     Ctrl+D                          退出
     Up / Down                       在输入里移动游标，到头则翻历史
+    Ctrl+P / Ctrl+N                 翻历史（鼠标交还终端时 ↑↓ 用来滚动对话）
     点击输入框                      定位游标
     Ctrl+R                          搜索这个项目里以前打过的东西；继续打字缩小范围，再按往更老翻，Enter 接受，Esc 还回草稿
 
@@ -347,7 +347,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
     Ctrl+O / Alt+R                  思考：一行 / 全文 / 收起，循环
     Ctrl+T                          工具输出：全部 / 单个摘要 / 成组摘要，循环
     Ctrl+L                          重画屏幕
-    Ctrl+G / /mouse                 把鼠标交还终端（改用终端自己的框选）
+    Ctrl+G / /mouse                 把鼠标交还终端（改用终端自己的框选；这时滚轮/↑↓ 滚动对话）
 
   ── 模式与注入 ──
     Shift+Tab                       切下一个执行模式（plan / ask / edits / auto；没有补全菜单时；/config 里 ui.mode_switch_key=tab 可改用 tab 切）
@@ -806,8 +806,9 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::NoOpener => "这个界面不能打开文件".into(),
         Msg::ImageGone => "这张图已经找不到了".into(),
         Msg::ImageCorrupt => "图片数据损坏".into(),
-        Msg::MouseTaken => "鼠标已收回:拖动选中并复制,点击思考或工具调用折叠展开那一个,滚轮滚动,esc 取消选中".into(),
-        Msg::MouseHandedBack => "鼠标已交还终端:改用终端自己的框选(可跨 scrollback)。这时滚轮可能被终端转成方向键、在输入框里切换历史 —— 滚动请用 pgup/pgdn。折叠用 ctrl-t,思考用 ctrl-o(默认不显示),ctrl-g 收回鼠标".into(),
+        Msg::MouseTaken => "鼠标已收回 · ctrl+g 交还终端".into(),
+        Msg::MouseHandedBack => "鼠标已交还终端,可框选复制 · 滚轮/↑↓ 滚动对话 · ctrl+p/n 翻历史 · ctrl+g 收回".into(),
+        Msg::MouseHandedBackAtStart => "鼠标在终端手里([ui] mouse = false):滚轮/↑↓ 滚动对话 · ctrl+p/n 翻历史 · ctrl+g 收回".into(),
         Msg::ReasoningHiddenHint => "这一轮的思考过程没有显示 · ctrl-o 查看(或 /reasoning)".into(),
         Msg::NoProviderPanel => "这个屏幕没有 provider 面板:启动器没有提供 `tui-panel-providers`".into(),
         Msg::NoPluginPanel => "这个屏幕没有插件面板:启动器没有提供 `tui-panel-plugins`".into(),

@@ -216,9 +216,6 @@ pub enum Msg<'a> {
         name: &'a str,
     },
     StatusStopping,
-    /// On the status row while the mouse is handed back to the terminal: the
-    /// state the wheel's oddities come from, and the key that ends it.
-    StatusMouseHandedBack,
     StatusGoal,
     StatusLoop,
     /// `kind` is already localised — [`Msg::StatusGoal`] or [`Msg::StatusLoop`].
@@ -1367,6 +1364,9 @@ pub enum Msg<'a> {
     ImageCorrupt,
     MouseTaken,
     MouseHandedBack,
+    /// Said once at start when `[ui] mouse = false` hands the pointer to the
+    /// terminal from the first frame.
+    MouseHandedBackAtStart,
     /// Said once, after a turn whose reasoning is off the screen: the key that
     /// brings it back, since nothing on screen says there is any.
     ReasoningHiddenHint,
