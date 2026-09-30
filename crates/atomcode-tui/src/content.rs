@@ -2026,13 +2026,23 @@ impl InjectedBlock {
         (head, body.trim_start_matches('\n'))
     }
 
-    /// `● 后台「…」的结果回来了`, in the terminal's own foreground — white on a
-    /// dark screen — the way an answer's text is: it says "this is a result",
-    /// it is neither chrome to recede nor an accent to shout.
+    /// `● 后台「…」的结果回来了`: the words in the terminal's own foreground —
+    /// white on a dark screen — the way an answer's text is (it says "this is a
+    /// result", neither chrome to recede nor an accent to shout), and the `●`
+    /// in the success green a finished call's mark has. It is work that came
+    /// back done; a job that stopped short is said elsewhere (`BgFailedTip`),
+    /// so this mark is never green over a failure.
     fn result_head(&self, ctx: &RenderCtx) -> Line {
         let (head, _) = self.result_parts();
-        let head = format!("{} {head}", ctx.caps.g(Glyph::ToolMark));
-        Line::styled(width::take_width(&head, ctx.width as usize), Style::new())
+        let w = ctx.width as usize;
+        let mark = width::take_width(ctx.caps.g(Glyph::ToolMark), w);
+        let room = w.saturating_sub(width::str_width(&mark));
+        let mut line = Line::styled(mark, ok());
+        line.push(Span::styled(
+            width::take_width(&format!(" {head}"), room),
+            Style::new(),
+        ));
+        line
     }
 }
 
@@ -4938,6 +4948,14 @@ mod tests {
 
         let open: Vec<String> = b.lines(&ctx).iter().map(|l| l.plain()).collect();
         assert_eq!(open[0], "● 后台「审查」的结果回来了");
+
+        // The mark is a finished call's green, folded or open; the words keep
+        // the plain foreground.
+        for head in [b.summary(&ctx), b.lines(&ctx).remove(0)] {
+            assert_eq!(head.spans[0].text, "●");
+            assert_eq!(head.spans[0].style, ok());
+            assert_eq!(head.spans[1].style, Style::new());
+        }
         assert!(
             open.iter()
                 .any(|l| l.contains("没有发现问题") && !l.contains("**")),
