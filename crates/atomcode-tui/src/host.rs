@@ -489,6 +489,18 @@ impl Presentation {
         // hand-opened calls go too, for the same reason.
         self.by_block.clear();
         self.full_open.clear();
+        // Answered approvals ride along (2026-09-30, the user's call): the mode
+        // that opens every call opens them too, and every other mode folds
+        // them. With the mouse handed back there is no click to open one, and
+        // ctrl-t is the key already in hand for "show me what ran".
+        self.set(
+            "choice",
+            if to == ToolOutput::Head {
+                Showing::Open
+            } else {
+                Showing::Folded
+            },
+        );
         self.bump();
     }
 
@@ -12770,6 +12782,39 @@ mod tests {
             h.compose(size).rows().join("\n"),
             shown,
             "clicking it again folds it back"
+        );
+    }
+
+    /// ctrl-t's opening step opens answered approvals along with the calls, and
+    /// the next step folds them again — the way to read one with no click to
+    /// reach it (the mouse handed back).
+    #[test]
+    fn ctrl_t_opens_answered_approvals_with_the_calls() {
+        let h = host();
+        {
+            let mut stream = h.stream.write().unwrap();
+            stream.writer("asks").emit(
+                crate::block::Coord::default(),
+                Arc::new(crate::content::ChoiceBlock {
+                    question: "bash  git commit -F - <<'EOF'\nTHE-BODY\nEOF".into(),
+                    options: vec!["允许一次".into()],
+                    answer: Some("允许一次".into()),
+                }),
+            );
+        }
+        let size = (80, 40);
+        let folded = h.compose(size).rows().join("\n");
+        assert!(!folded.contains("THE-BODY"), "folded by default:\n{folded}");
+
+        h.presentation.write().unwrap().toggle("tool_call");
+        let open = h.compose(size).rows().join("\n");
+        assert!(open.contains("THE-BODY"), "ctrl-t opened it:\n{open}");
+
+        h.presentation.write().unwrap().toggle("tool_call");
+        let again = h.compose(size).rows().join("\n");
+        assert!(
+            !again.contains("THE-BODY"),
+            "the next step folds it:\n{again}"
         );
     }
 

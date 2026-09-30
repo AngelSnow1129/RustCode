@@ -345,7 +345,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
     Esc                             取消选中
     点击折叠行                      展开或收起思考 / 工具调用那一条
     Ctrl+O / Alt+R                  思考：一行 / 全文 / 收起，循环
-    Ctrl+T                          工具输出：全部 / 单个摘要 / 成组摘要，循环
+    Ctrl+T                          工具输出：全部 / 单个摘要 / 成组摘要，循环（展开那一档连同答完的审批）
     Ctrl+L                          重画屏幕
     Ctrl+G / /mouse                 把鼠标交还终端（改用终端自己的框选；这时滚轮/↑↓ 滚动对话）
 
@@ -807,8 +807,8 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ImageGone => "这张图已经找不到了".into(),
         Msg::ImageCorrupt => "图片数据损坏".into(),
         Msg::MouseTaken => "鼠标已收回 · ctrl+g 交还终端".into(),
-        Msg::MouseHandedBack => "鼠标已交还终端,可框选复制 · 滚轮/↑↓ 滚动对话 · ctrl+p/n 翻历史 · ctrl+g 收回".into(),
-        Msg::MouseHandedBackAtStart => "鼠标在终端手里([ui] mouse = false):滚轮/↑↓ 滚动对话 · ctrl+p/n 翻历史 · ctrl+g 收回".into(),
+        Msg::MouseHandedBack => "鼠标已交还终端 · ctrl+g 收回 · 滚轮滚动 · ctrl+p/n 历史 · ctrl+t 展开 · ctrl+o 思考".into(),
+        Msg::MouseHandedBackAtStart => "鼠标在终端手里 · ctrl+g 收回 · 滚轮滚动 · ctrl+p/n 历史 · ctrl+t 展开 · ctrl+o 思考".into(),
         Msg::ReasoningHiddenHint => "这一轮的思考过程没有显示 · ctrl-o 查看(或 /reasoning)".into(),
         Msg::NoProviderPanel => "这个屏幕没有 provider 面板:启动器没有提供 `tui-panel-providers`".into(),
         Msg::NoPluginPanel => "这个屏幕没有插件面板:启动器没有提供 `tui-panel-plugins`".into(),

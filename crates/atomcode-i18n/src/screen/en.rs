@@ -378,7 +378,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
     Esc                             drop the selection
     click a fold                    open or fold that thought / tool call
     Ctrl+O / Alt+R                  reasoning: one line / in full / folded, cycles
-    Ctrl+T                          tool output: all / one summary each / summarised in groups, cycles
+    Ctrl+T                          tool output: all / one summary each / summarised in groups, cycles (the opening step opens answered approvals too)
     Ctrl+L                          redraw the screen
     Ctrl+G / /mouse                 hand the mouse back to the terminal (use its own selection; wheel/↑↓ then scroll)
 
@@ -864,8 +864,8 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ImageGone => "that image is no longer available".into(),
         Msg::ImageCorrupt => "the image data is corrupt".into(),
         Msg::MouseTaken => "mouse taken back · ctrl+g hands it to the terminal".into(),
-        Msg::MouseHandedBack => "mouse handed to the terminal to select and copy · wheel/↑↓ scroll · ctrl+p/n history · ctrl+g takes it back".into(),
-        Msg::MouseHandedBackAtStart => "the terminal has the mouse ([ui] mouse = false): wheel/↑↓ scroll · ctrl+p/n history · ctrl+g takes it".into(),
+        Msg::MouseHandedBack => "mouse handed back · ctrl+g take it · wheel/↑↓ scroll · ctrl+p/n history · ctrl+t open · ctrl+o thinking".into(),
+        Msg::MouseHandedBackAtStart => "the terminal has the mouse · ctrl+g take it · wheel/↑↓ scroll · ctrl+p/n history · ctrl+t open · ctrl+o thinking".into(),
         Msg::ReasoningHiddenHint => "this turn's reasoning is hidden · ctrl-o shows it (or /reasoning)".into(),
         Msg::NoProviderPanel => "this screen has no provider panel: the launcher provided no `tui-panel-providers`".into(),
         Msg::NoPluginPanel => "this screen has no plugin panel: the launcher provided no `tui-panel-plugins`".into(),

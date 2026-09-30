@@ -9446,6 +9446,20 @@ async fn the_wheel_as_arrows_scrolls_while_the_mouse_is_handed_back() {
     // swipe), because the two are the same bytes as a keypress.
     s.term.press(KeyPress::ctrl('g'));
     until(&s, &handed).await;
+    // On a narrow terminal the tip row cuts at its end; how to take the mouse
+    // back is at the front, so it is never what gets cut.
+    s.term.resize(60, 24);
+    s.quiet().await;
+    assert!(
+        s.term
+            .last()
+            .and_then(|f| f.part("tip").cloned())
+            .is_some_and(|p| p.lines.iter().any(|l| l.plain().contains("ctrl+g"))),
+        "ctrl+g survives a narrow row:\n{}",
+        s.screen()
+    );
+    s.term.resize(200, 24);
+    s.quiet().await;
     assert!(
         s.term
             .last()
