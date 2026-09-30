@@ -509,10 +509,6 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::LanguageSet { wanted, applies } => format!("语言:{wanted}({applies}生效)").into(),
         Msg::UsageNotCounted => "这个宿主不计额度".into(),
         Msg::UsageCallLimit { n } => format!(" · 上限 {n} 次").into(),
-        Msg::UsageResetsIn { duration } => format!("{duration}后").into(),
-        Msg::UsageResetsAt { at } => format!("{at} ").into(),
-        Msg::UsageExhausted { label, when, cap } => format!("{label} 用完了 · {when}回来{cap}").into(),
-        Msg::UsageLeft { label, cap } => format!("{label} 还有{cap}").into(),
 
         // ── running on its own, where the session stands, and who is signed in (`commands.rs`) ──
         Msg::AutonomyIdle => "现在没有在自己干".into(),

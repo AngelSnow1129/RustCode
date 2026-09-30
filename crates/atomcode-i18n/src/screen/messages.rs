@@ -801,21 +801,6 @@ pub enum Msg<'a> {
     UsageCallLimit {
         n: i64,
     },
-    UsageResetsIn {
-        duration: &'a str,
-    },
-    UsageResetsAt {
-        at: &'a str,
-    },
-    UsageExhausted {
-        label: &'a str,
-        when: &'a str,
-        cap: &'a str,
-    },
-    UsageLeft {
-        label: &'a str,
-        cap: &'a str,
-    },
 
     // ── running on its own, where the session stands, and who is signed in (`commands.rs`) ──
     AutonomyIdle,

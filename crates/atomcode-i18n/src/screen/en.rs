@@ -551,10 +551,6 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::LanguageSet { wanted, applies } => format!("language: {wanted} (applies {applies})").into(),
         Msg::UsageNotCounted => "this host does not count an allowance".into(),
         Msg::UsageCallLimit { n } => format!(" · {n} calls at most").into(),
-        Msg::UsageResetsIn { duration } => format!("in {duration}").into(),
-        Msg::UsageResetsAt { at } => format!("at {at} ").into(),
-        Msg::UsageExhausted { label, when, cap } => format!("{label} is spent · back {when}{cap}").into(),
-        Msg::UsageLeft { label, cap } => format!("{label} has room left{cap}").into(),
 
         // ── running on its own, where the session stands, and who is signed in (`commands.rs`) ──
         Msg::AutonomyIdle => "it is not running on its own".into(),
