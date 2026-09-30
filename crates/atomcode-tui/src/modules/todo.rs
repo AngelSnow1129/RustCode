@@ -152,13 +152,37 @@ pub struct Todo;
 /// Empty means one of two things, and both are "no panel": the model has not
 /// planned anything yet, or it has finished what it planned. A finished list is
 /// not worth a permanent row — the `✓` landed in the transcript with the call
-/// that earned it, and `/todo` still prints the whole thing — so the panel
+/// that earned it, and `/todo` still prints the whole thing ([`plan_text`]) — so the panel
 /// retires instead of standing there summarising work nobody has left to do.
 ///
 /// Called only where `calls` changes, which is what makes it a fold per fact
 /// rather than a fold per frame.
 fn refold(state: &mut State) {
     state.items = fold_calls(state, &std::collections::BTreeSet::new());
+}
+
+/// The plan as `/todo` prints it: the panel's own fold over the whole log, the
+/// turns taken back left out, and — unlike the panel — finished items kept.
+/// A plan whose every item is done is exactly when the panel has retired
+/// (`refold`), and printing it is how a person still gets to read it; the same
+/// as `atomcode-tuix`'s `/todo`.
+pub(crate) fn plan_text(events: &[atomcode_kernel::session::LoggedEvent]) -> String {
+    let mut plan = Plan::default();
+    for logged in events {
+        plan.absorb(&logged.event);
+    }
+    let items = plan.fold(&atomcode_kernel::session::undone_turns(events));
+    if items.is_empty() {
+        return t(Msg::TodoNoPlan).into_owned();
+    }
+    let mut out = t(Msg::TodoListed).into_owned();
+    for item in &items {
+        out.push('\n');
+        out.push_str(todo_glyph(item.status, true));
+        out.push(' ');
+        out.push_str(&item.content);
+    }
+    out
 }
 
 /// The calls, folded into a list, leaving out the turns that were taken back.
@@ -603,6 +627,44 @@ mod tests {
         let state = fold(&[call("c1", "read_file", r#"{"file_path":"a.rs"}"#)]);
         assert_eq!(drew(&state, 60, 10), Vec::<String>::new());
         assert_eq!(asks(&state), Height::Hug(0));
+    }
+
+    fn logged(facts: &[SessionEvent]) -> Vec<atomcode_kernel::session::LoggedEvent> {
+        facts
+            .iter()
+            .enumerate()
+            .map(|(seq, event)| atomcode_kernel::session::LoggedEvent {
+                seq: seq as u64 + 1,
+                at: 0,
+                event: event.clone(),
+            })
+            .collect()
+    }
+
+    /// What `/todo` prints: the plan the panel folds, finished items kept —
+    /// a finished plan is when the panel is gone and this is the only way to
+    /// read it — and a cancelled one gone, as it is from the panel.
+    #[test]
+    fn todo_prints_the_finished_plan_the_panel_retired() {
+        let done = [plan(
+            r#"{"todos":[{"content":"读代码","status":"completed"},{"content":"写面板","status":"completed"}]}"#,
+        )];
+        assert_eq!(asks(&fold(&done)), Height::Hug(0), "the panel retired");
+        let text = plan_text(&logged(&done));
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], t(Msg::TodoListed));
+        assert_eq!(&lines[1..], ["[\u{2713}] 读代码", "[\u{2713}] 写面板"]);
+
+        let cancelled = [
+            done[0].clone(),
+            SessionEvent::TurnEnd {
+                turn: 1,
+                stop: StopReason::Cancelled,
+                error: None,
+            },
+        ];
+        assert_eq!(plan_text(&logged(&cancelled)), t(Msg::TodoNoPlan));
+        assert_eq!(plan_text(&[]), t(Msg::TodoNoPlan));
     }
 
     #[test]

@@ -169,6 +169,10 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::TeamWorkingRound { round } => format!("round {round}").into(),
 
         // ── the todo fold ──
+        Msg::TodoListed => "the plan:".into(),
+        Msg::TodoNoPlan => "no plan in this conversation yet".into(),
+        Msg::TodoUsage { other } =>
+            format!("`/todo {other}`? it takes nothing (print the plan), `show`, `hide`, or `toggle`").into(),
         Msg::TodoCounts {
             completed,
             in_progress,
@@ -268,7 +272,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::CmdAboutShowInject => "injected context: folded, label only, in full — cycles; all of them with no name".into(),
         Msg::CmdAboutMouse => "hand the mouse back to the terminal, or take it back".into(),
         Msg::CmdAboutKeys => "list the key bindings".into(),
-        Msg::CmdAboutTodo => "open or fold the plan".into(),
+        Msg::CmdAboutTodo => "print the plan; `show`/`hide` the panel".into(),
         Msg::CmdAboutTeam => "open or fold the team panel".into(),
         Msg::CmdAboutPaste => "put the clipboard (or a file) into the composer; for when the terminal or the system eats Ctrl+V".into(),
         Msg::CmdAboutConfig => "open the settings panel: search, change a value; esc closes it".into(),

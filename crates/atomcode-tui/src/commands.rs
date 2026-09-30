@@ -78,7 +78,25 @@ impl CommandSet for ScreenCommands {
             // a person who can see the panel means. `show`/`hide` are for
             // everyone who cannot — a script, a keybinding, a session just
             // resumed onto a second screen.
-            "todo" => fold_command("todo", args),
+            // `/todo` prints the plan, as `atomcode-tuix`'s does: the panel
+            // leaves once every item is done, and this is how the finished list
+            // is still read. The panel itself is the named states (and the fold
+            // key), not the bare command.
+            "todo" => {
+                let word = args.trim().to_ascii_lowercase();
+                match word.as_str() {
+                    "" | "list" => match ctx.service::<crate::plugin::AgentClientSvc>() {
+                        Some(client) => {
+                            Outcome::Said(crate::modules::todo::plan_text(&client.events()))
+                        }
+                        None => Outcome::Refused(t(Msg::NoAgent).into_owned()),
+                    },
+                    "toggle" | "show" | "open" | "hide" | "fold" | "close" => {
+                        fold_command("todo", &word)
+                    }
+                    other => Outcome::Refused(t(Msg::TodoUsage { other }).into_owned()),
+                }
+            }
             "team" => fold_command("team", args),
             // A typed way in to the thing ctrl-v does, because ctrl-v does not
             // always arrive: Windows terminals hand the paste to the key layer
@@ -5404,14 +5422,23 @@ mod tests {
         let all = Arc::new(Commands::new());
         let _ = all.add(Arc::new(ScreenCommands));
 
+        assert!(
+            matches!(
+                all.dispatch("/team", &app.context()).await,
+                Outcome::Do(Action::ToggleFold(_))
+            ),
+            "/team bare is still the toggle"
+        );
+        // `/todo` bare prints the plan (`todo_prints_the_plan_even_once_it_is_finished`);
+        // its toggle is the named one.
+        assert!(
+            matches!(
+                all.dispatch("/todo toggle", &app.context()).await,
+                Outcome::Do(Action::ToggleFold("todo"))
+            ),
+            "/todo toggle"
+        );
         for name in ["team", "todo"] {
-            assert!(
-                matches!(
-                    all.dispatch(&format!("/{name}"), &app.context()).await,
-                    Outcome::Do(Action::ToggleFold(_))
-                ),
-                "/{name} bare is still the toggle"
-            );
             for word in ["show", "open"] {
                 assert!(
                     matches!(
@@ -5441,6 +5468,60 @@ mod tests {
                 }
                 other => panic!("a typo must never act: {other:?}"),
             }
+        }
+    }
+
+    /// **`/todo` prints the plan, finished or not.** Once every item is done
+    /// the panel leaves (`modules::todo`), and `/todo` is how the list is read
+    /// after that — as `atomcode-tuix`'s `/todo` prints it. A toggle there did
+    /// nothing a person could see: the panel it would open was empty.
+    #[tokio::test]
+    async fn todo_prints_the_plan_even_once_it_is_finished() {
+        let app = bare();
+        let client = Arc::new(crate::plugin::AgentClient::default());
+        let (commands, _agent) = tokio::sync::mpsc::unbounded_channel();
+        client.connect(commands, Arc::new(Recording::default()));
+        client.follow("lead");
+        let ctx = app.context();
+        let _ = ctx.provide::<crate::plugin::AgentClientSvc>(client.clone());
+        let all = Arc::new(Commands::new());
+        let _ = all.add(Arc::new(ScreenCommands));
+
+        match all.dispatch("/todo", &ctx).await {
+            Outcome::Said(said) => {
+                assert_eq!(said, t(Msg::TodoNoPlan).into_owned(), "no plan yet")
+            }
+            other => panic!("{other:?}"),
+        }
+
+        client.keep(&atomcode_kernel::session::Committed {
+            session: "lead".into(),
+            seq: 1,
+            at: 0,
+            event: SessionEvent::AssistantMessage {
+                turn: 1,
+                round: 1,
+                text: String::new(),
+                reasoning: String::new(),
+                tool_calls: vec![atomcode_kernel::tool::ToolCall {
+                    id: "c1".into(),
+                    name: "todowrite".into(),
+                    arguments: r#"{"todos":[{"content":"读代码","status":"completed"},{"content":"跑测试","status":"completed"}]}"#.into(),
+                }],
+                reasoning_blocks: Vec::new(),
+                meta: None,
+            },
+        });
+        match all.dispatch("/todo", &ctx).await {
+            Outcome::Said(said) => {
+                assert!(said.starts_with(&*t(Msg::TodoListed)), "{said}");
+                assert!(said.contains("读代码") && said.contains("跑测试"), "{said}");
+            }
+            other => panic!("{other:?}"),
+        }
+        match all.dispatch("/todo stauts", &ctx).await {
+            Outcome::Refused(why) => assert!(why.contains("toggle"), "{why}"),
+            other => panic!("{other:?}"),
         }
     }
 
