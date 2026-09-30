@@ -1319,6 +1319,19 @@ impl CodingParts {
         Ok(())
     }
 
+    /// A person resumed this session (at start, or by switching to it — not a
+    /// rebuild of the one already open): if it was background work done for
+    /// another conversation, it is theirs now. Best effort — what is at stake
+    /// is only whether a picker offers it.
+    pub(crate) fn take_up_resumed_session(&self) {
+        let Some(binding) = self.session.as_ref() else {
+            return;
+        };
+        if let Err(error) = binding.manager.take_up(&binding.id) {
+            tracing::warn!(session = %binding.id, %error, "a resumed session is still left out of the pickers");
+        }
+    }
+
     /// Carry session-scoped runtime decisions across a capability-graph rebuild.
     /// Fresh/resume/project switches deliberately keep their newly prepared stores.
     pub(crate) fn inherit_runtime_continuity(&mut self, previous: &CodingParts) {

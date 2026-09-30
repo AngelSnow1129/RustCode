@@ -1480,7 +1480,8 @@ fn list_projects() -> std::io::Result<Vec<ProjectInfo>> {
     ))?;
     let mut by_project = std::collections::BTreeMap::<String, ProjectInfo>::new();
     for entry in scan.entries {
-        if is_system_temp_dir(&entry.working_dir) {
+        // A project is counted by what its session list shows.
+        if is_system_temp_dir(&entry.working_dir) || entry.delegated() {
             continue;
         }
         let created_at = u64::try_from(entry.created_at_ms.max(0)).unwrap_or(0) / 1_000;
@@ -1694,12 +1695,17 @@ fn catalog_entry_is_visible(
     entry: &atomcode_capabilities::session::CatalogEntry,
     active: Option<&atomcode_capabilities::session::CatalogLocation>,
 ) -> bool {
-    if entry.message_count > 0 {
-        return true;
-    }
     if active.is_some_and(|location| {
         location.id == entry.id && location.project_bucket == entry.project_bucket
     }) {
+        return true;
+    }
+    // Background work done for another conversation (a review): its result
+    // went back there, and it is not listed beside it.
+    if entry.delegated() {
+        return false;
+    }
+    if entry.message_count > 0 {
         return true;
     }
     if entry.presence == atomcode_capabilities::session::CatalogPresence::LegacyOnly {
@@ -2826,7 +2832,7 @@ fn search_sessions_by_name_in_root(
     let mut entries: Vec<_> = catalog_scan_in_root(sessions_root)?
         .entries
         .into_iter()
-        .filter(|entry| entry.message_count > 0)
+        .filter(|entry| entry.message_count > 0 && !entry.delegated())
         .collect();
     crate::legacy_convert::repair_catalog_names_for_display_in_root(sessions_root, &mut entries);
     Ok(entries
@@ -8481,6 +8487,7 @@ mod tests {
             turn_count: 0,
             presence: CatalogPresence::NativeOnly,
             needs_newer_version: false,
+            origin: Default::default(),
         };
 
         let entries = [entry];

@@ -1567,6 +1567,7 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
 
         // ── resuming from the shell (`atomcode-cli`) ──
         Msg::ResumeHint { cmd } => format!("继续此会话，运行：{cmd}").into(),
+        Msg::ResumeHintBackground { cmd } => format!("继续后台会话，运行：{cmd}").into(),
     }
 }
 

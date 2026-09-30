@@ -92,6 +92,10 @@ pub async fn handle_list_sessions(
             // restore it, so it must not be advertised as resumable history.
             continue;
         }
+        if entry.delegated() {
+            // Background work done for another conversation, not one of its own.
+            continue;
+        }
         let title = (!entry.name.is_empty()
             && !SessionMeta::name_needs_fallback(&entry.name, &entry.id))
         .then_some(entry.name);

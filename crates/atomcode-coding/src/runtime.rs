@@ -2901,6 +2901,9 @@ impl CodingRuntime {
         parts
             .publish_staged_session()
             .map_err(runtime_start_prepare_error)?;
+        if matches!(prepare.session, crate::SessionMode::Resume(_)) {
+            parts.take_up_resumed_session();
+        }
 
         let (raw_event_tx, _raw_events) = mpsc::unbounded_channel();
         let (tagged_event_tx, mut tagged_events) = mpsc::unbounded_channel();
@@ -6877,6 +6880,11 @@ fn spawn_runtime_owner_with_optional_agent(
                         }
                         preserve_sessionless_snapshot(&mut runtime, &stop_report);
                         runtime = candidate;
+                        if matches!(operation, ReconfigureKind::ResumeSession)
+                            && !reuses_current_session
+                        {
+                            runtime.parts.take_up_resumed_session();
+                        }
                         agent = Some(replacement);
                         generation = generation.wrapping_add(1);
                         event_generation.store(generation, Ordering::Release);
@@ -18543,6 +18551,61 @@ mod tests {
             Err(RuntimeStartError::Provider(_))
         ));
         manager.acquire_lease(session_id).unwrap();
+    }
+
+    /// A session started in the background for another conversation (a
+    /// review) is left out of the pickers; a person who resumes it — at start,
+    /// or by switching to it — makes it one of theirs.
+    #[tokio::test]
+    #[serial_test::serial(atomcode_home)]
+    async fn resuming_background_work_takes_it_up() {
+        use atomcode_capabilities::session::manager::SessionOrigin;
+        let home = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        std::env::set_var("ATOMCODE_HOME", home.path());
+        let manager = atomcode_capabilities::session::SessionManager::for_project(
+            project.path(),
+            &crate::config::product_dirs_from_env(),
+        );
+        for id in ["review-a", "review-b"] {
+            persist_native_session(
+                &manager,
+                id,
+                project.path(),
+                &SessionSnapshot::new(vec![Message::user("review it")]),
+            );
+            manager
+                .update_meta(id, |meta| meta.origin = SessionOrigin::Delegated)
+                .unwrap();
+        }
+        let origin = |id: &str| manager.read_meta(id).unwrap().origin;
+
+        let mut start = native_start(false);
+        start.agent.working_dir = project.path().to_path_buf();
+        start.prepare.session = crate::SessionMode::Resume("review-a".into());
+        let runtime = CodingRuntime::start(start).await.unwrap();
+        assert_eq!(
+            origin("review-a"),
+            SessionOrigin::Manual,
+            "resumed at start"
+        );
+
+        assert_eq!(origin("review-b"), SessionOrigin::Delegated);
+        runtime.handle.resume_session("review-b").await.unwrap();
+        assert_eq!(origin("review-b"), SessionOrigin::Manual, "switched to");
+
+        // Rebuilding the session already open is not a person taking it up:
+        // a review's own runtime reloads while it works.
+        manager
+            .update_meta("review-b", |meta| meta.origin = SessionOrigin::Delegated)
+            .unwrap();
+        runtime
+            .handle
+            .reload_capabilities_with_plugin_skills(None)
+            .await
+            .unwrap();
+        assert_eq!(origin("review-b"), SessionOrigin::Delegated, "reloaded");
+        runtime.handle.shutdown().await.unwrap();
     }
 
     #[tokio::test]

@@ -2170,4 +2170,9 @@ pub enum Msg<'a> {
     ResumeHint {
         cmd: &'a str,
     },
+    /// [`Msg::ResumeHint`] for a session the exit stopped in the background: the
+    /// same command, said so that it is not read as the conversation in front.
+    ResumeHintBackground {
+        cmd: &'a str,
+    },
 }
