@@ -1990,7 +1990,7 @@ fn execute_slash_command_impl(
                     atomcode_daemon::legacy_convert::catalog_for_project(&working_dir)
                         .map(|all| {
                             all.into_iter()
-                                .filter(|entry| entry.message_count > 0)
+                                .filter(|entry| entry.message_count > 0 && !entry.delegated())
                                 .map(crate::session::SessionMeta::from)
                                 .collect::<Vec<_>>()
                         })
@@ -4270,7 +4270,7 @@ pub(crate) fn request_session_catalog(ctx: &LoopCtx, renderer: &mut dyn Renderer
             atomcode_daemon::legacy_convert::catalog_for_project(&working_dir)
                 .map(|all| {
                     all.into_iter()
-                        .filter(|entry| entry.message_count > 0)
+                        .filter(|entry| entry.message_count > 0 && !entry.delegated())
                         .map(crate::session::SessionMeta::from)
                         .collect::<Vec<_>>()
                 })

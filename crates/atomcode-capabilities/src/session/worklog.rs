@@ -411,6 +411,7 @@ mod tests {
             turn_count: 1,
             presence: crate::session::CatalogPresence::NativeOnly,
             needs_newer_version: false,
+            origin: Default::default(),
         };
         assert!(session_overlaps_day(&e, 150, 300));
         // Session ended (updated=200) far before the window start, beyond the skew.

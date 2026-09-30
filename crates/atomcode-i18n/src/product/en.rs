@@ -1614,6 +1614,9 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
 
         // ── resuming from the shell (`atomcode-cli`) ──
         Msg::ResumeHint { cmd } => format!("To resume this session, run: {cmd}").into(),
+        Msg::ResumeHintBackground { cmd } => {
+            format!("To resume the background session, run: {cmd}").into()
+        }
     }
 }
 

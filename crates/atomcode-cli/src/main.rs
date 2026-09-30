@@ -2291,15 +2291,18 @@ async fn run() -> Result<i32> {
             // walk on every `-c`. Fall back to the full in-project scan only when
             // the bucket has nothing resumable (e.g. a legacy session parked in a
             // different bucket for this same directory).
+            //
+            // A background review is newer than the conversation that started
+            // it, and is not what "continue" means: it is left out.
             let from_bucket = atomcode_daemon::legacy_convert::catalog_for_bucket(&working_dir)?
                 .into_iter()
-                .find(|entry| entry.message_count > 0)
+                .find(|entry| entry.message_count > 0 && !entry.delegated())
                 .map(|entry| entry.id);
             match from_bucket {
                 Some(id) => Some(id),
                 None => atomcode_daemon::legacy_convert::catalog_for_project(&working_dir)?
                     .into_iter()
-                    .find(|entry| entry.message_count > 0)
+                    .find(|entry| entry.message_count > 0 && !entry.delegated())
                     .map(|entry| entry.id),
             }
         }
@@ -5042,6 +5045,7 @@ mod tests {
             turn_count: 1,
             presence: atomcode_capabilities::session::CatalogPresence::NativeOnly,
             needs_newer_version: false,
+            origin: Default::default(),
         }
     }
 

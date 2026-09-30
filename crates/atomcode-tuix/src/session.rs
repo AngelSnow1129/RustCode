@@ -401,6 +401,7 @@ mod tests {
             turn_count: 1,
             presence: CatalogPresence::NativeOnly,
             needs_newer_version: false,
+            origin: Default::default(),
         };
 
         let projected = SessionMeta::from(entry);

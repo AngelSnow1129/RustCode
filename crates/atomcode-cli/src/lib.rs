@@ -81,9 +81,22 @@ pub fn resume_hint_line(bin: &str, session_id: &str, headless: bool, zh: bool) -
     t_with(locale, Msg::ResumeHint { cmd: &cmd }).into_owned()
 }
 
+/// A background session's `resume` line: the same command as
+/// [`resume_hint_line`], said as the background session it is. Two lines that
+/// read the same one above the other left the last one — the background one —
+/// looking like the way back to the conversation that was in front.
+pub fn background_resume_hint_line(bin: &str, session_id: &str, zh: bool) -> String {
+    use atomcode_config::i18n::{t_with, Msg};
+    use atomcode_config::locale::Locale;
+    let locale = if zh { Locale::ZhCn } else { Locale::En };
+    let cmd = format!("{bin} resume {session_id}");
+    t_with(locale, Msg::ResumeHintBackground { cmd: &cmd }).into_owned()
+}
+
 /// The `resume` lines to print when the full-screen UI exits: the foreground
 /// session's, then one per background session the exit stopped
-/// (`background::Background::left_behind`), none twice.
+/// (`background::Background::left_behind`), said as background ones, none
+/// twice.
 pub fn exit_resume_hints(
     bin: &str,
     foreground: Option<&str>,
@@ -93,9 +106,17 @@ pub fn exit_resume_hints(
     let mut seen = std::collections::HashSet::new();
     foreground
         .into_iter()
-        .chain(background.iter().map(String::as_str))
-        .filter(|id| !id.is_empty() && seen.insert(id.to_string()))
-        .map(|id| resume_hint_line(bin, id, false, zh))
+        .filter(|id| !id.is_empty())
+        .map(|id| (id, false))
+        .chain(background.iter().map(|id| (id.as_str(), true)))
+        .filter(|(id, _)| !id.is_empty() && seen.insert(id.to_string()))
+        .map(|(id, behind)| {
+            if behind {
+                background_resume_hint_line(bin, id, zh)
+            } else {
+                resume_hint_line(bin, id, false, zh)
+            }
+        })
         .collect()
 }
 

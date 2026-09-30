@@ -283,6 +283,16 @@ pub struct CatalogEntry {
     pub presence: CatalogPresence,
     /// Written by a build newer than this one: listed, not resumable here.
     pub needs_newer_version: bool,
+    /// How the session was created. Legacy-only sessions read as `Manual`.
+    pub origin: SessionOrigin,
+}
+
+impl CatalogEntry {
+    /// Work done in the background for another conversation: found by id,
+    /// but not offered in a picker or to `--continue`.
+    pub fn delegated(&self) -> bool {
+        self.origin == SessionOrigin::Delegated
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -396,6 +406,14 @@ pub enum SessionOrigin {
     /// Started by the scheduled-tasks runner. Hidden from normal `/resume`
     /// and sidebar pickers; visible in a dedicated scheduled-tasks view.
     Scheduled,
+    /// Started in the background to do something for another conversation
+    /// (a review, `/bg <task>`), whose result goes back to that conversation.
+    /// Not one of the person's conversations: pickers and `--continue` leave it
+    /// out ([`CatalogEntry::delegated`]), but it opens by id — its exit hint
+    /// names it when it did not finish — and becomes `Manual` once a person
+    /// takes it up. Unlike a team member's session it has no `parent`: it is a
+    /// runtime of its own, and resumes on its own.
+    Delegated,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3166,13 +3184,28 @@ impl SessionManager {
     }
 
     /// Sessions for normal pickers (/resume, webui sidebar): excludes scheduled-run
-    /// sessions so recurring tasks don't flood the user's manual history. Use `list()`
-    /// for the full set (e.g. a scheduled-tasks view).
+    /// sessions so recurring tasks don't flood the user's manual history, and
+    /// background work done for another conversation. Use `list()` for the full
+    /// set (e.g. a scheduled-tasks view).
     pub fn list_visible(&self) -> Vec<SessionMeta> {
         self.list()
             .into_iter()
-            .filter(|m| m.origin != SessionOrigin::Scheduled)
+            .filter(|m| m.origin == SessionOrigin::Manual)
             .collect()
+    }
+
+    /// A person resumed `id`. Background work done for another conversation
+    /// becomes theirs from here on, offered in pickers like any other; any
+    /// other session is left as it is (and its index untouched).
+    pub fn take_up(&self, id: &str) -> SessionResult<()> {
+        if self.read_meta(id)?.origin != SessionOrigin::Delegated {
+            return Ok(());
+        }
+        self.update_meta(id, |meta| {
+            if meta.origin == SessionOrigin::Delegated {
+                meta.origin = SessionOrigin::Manual;
+            }
+        })
     }
 
     /// The most-recently-updated session, if any.
@@ -3992,6 +4025,7 @@ fn catalog_entry(
             } else {
                 CatalogPresence::NativeOnly
             },
+            origin: native.origin,
         }),
         (None, Some(legacy)) => Some(CatalogEntry {
             id,
@@ -4005,6 +4039,7 @@ fn catalog_entry(
             turn_count: legacy.turn_stats.len(),
             presence: CatalogPresence::LegacyOnly,
             needs_newer_version: false,
+            origin: SessionOrigin::Manual,
         }),
         (None, None) => None,
     }
@@ -7997,5 +8032,33 @@ mod tests {
         let old = r#"{"id":"x","name":"n","working_dir":"/w","created_at":0,"updated_at":0}"#;
         let parsed: SessionMeta = serde_json::from_str(old).unwrap();
         assert_eq!(parsed.origin, SessionOrigin::Manual);
+    }
+
+    /// Background work done for another conversation is cataloged — it opens
+    /// by id — but says so, and is not among the sessions offered.
+    #[test]
+    fn a_delegated_session_is_cataloged_but_not_offered() {
+        let root = tempfile::tempdir().unwrap();
+        let bucket = root.path().join("0123456789abcdef");
+        let manager = SessionManager::with_root(&bucket);
+        manager
+            .write_meta(&SessionMeta::new("mine", "/project", 1))
+            .unwrap();
+        let mut review = SessionMeta::new("review", "/project", 2);
+        review.origin = SessionOrigin::Delegated;
+        manager.write_meta(&review).unwrap();
+
+        let scan = SessionManager::scan_catalog(root.path());
+        let delegated = |id: &str| {
+            scan.entries
+                .iter()
+                .find(|entry| entry.id == id)
+                .map(CatalogEntry::delegated)
+        };
+        assert_eq!(delegated("review"), Some(true));
+        assert_eq!(delegated("mine"), Some(false));
+
+        let offered: Vec<String> = manager.list_visible().into_iter().map(|m| m.id).collect();
+        assert_eq!(offered, ["mine"]);
     }
 }

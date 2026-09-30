@@ -3745,6 +3745,7 @@ mod tests {
             turn_count: 0,
             presence: CatalogPresence::NativeOnly,
             needs_newer_version: false,
+            origin: Default::default(),
         };
 
         let old = rename_catalog_entry_in_root(dir.path(), &entry, "chosen", false).unwrap();
@@ -3847,6 +3848,7 @@ mod tests {
             turn_count: 0,
             presence: CatalogPresence::NativeOnly,
             needs_newer_version: false,
+            origin: Default::default(),
         };
 
         let loaded = load_catalog_session_view_in_root(dir.path(), &entry).unwrap();
@@ -4141,6 +4143,7 @@ mod tests {
             turn_count: 0,
             presence: CatalogPresence::NativeOnly,
             needs_newer_version: false,
+            origin: Default::default(),
         };
 
         let loaded = load_catalog_session_view_in_root(dir.path(), &entry).unwrap();
@@ -4331,6 +4334,7 @@ mod tests {
             turn_count: 0,
             presence: CatalogPresence::NativeOnly,
             needs_newer_version: false,
+            origin: Default::default(),
         };
 
         let loaded = load_catalog_session_view_in_root(dir.path(), &entry).unwrap();
@@ -4373,6 +4377,7 @@ mod tests {
             turn_count: session.turn_stats.len(),
             presence: CatalogPresence::LegacyOnly,
             needs_newer_version: false,
+            origin: Default::default(),
         };
 
         let loaded = load_catalog_session_view_in_root(dir.path(), &entry).unwrap();
@@ -4409,6 +4414,7 @@ mod tests {
             turn_count: session.turn_stats.len(),
             presence: CatalogPresence::LegacyOnly,
             needs_newer_version: false,
+            origin: Default::default(),
         };
 
         rename_catalog_entry_in_root(dir.path(), &entry, "native-name", false).unwrap();
