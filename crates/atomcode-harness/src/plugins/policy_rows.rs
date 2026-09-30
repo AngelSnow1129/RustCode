@@ -45,6 +45,18 @@ impl Plugin for TodoPlugin {
     }
     async fn apply(&self, ctx: &Context, _config: &Value) -> Result<(), String> {
         mount(ctx, vec![Arc::new(TodoTool::new()) as Arc<dyn Tool>])?;
+        // The person's hand on the same list: registered by the row that owns
+        // the tool, so a tree without `todowrite` offers no way to edit a plan
+        // the model could not have.
+        crate::commands::register(ctx, Arc::new(TodoCommand))?;
+        crate::plugins::self_knowledge::describes(
+            ctx,
+            "todo",
+            53,
+            "PLAN — the person can edit the `todowrite` list themselves, between turns: \
+             `/todo add <task>` appends a pending item and `/todo clear` empties the list. \
+             Their edit reaches you the way yours would, as a `todowrite` call and its result.",
+        );
         // This row's guidance for this row's tool — including the judgment a parameter list
         // cannot carry. It lived in the coding persona as `## TASK TRACKING`, which meant it
         // described `todowrite` on BOTH assemblies and could not leave with this row when the
@@ -75,6 +87,139 @@ impl Plugin for TodoPlugin {
         );
         Ok(())
     }
+}
+
+/// `todo` — the plan, and a person's two edits to it: `add <task>` appends a
+/// pending item, `clear` empties the list. What `atomcode-tuix`'s `/todo add`
+/// and `/todo clear` do, without rewriting the conversation to do it.
+///
+/// An edit is written the way the model writes one — a `todowrite` call and its
+/// result, the result worded as the tool words it — so every reader of the plan
+/// already reads it: the fold the screen draws, the reminder the next turn is
+/// given, a resumed session. Committed between turns and only then
+/// ([`Agent::commit_between_turns`](crate::agent::Agent::commit_between_turns)):
+/// inside a turn the pair would split a call from its result.
+struct TodoCommand;
+
+#[async_trait]
+impl crate::commands::CatalogCommand for TodoCommand {
+    fn describe(&self) -> atomcode_kernel::agent::CommandDescription {
+        atomcode_kernel::agent::CommandDescription {
+            name: "todo".into(),
+            usage: Some("[add <task>|clear]".into()),
+            summary: "计划清单;add 加一项,clear 清空".into(),
+            target: atomcode_kernel::agent::CommandTarget::Session,
+        }
+    }
+
+    async fn run(&self, agent: Arc<crate::agent::Agent>, args: &str) -> Result<String, String> {
+        use atomcode_capabilities::tools::todo::{derive_current_todos, render_todos_numbered};
+        let args = args.trim();
+        let (verb, rest) = match args.split_once(char::is_whitespace) {
+            Some((verb, rest)) => (verb, rest.trim()),
+            None => (args, ""),
+        };
+        let (call_args, result) = match verb.to_ascii_lowercase().as_str() {
+            "" | "list" => {
+                let messages = crate::session::derive_messages(&agent.session().events());
+                return Ok(render_todos_numbered(
+                    &derive_current_todos(&messages),
+                    true,
+                ));
+            }
+            "add" if rest.is_empty() => {
+                return Err("`add` 要一项任务,例如 `add 补上回归测试`".into())
+            }
+            "add" => (
+                serde_json::json!({ "action": "add", "content": rest }).to_string(),
+                format!("Added task: {rest}"),
+            ),
+            "clear" => (
+                r#"{"todos":[]}"#.to_string(),
+                render_todos_numbered(&[], false),
+            ),
+            other => return Err(format!("不认识 `{other}`,只有 `add <任务>` 和 `clear`")),
+        };
+        agent
+            .commit_between_turns(|log| todo_edit(log, verb, call_args, result.clone()))
+            .map_err(|_| "正在跑一个回合,等它结束再改计划".to_string())?;
+        Ok(result)
+    }
+}
+
+/// The call-and-result pair a person's edit is written as.
+///
+/// Stamped with the latest turn, the way a compaction between turns is — unless
+/// that turn was taken back: a fact filed under an undone turn is hidden with
+/// it, so the edit gets a turn of its own.
+fn todo_edit(
+    log: &crate::session::SessionLog,
+    verb: &str,
+    call_args: String,
+    result: String,
+) -> Vec<crate::session::SessionEvent> {
+    use crate::session::SessionEvent;
+    let events = log.events();
+    let latest = log.current_turn();
+    let turn = if atomcode_kernel::session::undone_turns(&events).contains(&latest) {
+        log.next_turn()
+    } else {
+        latest
+    };
+    // The round after every round this turn already has. Where a todo call
+    // stands is `(turn, round, index)` in its message's `meta`, and the plan
+    // the next turn is reminded of lays only the calls after the sidecar's
+    // `through` over it once a compaction has folded the plan away
+    // (`atomcode-coding`'s `todo::current_todos`). A call with no position is
+    // read as older than that — the edit would reach the screen and never the
+    // model — and one at round 0 would sort before the turn's own calls.
+    let round = events
+        .iter()
+        .filter_map(|e| match &e.event {
+            SessionEvent::AssistantMessage { turn: t, round, .. }
+            | SessionEvent::ToolResultLogged { turn: t, round, .. }
+                if *t == turn =>
+            {
+                Some(*round)
+            }
+            _ => None,
+        })
+        .max()
+        .map_or(1, |last| last.saturating_add(1));
+    // Unique within the log: a gateway rejects a repeated call id.
+    let call_id = format!(
+        "todo-{}-{}",
+        verb.to_ascii_lowercase(),
+        events.iter().map(|e| e.seq).max().unwrap_or(0) + 1
+    );
+    vec![
+        SessionEvent::AssistantMessage {
+            turn,
+            round,
+            text: String::new(),
+            reasoning: String::new(),
+            tool_calls: vec![atomcode_kernel::tool::ToolCall {
+                id: call_id.clone(),
+                name: "todowrite".into(),
+                arguments: call_args,
+            }],
+            reasoning_blocks: Vec::new(),
+            // No tokens: nothing was asked of a model. Only where it stands.
+            meta: Some(atomcode_kernel::message::MessageMeta {
+                turn_id: turn,
+                round,
+                ..Default::default()
+            }),
+        },
+        SessionEvent::ToolResultLogged {
+            turn,
+            round,
+            call_id,
+            content: result,
+            is_error: false,
+            images: Vec::new(),
+        },
+    ]
 }
 
 // ---- permission rules ---------------------------------------------------

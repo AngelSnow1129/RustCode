@@ -146,6 +146,10 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::TeamWorkingRound { round } => format!("第 {round} 轮").into(),
 
         // ── 待办折叠块 ──
+        Msg::TodoListed => "计划清单:".into(),
+        Msg::TodoNoPlan => "这段对话里还没有计划清单".into(),
+        Msg::TodoUsage { other } =>
+            format!("`/todo {other}`?它只认:不带参数(列出清单)、`add <任务>`、`clear`、`show`、`hide`、`toggle`").into(),
         Msg::TodoCounts {
             completed,
             in_progress,
@@ -237,7 +241,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::CmdAboutShowInject => "环境注入:收起、只留标签、全文,循环;不带名字则全部".into(),
         Msg::CmdAboutMouse => "把鼠标交还终端,或收回来".into(),
         Msg::CmdAboutKeys => "列出快捷键".into(),
-        Msg::CmdAboutTodo => "展开或折叠计划清单".into(),
+        Msg::CmdAboutTodo => "列出计划清单;`add <任务>` 加一项、`clear` 清空;`show`/`hide` 开关面板".into(),
         Msg::CmdAboutTeam => "展开或折叠团队面板".into(),
         Msg::CmdAboutPaste => "把剪贴板(或一个文件)的内容放进输入框;Ctrl+V 被终端或系统拦下时用它".into(),
         Msg::CmdAboutConfig => "拉出设置面板:搜索、改值;esc 关".into(),

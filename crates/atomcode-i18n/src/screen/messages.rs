@@ -247,6 +247,15 @@ pub enum Msg<'a> {
     },
 
     // ── the todo fold (`modules/todo.rs`) ──
+    /// `/todo`: the plan, printed — finished items too, since that is when the
+    /// panel has left and the list can be seen no other way.
+    TodoListed,
+    /// `/todo` with no plan in this conversation (or one that was cancelled).
+    TodoNoPlan,
+    /// `/todo` with a word it does not know.
+    TodoUsage {
+        other: &'a str,
+    },
     TodoCounts {
         completed: usize,
         in_progress: usize,
@@ -485,7 +494,7 @@ pub enum Msg<'a> {
     CommandCarriesNoPictures {
         count: usize,
     },
-    /// `/team` or `/todo` with a word neither of them knows.
+    /// `/team` with a word it does not know (`/todo` has `TodoUsage`).
     FoldUsage {
         name: &'a str,
         other: &'a str,
