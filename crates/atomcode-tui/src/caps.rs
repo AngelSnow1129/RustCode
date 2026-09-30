@@ -326,6 +326,11 @@ fn ascii_for(ch: char) -> Option<&'static str> {
         '\u{273B}' => "*",              // ✻ 回合收尾标记(窄字符)
         '\u{26A0}' => "!",              // ⚠
         '\u{2139}' | '\u{24D8}' => "i", // ℹ ⓘ
+        // A mark that asks to be looked at: the background panel's "needs
+        // input" star and the notice block's flag. `!` rather than `*`, which
+        // the sparkles above already spend — these two say something is
+        // waiting, not that something finished.
+        '\u{2731}' | '\u{2691}' => "!", // ✱ ⚑
 
         // bullets / circles / diamonds
         '\u{25CF}' | '\u{25C6}' | '\u{25CE}' => "*", // ● ◆ ◎
@@ -345,6 +350,13 @@ fn ascii_for(ch: char) -> Option<&'static str> {
         '\u{2194}' | '\u{21D4}' | '\u{21BB}' | '\u{21BA}' => "~",
         // ellipsis and middle dot: chrome in this UI, and both ambiguous-width
         '\u{22EF}' | '\u{2026}' => ".", // ⋯ … — one column in, one out
+        // The diff view's "these two hunks are far apart" mark. A one-cell `:`
+        // rather than the `...` a `⋮` reads like: every other swap here trades
+        // one column for one, and `...` is three, which moves the rest of the
+        // row. `atomcode-tuix` has this same gap — its comment at
+        // `render/diff.rs` says the mark is downgraded, but U+22EE is not in its
+        // table either, so both front ends drew it raw.
+        '\u{22EE}' => ":", // ⋮
         // media / state
         '\u{23F8}' => "=",
         '\u{23F9}' => "#",
@@ -767,6 +779,57 @@ mod tests {
         let framed = "┌─ title ─┐ ✓ ▸ • ⋯";
         let out = downgrade(framed, false);
         assert!(out.is_ascii(), "{out}");
+    }
+
+    /// The chrome marks this UI actually draws, and the two answers that are
+    /// not one cell for one.
+    ///
+    /// A mark that reaches a terminal with no glyph for it is a `□` in the
+    /// middle of a panel, so each of these has to arrive as ASCII. They are all
+    /// narrow (`east_asian_width` = N), which is what lets the swap keep the
+    /// row's width — the property `no_swap_in_the_whole_table_changes_a_line_width`
+    /// checks over the whole table, and the reason these could be added at all.
+    #[test]
+    fn the_marks_this_ui_draws_reach_a_terminal_without_unicode_as_ascii() {
+        // The background panel's three session states, the notice block's flag,
+        // and the diff view's "these hunks are far apart" gap.
+        for (rich, plain) in [
+            ("\u{2731}", "!"), // ✱ needs input
+            ("\u{2691}", "!"), // ⚑ notice
+            ("\u{22EE}", ":"), // ⋮ hunk gap
+            ("\u{25E6}", "o"), // ◦ working
+        ] {
+            assert_eq!(
+                downgrade(rich, false),
+                plain,
+                "{rich:?} has no ASCII stand-in — it would draw as tofu"
+            );
+            assert_eq!(
+                crate::width::str_width(&downgrade(rich, false)),
+                crate::width::str_width(rich),
+                "{rich:?} -> {plain:?} changed the row's width"
+            );
+        }
+    }
+
+    /// A key's glyph is not chrome, and the table must leave it be.
+    ///
+    /// `⏎` is in the table — mapped to `<`, because there it shares an arm with
+    /// the left arrow and a decorative tick is as good as any. A key legend is
+    /// the one place that reading is a lie, so `crate::widget::keys` names those
+    /// keys in words instead of asking this table. This test holds the line
+    /// between the two: the table stays as it is, and the legend stays out of it.
+    #[test]
+    fn a_key_glyph_is_left_to_the_legend_not_swapped_as_chrome() {
+        // What the table does with `⏎`, stated as the reason the legend cannot
+        // use it: a wrong-width swap is survivable, a wrong KEY is not.
+        assert_eq!(downgrade("\u{23CE}", false), "<");
+        // And what a legend therefore does instead.
+        assert_eq!(
+            crate::widget::keys(&[("\u{23CE}", "ok")], Caps::plain()),
+            "enter ok",
+            "the legend must name the key, not swap it for the left arrow"
+        );
     }
 
     #[test]

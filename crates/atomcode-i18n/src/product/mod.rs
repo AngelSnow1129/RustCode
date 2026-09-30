@@ -857,4 +857,41 @@ mod tests {
             assert!(s.contains('7'), "{locale:?} still says how many: {s}");
         }
     }
+
+    /// A message that names a key spells that key, and never as a glyph.
+    ///
+    /// The companion to [`a_status_message_carries_no_mark_of_its_own`]: that
+    /// one keeps decoration out of a message, this one keeps a would-be
+    /// decoration out by requiring the WORD.
+    ///
+    /// Why a glyph is not allowed here even though the screen draws plenty of
+    /// them: these strings are handed straight to the terminal, so they meet
+    /// `atomcode-tui`'s downgrade table (`caps::ascii_for`) without passing
+    /// through `Caps::g`. That table maps U+23CE (`⏎`) and U+21B5 (`↵`) to
+    /// `<` — correctly, for the arrows they share an arm with. On a terminal
+    /// with no Unicode a hint reading "⏎ confirm" therefore arrived saying
+    /// "press the LEFT ARROW", which is worse on every terminal than a missing
+    /// glyph ever is. A word cannot be misread that way, and the crate's
+    /// layering gate (`docs/adr/0022`) already wants decoration routed through
+    /// `Caps` rather than baked into a string.
+    ///
+    /// Both locales, and by source rather than by rendered output: a `Msg` that
+    /// takes arguments would need a value to render, and there are hundreds. The
+    /// tables themselves are what must stay free of these, and a new message
+    /// lands in one of them.
+    #[test]
+    fn a_message_names_a_key_in_words_not_as_a_glyph() {
+        for (locale, table) in [
+            (Locale::En, include_str!("en.rs")),
+            (Locale::ZhCn, include_str!("zh_cn.rs")),
+        ] {
+            for (glyph, name) in [("\u{23CE}", "U+23CE"), ("\u{21B5}", "U+21B5")] {
+                assert!(
+                    !table.contains(glyph),
+                    "{locale:?} names a key as {name} ({glyph}) — say the word, \
+                     or the screen's downgrade table will read it as another key"
+                );
+            }
+        }
+    }
 }

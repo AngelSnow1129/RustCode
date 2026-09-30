@@ -293,7 +293,7 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
     Right                            Accept next-prompt suggestion (does not send)
 
   ── Mode and model ──
-    Shift+Tab                        Without a menu, cycle to the next mode (set ui.mode_switch_key=tab in /config to cycle with Tab and accept completion via →/↵; HarmonyOS defaults to tab)
+    Shift+Tab                        Without a menu, cycle to the next mode (set ui.mode_switch_key=tab in /config to cycle with Tab and accept completion via →/Enter; HarmonyOS defaults to tab)
     F2 / Shift+F2                    Next / previous model (Mac: Fn+F2 / Fn+Shift+F2)
     Ctrl+T                           Cycle reasoning_effort
 
@@ -422,15 +422,15 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
             format!("{count} model{}", if count == 1 { "" } else { "s" }).into(),
         Msg::ProviderPanelAddModelRow => "+ Add model".into(),
         Msg::ProviderPanelAccountsHint =>
-            "Filter · ↑↓ select · ↵ models · Ctrl+A add · Ctrl+E edit · Ctrl+Dx2 delete · Tab switch · Esc close".into(),
+            "Filter · ↑↓ select · Enter models · Ctrl+A add · Ctrl+E edit · Ctrl+Dx2 delete · Tab switch · Esc close".into(),
         Msg::ProviderPanelManagedAccountHint =>
-            "Official CodingPlan account · view only · ↵ models · Tab switch · Esc close".into(),
+            "Official CodingPlan account · view only · Enter models · Tab switch · Esc close".into(),
         Msg::ProviderPanelModelsHint =>
-            "Filter · ↑↓ select · ↵ default/add · Ctrl+A add · Ctrl+E edit · Ctrl+Dx2 delete · Tab switch · Esc close".into(),
+            "Filter · ↑↓ select · Enter default/add · Ctrl+A add · Ctrl+E edit · Ctrl+Dx2 delete · Tab switch · Esc close".into(),
         Msg::ProviderPanelManagedModelsHint =>
-            "CodingPlan models are managed by /login · ↑↓ select · ↵ default · Tab all · Esc close".into(),
+            "CodingPlan models are managed by /login · ↑↓ select · Enter default · Tab all · Esc close".into(),
         Msg::ProviderPanelFilteredModelsHint { account } =>
-            format!("[{account}] · ↑↓ select · ↵ default/add · Ctrl+A add model · Ctrl+E edit · Ctrl+Dx2 delete · Tab all · Esc close").into(),
+            format!("[{account}] · ↑↓ select · Enter default/add · Ctrl+A add model · Ctrl+E edit · Ctrl+Dx2 delete · Tab all · Esc close").into(),
         Msg::ProviderPanelModelSaved { model } => format!("Saved model \"{model}\".").into(),
         Msg::ProviderPanelAddTitle => "[Add provider account]".into(),
         Msg::ProviderPanelEditAccountTitle { account } =>
@@ -455,10 +455,10 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ProviderPanelDefaultValue => "default".into(),
         Msg::ProviderPanelKeepOriginal => "blank keeps current value".into(),
         Msg::ProviderPanelProviderFormHint =>
-            "Tab Next  ←→ Switch provider  Space Toggle  ↵ Save  Esc Back".into(),
-        Msg::ProviderPanelAccountFormHint => "Tab Switch  ↵ Save  Esc Back".into(),
+            "Tab Next  ←→ Switch provider  Space Toggle  Enter Save  Esc Back".into(),
+        Msg::ProviderPanelAccountFormHint => "Tab Switch  Enter Save  Esc Back".into(),
         Msg::ProviderPanelModelFormHint =>
-            "Tab Next  ←→ Switch option  Space Toggle  ↵ Save  Esc Back".into(),
+            "Tab Next  ←→ Switch option  Space Toggle  Enter Save  Esc Back".into(),
         Msg::ProviderPanelEffortLevelsHint =>
             "Space Enable/disable level ([✓] on · [ ] off)  Tab Next  Esc Back".into(),
         Msg::SubagentToolUses { count } => {
@@ -1048,10 +1048,10 @@ pub(super) fn en(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::PluginMgrInstallableStatus => "can be installed".into(),
         Msg::PluginMgrInstallingStatus => "installing".into(),
         Msg::PluginMgrUpdatingStatus => "updating".into(),
-        Msg::PluginMgrHintNav => "↑/↓ select · ⏎ open · esc back".into(),
-        Msg::PluginMgrHintToggle => "⏎ install/uninstall · esc back".into(),
-        Msg::PluginMgrHintRemove => "⏎ remove · esc back".into(),
-        Msg::PluginMgrHintUninstall => "⏎ uninstall · esc back".into(),
+        Msg::PluginMgrHintNav => "↑/↓ select · Enter open · esc back".into(),
+        Msg::PluginMgrHintToggle => "Enter install/uninstall · esc back".into(),
+        Msg::PluginMgrHintRemove => "Enter remove · esc back".into(),
+        Msg::PluginMgrHintUninstall => "Enter uninstall · esc back".into(),
         Msg::PluginMgrHintUrl => "Enter to add · Esc to cancel".into(),
 Msg::PluginMgrHintPending => "Installing, please wait… · esc back".into(),
 Msg::PluginMgrHintUpdating => "Updating, please wait… · esc back".into(),
@@ -1067,7 +1067,7 @@ Msg::PluginMgrInstallingLabel => "Installing…".into(),
         Msg::PluginMgrRemoveMarketplacePrompt { name } => format!("  \x1b[33mAre you sure you want to remove marketplace '{name}'?\x1b[39m").into(),
         Msg::PluginMgrRemoveMarketplaceYes => "Yes, remove".into(),
         Msg::PluginMgrRemoveMarketplaceNo => "No, keep".into(),
-        Msg::PluginMgrRemoveMarketplaceHint => "↑/↓ select · ⏎ confirm · esc cancel".into(),
+        Msg::PluginMgrRemoveMarketplaceHint => "↑/↓ select · Enter confirm · esc cancel".into(),
         Msg::PluginScopeUser => "Install for you (user scope)".into(),
         Msg::PluginScopeUserDesc => "{user_dir}/plugins — all projects".into(),
         Msg::PluginScopeProject => "Install for all collaborators (project scope)".into(),

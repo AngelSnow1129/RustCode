@@ -242,9 +242,41 @@ pub fn form(fields: &[Field], focused: usize, caps: Caps) -> El {
 pub fn keys<K: AsRef<str>, V: AsRef<str>>(pairs: &[(K, V)], caps: Caps) -> String {
     pairs
         .iter()
-        .map(|(k, what)| format!("{} {}", k.as_ref(), what.as_ref()))
+        .map(|(k, what)| format!("{} {}", key_name(k.as_ref(), caps), what.as_ref()))
         .collect::<Vec<_>>()
         .join(&format!(" {} ", caps.g(Glyph::Separator)))
+}
+
+/// A key's name on a terminal that cannot draw the glyph.
+///
+/// The glyphs here name a **key**, so they cannot go through
+/// [`crate::caps::downgrade`], which trades one decorative character for one
+/// ASCII cell and is built on the promise that the swap keeps the column count
+/// ([`crate::caps`]'s `every_swap_keeps_the_column_count`). Two reasons that
+/// promise cannot be kept here:
+///
+///   - A key's ASCII name is longer than one cell — `⏎` is one column and
+///     `enter` is five. The legend is a row of text under a panel, laid out by
+///     its own width and truncated by its caller, not a set of aligned columns
+///     a swap could disturb.
+///   - A wrong width is a minor problem; naming **the wrong key** is a real
+///     one. The decorative table already maps `⏎` to `<` (it shares an arm with
+///     the left arrow), so a legend left to it would advertise the left arrow
+///     for "press enter" — worse on every terminal than saying it in words.
+///
+/// The words are the ones a CLI already prints for these keys, so the legend
+/// stays readable to whoever is used to one.
+fn key_name(key: &str, caps: Caps) -> &str {
+    if caps.unicode {
+        return key;
+    }
+    match key {
+        "\u{23CE}" => "enter",
+        "\u{21E5}" => "tab",
+        "\u{2191}\u{2193}" => "up/dn",
+        "\u{2190}\u{2192}" => "left/right",
+        other => other,
+    }
 }
 
 #[cfg(test)]
@@ -419,6 +451,51 @@ mod tests {
         // legend rather than a row of tofu.
         let out = keys(&[("esc", "取消")], Caps::plain());
         assert!(!out.contains('·'), "{out}");
+    }
+
+    /// A key is named in words on a terminal that cannot draw its glyph.
+    ///
+    /// Not merely a matter of not drawing tofu: the decorative table maps `⏎`
+    /// to `<` (it shares an arm with the left arrow), so a legend left to that
+    /// table would advertise the LEFT ARROW for "press enter". Naming the wrong
+    /// key is worse on every terminal than saying it in words, which is why
+    /// these four are spelled out here rather than left to `downgrade`.
+    #[test]
+    fn a_key_legend_names_the_key_in_words_where_the_glyph_cannot_be_drawn() {
+        let out = keys(
+            &[
+                ("↑↓", "选择"),
+                ("←→", "改"),
+                ("⏎", "确认"),
+                ("⇥", "翻页"),
+                ("esc", "取消"),
+            ],
+            Caps::plain(),
+        );
+        assert_eq!(
+            out,
+            "up/dn 选择 . left/right 改 . enter 确认 . tab 翻页 . esc 取消"
+        );
+        // Every KEY is spelled in ASCII, so a terminal with no glyph for any of
+        // them shows no tofu. The words beside them are the interface's own
+        // language and are left alone — content is never rewritten for an old
+        // terminal (`caps::ascii_for`).
+        for key in ["up/dn", "left/right", "enter", "tab", "esc"] {
+            assert!(out.contains(key), "{key:?} is not named: {out}");
+        }
+        for glyph in ["↑", "↓", "←", "→", "⏎", "⇥"] {
+            assert!(!out.contains(glyph), "{glyph:?} survived: {out}");
+        }
+        // And the one that would have named the wrong key is gone.
+        assert!(!out.contains('<'), "{out}");
+    }
+
+    /// A terminal that can draw them keeps the glyphs — the words are the
+    /// fallback, not the default.
+    #[test]
+    fn a_capable_terminal_keeps_the_key_glyphs() {
+        let out = keys(&[("⏎", "确认"), ("⇥", "翻页")], Caps::default());
+        assert_eq!(out, "⏎ 确认 · ⇥ 翻页");
     }
 
     // ---- the property every widget shares --------------------------------

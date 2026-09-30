@@ -277,7 +277,7 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
     Right                            接受下一步建议（不会自动发送）
 
   ── 模式与模型 ──
-    Shift+Tab                        无补全菜单时切换到下一个执行模式（/config 里 ui.mode_switch_key=tab 可改用 Tab 切换、→/↵ 补全；鸿蒙默认即 tab）
+    Shift+Tab                        无补全菜单时切换到下一个执行模式（/config 里 ui.mode_switch_key=tab 可改用 Tab 切换、→/Enter 补全；鸿蒙默认即 tab）
     F2 / Shift+F2                    下一个 / 上一个模型（Mac：Fn+F2 / Fn+Shift+F2）
     Ctrl+T                           切换 reasoning_effort
 
@@ -403,15 +403,15 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ProviderPanelModelCount { count } => format!("{count} 个模型").into(),
         Msg::ProviderPanelAddModelRow => "＋ 添加模型".into(),
         Msg::ProviderPanelAccountsHint =>
-            "筛选 · ↑↓选择 · ↵模型 · Ctrl+A添加 · Ctrl+E编辑 · Ctrl+Dx2 删除 · Tab切换 · Esc关闭".into(),
+            "筛选 · ↑↓选择 · Enter模型 · Ctrl+A添加 · Ctrl+E编辑 · Ctrl+Dx2 删除 · Tab切换 · Esc关闭".into(),
         Msg::ProviderPanelManagedAccountHint =>
-            "官方 CodingPlan 账号 · 仅支持查看 · ↵模型 · Tab切换 · Esc关闭".into(),
+            "官方 CodingPlan 账号 · 仅支持查看 · Enter模型 · Tab切换 · Esc关闭".into(),
         Msg::ProviderPanelModelsHint =>
-            "筛选 · ↑↓选择 · ↵默认/添加 · Ctrl+A添加 · Ctrl+E编辑 · Ctrl+Dx2 删除 · Tab切换 · Esc关闭".into(),
+            "筛选 · ↑↓选择 · Enter默认/添加 · Ctrl+A添加 · Ctrl+E编辑 · Ctrl+Dx2 删除 · Tab切换 · Esc关闭".into(),
         Msg::ProviderPanelManagedModelsHint =>
-            "CodingPlan 模型由 /login 管理 · ↑↓选择 · ↵设为默认 · Tab全部 · Esc关闭".into(),
+            "CodingPlan 模型由 /login 管理 · ↑↓选择 · Enter设为默认 · Tab全部 · Esc关闭".into(),
         Msg::ProviderPanelFilteredModelsHint { account } =>
-            format!("〔{account}〕· ↑↓选择 · ↵默认/添加 · Ctrl+A加模型 · Ctrl+E编辑 · Ctrl+Dx2 删除 · Tab全部 · Esc关闭").into(),
+            format!("〔{account}〕· ↑↓选择 · Enter默认/添加 · Ctrl+A加模型 · Ctrl+E编辑 · Ctrl+Dx2 删除 · Tab全部 · Esc关闭").into(),
         Msg::ProviderPanelModelSaved { model } => format!("已保存模型“{model}”。").into(),
         Msg::ProviderPanelAddTitle => "【添加 Provider 账号】".into(),
         Msg::ProviderPanelEditAccountTitle { account } =>
@@ -436,10 +436,10 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::ProviderPanelDefaultValue => "默认".into(),
         Msg::ProviderPanelKeepOriginal => "留空保留原值".into(),
         Msg::ProviderPanelProviderFormHint =>
-            "Tab 下一项  ←→ 切厂商  空格 勾选  ↵ 保存  Esc 返回".into(),
-        Msg::ProviderPanelAccountFormHint => "Tab 切换  ↵ 保存  Esc 返回".into(),
+            "Tab 下一项  ←→ 切厂商  空格 勾选  Enter 保存  Esc 返回".into(),
+        Msg::ProviderPanelAccountFormHint => "Tab 切换  Enter 保存  Esc 返回".into(),
         Msg::ProviderPanelModelFormHint =>
-            "Tab 下一项  ←→ 切选项  空格切换  ↵ 保存  Esc 返回".into(),
+            "Tab 下一项  ←→ 切选项  空格切换  Enter 保存  Esc 返回".into(),
         Msg::ProviderPanelEffortLevelsHint =>
             "空格 启用/禁用此档位（[✓] 启用 · [ ] 未启用）  Tab 下一项  Esc 返回".into(),
         Msg::SubagentToolUses { count } => format!("{count} 次工具").into(),
@@ -1019,11 +1019,11 @@ pub(super) fn zh_cn(msg: Msg<'_>) -> Cow<'static, str> {
         Msg::PluginMgrInstallableStatus => "可以安装".into(),
         Msg::PluginMgrInstallingStatus => "安装中".into(),
         Msg::PluginMgrUpdatingStatus => "更新中".into(),
-        Msg::PluginMgrHintNav => "↑/↓ 选择 · ⏎ 进入 · esc 返回".into(),
-        Msg::PluginMgrHintToggle => "⏎ 安装/卸载 · esc 返回".into(),
-        Msg::PluginMgrHintRemove => "⏎ 移除 · esc 返回".into(),
-        Msg::PluginMgrHintUninstall => "⏎ 卸载 · esc 返回".into(),
-        Msg::PluginMgrHintUrl => "⏎ 确认添加 · esc 取消".into(),
+        Msg::PluginMgrHintNav => "↑/↓ 选择 · Enter 进入 · esc 返回".into(),
+        Msg::PluginMgrHintToggle => "Enter 安装/卸载 · esc 返回".into(),
+        Msg::PluginMgrHintRemove => "Enter 移除 · esc 返回".into(),
+        Msg::PluginMgrHintUninstall => "Enter 卸载 · esc 返回".into(),
+        Msg::PluginMgrHintUrl => "Enter 确认添加 · esc 取消".into(),
 Msg::PluginMgrHintPending => "安装中，请稍候… · esc 返回".into(),
 Msg::PluginMgrHintUpdating => "更新中，请稍候… · esc 返回".into(),
 Msg::PluginMgrInstallingLabel => "安装中…".into(),
