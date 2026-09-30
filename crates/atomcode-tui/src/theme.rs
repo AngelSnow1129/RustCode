@@ -422,6 +422,12 @@ fn floor(role: Role) -> f32 {
 /// whatever the scheme is.
 const MUTED_REACH: f32 = 0.35;
 
+/// How much louder than the measured mix ([`muted_ink`]) a scheme's own slot
+/// may be and still be used for [`Role::Muted`]: 10%, so a scheme whose dim
+/// grey is the same grey by another name keeps it, and one whose quietest
+/// readable slot is a near-white does not.
+const SLOT_LEEWAY: f32 = 1.10;
+
 /// Ink for metadata: the terminal's own text colour, moved toward its
 /// background, held at the floor. `None` when nothing measured anchors the
 /// colour at all.
@@ -576,12 +582,21 @@ pub fn resolve(role: Role, caps: Caps) -> Option<Color> {
             // a near-white well above its own body text (#839496). Taking it drew
             // reasoning and metadata brighter than the answer they sit beside.
             // The measured mix below is the right answer then.
+            //
+            // And *meaningfully* quieter, not quieter by a shade: Catppuccin
+            // Mocha's slot 8 (#585b70) misses the floor, so the quietest slot
+            // that reads is its white (#a6adc8, 7.4:1) against body text at
+            // 11.3:1 — commands and reasoning drawn nearly as loud as the prose
+            // (a cmux user's report, 2026-09-30). The measured mix is the yard-
+            // stick: the scheme's slot keeps its place while it is within
+            // [`SLOT_LEEWAY`] of the mix's loudness, and gives way beyond it.
+            let bg = p.background();
+            let mixed = muted_ink(p, need);
             if let Some(n) = quietest(role, caps, true) {
-                let bg = p.background();
-                let quieter_than_prose = p
-                    .foreground()
-                    .is_none_or(|fg| contrast(p.slot(n), bg) < contrast(fg, bg));
-                if quieter_than_prose {
+                let slot = contrast(p.slot(n), bg);
+                let quieter_than_prose = p.foreground().is_none_or(|fg| slot < contrast(fg, bg));
+                let near_the_mix = mixed.is_none_or(|ink| slot <= contrast(ink, bg) * SLOT_LEEWAY);
+                if quieter_than_prose && near_the_mix {
                     return Some(Color::Ansi(n));
                 }
             }
@@ -590,7 +605,7 @@ pub fn resolve(role: Role, caps: Caps) -> Option<Color> {
             // keeps the ratio that was just computed; an indexed terminal gets
             // the nearest slot, which is the honest answer when slots are the
             // only vocabulary it has.
-            if let Some(ink) = muted_ink(p, need) {
+            if let Some(ink) = mixed {
                 return Some(exact(ink, caps.colors, p));
             }
             // Nobody answered: synthesise from the standard candidate and stop
@@ -1277,6 +1292,40 @@ mod tests {
         };
         let ratio = contrast(seen(Role::Muted, light).unwrap(), (0xff, 0xff, 0xff));
         assert!(ratio >= 4.5, "only {ratio:.2}:1 on paper");
+    }
+
+    /// Catppuccin Mocha as Ghostty (and cmux, which reads Ghostty's config)
+    /// reports it — the palette from the report, 2026-09-30. Slot 8 misses the
+    /// floor, and the quietest slot that reads (slot 7, #a6adc8) is barely
+    /// quieter than the prose; metadata has to recede visibly instead.
+    #[test]
+    fn muted_recedes_on_catppuccin_mocha() {
+        let bg = (0x1e, 0x1e, 0x2e);
+        let fg = (0xcd, 0xd6, 0xf4);
+        let mut p = Palette::assumed(Theme::Dark)
+            .with_background(bg)
+            .with_foreground(fg);
+        for (n, rgb) in [
+            (0u8, (0x45, 0x47, 0x5a)),
+            (7, (0xa6, 0xad, 0xc8)),
+            (8, (0x58, 0x5b, 0x70)),
+            (15, (0xba, 0xc2, 0xde)),
+        ] {
+            p = p.with_slot(n, rgb);
+        }
+        let caps = Caps {
+            palette: p,
+            colors: Colors::True,
+            ..Caps::default()
+        };
+        let muted = seen(Role::Muted, caps).unwrap();
+        let ratio = contrast(muted, bg);
+        assert!(ratio >= 4.5, "still readable: {ratio:.2}:1");
+        assert!(
+            ratio <= contrast(fg, bg) * 0.6,
+            "{muted:?} at {ratio:.2}:1 does not recede from the prose at {:.2}:1",
+            contrast(fg, bg)
+        );
     }
 
     #[test]
