@@ -116,6 +116,27 @@ impl Plan {
         )
     }
 
+    /// The task numbered `id` (1-based, as the tool numbers them) in the list
+    /// the call `call_id` was written against — the calls up to and including
+    /// it, and none after. What an incremental update names only by number.
+    ///
+    /// Not the list as it stands now: every call of a reply is recorded when
+    /// the reply is, so a full replan later in the same reply would already be
+    /// in it, and its #2 is not the #2 this update meant.
+    pub(crate) fn title_as_of(&self, call_id: &str, id: u64) -> Option<String> {
+        let index = usize::try_from(id).ok()?.checked_sub(1)?;
+        let upto = self.calls.iter().position(|c| c.id == call_id)?;
+        reduce_todos(
+            self.calls[..=upto]
+                .iter()
+                .filter(|c| !c.failed)
+                .map(|c| (c.name.as_str(), c.args.as_str())),
+        )
+        .get(index)
+        .map(|item| item.content.clone())
+        .filter(|content| !content.trim().is_empty())
+    }
+
     /// Forget the calls of `turn` and every turn after it — what an undo that
     /// takes the conversation back to before `turn` leaves of the plan.
     pub(crate) fn retract_from(&mut self, turn: u64) {

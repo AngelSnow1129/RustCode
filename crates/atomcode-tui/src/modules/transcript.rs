@@ -417,10 +417,15 @@ impl Producer for Transcript {
                 is_error,
                 ..
             } => {
+                let named = open
+                    .calls
+                    .get(call_id)
+                    .filter(|_| !*is_error)
+                    .and_then(|(_, block)| named_todo_update(block, call_id, content, &open.plan));
                 let outcome = if *is_error {
                     Outcome::Failed(content.clone())
                 } else {
-                    Outcome::Ok(content.clone())
+                    Outcome::Ok(named.unwrap_or_else(|| content.clone()))
                 };
                 match open.calls.remove(call_id) {
                     Some((id, block)) => {
@@ -728,6 +733,47 @@ fn rate_limit_wait(detail: &str) -> Option<String> {
         .ok()?;
     Some(t(Msg::TranscriptRateLimitWaiting { secs }).into_owned())
 }
+
+/// An incremental todo update's result with the task's name in it.
+///
+/// The tool answers `#5 → completed`: the number is all the call carried, and on
+/// its own it says nothing — "#5" is only meaningful beside the list, and the
+/// list is a panel that may be gone by the time anyone reads the row. The plan
+/// this transcript already keeps knows what #5 is, so the row becomes
+/// `#5 <task> → completed`, the way the classic screen draws it
+/// (`enrich_todo_detail`). `None` for anything else, and for a number the plan
+/// has no task for — the tool's own words stand then.
+fn named_todo_update(
+    block: &ToolCallBlock,
+    call_id: &str,
+    result: &str,
+    plan: &crate::modules::todo::Plan,
+) -> Option<String> {
+    if !matches!(block.name.as_str(), "todo" | "todowrite") {
+        return None;
+    }
+    let args: serde_json::Value = serde_json::from_str(&block.args).ok()?;
+    if args.get("action").and_then(|a| a.as_str()) != Some("update") {
+        return None;
+    }
+    let id = args.get("id").and_then(|x| x.as_u64())?;
+    let head = format!("#{id}");
+    let rest = result.trim().strip_prefix(&head)?;
+    let title = plan.title_as_of(call_id, id)?;
+    let title = if crate::width::str_width(&title) > TODO_TITLE_CELLS {
+        format!(
+            "{}…",
+            crate::width::take_width(&title, TODO_TITLE_CELLS.saturating_sub(1))
+        )
+    } else {
+        title
+    };
+    Some(format!("{head} {title}{rest}"))
+}
+
+/// The most of a task's name an update row carries: the row is a line in the
+/// transcript, and the full name is in the plan.
+const TODO_TITLE_CELLS: usize = 80;
 
 /// Why a rate-limited turn stopped, as the classic screen says it.
 ///
@@ -1371,6 +1417,98 @@ mod tests {
         for leaked in ["1200", "880", "tokens", "轮", "cached"] {
             assert!(!last.contains(leaked), "{leaked} leaked into {last:?}");
         }
+    }
+
+    /// An incremental update names its task: `#2 → completed` alone says
+    /// nothing once the panel is gone, so the row reads `#2 <task> → completed`.
+    /// A number the plan has no task for keeps the tool's own words.
+    #[test]
+    fn a_todo_update_names_its_task() {
+        let call = |id: &str, args: &str| SessionEvent::AssistantMessage {
+            turn: 1,
+            round: 1,
+            text: String::new(),
+            reasoning: String::new(),
+            tool_calls: vec![atomcode_kernel::tool::ToolCall {
+                id: id.into(),
+                name: "todowrite".into(),
+                arguments: args.into(),
+            }],
+            reasoning_blocks: Vec::new(),
+            meta: None,
+        };
+        let result = |id: &str, content: &str| SessionEvent::ToolResultLogged {
+            turn: 1,
+            round: 1,
+            call_id: id.into(),
+            content: content.into(),
+            is_error: false,
+            images: Vec::new(),
+        };
+        let facts = vec![
+            SessionEvent::TurnStart { turn: 1 },
+            call(
+                "c1",
+                r#"{"todos":[{"content":"write the migration","status":"completed"},
+                    {"content":"run the tests","status":"in_progress"},
+                    {"content":"wire it into CI","status":"pending"}]}"#,
+            ),
+            result("c1", "3 tasks"),
+            call("c2", r#"{"action":"update","id":2,"status":"completed"}"#),
+            result("c2", "#2 → completed"),
+            call("c3", r#"{"action":"update","id":9,"status":"completed"}"#),
+            result("c3", "#9 → completed"),
+        ];
+        let text = said(&fold(&facts));
+        assert!(
+            text.contains("#2 run the tests → completed"),
+            "the update names its task:\n{text}"
+        );
+        assert!(
+            text.contains("#9 → completed"),
+            "no task for the number: the tool's words stand:\n{text}"
+        );
+
+        // One reply that updates #2 and then replans: the update was written
+        // against the old list, and its row names the old #2.
+        let facts = vec![
+            SessionEvent::TurnStart { turn: 1 },
+            call(
+                "c1",
+                r#"{"todos":[{"content":"old one","status":"completed"},
+                    {"content":"old two","status":"in_progress"}]}"#,
+            ),
+            result("c1", "2 tasks"),
+            SessionEvent::AssistantMessage {
+                turn: 1,
+                round: 2,
+                text: String::new(),
+                reasoning: String::new(),
+                tool_calls: vec![
+                    atomcode_kernel::tool::ToolCall {
+                        id: "c2".into(),
+                        name: "todowrite".into(),
+                        arguments: r#"{"action":"update","id":2,"status":"completed"}"#.into(),
+                    },
+                    atomcode_kernel::tool::ToolCall {
+                        id: "c3".into(),
+                        name: "todowrite".into(),
+                        arguments: r#"{"todos":[{"content":"new one","status":"pending"},
+                            {"content":"new two","status":"pending"}]}"#
+                            .into(),
+                    },
+                ],
+                reasoning_blocks: Vec::new(),
+                meta: None,
+            },
+            result("c2", "#2 → completed"),
+            result("c3", "2 tasks"),
+        ];
+        let text = said(&fold(&facts));
+        assert!(
+            text.contains("#2 old two → completed"),
+            "the list it was written against, not the replan after it:\n{text}"
+        );
     }
 
     /// A turn the model ended on its own says so, not "done", while the task list
