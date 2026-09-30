@@ -117,4 +117,26 @@ mod tests {
             "the English table must stay English: {keys}"
         );
     }
+
+    /// A message names a key in words, never as `⏎`/`↵`: these strings reach
+    /// the screen without passing through the key legend
+    /// (`atomcode_tui::widget::keys`), and on a terminal without Unicode the
+    /// downgrade table turns both glyphs into `<` — the left arrow, not
+    /// Enter. The same rule as `product`'s
+    /// `a_message_names_a_key_in_words_not_as_a_glyph`, for the tables the
+    /// row-assembled screen reads.
+    #[test]
+    fn a_message_names_a_key_in_words_not_as_a_glyph() {
+        for (table, source) in [
+            ("en", include_str!("en.rs")),
+            ("zh_cn", include_str!("zh_cn.rs")),
+        ] {
+            for glyph in ['\u{23CE}', '\u{21B5}'] {
+                assert!(
+                    !source.contains(glyph),
+                    "screen/{table}.rs names a key as {glyph:?}: say the word"
+                );
+            }
+        }
+    }
 }
