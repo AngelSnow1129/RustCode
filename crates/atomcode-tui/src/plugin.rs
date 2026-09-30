@@ -314,10 +314,15 @@ impl AgentClient {
     /// The selection id host control accepted, so the providers list can mark
     /// the row the session is on while the two accounts running the same model
     /// are still indistinguishable by the wire name alone.
+    ///
+    /// Kept on the **lead**: `/model` switches the session this screen follows
+    /// (`SwitchModel { session: root }`), whichever tab it was typed on. Kept
+    /// on the tab instead, a member would be labelled with the lead's account
+    /// and the lead would lose the id it was switched to.
     pub(crate) fn chose_model(&self, selection: Option<String>) {
         let mut views = self.view.lock().expect("client poisoned");
-        let on_screen = views.on_screen.clone();
-        if let Some(view) = views.sessions.get_mut(&on_screen) {
+        let root = views.root.clone();
+        if let Some(view) = views.sessions.get_mut(&root) {
             view.selection = selection;
         }
     }
@@ -2646,12 +2651,23 @@ impl Tui {
         // the marked row, so F2 would step off the first one every time. The
         // wire name is never stale in that way (it tracks what the agent
         // reports), so it is the right thing to fall back to.
+        //
+        // And only while it still names what the agent reports. The id is a
+        // note of the last `/model` this screen sent; the model can move without
+        // one — a switch from the web page, `/login` adopting the server's
+        // default — and then the id describes a model the session has left.
+        // The description is the agent's own word on what it runs, so an id
+        // whose row sends anything else is dropped for it.
         let rows = port.rows();
+        let wire = self.client.described().and_then(|d| d.model);
         let live = self
             .client
             .selection()
-            .filter(|id| rows.model(id).is_some())
-            .or_else(|| self.client.described().and_then(|d| d.model));
+            .filter(|id| {
+                rows.model(id)
+                    .is_some_and(|row| wire.as_deref().is_none_or(|wire| row.model == wire))
+            })
+            .or(wire);
         let view = rows.with_current(live.as_deref());
         self.host.show_providers(view)
     }
@@ -9951,6 +9967,112 @@ mod provider_probe_tests {
             "{}",
             conversation(&host)
         );
+    }
+
+    /// Two accounts sending `deepseek-flash`, and a third model; the file starts
+    /// the next session on AtomGit's.
+    struct TwoAccounts;
+
+    impl Providers for TwoAccounts {
+        fn rows(&self) -> ProvidersView {
+            let row =
+                |id: &str, account: &str, wire: &str, current: bool| crate::providers::ModelRow {
+                    id: id.into(),
+                    account: account.into(),
+                    model: wire.into(),
+                    window: 128_000,
+                    vision: None,
+                    effort: None,
+                    levels: Vec::new(),
+                    current,
+                    managed: false,
+                };
+            ProvidersView::new(
+                Vec::new(),
+                vec![
+                    row("atomgit/ds", "AtomGit", "deepseek-flash", true),
+                    row("taotoken/ds", "TaoToken", "deepseek-flash", false),
+                    row("atomgit/glm", "AtomGit", "glm5.3-flash-pro", false),
+                ],
+                Vec::new(),
+                Vec::new(),
+            )
+        }
+        fn add_account(&self, draft: &AccountDraft) -> Result<String, String> {
+            Checked.add_account(draft)
+        }
+        fn edit_account(&self, id: &str, draft: &AccountDraft) -> Result<(), String> {
+            Checked.edit_account(id, draft)
+        }
+        fn delete_account(&self, id: &str) -> Result<(), String> {
+            Checked.delete_account(id)
+        }
+        fn add_model(&self, draft: &ModelDraft) -> Result<String, String> {
+            Checked.add_model(draft)
+        }
+        fn edit_model(&self, id: &str, draft: &ModelDraft) -> Result<(), String> {
+            Checked.edit_model(id, draft)
+        }
+        fn delete_model(&self, id: &str) -> Result<(), String> {
+            Checked.delete_model(id)
+        }
+        fn probe(&self, _account: &str, _selection: Option<&str>) -> Option<ProbeFuture> {
+            None
+        }
+    }
+
+    fn described(tui: &Tui, session: &str, model: &str) {
+        tui.client.describe(&AgentDescription {
+            session: session.into(),
+            model: Some(model.into()),
+            ..AgentDescription::default()
+        });
+    }
+
+    /// The row the providers list says the session on screen is on.
+    fn live(tui: &Tui, host: &Arc<Host>) -> Option<String> {
+        tui.refresh_providers();
+        let m = host.moment.read().expect("moment poisoned");
+        m.providers.live_row().map(|row| row.id.clone())
+    }
+
+    /// `/model` typed on a member's tab switches the lead — so the id it chose
+    /// is the lead's, and neither labels the member nor goes missing from the
+    /// lead.
+    #[test]
+    fn a_model_chosen_on_a_member_tab_is_the_leads() {
+        let (host, tui, _woken) = screen_with(Arc::new(TwoAccounts));
+        tui.client.follow("lead");
+        described(&tui, "lead", "deepseek-flash");
+        tui.client.look_at("lead~dev");
+        described(&tui, "lead~dev", "deepseek-flash");
+
+        tui.client.chose_model(Some("taotoken/ds".into()));
+
+        assert_eq!(tui.client.selection(), None, "not the member's");
+        assert_eq!(
+            live(&tui, &host),
+            None,
+            "the member's wire name is ambiguous"
+        );
+        tui.client.look_at("lead");
+        assert_eq!(tui.client.selection().as_deref(), Some("taotoken/ds"));
+        assert_eq!(live(&tui, &host).as_deref(), Some("taotoken/ds"));
+    }
+
+    /// The id is a note of the last `/model` this screen sent. When the agent
+    /// has since moved to something that row does not send — switched from the
+    /// web page, or by `/login` — the agent's own word wins.
+    #[test]
+    fn a_chosen_id_the_agent_has_moved_off_is_dropped() {
+        let (host, tui, _woken) = screen_with(Arc::new(TwoAccounts));
+        tui.client.follow("lead");
+        described(&tui, "lead", "deepseek-flash");
+        tui.client.chose_model(Some("taotoken/ds".into()));
+        assert_eq!(live(&tui, &host).as_deref(), Some("taotoken/ds"));
+
+        described(&tui, "lead", "glm5.3-flash-pro");
+        assert_eq!(live(&tui, &host).as_deref(), Some("atomgit/glm"));
     }
 }
 

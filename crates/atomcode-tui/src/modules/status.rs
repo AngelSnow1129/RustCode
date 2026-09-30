@@ -38,10 +38,13 @@ pub struct Status;
 /// `deepseek-flash` everywhere else. The same rule tuix applies to its
 /// `(Channel)` suffix, asked of the same list.
 ///
-/// The row that is `current` is the session's own; a name no row answers to, or
-/// one that is unique, says nothing and the bare model name stands.
+/// The row asked is the one the session was resolved to, not the one marked
+/// `current`: where the name alone is ambiguous the file's own mark stays up,
+/// and that says which account the *next* session starts on. A session no row
+/// was resolved for, or a name that is unique, says nothing and the bare model
+/// name stands.
 fn provider_prefix(providers: &crate::providers::ProvidersView, model: &str) -> String {
-    let Some(row) = providers.models().iter().find(|m| m.current) else {
+    let Some(row) = providers.live_row() else {
         return String::new();
     };
     if row.model != model
@@ -1675,7 +1678,9 @@ mod tests {
             providers,
             ..Moment::default()
         };
-        let shared = ProvidersView::new(
+        // The file's own mark is on AtomGit's row in every case below: it says
+        // what the next session starts on, and must not be what is named.
+        let file = ProvidersView::new(
             vec![account("AtomGit"), account("TaoToken")],
             vec![
                 row("atomgit/ds", "AtomGit", "deepseek-flash", true),
@@ -1684,6 +1689,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
         );
+        let shared = file.with_current(Some("atomgit/ds"));
 
         // Two accounts, one name: the bare name cannot say which is live.
         let line = draw::<Status>(
@@ -1694,18 +1700,24 @@ mod tests {
         assert!(line.contains("AtomGit/deepseek-flash"), "{line:?}");
 
         // The same name with the *other* account on: the label follows the
-        // session, not the first row that happens to match.
-        let other = ProvidersView::new(
-            vec![account("AtomGit"), account("TaoToken")],
-            vec![
-                row("atomgit/ds", "AtomGit", "deepseek-flash", false),
-                row("taotoken/ds", "TaoToken", "deepseek-flash", true),
-            ],
-            Vec::new(),
-            Vec::new(),
-        );
+        // session, not the file's mark or the first row that happens to match.
+        let other = file.with_current(Some("taotoken/ds"));
         let line = draw::<Status>(&State::default(), 120, &moment_of("deepseek-flash", other));
         assert!(line.contains("TaoToken/deepseek-flash"), "{line:?}");
+
+        // Only the wire name known — a session resumed, or switched from
+        // somewhere this screen did not see: it cannot pick one of the two, so
+        // the file's mark stays up for the picker, and the line names no
+        // account rather than the one the file happens to start on.
+        for unresolved in [file.with_current(Some("deepseek-flash")), file.clone()] {
+            let line = draw::<Status>(
+                &State::default(),
+                120,
+                &moment_of("deepseek-flash", unresolved),
+            );
+            assert!(line.contains("deepseek-flash"), "{line:?}");
+            assert!(!line.contains("/deepseek-flash"), "{line:?}");
+        }
 
         // A name only one account has says nothing: the prefix would be noise
         // on the common single-account case.
@@ -1714,7 +1726,8 @@ mod tests {
             vec![row("atomgit/glm", "AtomGit", "glm5.3-flash-pro", true)],
             Vec::new(),
             Vec::new(),
-        );
+        )
+        .with_current(Some("glm5.3-flash-pro"));
         let line = draw::<Status>(
             &State::default(),
             120,
