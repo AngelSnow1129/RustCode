@@ -206,6 +206,9 @@ struct Views {
     sessions: std::collections::HashMap<String, SessionView>,
     /// The root's team, by session id, as members joined and left.
     members: std::collections::BTreeSet<String>,
+    /// A `/model` moved the lead's selection id since the providers list was
+    /// last marked ([`AgentClient::take_remark`]).
+    remark: bool,
 }
 
 /// One followed session, as its facts and events have described it.
@@ -319,12 +322,28 @@ impl AgentClient {
     /// (`SwitchModel { session: root }`), whichever tab it was typed on. Kept
     /// on the tab instead, a member would be labelled with the lead's account
     /// and the lead would lose the id it was switched to.
+    ///
+    /// A moved id asks for the list to be marked again. The host's reply and
+    /// the description it causes travel apart — the reply over host control,
+    /// `Described` from a watcher of the runtime's events — so the description
+    /// may well have been folded, and the list marked, while this id was still
+    /// the old one. Switching between two accounts sending the same name, the
+    /// old id still matches the wire name and that mark would stand.
     pub(crate) fn chose_model(&self, selection: Option<String>) {
         let mut views = self.view.lock().expect("client poisoned");
         let root = views.root.clone();
         if let Some(view) = views.sessions.get_mut(&root) {
-            view.selection = selection;
+            if view.selection != selection {
+                view.selection = selection;
+                views.remark = true;
+            }
         }
+    }
+
+    /// Whether a `/model` moved the selection id since this was last asked —
+    /// the loop marks the providers list again when it did.
+    pub(crate) fn take_remark(&self) -> bool {
+        std::mem::take(&mut self.view.lock().expect("client poisoned").remark)
     }
 
     /// The selection id the session on screen is on, when this screen knows it
@@ -1594,7 +1613,16 @@ impl UserInterface for Tui {
                 Wake::Closed => quit = true,
                 // The fact was folded into the stream by the listener that sent
                 // this, so what is drawn is a frame behind it now.
-                Wake::Fact => stale = true,
+                //
+                // A command's answer arrives this way, after the command ran —
+                // so a `/model` that moved the selection id is marked here,
+                // whichever order its reply and its description came in.
+                Wake::Fact => {
+                    stale = true;
+                    if client.take_remark() {
+                        self.refresh_providers();
+                    }
+                }
                 // Most of what arrives here moves nothing on the screen: a
                 // streamed delta is already in the transcript by the time it is
                 // projected into this event, and this is the same news again.
@@ -10058,6 +10086,37 @@ mod provider_probe_tests {
         tui.client.look_at("lead");
         assert_eq!(tui.client.selection().as_deref(), Some("taotoken/ds"));
         assert_eq!(live(&tui, &host).as_deref(), Some("taotoken/ds"));
+    }
+
+    /// Switching between two accounts that send the same name, the description
+    /// the switch causes can be folded before `/model` hears back and notes the
+    /// new id — and then the list is marked from the old id, which the wire
+    /// name still matches. Noting a new id asks for the list to be marked again
+    /// (the loop does it on the answer's `Wake::Fact`); noting the same id does
+    /// not.
+    #[test]
+    fn a_description_that_beat_the_reply_is_marked_again() {
+        let (host, tui, _woken) = screen_with(Arc::new(TwoAccounts));
+        tui.client.follow("lead");
+        described(&tui, "lead", "deepseek-flash");
+        tui.client.chose_model(Some("atomgit/ds".into()));
+        assert!(tui.client.take_remark());
+        assert_eq!(live(&tui, &host).as_deref(), Some("atomgit/ds"));
+
+        // `/model taotoken/ds`: the description lands first, byte-identical.
+        described(&tui, "lead", "deepseek-flash");
+        assert_eq!(live(&tui, &host).as_deref(), Some("atomgit/ds"), "the race");
+        // Then the reply, and the answer's wake.
+        tui.client.chose_model(Some("taotoken/ds".into()));
+        assert!(
+            tui.client.take_remark(),
+            "a moved id asks to be marked again"
+        );
+        assert!(!tui.client.take_remark(), "once");
+        assert_eq!(live(&tui, &host).as_deref(), Some("taotoken/ds"));
+
+        tui.client.chose_model(Some("taotoken/ds".into()));
+        assert!(!tui.client.take_remark(), "the same id moved nothing");
     }
 
     /// The id is a note of the last `/model` this screen sent. When the agent
