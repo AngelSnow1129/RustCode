@@ -8,7 +8,7 @@
       {
         "id": "atomcode-documentation",
         "heading": "AtomCode Documentation",
-        "body": "An AI coding agent that lives in your terminal. Hand it a natural-language task and it will autonomously read, edit, run, and self-verify. These docs walk you from a fresh install to every feature AtomCode offers. v5.1.0 许可证 MIT 语言 Rust 1.88+ 平台 macOS · Linux · HarmonyOS PC · Windows 100% AI 生成"
+        "body": "An AI coding agent that lives in your terminal. Hand it a natural-language task and it will autonomously read, edit, run, and self-verify. These docs walk you from a fresh install to every feature AtomCode offers. v5.2.1 许可证 MIT 语言 Rust 1.88+ 平台 macOS · Linux · HarmonyOS PC · Windows 100% AI 生成"
       },
       {
         "id": "three-steps-to-start",

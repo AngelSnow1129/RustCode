@@ -8,7 +8,7 @@
       {
         "id": "atomcode-使用指南",
         "heading": "AtomCode 使用指南",
-        "body": "住在终端里的 AI 编码助手。给它一个自然语言任务，它会自主读取、编辑、运行并自我验证。本文档带你从零开始，逐步掌握 AtomCode 的每一项能力。 v5.1.0 许可证 MIT 语言 Rust 1.88+ 平台 macOS · Linux · HarmonyOS PC · Windows 100% AI 生成"
+        "body": "住在终端里的 AI 编码助手。给它一个自然语言任务，它会自主读取、编辑、运行并自我验证。本文档带你从零开始，逐步掌握 AtomCode 的每一项能力。 v5.2.1 许可证 MIT 语言 Rust 1.88+ 平台 macOS · Linux · HarmonyOS PC · Windows 100% AI 生成"
       },
       {
         "id": "三步开始",
