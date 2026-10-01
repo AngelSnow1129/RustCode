@@ -1,9 +1,8 @@
 //! `atomcode telemetry ...` subcommands.
 
 use anyhow::Result;
-use atomcode_config::config::TelemetryConfig;
 use atomcode_telemetry::{
-    config::{resolve, ProcessEnv},
+    config::{resolve, ProcessEnv, TelemetryConfig},
     queue::Queue,
     CliOverride, Event, Telemetry, TelemetryState,
 };
@@ -14,8 +13,7 @@ use std::time::Duration;
 
 pub fn status(atomcode_dir: &std::path::Path, cfg: &TelemetryConfig) -> Result<()> {
     let resolved = resolve(
-        cfg.enabled,
-        cfg.endpoint.as_deref(),
+        cfg,
         &CliOverride::default(),
         atomcode_dir.to_path_buf(),
         &ProcessEnv,

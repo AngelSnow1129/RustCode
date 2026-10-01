@@ -55,8 +55,6 @@ pub struct HttpClient {
     /// every later request must echo in `MCP-Protocol-Version`. `None` until the
     /// handshake completes, which is exactly when the spec says not to send the header.
     negotiated_version: Arc<Mutex<Option<String>>>,
-    /// Where this server's OAuth token is kept (the user tree's `mcp_auth.toml`).
-    token_store: McpTokenStore,
 }
 
 impl HttpClient {
@@ -67,7 +65,6 @@ impl HttpClient {
         headers: BTreeMap<String, String>,
         auth: Option<McpHttpAuthConfig>,
         timeout_ms: Option<u64>,
-        token_store: McpTokenStore,
     ) -> Self {
         let timeout = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS));
 
@@ -87,7 +84,6 @@ impl HttpClient {
             client,
             session_id: Arc::new(Mutex::new(None)),
             negotiated_version: Arc::new(Mutex::new(None)),
-            token_store,
         }
     }
 
@@ -272,17 +268,17 @@ impl HttpClient {
         let Some(McpHttpAuthConfig::OAuth(_)) = &self.auth else {
             return Ok(None);
         };
-        let Some(token) = self.token_store.load_token(&self.server_name)? else {
+        let Some(token) = McpTokenStore::default().load_token(&self.server_name)? else {
             return Ok(None);
         };
         if token_is_expired(&token) {
-            let refreshed = refresh_mcp_oauth_token(&self.server_name, &token, &self.token_store)
-                .with_context(|| {
-                format!(
-                    "MCP server {} OAuth token is expired; run `atomcode mcp login {}`",
-                    self.server_name, self.server_name
-                )
-            })?;
+            let refreshed =
+                refresh_mcp_oauth_token(&self.server_name, &token).with_context(|| {
+                    format!(
+                        "MCP server {} OAuth token is expired; run `atomcode mcp login {}`",
+                        self.server_name, self.server_name
+                    )
+                })?;
             return Ok(Some(refreshed.access_token));
         }
         Ok(Some(token.access_token))
@@ -769,7 +765,6 @@ mod session_tests {
             BTreeMap::new(),
             None,
             Some(1000),
-            McpTokenStore::new("/nonexistent/mcp_auth.toml".into()),
         )
     }
 
@@ -833,7 +828,6 @@ mod session_tests {
             headers,
             None,
             Some(1000),
-            McpTokenStore::new("/nonexistent/mcp_auth.toml".into()),
         );
         *c.negotiated_version.lock().await = Some("2025-11-25".to_string());
         assert!(

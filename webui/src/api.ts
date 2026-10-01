@@ -26,7 +26,7 @@ export type SSEEvent =
   | { type: 'tool_progress'; id: string; progress: string }
   | { type: 'tool_result'; id: string; name: string; output: string; success: boolean; duration_ms: number }
   | { type: 'tokens'; prompt: number; completion: number; total: number }
-  | { type: 'permission_request'; session_id: string; tool_name: string; reason: string; call_id: string; arguments: unknown; allow_all_bash?: boolean }
+  | { type: 'permission_request'; session_id: string; tool_name: string; reason: string; call_id: string; arguments: unknown }
   | UserInputRequestEvent
   | { type: 'done'; tokens: unknown; tool_calls: unknown; session_id: string; stats?: TurnStats; stop_reason?: string; message?: string }
   | { type: 'stopped' }
@@ -210,7 +210,7 @@ export async function streamChat(
 
 export async function respondPermission(
   sessionId: string,
-  decision: 'allow' | 'deny' | 'always_allow' | 'allow_persist' | 'allow_all_bash',
+  decision: 'allow' | 'deny' | 'always_allow' | 'allow_persist',
   toolName?: string,
 ): Promise<{ success: boolean }> {
   const resp = await fetch('/chat/permission', {
@@ -419,11 +419,6 @@ export interface ProviderInfo {
   requires_login?: boolean;
   is_default: boolean;
   context_window?: number;
-  /** Whether prior-turn reasoning (思维链) is echoed back to the model:
-   * `"preserve"` (echo only turns that had it) / `"exclude"`, or absent/null =
-   * auto-detect from the model. (`"include"` — always echo, placeholder when
-   * missing — is also accepted but reserved for auto-detected models.) */
-  reasoning_history?: string | null;
 }
 
 export interface ProviderAccountInfo {
@@ -606,8 +601,6 @@ export interface CreateProviderBody {
   base_url?: string;
   context_window?: number;
   set_default?: boolean;
-  /** `"preserve"` / `"exclude"`; omit for auto-detect. */
-  reasoning_history?: string;
 }
 
 export async function createProvider(body: CreateProviderBody): Promise<unknown> {
@@ -679,8 +672,6 @@ export interface UpdateProviderBody {
   api_key?: string;
   base_url?: string;
   context_window?: number;
-  // `"preserve"`/`"exclude"` 覆盖；传 null 清空(回到自动判定);省略=保持不变。
-  reasoning_history?: string | null;
 }
 
 /** PATCH /providers/:name —— 部分更新已有 provider（可改名：body.name 传新名）。 */
@@ -876,7 +867,7 @@ export type LiveWireEvent =
   | { type: 'warning'; message: string }
   | { type: 'persistence_warning'; message: string }
   | { type: 'rate_limited'; reset_at_display: string; reset_label: string; secs_until_reset: number | null; auto_resuming: boolean; server_message?: string | null }
-  | { type: 'permission_request'; tool_name: string; reason: string; call_id: string; arguments: string; allow_all_bash?: boolean }
+  | { type: 'permission_request'; tool_name: string; reason: string; call_id: string; arguments: string }
   | { type: 'user_input_request'; request_id: number; header: string; question: string; mode: 'single' | 'multiple' | 'text'; options: { label: string; description?: string }[] }
   | { type: 'user_input_resolved'; request_id: number }
   | PolicyInterventionEvent
@@ -1113,7 +1104,7 @@ export async function postLiveReasoningEffort(
 }
 
 export async function postLivePermission(
-  decision: 'allow' | 'deny' | 'always_allow' | 'allow_persist' | 'allow_all_bash',
+  decision: 'allow' | 'deny' | 'always_allow' | 'allow_persist',
   toolName?: string,
 ): Promise<{ accepted: boolean }> {
   const resp = await fetch('/live/permission', {

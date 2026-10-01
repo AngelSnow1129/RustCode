@@ -103,8 +103,6 @@ pub enum UpgradeEvent {
     RolledBack {
         exe: PathBuf,
         backup: PathBuf,
-        /// What became of automatic updates ([`pause_updates_after_rollback`]).
-        updates: UpdatesAfterRollback,
     },
 }
 
@@ -127,48 +125,12 @@ pub struct UpgradeSummary {
     pub version: String,
     pub backup: PathBuf,
     pub exe: PathBuf,
-    /// Whether a rollback's pause on automatic updates was lifted.
-    pub updates: UpdatesAfterUpgrade,
 }
 
 #[derive(Debug, Clone)]
 pub struct RollbackSummary {
     pub exe: PathBuf,
     pub backup: PathBuf,
-    /// What became of automatic updates. Only [`rollback_and_pause`] fills it
-    /// with anything but [`UpdatesAfterRollback::Untouched`].
-    pub updates: UpdatesAfterRollback,
-}
-
-/// What a rollback did to automatic updates.
-///
-/// A rollback that leaves them on is undone at the next launch: the older
-/// binary is the live `atomcode` now, not a `.bak`, so its own startup sees a
-/// newer release and installs it again. The one switch every published build
-/// honours is `auto_update = false`, so that is what a rollback sets.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UpdatesAfterRollback {
-    /// Switched off by this rollback; the next deliberate `/upgrade` switches
-    /// them back on ([`resume_updates_after_upgrade`]).
-    Paused,
-    /// They were off already, by the person's own choice, and stay theirs.
-    AlreadyOff,
-    /// The swap was not followed by a pause (the bare [`run_rollback`]).
-    Untouched,
-    /// The binaries were swapped but the switch could not be written: the next
-    /// launch may well install the newer version again. Carries why.
-    NotPaused(String),
-}
-
-/// What a manual upgrade did to a rollback's pause on automatic updates.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UpdatesAfterUpgrade {
-    /// A rollback had switched them off; this upgrade switched them back on.
-    Resumed,
-    /// Nothing to do: no rollback had paused them.
-    Unchanged,
-    /// A rollback had paused them, and switching them back on failed.
-    NotResumed(String),
 }
 
 /// Return the target tag used in release artifact names
@@ -726,10 +688,18 @@ pub async fn run_upgrade(
     // might try to "apply" an older (or identical) staged version on top
     // of what we just installed, causing a downgrade or redundant churn.
     // Clear both the pointer and any stray staged binaries.
-    clear_staged();
-    // A deliberate upgrade is the person saying "the new one, please": if a
-    // rollback had paused automatic updates, that pause is over.
-    let updates = resume_updates_after_upgrade();
+    clear_pending_pointer();
+    if let Ok(entries) = std::fs::read_dir(staged_dir()) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with(&format!("{ASSET_PREFIX}-")))
+            {
+                let _ = std::fs::remove_file(&p);
+            }
+        }
+    }
 
     let backup = backup_path(&exe);
     // NOTE: `exe` was captured *before* `replace_binary` renamed the running
@@ -746,27 +716,7 @@ pub async fn run_upgrade(
         version: manifest.version,
         backup,
         exe,
-        updates,
     })
-}
-
-/// Drop the staged upgrade: the pointer and any staged binaries. A manual
-/// upgrade has superseded it; a rollback must not have it applied on top at
-/// the next launch — `apply_pending_upgrade` runs before any `auto_update`
-/// check, in every published build.
-fn clear_staged() {
-    clear_pending_pointer();
-    if let Ok(entries) = std::fs::read_dir(staged_dir()) {
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with(&format!("{ASSET_PREFIX}-")))
-            {
-                let _ = std::fs::remove_file(&p);
-            }
-        }
-    }
 }
 
 /// Sentinel substring in the "already latest" error so the CLI/TUI
@@ -779,25 +729,6 @@ pub const ALREADY_LATEST: &str = "ALREADY_LATEST";
 /// Callers special-case it to show "use `brew upgrade`" instead of a
 /// generic failure — mirrors the `ALREADY_LATEST` pattern.
 pub const PACKAGE_MANAGED: &str = "PACKAGE_MANAGED";
-
-/// The two versions an [`ALREADY_LATEST`] error names, `(current, latest)`.
-///
-/// Takes the error as displayed, with or without its `ALREADY_LATEST: ` tag.
-/// The body's shape is fixed by [`run_upgrade`]:
-/// `already on {current} (latest is {latest}). Pass --force to reinstall.`
-/// `None` if the shape ever drifts, so a caller can still say the sentence with
-/// placeholders. One parser for both front ends, rather than a copy in each.
-pub fn already_latest_versions(message: &str) -> Option<(&str, &str)> {
-    let body = message
-        .strip_prefix(ALREADY_LATEST)
-        .map(|rest| rest.trim_start_matches(':').trim_start())
-        .unwrap_or(message);
-    let after_on = body.strip_prefix("already on ")?;
-    let (current, rest) = after_on.split_once(" (latest is ")?;
-    let latest = rest.strip_suffix(". Pass --force to reinstall.")?;
-    let latest = latest.strip_suffix(')')?;
-    Some((current, latest))
-}
 
 /// True when this binary was compiled for package-manager distribution
 /// (the `distro-pm` feature, set by the HarmonyBrew formula). Such builds
@@ -1132,27 +1063,11 @@ pub fn re_exec_self(override_exe: Option<&Path>) -> Result<std::convert::Infalli
         })
     });
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
-    exec_with(&exe, &args)
-}
 
-/// Start `exe` with **no arguments**, in this directory, in place of this
-/// process — the restart after a rollback.
-///
-/// Not [`re_exec_self`]: that repeats this launch's arguments, and after a
-/// rollback the binary started is the OLDER one. It may not know a flag this
-/// build has (`--tui` did not always exist), and a `--resume <id>` would name a
-/// session this build has just written in a format the older one refuses.
-/// Either way the restart would end in an error. A bare `atomcode` in the same
-/// directory is what every build understands.
-pub fn restart_fresh(exe: &Path) -> Result<std::convert::Infallible> {
-    exec_with(exe, &[])
-}
-
-fn exec_with(exe: &Path, args: &[std::ffi::OsString]) -> Result<std::convert::Infallible> {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        let err = std::process::Command::new(exe).args(args).exec();
+        let err = std::process::Command::new(&exe).args(&args).exec();
         // `exec` only returns on failure.
         Err(anyhow!("re-exec failed: {}", err))
     }
@@ -1163,8 +1078,8 @@ fn exec_with(exe: &Path, args: &[std::ffi::OsString]) -> Result<std::convert::In
         // the user's terminal stays connected to the new process, then
         // exit ourselves. The replacement PID shift is invisible in
         // a terminal context (the shell tracks the parent's exit).
-        let status = std::process::Command::new(exe)
-            .args(args)
+        let status = std::process::Command::new(&exe)
+            .args(&args)
             .spawn()
             .with_context(|| format!("spawning new binary {}", exe.display()))?
             .wait()
@@ -1252,279 +1167,12 @@ pub fn run_rollback() -> Result<RollbackSummary> {
         ));
     }
 
-    // Whatever was staged is the version being rolled back from, or newer:
-    // applied at the next launch, it would undo this before anyone saw it.
-    clear_staged();
-
-    Ok(RollbackSummary {
-        exe,
-        backup,
-        updates: UpdatesAfterRollback::Untouched,
-    })
-}
-
-/// [`run_rollback`], then [`pause_updates_after_rollback`]: what every front
-/// end's rollback does, so none of them can come back undone at the next launch.
-pub fn rollback_and_pause() -> Result<RollbackSummary> {
-    let mut summary = run_rollback()?;
-    summary.updates = pause_updates_after_rollback();
-    Ok(summary)
-}
-
-/// What to tell the person after a rollback, in the language in force. One
-/// wording for every front end — the CLI, the classic screen and the new one.
-pub fn rollback_notes(updates: &UpdatesAfterRollback) -> Vec<String> {
-    use atomcode_config::i18n::{t, Msg};
-    let mut notes = Vec::new();
-    match updates {
-        UpdatesAfterRollback::Paused => notes.push(t(Msg::RollbackUpdatesPaused).into_owned()),
-        UpdatesAfterRollback::NotPaused(error) => {
-            notes.push(t(Msg::RollbackUpdatesNotPaused { error }).into_owned())
-        }
-        UpdatesAfterRollback::AlreadyOff | UpdatesAfterRollback::Untouched => {}
-    }
-    notes.push(t(Msg::RollbackSessionsNote).into_owned());
-    notes
-}
-
-/// What to tell the person after a manual upgrade about automatic updates;
-/// `None` when a rollback had not paused them.
-pub fn upgrade_note(updates: &UpdatesAfterUpgrade) -> Option<String> {
-    use atomcode_config::i18n::{t, Msg};
-    match updates {
-        UpdatesAfterUpgrade::Resumed => Some(t(Msg::UpgradeUpdatesResumed).into_owned()),
-        UpdatesAfterUpgrade::NotResumed(error) => {
-            Some(t(Msg::UpgradeUpdatesNotResumed { error }).into_owned())
-        }
-        UpdatesAfterUpgrade::Unchanged => None,
-    }
-}
-
-/// `staged/rolled-back.json`: present while a rollback's pause on automatic
-/// updates is in force. It is what tells a pause this module made from an
-/// `auto_update = false` the person set — only the first is lifted again.
-fn rollback_marker_path() -> PathBuf {
-    staged_dir().join("rolled-back.json")
-}
-
-/// Switch automatic updates off after a rollback. See [`UpdatesAfterRollback`].
-pub fn pause_updates_after_rollback() -> UpdatesAfterRollback {
-    pause_updates_at(
-        &atomcode_config::config::Config::default_path(),
-        &rollback_marker_path(),
-    )
-}
-
-fn pause_updates_at(config_path: &Path, marker: &Path) -> UpdatesAfterRollback {
-    let on = match read_auto_update(config_path) {
-        Ok(on) => on,
-        Err(error) => return UpdatesAfterRollback::NotPaused(error),
-    };
-    // Off, and not by us: the person's setting. No marker, so an upgrade
-    // later does not switch on what they switched off.
-    if !on && !marker.exists() {
-        return UpdatesAfterRollback::AlreadyOff;
-    }
-    // The marker first: a pause without it would never be lifted, a marker
-    // without the pause only lifts nothing.
-    if let Err(error) = write_marker(marker) {
-        return UpdatesAfterRollback::NotPaused(error);
-    }
-    match write_auto_update(config_path, false) {
-        Ok(()) => UpdatesAfterRollback::Paused,
-        Err(error) => {
-            let _ = std::fs::remove_file(marker);
-            UpdatesAfterRollback::NotPaused(error)
-        }
-    }
-}
-
-/// Switch automatic updates back on if — and only if — a rollback switched
-/// them off. Called by a manual upgrade.
-pub fn resume_updates_after_upgrade() -> UpdatesAfterUpgrade {
-    resume_updates_at(
-        &atomcode_config::config::Config::default_path(),
-        &rollback_marker_path(),
-    )
-}
-
-fn resume_updates_at(config_path: &Path, marker: &Path) -> UpdatesAfterUpgrade {
-    if !marker.exists() {
-        return UpdatesAfterUpgrade::Unchanged;
-    }
-    match write_auto_update(config_path, true) {
-        Ok(()) => {
-            let _ = std::fs::remove_file(marker);
-            UpdatesAfterUpgrade::Resumed
-        }
-        Err(error) => UpdatesAfterUpgrade::NotResumed(error),
-    }
-}
-
-/// `auto_update` as the file has it; a missing file is the default (on).
-fn read_auto_update(config_path: &Path) -> std::result::Result<bool, String> {
-    if !config_path.exists() {
-        return Ok(true);
-    }
-    atomcode_config::config::Config::load(config_path)
-        .map(|config| config.auto_update)
-        .map_err(|error| format!("{error:#}"))
-}
-
-/// Write `auto_update` in place — through the settings catalogue, the same
-/// patch the settings panel makes, so comments and everything else in the
-/// file stay as they were.
-fn write_auto_update(config_path: &Path, on: bool) -> std::result::Result<(), String> {
-    let spec = atomcode_config::settings::SETTINGS
-        .iter()
-        .find(|spec| spec.id == "auto_update")
-        .ok_or_else(|| "the settings catalogue has no `auto_update`".to_string())?;
-    atomcode_config::ConfigStore::new(config_path.to_path_buf())
-        .update_document(|document| spec.patch(document, if on { "true" } else { "false" }))
-        .map(|_| ())
-        .map_err(|error| format!("{error:#}"))
-}
-
-fn write_marker(marker: &Path) -> std::result::Result<(), String> {
-    if let Some(dir) = marker.parent() {
-        std::fs::create_dir_all(dir).map_err(|error| format!("{}: {error}", dir.display()))?;
-    }
-    let body = serde_json::json!({ "at": chrono::Utc::now().to_rfc3339() }).to_string();
-    std::fs::write(marker, body).map_err(|error| format!("{}: {error}", marker.display()))
+    Ok(RollbackSummary { exe, backup })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Both front ends read the versions out of the same error, with or without
-    /// its tag, and get `None` rather than garbage if the shape drifts.
-    #[test]
-    fn the_versions_an_already_latest_error_names() {
-        let body = "already on v5.2.0 (latest is v5.2.0). Pass --force to reinstall.";
-        assert_eq!(already_latest_versions(body), Some(("v5.2.0", "v5.2.0")));
-        assert_eq!(
-            already_latest_versions(&format!("{ALREADY_LATEST}: {body}")),
-            Some(("v5.2.0", "v5.2.0"))
-        );
-        assert_eq!(already_latest_versions("something else"), None);
-    }
-
-    mod pause_after_rollback {
-        use super::super::*;
-
-        fn paths() -> (tempfile::TempDir, PathBuf, PathBuf) {
-            let dir = tempfile::tempdir().expect("tempdir");
-            let config = dir.path().join("config.toml");
-            let marker = dir.path().join("staged").join("rolled-back.json");
-            (dir, config, marker)
-        }
-
-        /// A rollback that leaves automatic updates on is undone at the next
-        /// launch, so it switches them off — in place, the rest of the file as
-        /// it was — and a later manual upgrade switches them back on.
-        #[test]
-        fn a_rollback_pauses_updates_and_an_upgrade_resumes_them() {
-            let (_dir, config, marker) = paths();
-            std::fs::write(
-                &config,
-                "auto_update = true\n\n# mine\n[ui]\ntheme = \"dark\"\n",
-            )
-            .unwrap();
-
-            assert_eq!(
-                pause_updates_at(&config, &marker),
-                UpdatesAfterRollback::Paused
-            );
-            let text = std::fs::read_to_string(&config).unwrap();
-            assert!(text.contains("auto_update = false"), "{text}");
-            assert!(
-                text.contains("# mine") && text.contains("theme = \"dark\""),
-                "{text}"
-            );
-            assert!(marker.exists());
-
-            assert_eq!(
-                resume_updates_at(&config, &marker),
-                UpdatesAfterUpgrade::Resumed
-            );
-            let text = std::fs::read_to_string(&config).unwrap();
-            assert!(text.contains("auto_update = true"), "{text}");
-            assert!(!marker.exists());
-
-            // Nothing paused any more: a second upgrade changes nothing.
-            assert_eq!(
-                resume_updates_at(&config, &marker),
-                UpdatesAfterUpgrade::Unchanged
-            );
-        }
-
-        /// No config file is the default (on), and the pause creates the file.
-        #[test]
-        fn with_no_config_file_the_pause_writes_one() {
-            let (_dir, config, marker) = paths();
-            assert_eq!(
-                pause_updates_at(&config, &marker),
-                UpdatesAfterRollback::Paused
-            );
-            let text = std::fs::read_to_string(&config).unwrap();
-            assert!(text.contains("auto_update = false"), "{text}");
-        }
-
-        /// Off by the person's own choice: left theirs. No marker, so an
-        /// upgrade does not switch on what they switched off.
-        #[test]
-        fn updates_the_person_switched_off_stay_off() {
-            let (_dir, config, marker) = paths();
-            std::fs::write(&config, "auto_update = false\n").unwrap();
-            assert_eq!(
-                pause_updates_at(&config, &marker),
-                UpdatesAfterRollback::AlreadyOff
-            );
-            assert!(!marker.exists());
-            assert_eq!(
-                resume_updates_at(&config, &marker),
-                UpdatesAfterUpgrade::Unchanged
-            );
-            let text = std::fs::read_to_string(&config).unwrap();
-            assert!(text.contains("auto_update = false"), "{text}");
-        }
-
-        /// Rolling back twice (a toggle) keeps the one pause the first made:
-        /// the marker is still there, so it is still ours to lift.
-        #[test]
-        fn a_second_rollback_keeps_the_first_pause() {
-            let (_dir, config, marker) = paths();
-            assert_eq!(
-                pause_updates_at(&config, &marker),
-                UpdatesAfterRollback::Paused
-            );
-            assert_eq!(
-                pause_updates_at(&config, &marker),
-                UpdatesAfterRollback::Paused
-            );
-            assert_eq!(
-                resume_updates_at(&config, &marker),
-                UpdatesAfterUpgrade::Resumed
-            );
-        }
-
-        /// A file that cannot be read is said, not taken for "on": the swap has
-        /// happened, and the person has to know the next launch may undo it.
-        #[test]
-        fn an_unreadable_config_is_reported_not_guessed() {
-            let (_dir, config, marker) = paths();
-            std::fs::write(&config, "auto_update = [not toml").unwrap();
-            assert!(matches!(
-                pause_updates_at(&config, &marker),
-                UpdatesAfterRollback::NotPaused(_)
-            ));
-            assert!(
-                !marker.exists(),
-                "no marker for a pause that did not happen"
-            );
-        }
-    }
 
     /// The three claims `binary_filename` actually makes, minus the vendor name: it is built
     /// from `ASSET_PREFIX` (which `distribution` owns and a rebuild is meant to change), and it

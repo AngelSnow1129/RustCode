@@ -6,7 +6,6 @@ use super::manifest::{load_marketplace_manifest, MarketplaceManifest, PluginSour
 use super::paths;
 use super::state::{load_marketplaces_file, save_marketplaces_file, MarketplaceEntry};
 use super::url::{infer_marketplace_name_from_url, validate_git_url};
-use crate::ProductDirs;
 
 /// Locate the `git` executable on the system.
 ///
@@ -141,12 +140,11 @@ pub struct MarketplaceInfo {
 
 /// Clone a marketplace, parse its manifest, and persist registration.
 /// Caller is responsible for showing UX (spinner). This call blocks on git.
-pub fn add_marketplace(dirs: &ProductDirs, url: &str) -> Result<MarketplaceInfo> {
-    let user_dir = dirs.user();
+pub fn add_marketplace(url: &str) -> Result<MarketplaceInfo> {
     validate_git_url(url)?;
     let url_tail = infer_marketplace_name_from_url(url)?;
 
-    let mp_root = paths::marketplaces_root(user_dir).ok_or_else(|| anyhow!("no plugin home"))?;
+    let mp_root = paths::marketplaces_root().ok_or_else(|| anyhow!("no plugin home"))?;
     std::fs::create_dir_all(&mp_root).ok();
 
     // Clone into a temp directory inside marketplaces/ so we can read the
@@ -171,7 +169,7 @@ pub fn add_marketplace(dirs: &ProductDirs, url: &str) -> Result<MarketplaceInfo>
         }
     };
 
-    if let Err(e) = git_clone(url, &tmp_dir, user_dir) {
+    if let Err(e) = git_clone(url, &tmp_dir) {
         cleanup(&tmp_dir);
         return Err(e).with_context(|| format!("clone {}", url));
     }
@@ -206,7 +204,7 @@ pub fn add_marketplace(dirs: &ProductDirs, url: &str) -> Result<MarketplaceInfo>
 
     let target = mp_root.join(&mp_name);
 
-    let mp_file = paths::marketplaces_file(user_dir).unwrap();
+    let mp_file = paths::marketplaces_file().unwrap();
     let mut state = load_marketplaces_file(&mp_file)?;
     if state.marketplaces.contains_key(&mp_name) {
         cleanup(&tmp_dir);
@@ -315,9 +313,9 @@ fn extra_header_config(url: &str, header: &str) -> String {
 
 /// Fetch (username, fresh access token) from the stored login, refreshing the
 /// token if expired. None when not logged in or refresh fails.
-fn live_credentials(user_dir: &Path) -> Option<(String, String)> {
-    let auth = atomcode_auth::get_stored_auth(user_dir)?;
-    let token = atomcode_auth::get_valid_token(user_dir).ok()?;
+fn live_credentials() -> Option<(String, String)> {
+    let auth = atomcode_auth::get_stored_auth()?;
+    let token = atomcode_auth::get_valid_token().ok()?;
     if token.is_empty() {
         return None;
     }
@@ -328,11 +326,11 @@ fn live_credentials(user_dir: &Path) -> Option<(String, String)> {
 /// `["-c", "http.<host>.extraHeader=Authorization: Basic ..."]` args to inject
 /// on an authenticated clone/pull retry. Centralizes host-gate + cred fetch +
 /// per-URL scoping. None → caller must NOT inject the token.
-pub(super) fn auth_retry_args(url: &str, user_dir: &Path) -> Option<[String; 2]> {
+pub(super) fn auth_retry_args(url: &str) -> Option<[String; 2]> {
     if !super::url::host_is_trusted(url) {
         return None;
     }
-    let (username, token) = live_credentials(user_dir)?;
+    let (username, token) = live_credentials()?;
     let header = basic_auth_header(&username, &token);
     Some(["-c".to_string(), extra_header_config(url, &header)])
 }
@@ -352,7 +350,7 @@ pub(super) fn auth_retry_args(url: &str, user_dir: &Path) -> Option<[String; 2]>
 ///   re-login;
 /// - trusted host + not logged in → /login (auto-creds) or SSH.
 /// `verb` is 克隆 / 更新. Shared by clone + pull so the wording can't drift.
-fn auth_required_message(verb: &str, url: &str, stderr: &str, user_dir: &Path) -> String {
+fn auth_required_message(verb: &str, url: &str, stderr: &str) -> String {
     let stderr = summarize_git_stderr(stderr);
     if !super::url::host_is_trusted(url) {
         return format!(
@@ -360,7 +358,7 @@ fn auth_required_message(verb: &str, url: &str, stderr: &str, user_dir: &Path) -
              或先用 git 配置好凭证后重试。\n原始错误：{stderr}"
         );
     }
-    if atomcode_auth::get_stored_auth(user_dir).is_some() {
+    if atomcode_auth::get_stored_auth().is_some() {
         format!(
             "{verb}失败：登录已过期或凭证无效，请运行 /login 重新登录后重试。\n原始错误：{stderr}"
         )
@@ -373,12 +371,10 @@ fn auth_required_message(verb: &str, url: &str, stderr: &str, user_dir: &Path) -
     }
 }
 
-/// `user_dir` is the tree whose stored login may be used for the retry.
 pub(super) fn clone_with_optional_auth(
     git: &Path,
     url: &str,
     target: &Path,
-    user_dir: &Path,
     add_args: impl Fn(&mut Command),
 ) -> Result<()> {
     let run = |extra: Option<&[String]>| -> Result<std::process::Output> {
@@ -397,7 +393,7 @@ pub(super) fn clone_with_optional_auth(
     let stderr = String::from_utf8_lossy(&out.stderr);
 
     if is_git_auth_failure(&stderr) {
-        if let Some(cargs) = auth_retry_args(url, user_dir) {
+        if let Some(cargs) = auth_retry_args(url) {
             if target.exists() {
                 std::fs::remove_dir_all(target).ok();
             }
@@ -411,7 +407,7 @@ pub(super) fn clone_with_optional_auth(
                 summarize_git_stderr(&String::from_utf8_lossy(&out2.stderr))
             );
         }
-        bail!("{}", auth_required_message("克隆", url, &stderr, user_dir));
+        bail!("{}", auth_required_message("克隆", url, &stderr));
     }
     bail!("git clone failed: {}", summarize_git_stderr(&stderr));
 }
@@ -419,7 +415,7 @@ pub(super) fn clone_with_optional_auth(
 /// `git pull --ff-only` in `repo`, anonymously first; on auth failure for a
 /// trusted-host `source_url` while logged in, retry once with the injected
 /// header. Symmetric with `clone_with_optional_auth` for the update path.
-pub(super) fn git_pull_ff(repo: &Path, source_url: &str, user_dir: &Path) -> Result<()> {
+pub(super) fn git_pull_ff(repo: &Path, source_url: &str) -> Result<()> {
     let git = find_git()?;
     let run = |extra: Option<&[String]>| -> Result<std::process::Output> {
         let mut cmd = git_command(&git);
@@ -436,7 +432,7 @@ pub(super) fn git_pull_ff(repo: &Path, source_url: &str, user_dir: &Path) -> Res
     }
     let stderr = String::from_utf8_lossy(&out.stderr);
     if is_git_auth_failure(&stderr) {
-        if let Some(cargs) = auth_retry_args(source_url, user_dir) {
+        if let Some(cargs) = auth_retry_args(source_url) {
             let out2 = run(Some(&cargs))?;
             if out2.status.success() {
                 return Ok(());
@@ -447,10 +443,7 @@ pub(super) fn git_pull_ff(repo: &Path, source_url: &str, user_dir: &Path) -> Res
                 summarize_git_stderr(&String::from_utf8_lossy(&out2.stderr))
             );
         }
-        bail!(
-            "{}",
-            auth_required_message("更新", source_url, &stderr, user_dir)
-        );
+        bail!("{}", auth_required_message("更新", source_url, &stderr));
     }
     bail!("git pull failed: {}", summarize_git_stderr(&stderr));
 }
@@ -547,9 +540,9 @@ fn truncate_line(line: &str, max_chars: usize) -> String {
     s
 }
 
-pub(super) fn git_clone(url: &str, target: &Path, user_dir: &Path) -> Result<()> {
+pub(super) fn git_clone(url: &str, target: &Path) -> Result<()> {
     let git = find_git()?;
-    clone_with_optional_auth(&git, url, target, user_dir, |cmd| {
+    clone_with_optional_auth(&git, url, target, |cmd| {
         cmd.args(["clone", "--depth", "1", url]).arg(target);
     })
 }
@@ -613,24 +606,22 @@ fn now_rfc3339() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
-pub fn remove_marketplace(dirs: &ProductDirs, name: &str) -> Result<()> {
-    let user_dir = dirs.user();
-    let mp_file = paths::marketplaces_file(user_dir).ok_or_else(|| anyhow!("no plugin home"))?;
+pub fn remove_marketplace(name: &str) -> Result<()> {
+    let mp_file = paths::marketplaces_file().ok_or_else(|| anyhow!("no plugin home"))?;
     let mut state = load_marketplaces_file(&mp_file)?;
     if !state.marketplaces.contains_key(name) {
         bail!("marketplace `{}` not found", name);
     }
     // Refuse if any installed plugin still references this marketplace.
-    let installed = super::state::load_installed_plugins_file(
-        &paths::installed_plugins_file(user_dir).unwrap(),
-    )?;
+    let installed =
+        super::state::load_installed_plugins_file(&paths::installed_plugins_file().unwrap())?;
     if installed.plugins.values().any(|p| p.marketplace == name) {
         bail!(
             "marketplace `{}` has installed plugins; uninstall them first",
             name
         );
     }
-    let target = paths::marketplaces_root(user_dir).unwrap().join(name);
+    let target = paths::marketplaces_root().unwrap().join(name);
     if target.exists() {
         std::fs::remove_dir_all(&target).ok();
     }
@@ -639,22 +630,21 @@ pub fn remove_marketplace(dirs: &ProductDirs, name: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn update_marketplace(dirs: &ProductDirs, name: &str) -> Result<MarketplaceInfo> {
-    let user_dir = dirs.user();
-    let mp_file = paths::marketplaces_file(user_dir).ok_or_else(|| anyhow!("no plugin home"))?;
+pub fn update_marketplace(name: &str) -> Result<MarketplaceInfo> {
+    let mp_file = paths::marketplaces_file().ok_or_else(|| anyhow!("no plugin home"))?;
     let mut state = load_marketplaces_file(&mp_file)?;
     let entry = state
         .marketplaces
         .get(name)
         .ok_or_else(|| anyhow!("marketplace `{}` not found", name))?
         .clone();
-    let target = paths::marketplaces_root(user_dir).unwrap().join(name);
+    let target = paths::marketplaces_root().unwrap().join(name);
 
     // If the clone directory is missing (e.g. deleted manually or a prior
     // clone failed), re-clone from the registered source URL instead of
     // failing with "No such file or directory" on `current_dir`.
     if !target.exists() {
-        git_clone(&entry.source, &target, user_dir)
+        git_clone(&entry.source, &target)
             .with_context(|| format!("re-clone marketplace `{}`", name))?;
     } else {
         // Cheap remote check first: if the remote HEAD already matches the SHA
@@ -672,7 +662,7 @@ pub fn update_marketplace(dirs: &ProductDirs, name: &str) -> Result<MarketplaceI
                     plugins: entry.plugins.clone(),
                 });
             }
-            _ => git_pull_ff(&target, &entry.source, user_dir)?,
+            _ => git_pull_ff(&target, &entry.source)?,
         }
     }
     let commit = git_rev_parse(&target)?;
@@ -697,9 +687,8 @@ pub fn update_marketplace(dirs: &ProductDirs, name: &str) -> Result<MarketplaceI
     })
 }
 
-pub fn list_marketplaces(dirs: &ProductDirs) -> Result<Vec<MarketplaceInfo>> {
-    let user_dir = dirs.user();
-    let mp_file = paths::marketplaces_file(user_dir).ok_or_else(|| anyhow!("no plugin home"))?;
+pub fn list_marketplaces() -> Result<Vec<MarketplaceInfo>> {
+    let mp_file = paths::marketplaces_file().ok_or_else(|| anyhow!("no plugin home"))?;
     let state = load_marketplaces_file(&mp_file)?;
     Ok(state
         .marketplaces
@@ -1077,19 +1066,14 @@ fatal: fetch-pack: invalid index-pack output\n";
     #[serial_test::serial]
     fn auth_retry_args_none_when_untrusted_host() {
         // github.com 非白名单 → 永不注入 token，即使已登录
-        assert!(auth_retry_args(
-            "https://github.com/owner/repo",
-            Path::new("/nonexistent/tree")
-        )
-        .is_none());
+        assert!(auth_retry_args("https://github.com/owner/repo").is_none());
     }
 
     #[test]
     #[serial_test::serial]
     fn auth_retry_args_none_when_not_logged_in() {
-        let _home = isolated_home();
-        // 无 auth.toml
-        assert!(auth_retry_args("https://gitcode.com/owner/repo", _home.path()).is_none());
+        let _home = isolated_home(); // 无 auth.toml
+        assert!(auth_retry_args("https://gitcode.com/owner/repo").is_none());
     }
 
     #[test]
@@ -1097,12 +1081,7 @@ fatal: fetch-pack: invalid index-pack output\n";
     fn auth_required_message_untrusted_host_suggests_ssh_not_login() {
         // Platform token is never sent to non-allowlisted hosts, so /login
         // wouldn't help — guide to SSH/creds instead.
-        let m = auth_required_message(
-            "克隆",
-            "https://github.com/o/r",
-            "fatal: auth",
-            Path::new("/nonexistent/tree"),
-        );
+        let m = auth_required_message("克隆", "https://github.com/o/r", "fatal: auth");
         assert!(m.contains("SSH"), "got: {m}");
         assert!(
             !m.contains("/login"),
@@ -1113,13 +1092,12 @@ fatal: fetch-pack: invalid index-pack output\n";
     #[test]
     #[serial_test::serial]
     fn auth_required_message_trusted_not_logged_in_suggests_login() {
-        let _home = isolated_home();
-        // no auth.toml in the temp user tree
+        let _home = isolated_home(); // no auth.toml under the temp ATOMCODE_HOME
         let Some(domain) = atomcode_config::endpoints::trusted_domains().first() else {
             return; // no trusted domain configured — this branch is unreachable
         };
         let url = format!("https://{domain}/o/r");
-        let m = auth_required_message("克隆", &url, "fatal: auth", _home.path());
+        let m = auth_required_message("克隆", &url, "fatal: auth");
         assert!(
             m.contains("/login"),
             "trusted host + not logged in should guide to /login: {m}"
@@ -1131,9 +1109,10 @@ fatal: fetch-pack: invalid index-pack output\n";
     fn auth_required_message_trusted_logged_in_says_session_expired() {
         // Logged in (auth.toml present) but no usable token (expired + refresh
         // failed) → must say the session expired, not "just log in" as if the
-        // user never had. The user tree is a tempdir, never the real one.
+        // user never had. ATOMCODE_HOME is isolated, so this writes to a
+        // tempdir, never the real ~/.atomcode/auth.toml.
         let _home = isolated_home();
-        let dir = _home.path();
+        let dir = atomcode_config::config::Config::config_dir();
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("auth.toml"),
@@ -1144,7 +1123,7 @@ fatal: fetch-pack: invalid index-pack output\n";
             return; // no trusted domain configured — this branch is unreachable
         };
         let url = format!("https://{domain}/o/r");
-        let m = auth_required_message("更新", &url, "fatal: auth", _home.path());
+        let m = auth_required_message("更新", &url, "fatal: auth");
         assert!(
             m.contains("登录已过期") || m.contains("重新登录"),
             "logged-in-but-dead-token should indicate re-login: {m}"
@@ -1189,7 +1168,6 @@ fatal: fetch-pack: invalid index-pack output\n";
     #[serial_test::serial]
     fn add_marketplace_with_manifest() {
         let _home = isolated_home();
-        let dirs = _home.dirs();
         let repo = make_bare_repo_with_manifest(
             "ascend-model-agent-plugin",
             Some(
@@ -1197,7 +1175,7 @@ fatal: fetch-pack: invalid index-pack output\n";
             ),
         );
         let url = format!("file://{}", repo.display());
-        let info = add_marketplace(&dirs, &url).unwrap();
+        let info = add_marketplace(&url).unwrap();
         assert_eq!(info.name, "ascend-model-agent-plugin");
         assert_eq!(info.plugins, vec!["ascend-model-agent-plugin"]);
         assert!(!info.git_commit.is_empty());
@@ -1207,10 +1185,9 @@ fatal: fetch-pack: invalid index-pack output\n";
     #[serial_test::serial]
     fn add_marketplace_single_plugin_fallback() {
         let _home = isolated_home();
-        let dirs = _home.dirs();
         let repo = make_bare_repo_with_manifest("solo-plugin", None);
         let url = format!("file://{}", repo.display());
-        let info = add_marketplace(&dirs, &url).unwrap();
+        let info = add_marketplace(&url).unwrap();
         assert_eq!(info.name, "solo-plugin");
         assert_eq!(info.plugins, vec!["solo-plugin"]);
     }
@@ -1219,11 +1196,10 @@ fatal: fetch-pack: invalid index-pack output\n";
     #[serial_test::serial]
     fn add_marketplace_rejects_duplicate() {
         let _home = isolated_home();
-        let dirs = _home.dirs();
         let repo = make_bare_repo_with_manifest("dup", None);
         let url = format!("file://{}", repo.display());
-        add_marketplace(&dirs, &url).unwrap();
-        let err = add_marketplace(&dirs, &url).unwrap_err();
+        add_marketplace(&url).unwrap();
+        let err = add_marketplace(&url).unwrap_err();
         assert!(err.to_string().contains("already exists"));
     }
 
@@ -1231,23 +1207,21 @@ fatal: fetch-pack: invalid index-pack output\n";
     #[serial_test::serial]
     fn remove_marketplace_works() {
         let _home = isolated_home();
-        let dirs = _home.dirs();
         let repo = make_bare_repo_with_manifest("rm-mp", None);
         let url = format!("file://{}", repo.display());
-        add_marketplace(&dirs, &url).unwrap();
-        remove_marketplace(&dirs, "rm-mp").unwrap();
-        assert!(list_marketplaces(&dirs).unwrap().is_empty());
+        add_marketplace(&url).unwrap();
+        remove_marketplace("rm-mp").unwrap();
+        assert!(list_marketplaces().unwrap().is_empty());
     }
 
     #[test]
     #[serial_test::serial]
     fn list_marketplaces_returns_added() {
         let _home = isolated_home();
-        let dirs = _home.dirs();
         let repo = make_bare_repo_with_manifest("list-mp", None);
         let url = format!("file://{}", repo.display());
-        add_marketplace(&dirs, &url).unwrap();
-        let list = list_marketplaces(&dirs).unwrap();
+        add_marketplace(&url).unwrap();
+        let list = list_marketplaces().unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].name, "list-mp");
     }
@@ -1259,7 +1233,6 @@ fatal: fetch-pack: invalid index-pack output\n";
     #[serial_test::serial]
     fn add_marketplace_canonical_name_differs_from_url_tail() {
         let _home = isolated_home();
-        let dirs = _home.dirs();
         // Repo on disk is "url-tail-name", but manifest declares
         // "canonical-name".
         let repo = make_bare_repo_with_manifest(
@@ -1269,16 +1242,16 @@ fatal: fetch-pack: invalid index-pack output\n";
             ),
         );
         let url = format!("file://{}", repo.display());
-        let info = add_marketplace(&dirs, &url).unwrap();
+        let info = add_marketplace(&url).unwrap();
         assert_eq!(info.name, "canonical-name");
 
         // Directory must be at marketplaces/canonical-name, not
         // marketplaces/url-tail-name. update_marketplace exercises this:
         // it computes the working directory from the registered key.
-        let updated = update_marketplace(&dirs, "canonical-name").unwrap();
+        let updated = update_marketplace("canonical-name").unwrap();
         assert_eq!(updated.name, "canonical-name");
 
-        let mp_root = paths::marketplaces_root(dirs.user()).unwrap();
+        let mp_root = paths::marketplaces_root().unwrap();
         assert!(mp_root.join("canonical-name").exists());
         assert!(!mp_root.join("url-tail-name").exists());
     }
@@ -1290,17 +1263,16 @@ fatal: fetch-pack: invalid index-pack output\n";
     #[serial_test::serial]
     fn add_marketplace_sanitizes_traversal_in_manifest_name() {
         let _home = isolated_home();
-        let dirs = _home.dirs();
         let repo = make_bare_repo_with_manifest(
             "evil-source",
             Some(r#"{"name":"../evil","plugins":[{"name":"p","source":"./"}]}"#),
         );
         let url = format!("file://{}", repo.display());
-        let info = add_marketplace(&dirs, &url).unwrap();
+        let info = add_marketplace(&url).unwrap();
         // "../evil" -> "---evil" after sanitize_name (3 specials become 3 dashes).
         assert_eq!(info.name, "---evil");
 
-        let mp_root = paths::marketplaces_root(dirs.user()).unwrap();
+        let mp_root = paths::marketplaces_root().unwrap();
         assert!(mp_root.join("---evil").exists());
         // Crucially: nothing landed in the parent of mp_root.
         assert!(!mp_root.parent().unwrap().join("evil").exists());

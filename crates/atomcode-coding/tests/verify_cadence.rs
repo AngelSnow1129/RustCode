@@ -2,15 +2,13 @@
 //! file then tries to stop WITHOUT a build; the `VerifyCadenceHook` injects an internal
 //! nudge that must not leak text-only control replies to the visible transcript.
 
-mod support;
-
-use atomcode_coding::CodingAgentConfig;
+use atomcode_coding::{build_coding_agent_with, CodingAgentConfig};
+use atomcode_kernel::agent::AutoRespond;
 use atomcode_kernel::event::{AgentCommand, AgentEvent, StopReason};
 use atomcode_kernel::stream::StreamEvent;
 use atomcode_kernel::testkit::MockProvider;
 use atomcode_kernel::tool::ToolCall;
 use std::sync::Arc;
-use support::{allow, mount, quiet_options, turn};
 
 #[tokio::test]
 async fn text_only_verify_continuation_is_suppressed() {
@@ -34,15 +32,10 @@ async fn text_only_verify_continuation_is_suppressed() {
         ],
     ]));
 
-    let cfg = CodingAgentConfig::new(
-        "k",
-        "http://localhost:0",
-        "mock-model",
-        dir.path(),
-        atomcode_coding::config::product_dirs_from_env(),
-    );
-    let mut mounted = mount(&cfg, quiet_options(), provider).await;
-    let outcome = turn(&mut mounted.handle, "create f.rs", allow()).await;
+    let cfg = CodingAgentConfig::new("k", "http://localhost:0", "mock-model", dir.path());
+    let outcome = build_coding_agent_with(&cfg, provider)
+        .run_to_completion("create f.rs", AutoRespond::AllowAll)
+        .await;
 
     assert_eq!(outcome.tool_results.len(), 1, "exactly one write_file");
     assert!(
@@ -76,23 +69,10 @@ async fn reasoning_only_verify_continuation_is_suppressed() {
             StreamEvent::Reasoning("No verification is needed.".into()),
             StreamEvent::Done { truncated: false },
         ],
-        // A fourth round, so an exhausted script cannot be mistaken for the
-        // turn's own behaviour.
-        vec![
-            StreamEvent::TextDelta("nothing further".into()),
-            StreamEvent::Done { truncated: false },
-        ],
     ]));
 
-    let cfg = CodingAgentConfig::new(
-        "k",
-        "http://localhost:0",
-        "mock-model",
-        dir.path(),
-        atomcode_coding::config::product_dirs_from_env(),
-    );
-    let mut mounted = mount(&cfg, quiet_options(), provider).await;
-    let handle = &mut mounted.handle;
+    let cfg = CodingAgentConfig::new("k", "http://localhost:0", "mock-model", dir.path());
+    let mut handle = build_coding_agent_with(&cfg, provider).spawn();
     handle
         .commands
         .send(AgentCommand::SendMessage {
@@ -114,7 +94,7 @@ async fn reasoning_only_verify_continuation_is_suppressed() {
                     })
                     .unwrap();
             }
-            AgentEvent::TurnComplete { reason, .. } => {
+            AgentEvent::TurnComplete { reason } => {
                 assert_eq!(reason, StopReason::Stopped);
                 break;
             }
@@ -128,7 +108,8 @@ async fn reasoning_only_verify_continuation_is_suppressed() {
         "reasoning-only reply to internal verify continuation must not be visible: {reasoning:?}"
     );
 
-    mounted.shutdown().await;
+    handle.commands.send(AgentCommand::Shutdown).unwrap();
+    handle.task.await.unwrap();
 }
 
 #[tokio::test]
@@ -161,15 +142,10 @@ async fn verify_continuation_with_tool_call_still_runs_and_surfaces_tool_result(
         ],
     ]));
 
-    let cfg = CodingAgentConfig::new(
-        "k",
-        "http://localhost:0",
-        "mock-model",
-        dir.path(),
-        atomcode_coding::config::product_dirs_from_env(),
-    );
-    let mut mounted = mount(&cfg, quiet_options(), provider).await;
-    let outcome = turn(&mut mounted.handle, "create f.rs", allow()).await;
+    let cfg = CodingAgentConfig::new("k", "http://localhost:0", "mock-model", dir.path());
+    let outcome = build_coding_agent_with(&cfg, provider)
+        .run_to_completion("create f.rs", AutoRespond::AllowAll)
+        .await;
 
     assert_eq!(
         outcome.tool_results.len(),
@@ -209,15 +185,8 @@ async fn later_user_turn_does_not_reopen_prior_unverified_edit() {
         ],
     ]));
 
-    let cfg = CodingAgentConfig::new(
-        "k",
-        "http://localhost:0",
-        "mock-model",
-        dir.path(),
-        atomcode_coding::config::product_dirs_from_env(),
-    );
-    let mut mounted = mount(&cfg, quiet_options(), provider).await;
-    let handle = &mut mounted.handle;
+    let cfg = CodingAgentConfig::new("k", "http://localhost:0", "mock-model", dir.path());
+    let mut handle = build_coding_agent_with(&cfg, provider).spawn();
 
     handle
         .commands
@@ -242,7 +211,7 @@ async fn later_user_turn_does_not_reopen_prior_unverified_edit() {
                     })
                     .unwrap();
             }
-            AgentEvent::TurnComplete { reason, .. } => {
+            AgentEvent::TurnComplete { reason } => {
                 assert_eq!(reason, StopReason::Stopped);
                 break;
             }
@@ -276,7 +245,7 @@ async fn later_user_turn_does_not_reopen_prior_unverified_edit() {
                     })
                     .unwrap();
             }
-            AgentEvent::TurnComplete { reason, .. } => {
+            AgentEvent::TurnComplete { reason } => {
                 assert_eq!(reason, StopReason::Stopped);
                 break;
             }
@@ -290,5 +259,6 @@ async fn later_user_turn_does_not_reopen_prior_unverified_edit() {
     );
     assert_eq!(second_text, "I am AtomCode.");
 
-    mounted.shutdown().await;
+    handle.commands.send(AgentCommand::Shutdown).unwrap();
+    handle.task.await.unwrap();
 }

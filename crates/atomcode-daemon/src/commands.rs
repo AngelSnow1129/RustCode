@@ -4,13 +4,13 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::AppState;
-use atomcode_capabilities::memory::MemoryStore;
 #[cfg(test)]
 use atomcode_capabilities::session::SessionMeta as NativeSessionMeta;
 use atomcode_capabilities::session::{
     LoadedSession, SessionLease as NativeSessionLease, SessionManager as NativeSessionManager,
     SessionStoreError,
 };
+use atomcode_config::config::memory::MemoryStore;
 
 #[derive(serde::Serialize)]
 pub(crate) struct CostModelResult {
@@ -118,12 +118,9 @@ fn command_project_bucket(
     working_dir: &std::path::Path,
     project_hash: Option<&str>,
 ) -> anyhow::Result<String> {
-    let bucket = project_hash.map(str::to_owned).unwrap_or_else(|| {
-        NativeSessionManager::project_hash(
-            working_dir,
-            &atomcode_coding::config::product_dirs_from_env(),
-        )
-    });
+    let bucket = project_hash
+        .map(str::to_owned)
+        .unwrap_or_else(|| NativeSessionManager::project_hash(working_dir));
     if bucket.len() != 16 || !bucket.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         anyhow::bail!("invalid project session bucket")
     }
@@ -136,12 +133,8 @@ fn load_native_command_session(
     id: &str,
 ) -> anyhow::Result<Option<NativeCommandSession>> {
     let bucket = command_project_bucket(working_dir, project_hash)?;
-    let manager = NativeSessionManager::with_root(
-        NativeSessionManager::sessions_root(
-            atomcode_coding::config::product_dirs_from_env().user(),
-        )
-        .join(bucket),
-    );
+    let manager =
+        NativeSessionManager::with_root(NativeSessionManager::sessions_root().join(bucket));
     let has_existing = [
         manager.meta_path(id)?,
         manager.snapshot_path(id)?,
@@ -154,9 +147,6 @@ fn load_native_command_session(
     }
     let lease = manager.acquire_lease(id)?;
     crate::legacy_convert::converge_session(&manager, &lease)?;
-    // A session's content is its log (`docs/adr/0024`): one stored as a
-    // snapshot becomes one here, once, and every change below is a fact.
-    manager.open_as_events(&lease)?;
     let loaded = manager.load_native_session(id)?;
     Ok(Some(NativeCommandSession {
         manager,
@@ -189,12 +179,10 @@ fn exec_native_undo(session: NativeCommandSession, arg: &str) -> anyhow::Result<
     }
     let target = arg.trim().parse::<usize>().ok();
     let undo = atomcode_coding::runtime::undo_snapshot_to_prompt(&expected_snapshot, target)?;
-    let persisted_message_count = u32::try_from(undo.snapshot.messages.len())?;
-    let target = undo.snapshot.messages.clone();
-    let manager = &session.manager;
-    let lease = &session.lease;
-    manager.commit_native_runtime_mutation(
-        lease,
+    let message_count = undo.snapshot.messages.len();
+    let persisted_message_count = u32::try_from(message_count)?;
+    session.manager.commit_native_runtime_mutation(
+        &session.lease,
         &undo.snapshot,
         move |current_snapshot, meta, presentation| {
             if current_snapshot != &expected_snapshot {
@@ -203,15 +191,8 @@ fn exec_native_undo(session: NativeCommandSession, arg: &str) -> anyhow::Result<
                     message: "session snapshot changed while preparing undo".into(),
                 });
             }
-            let plan = manager.plan_conversation_change(
-                lease.id(),
-                &target,
-                u64::try_from(atomcode_capabilities::session::now_ms()).unwrap_or(0),
-            )?;
-            let visible = plan.visible_turns();
-            meta.turn_stats.retain(|stat| {
-                !stat.position_valid || stat.turn_id == 0 || visible.contains(&stat.turn_id)
-            });
+            meta.turn_stats
+                .retain(|stat| !stat.position_valid || stat.after_message <= message_count);
             let surviving_turn_ids: std::collections::BTreeSet<_> = meta
                 .turn_stats
                 .iter()
@@ -228,7 +209,7 @@ fn exec_native_undo(session: NativeCommandSession, arg: &str) -> anyhow::Result<
                     actual: meta.turn_stats.len(),
                 })?;
             meta.updated_at = atomcode_capabilities::session::now_ms();
-            manager.append_events(lease, &plan.change)
+            Ok(())
         },
     )?;
     Ok(CommandResult::Undo {
@@ -248,12 +229,10 @@ fn commit_native_compaction(
     let expected_snapshot = session.loaded.snapshot;
     let mut snapshot = expected_snapshot.clone();
     snapshot.messages = messages;
-    let persisted_message_count = u32::try_from(snapshot.messages.len())?;
-    let target = snapshot.messages.clone();
-    let manager = &session.manager;
-    let lease = &session.lease;
-    manager.commit_native_runtime_mutation(
-        lease,
+    let message_count = snapshot.messages.len();
+    let persisted_message_count = u32::try_from(message_count)?;
+    session.manager.commit_native_runtime_mutation(
+        &session.lease,
         &snapshot,
         move |current_snapshot, meta, presentation| {
             if current_snapshot != &expected_snapshot {
@@ -262,16 +241,25 @@ fn commit_native_compaction(
                     message: "session snapshot changed while preparing compaction".into(),
                 });
             }
-            let plan = manager.plan_conversation_change(
-                lease.id(),
-                &target,
-                u64::try_from(atomcode_capabilities::session::now_ms()).unwrap_or(0),
-            )?;
-            if let SnapshotCompactionMutation::Replace { .. } = mutation {
-                let visible = plan.visible_turns();
+            if let SnapshotCompactionMutation::Replace {
+                old_start,
+                old_end,
+                new_end,
+            } = mutation
+            {
                 let _ = meta.archive_turn_stats_where(|stat| {
-                    stat.position_valid && stat.turn_id != 0 && !visible.contains(&stat.turn_id)
+                    stat.position_valid
+                        && stat.after_message > old_start
+                        && stat.after_message < old_end
                 });
+                for stat in &mut meta.turn_stats {
+                    if !stat.position_valid {
+                        continue;
+                    }
+                    if stat.after_message >= old_end {
+                        stat.after_message = new_end + stat.after_message.saturating_sub(old_end);
+                    }
+                }
             }
             let surviving_turn_ids: std::collections::BTreeSet<_> = meta
                 .turn_stats
@@ -289,7 +277,7 @@ fn commit_native_compaction(
                     actual: meta.turn_stats.len(),
                 })?;
             meta.updated_at = atomcode_capabilities::session::now_ms();
-            manager.append_events(lease, &plan.change)
+            Ok(())
         },
     )?;
     Ok(())
@@ -421,9 +409,9 @@ fn exec_remember(working_dir: &Path, arg: &str) -> anyhow::Result<CommandResult>
         anyhow::bail!("remember needs content");
     }
     let store = if global {
-        MemoryStore::global(atomcode_coding::config::product_dirs_from_env().user())
+        MemoryStore::global()
     } else {
-        MemoryStore::project(&atomcode_coding::config::product_dirs_from_env().project(working_dir))
+        MemoryStore::project(working_dir)
     };
     store.append(content)?;
     Ok(CommandResult::Remember {
@@ -436,32 +424,17 @@ fn exec_forget(working_dir: &Path, arg: &str) -> anyhow::Result<CommandResult> {
     if keyword.is_empty() {
         anyhow::bail!("forget needs a keyword");
     }
-    let mut removed = MemoryStore::global(atomcode_coding::config::product_dirs_from_env().user())
-        .remove_matching(keyword)?;
-    removed.extend(
-        MemoryStore::project(
-            &atomcode_coding::config::product_dirs_from_env().project(working_dir),
-        )
-        .remove_matching(keyword)?,
-    );
-    removed.extend(
-        MemoryStore::local(&atomcode_coding::config::product_dirs_from_env().project(working_dir))
-            .remove_matching(keyword)?,
-    );
+    let mut removed = MemoryStore::global().remove_matching(keyword)?;
+    removed.extend(MemoryStore::project(working_dir).remove_matching(keyword)?);
+    removed.extend(MemoryStore::local(working_dir).remove_matching(keyword)?);
     Ok(CommandResult::Forget { removed })
 }
 
 fn exec_memory(working_dir: &Path) -> anyhow::Result<CommandResult> {
     Ok(CommandResult::Memory {
-        global: MemoryStore::global(atomcode_coding::config::product_dirs_from_env().user()).load(),
-        project: MemoryStore::project(
-            &atomcode_coding::config::product_dirs_from_env().project(working_dir),
-        )
-        .load(),
-        local: MemoryStore::local(
-            &atomcode_coding::config::product_dirs_from_env().project(working_dir),
-        )
-        .load(),
+        global: MemoryStore::global().load(),
+        project: MemoryStore::project(working_dir).load(),
+        local: MemoryStore::local(working_dir).load(),
     })
 }
 
@@ -480,7 +453,7 @@ async fn exec_compact(
 }
 
 fn exec_whoami() -> anyhow::Result<CommandResult> {
-    match atomcode_auth::get_stored_auth(atomcode_coding::config::product_dirs_from_env().user()) {
+    match atomcode_auth::get_stored_auth() {
         Some(auth) => Ok(CommandResult::Whoami {
             logged_in: true,
             username: Some(auth.user.username),
@@ -553,21 +526,15 @@ fn render_context_file_status_block(working_dir: &std::path::Path) -> String {
     for (scope_msg, store) in [
         (
             Msg::StatusMemoryScopeGlobal,
-            atomcode_capabilities::memory::MemoryStore::global(
-                atomcode_coding::config::product_dirs_from_env().user(),
-            ),
+            atomcode_config::config::memory::MemoryStore::global(),
         ),
         (
             Msg::StatusMemoryScopeProject,
-            atomcode_capabilities::memory::MemoryStore::project(
-                &atomcode_coding::config::product_dirs_from_env().project(working_dir),
-            ),
+            atomcode_config::config::memory::MemoryStore::project(working_dir),
         ),
         (
             Msg::StatusMemoryScopeLocal,
-            atomcode_capabilities::memory::MemoryStore::local(
-                &atomcode_coding::config::product_dirs_from_env().project(working_dir),
-            ),
+            atomcode_config::config::memory::MemoryStore::local(working_dir),
         ),
     ] {
         let scope = t(scope_msg);
@@ -606,7 +573,7 @@ fn format_login_identity(name: Option<&str>, username: &str) -> String {
 }
 
 fn render_login_line_from_stored_auth() -> String {
-    match atomcode_auth::get_stored_auth(atomcode_coding::config::product_dirs_from_env().user()) {
+    match atomcode_auth::get_stored_auth() {
         Some(a) => {
             let identity = format_login_identity(a.user.name.as_deref(), &a.user.username);
             render_login_line(Some(&identity))
@@ -631,14 +598,10 @@ fn render_codingplan_status_for_status_cmd() -> String {
         use atomcode_codingplan::Client;
         use atomcode_config::i18n::{t, Msg};
 
-        let client =
-            match Client::from_stored_auth(atomcode_coding::config::product_dirs_from_env().user())
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    return render_cp_auth_error(&e, || t(Msg::StatusCpNotSignedIn).into_owned())
-                }
-            };
+        let client = match Client::from_stored_auth() {
+            Ok(c) => c,
+            Err(e) => return render_cp_auth_error(&e, || t(Msg::StatusCpNotSignedIn).into_owned()),
+        };
         let status = match client.status_v2() {
             Ok(s) => s,
             Err(e) => {
@@ -728,8 +691,7 @@ fn exec_status(
         .and_then(|c| c.provider_config_for_selection(&provider_name))
         .map(|p| p.model)
         .unwrap_or_default();
-    let auth =
-        atomcode_auth::get_stored_auth(atomcode_coding::config::product_dirs_from_env().user());
+    let auth = atomcode_auth::get_stored_auth();
 
     let body = t(Msg::StatusBody {
         model: &model,
@@ -890,17 +852,15 @@ pub(crate) async fn run_command(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use atomcode_capabilities::memory::MemoryStore;
     use atomcode_capabilities::session::PresentationFile;
     use atomcode_capabilities::session::{StorageOwner, TurnStat};
+    use atomcode_config::config::memory::MemoryStore;
 
     #[test]
     fn context_file_status_shows_instruction_and_memory_paths() {
         let project = tempfile::tempdir().unwrap();
         std::fs::write(project.path().join("AGENTS.md"), "project instructions").unwrap();
-        let project_memory = MemoryStore::project(
-            &atomcode_coding::config::product_dirs_from_env().project(project.path()),
-        );
+        let project_memory = MemoryStore::project(project.path());
         std::fs::create_dir_all(project_memory.path().parent().unwrap()).unwrap();
         std::fs::write(project_memory.path(), "- remembered fact\n").unwrap();
         let status = render_context_file_status_block(project.path());
@@ -1007,9 +967,11 @@ mod tests {
         };
         manager.write_presentation(id, &presentation).unwrap();
         let lease = manager.acquire_lease(id).unwrap();
-        manager.open_as_events(&lease).unwrap();
-        let loaded = manager.load_native_session(id).unwrap();
-        assert_eq!(loaded.snapshot.messages, snapshot.messages);
+        let loaded = LoadedSession {
+            snapshot,
+            meta,
+            presentation,
+        };
 
         manager.rename(id, "renamed after load").unwrap();
         manager
@@ -1102,27 +1064,24 @@ mod tests {
                 PresentationEntry {
                     anchor: DisplayAnchor::AfterTurn { turn_id: 2 },
                     role: PresentationRole::Assistant,
-                    text: "summarised".into(),
-                },
-                PresentationEntry {
-                    anchor: DisplayAnchor::AfterTurn { turn_id: 3 },
-                    role: PresentationRole::Assistant,
                     text: "kept".into(),
                 },
             ],
         };
         manager.write_presentation(id, &presentation).unwrap();
         let lease = manager.acquire_lease(id).unwrap();
-        manager.open_as_events(&lease).unwrap();
-        let loaded = manager.load_native_session(id).unwrap();
-        assert_eq!(loaded.snapshot.messages, snapshot.messages);
+        let loaded = LoadedSession {
+            snapshot,
+            meta,
+            presentation,
+        };
 
         manager.rename(id, "renamed after load").unwrap();
         manager
             .append_presentation(
                 id,
                 PresentationEntry {
-                    anchor: DisplayAnchor::AfterTurn { turn_id: 3 },
+                    anchor: DisplayAnchor::AfterTurn { turn_id: 2 },
                     role: PresentationRole::Assistant,
                     text: "late kept".into(),
                 },
@@ -1136,11 +1095,7 @@ mod tests {
                 loaded,
             },
             vec![
-                {
-                    let mut summary = atomcode_kernel::message::Message::system("summary");
-                    summary.synthetic = true;
-                    summary
-                },
+                atomcode_kernel::message::Message::user("summary"),
                 atomcode_kernel::message::Message::user("u3"),
                 atomcode_kernel::message::Message::assistant("a3", Vec::new()),
             ],
@@ -1157,26 +1112,10 @@ mod tests {
         assert_eq!(snapshot.messages.len(), 3);
         assert_eq!(snapshot.turn_counter, 8);
         let meta = manager.read_meta(id).unwrap();
-        // The summarised turns' statistics are archived; the turn the summary
-        // kept stays.
-        assert_eq!(meta.turn_count, 1);
-        assert_eq!(
-            meta.turn_stats
-                .iter()
-                .map(|stat| stat.turn_id)
-                .collect::<Vec<_>>(),
-            vec![3]
-        );
-        assert_eq!(meta.detached_unattributed_tokens, 2);
-        // A fact, not a rewrite: the log compacted through the kept turn.
-        assert!(manager
-            .load_events(id)
-            .unwrap()
-            .iter()
-            .any(|logged| matches!(
-                logged.event,
-                atomcode_kernel::session::SessionEvent::Compacted { .. }
-            )));
+        assert_eq!(meta.turn_count, 2);
+        assert_eq!(meta.turn_stats[0].after_message, 1);
+        assert_eq!(meta.turn_stats[1].after_message, 3);
+        assert_eq!(meta.detached_unattributed_tokens, 1);
         assert_eq!(meta.name, "renamed after load");
         assert!(meta.user_renamed);
         let presentation = manager.read_presentation(id).unwrap();
@@ -1206,8 +1145,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let wd = dir.path();
         exec_remember(wd, "阿童木用 Rust 写").unwrap();
-        let store =
-            MemoryStore::project(&atomcode_coding::config::product_dirs_from_env().project(wd));
+        let store = MemoryStore::project(wd);
         assert!(store.load().iter().any(|e| e.contains("阿童木用 Rust 写")));
     }
 
@@ -1219,9 +1157,7 @@ mod tests {
         exec_remember(wd, "keep-me fact").unwrap();
         // exec_forget 也会扫全局，但全局此刻应无匹配；断言项目侧被删。
         let _ = exec_forget(wd, "delete-me");
-        let remaining =
-            MemoryStore::project(&atomcode_coding::config::product_dirs_from_env().project(wd))
-                .load();
+        let remaining = MemoryStore::project(wd).load();
         assert!(!remaining.iter().any(|e| e.contains("delete-me")));
         assert!(remaining.iter().any(|e| e.contains("keep-me")));
     }

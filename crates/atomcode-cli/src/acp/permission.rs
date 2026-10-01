@@ -23,8 +23,7 @@ use agent_client_protocol::schema::v2::{
     ToolCallUpdate as V2ToolCallUpdate,
 };
 use agent_client_protocol::{Client, ConnectionTo};
-use atomcode_kernel::event::AgentCommand;
-use tokio::sync::mpsc;
+use atomcode_coding::CodingRuntimeHandle;
 
 /// The three standard permission options, each with a stable `option_id` string
 /// that `outcome_to_decision` maps back to the kernel's decision JSON.
@@ -103,7 +102,7 @@ pub fn outcome_to_decision(option_id: &str) -> serde_json::Value {
 pub async fn handle_approval(
     cx: &ConnectionTo<Client>,
     session_id: &SessionId,
-    commands: &mpsc::UnboundedSender<AgentCommand>,
+    runtime: &CodingRuntimeHandle,
     req_id: u64,
     payload: serde_json::Value,
 ) -> Result<(), agent_client_protocol::Error> {
@@ -153,10 +152,7 @@ pub async fn handle_approval(
         }
     };
 
-    let _ = commands.send(AgentCommand::Respond {
-        id: req_id,
-        value: decision,
-    });
+    let _ = runtime.respond(req_id, decision).await;
     Ok(())
 }
 
@@ -177,7 +173,7 @@ pub async fn handle_approval(
 pub async fn handle_approval_v2(
     cx: &ConnectionTo<Client>,
     session_id: &V2SessionId,
-    commands: &mpsc::UnboundedSender<AgentCommand>,
+    runtime: &CodingRuntimeHandle,
     req_id: u64,
     payload: serde_json::Value,
 ) -> Result<(), agent_client_protocol::Error> {
@@ -213,10 +209,7 @@ pub async fn handle_approval_v2(
         }
     };
 
-    let _ = commands.send(AgentCommand::Respond {
-        id: req_id,
-        value: decision,
-    });
+    let _ = runtime.respond(req_id, decision).await;
     Ok(())
 }
 

@@ -9,15 +9,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-mod support;
-
-use atomcode_coding::{prepare, CodingAgentConfig, PrepareOptions, SessionMode};
+use atomcode_coding::{assemble, prepare, CodingAgentConfig, PrepareOptions, SessionMode};
 use atomcode_kernel::event::{AgentCommand, AgentEvent};
 use atomcode_kernel::message::Role;
 use atomcode_kernel::stream::StreamEvent;
 use atomcode_kernel::testkit::RecordingProvider;
 use atomcode_kernel::tool::ToolCall;
-use support::mount_parts;
 
 #[ctor::ctor]
 fn _isolate_atomcode_home() {
@@ -25,13 +22,7 @@ fn _isolate_atomcode_home() {
 }
 
 fn cfg(working_dir: &std::path::Path) -> CodingAgentConfig {
-    let mut c = CodingAgentConfig::new(
-        "k",
-        "http://unused",
-        "test-model",
-        working_dir,
-        atomcode_coding::config::product_dirs_from_env(),
-    );
+    let mut c = CodingAgentConfig::new("k", "http://unused", "test-model", working_dir);
     c.stream_timeout = Duration::from_secs(5);
     c.request_timeout = Some(Duration::from_secs(5));
     c
@@ -84,7 +75,7 @@ async fn drive(
 }
 
 #[tokio::test]
-async fn the_assembly_lifecycle() {
+async fn full_assembly_lifecycle() {
     // ---- Isolated world: $ATOMCODE_HOME + a project dir, both temp. Skill dirs
     // are pinned to a temp dir too — the home-based default would scan the HOST
     // machine's real ~/.claude/skills and leak host state into this test.
@@ -101,18 +92,18 @@ async fn the_assembly_lifecycle() {
     std::fs::write(home.path().join("memory.md"), "- the user prefers tabs\n").unwrap();
 
     // ================= Phase 1: fresh prepare + first turn =================
-    let parts = prepare(&cfg, opts()).await.unwrap();
+    let mut parts = prepare(&cfg, opts()).await.unwrap();
 
     let session_id = parts.session.as_ref().unwrap().id.clone();
     let sessions_root = parts.session.as_ref().unwrap().manager.root().to_path_buf();
 
     let provider1 = Arc::new(RecordingProvider::new(vec![text_turn("first answer")]));
     let calls1 = provider1.calls();
-    let mut mounted_h1 = mount_parts(&parts, &cfg, &opts(), provider1).await;
-    let h1 = &mut mounted_h1.handle;
-    let (_, reqs) = drive(h1, "the first task", None).await;
+    let mut h1 = assemble(&mut parts, &cfg, provider1).unwrap().spawn();
+    let (_, reqs) = drive(&mut h1, "the first task", None).await;
     assert_eq!(reqs, 0, "a text-only turn asks no approval");
-    mounted_h1.shutdown().await;
+    h1.commands.send(AgentCommand::Shutdown).unwrap();
+    let _ = h1.task.await;
 
     // The FULL toolset rode the wire: core + codeintel + web + skills + recall + review.
     {
@@ -144,74 +135,52 @@ async fn the_assembly_lifecycle() {
                 .map(|m| (&m.role, m.text[..m.text.len().min(30)].to_string()))
                 .collect::<Vec<_>>()
         };
-        // The prompt is one composed system message — the persona first, then the
-        // fragments the rows contribute. Memory is not a fragment: it is injected
-        // as a logged fact, so it arrives as its own message, in front of the ask.
-        assert_eq!(first[0].role, Role::System, "the prompt leads");
-        let composed = &first[0].text;
-        let persona = composed
-            .find("You are AtomCode")
-            .unwrap_or_else(|| panic!("no persona: {:?}", shape()));
-        let context = composed
-            .find("=== SESSION CONTEXT ===")
-            .unwrap_or_else(|| panic!("no session context: {:?}", shape()));
+        assert_eq!(first[0].role, Role::System, "persona leads");
         assert!(
-            persona < context,
-            "the persona leads and the session context follows it: {:?}",
+            first[1].role == Role::System && first[1].text.starts_with("=== SESSION CONTEXT ==="),
+            "session-context block injected after persona: {:?}",
             shape()
         );
-        let memory = first
-            .iter()
-            .position(|m| m.text.starts_with("=== MEMORY ==="))
-            .unwrap_or_else(|| panic!("no memory: {:?}", shape()));
-        let ask = first
-            .iter()
-            .position(|m| m.role == Role::User && m.text == "the first task")
-            .unwrap_or_else(|| panic!("no ask: {:?}", shape()));
-        assert!(memory < ask, "memory is in front of the ask: {:?}", shape());
-        assert!(first[memory].text.contains("prefers tabs"));
-        // The current date rides a per-turn `<system-reminder>` tail (`StatusReminderHook`),
-        // appended AFTER the cached prefix — on EVERY round, round 1 included. So round 1 ends
-        // with that reminder (a synthetic user-role tail), not the user turn itself.
-        let tail = first.last().unwrap();
+        assert!(
+            first[2].role == Role::System && first[2].text.starts_with("=== MEMORY ==="),
+            "memory block injected after the context block: {:?}",
+            shape()
+        );
+        assert!(first[2].text.contains("prefers tabs"));
+        // No per-round status/date <system-reminder> tail rides any request: the date lives in
+        // the frozen persona anchor and the per-round StatusReminderHook was removed from the
+        // production hook chain, so the last message here is the user turn, not a reminder.
         assert_eq!(
-            tail.role,
+            first.last().unwrap().role,
             Role::User,
-            "the date tail is a user-role message"
+            "round 1 ends at the user turn"
         );
+        // Scope to USER messages: the reminder is a user-role tail. (The persona — a System
+        // message — legitimately *mentions* the `<system-reminder>` tag to explain it, so a
+        // blanket text search would false-positive on the persona.)
         assert!(
-            tail.text.contains("<system-reminder>") && tail.text.contains("Current date"),
-            "round 1 ends with the current-date reminder tail: {:?}",
-            shape()
-        );
-        // And the date is GONE from the persona: a wall-clock date at the FRONT of the request
-        // re-prefills the whole cached prefix once per day (the `project_system_prompt_date`
-        // cache-poison bug), which moving it to the tail fixes.
-        let persona = first
-            .iter()
-            .find(|m| m.role == Role::System)
-            .expect("a system persona");
-        assert!(
-            !persona.text.contains("Today's date:") && !persona.text.contains("## ENVIRONMENT:"),
-            "the persona no longer bakes a date anchor into the prefix: {:?}",
+            !first
+                .iter()
+                .any(|m| m.role == Role::User && m.text.contains("<system-reminder>")),
+            "no status reminder (user tail) on a turn's round 1: {:?}",
             shape()
         );
     }
 
-    // The turn persisted the session: its log and its index, and no snapshot.
+    // The turn persisted all three session files.
     assert!(
-        sessions_root.join(format!("{session_id}.events")).exists(),
-        "log persisted"
-    );
-    assert!(
-        sessions_root.join(format!("{session_id}.index")).exists(),
-        "index persisted"
-    );
-    assert!(
-        !sessions_root
+        sessions_root
             .join(format!("{session_id}.snapshot"))
             .exists(),
-        "a log session writes no snapshot"
+        "snapshot persisted"
+    );
+    assert!(
+        sessions_root.join(format!("{session_id}.meta")).exists(),
+        "meta persisted"
+    );
+    assert!(
+        sessions_root.join(format!("{session_id}.jsonl")).exists(),
+        "transcript persisted"
     );
 
     // ===== Phase 2: RESPAWN on the SAME parts (model swap) continues the session ====
@@ -219,10 +188,10 @@ async fn the_assembly_lifecycle() {
     // plain re-assemble can never rewind a live session (the review's must-fix).
     let provider1b = Arc::new(RecordingProvider::new(vec![text_turn("post-swap answer")]));
     let calls1b = provider1b.calls();
-    let mut mounted_h1b = mount_parts(&parts, &cfg, &opts(), provider1b).await;
-    let h1b = &mut mounted_h1b.handle;
-    let _ = drive(h1b, "the swap task", None).await;
-    mounted_h1b.shutdown().await;
+    let mut h1b = assemble(&mut parts, &cfg, provider1b).unwrap().spawn();
+    let _ = drive(&mut h1b, "the swap task", None).await;
+    h1b.commands.send(AgentCommand::Shutdown).unwrap();
+    let _ = h1b.task.await;
     {
         let calls = calls1b.lock().unwrap();
         let first = &calls[0].0;
@@ -236,17 +205,21 @@ async fn the_assembly_lifecycle() {
     // This phase models a new process. Dropping the previous parts releases its
     // active-session lease before the new owner resumes the persisted session.
     drop(parts);
-    let resumed = PrepareOptions {
-        session: SessionMode::Resume(session_id.clone()),
-        ..opts()
-    };
-    let parts2 = prepare(&cfg, resumed.clone()).await.unwrap();
+    let mut parts2 = prepare(
+        &cfg,
+        PrepareOptions {
+            session: SessionMode::Resume(session_id.clone()),
+            ..opts()
+        },
+    )
+    .await
+    .unwrap();
     let provider2 = Arc::new(RecordingProvider::new(vec![text_turn("second answer")]));
     let calls2 = provider2.calls();
-    let mut mounted_h2 = mount_parts(&parts2, &cfg, &resumed, provider2).await;
-    let h2 = &mut mounted_h2.handle;
-    let _ = drive(h2, "the second task", None).await;
-    mounted_h2.shutdown().await;
+    let mut h2 = assemble(&mut parts2, &cfg, provider2).unwrap().spawn();
+    let _ = drive(&mut h2, "the second task", None).await;
+    h2.commands.send(AgentCommand::Shutdown).unwrap();
+    let _ = h2.task.await;
 
     // History continued: the resumed provider saw the first turn's exchange.
     {
@@ -261,33 +234,23 @@ async fn the_assembly_lifecycle() {
             "incl. the respawned turn"
         );
         assert!(first.iter().any(|m| m.text == "the second task"));
-        let system: String = first
-            .iter()
-            .filter(|m| m.role == Role::System && !m.synthetic)
-            .map(|m| m.text.as_str())
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        for once in [
-            "You are AtomCode",
-            "=== SESSION CONTEXT ===",
-            "=== MEMORY ===",
-        ] {
-            assert_eq!(
-                system.matches(once).count(),
-                1,
-                "a resumed session composes each block exactly once, not twice: {once}"
-            );
-        }
+        let system_count = first.iter().filter(|m| m.role == Role::System).count();
+        assert_eq!(
+            system_count, 3,
+            "persona + session-context + memory exactly once each (resume reconciles in place, no double-inject)"
+        );
     }
 
-    // Turn ids are MONOTONIC across the respawn and the resume: the log opens
-    // turn 1, then 2, then 3.
-    let log = std::fs::read_to_string(sessions_root.join(format!("{session_id}.events"))).unwrap();
-    let turn_ids: Vec<u64> = log
+    // Transcript turn_ids are MONOTONIC across the resume (the 8c06a9e2 seeding,
+    // end-to-end through prepare/assemble): lines say turn 1 then turn 2.
+    let jsonl = std::fs::read_to_string(sessions_root.join(format!("{session_id}.jsonl"))).unwrap();
+    let turn_ids: Vec<u64> = jsonl
         .lines()
-        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
-        .filter(|record| record["event"]["kind"] == "turn_start")
-        .map(|record| record["event"]["turn"].as_u64().unwrap())
+        .map(|l| {
+            serde_json::from_str::<serde_json::Value>(l).unwrap()["turn_id"]
+                .as_u64()
+                .unwrap()
+        })
         .collect();
     assert_eq!(
         turn_ids,
@@ -296,11 +259,15 @@ async fn the_assembly_lifecycle() {
     );
 
     // ============== Phase 4: respawn on the SAME parts keeps approval grants ======
-    let sessionless = PrepareOptions {
-        session: SessionMode::Disabled, // independent of the session above
-        ..opts()
-    };
-    let parts3 = prepare(&cfg, sessionless.clone()).await.unwrap();
+    let mut parts3 = prepare(
+        &cfg,
+        PrepareOptions {
+            session: SessionMode::Disabled, // independent of the session above
+            ..opts()
+        },
+    )
+    .await
+    .unwrap();
 
     let risky = || ToolCall {
         id: "c1".into(),
@@ -314,11 +281,11 @@ async fn the_assembly_lifecycle() {
         ],
         text_turn("done"),
     ]));
-    let mut mounted_h3 = mount_parts(&parts3, &cfg, &sessionless, provider3).await;
-    let h3 = &mut mounted_h3.handle;
-    let (_, reqs) = drive(h3, "do the risky thing", Some("allow_always")).await;
+    let mut h3 = assemble(&mut parts3, &cfg, provider3).unwrap().spawn();
+    let (_, reqs) = drive(&mut h3, "do the risky thing", Some("allow_always")).await;
     assert_eq!(reqs, 1, "the risky call asks once");
-    mounted_h3.shutdown().await;
+    h3.commands.send(AgentCommand::Shutdown).unwrap();
+    let _ = h3.task.await;
 
     // RESPAWN (model swap) on the SAME parts: the identical risky call must NOT ask
     // again — the grant store survives because the approval handle lives in parts.
@@ -329,12 +296,12 @@ async fn the_assembly_lifecycle() {
         ],
         text_turn("done again"),
     ]));
-    let mut mounted_h4 = mount_parts(&parts3, &cfg, &sessionless, provider4).await;
-    let h4 = &mut mounted_h4.handle;
-    let (_, reqs) = drive(h4, "again", None).await;
+    let mut h4 = assemble(&mut parts3, &cfg, provider4).unwrap().spawn();
+    let (_, reqs) = drive(&mut h4, "again", None).await;
     assert_eq!(
         reqs, 0,
         "allow-always grant survives the respawn (parts own the store)"
     );
-    mounted_h4.shutdown().await;
+    h4.commands.send(AgentCommand::Shutdown).unwrap();
+    let _ = h4.task.await;
 }

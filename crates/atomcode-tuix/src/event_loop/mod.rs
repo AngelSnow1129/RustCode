@@ -146,7 +146,6 @@ fn coding_agent_config_from(ctx: &LoopCtx, source: &Config) -> atomcode_coding::
     let mut config = atomcode_coding::CodingRuntimeConfig::from_config(
         source,
         &ctx.working_dir,
-        atomcode_coding::config::product_dirs_from_env(),
         None,
         Some(ctx.telemetry.clone()),
         ctx.dangerously_skip_permissions,
@@ -322,21 +321,6 @@ fn read_raw_cf_dib() -> Option<Vec<u8>> {
 /// **AltGr** key is delivered as `Ctrl+Alt`, so on the rare keyboard layout
 /// where `AltGr+V` is a printable glyph, that keystroke triggers image-paste
 /// instead of inserting the glyph. Accepted as an inherent cost of the chord.
-/// Build an `ImageContent` from raw image bytes, downscaling/re-encoding oversized
-/// images so a big pasted screenshot can't blow the per-request body (a pasted image is
-/// re-sent on every turn). Falls back to the original bytes/type on any decode failure.
-fn normalized_image_content(media_type: &str, raw: &[u8]) -> ImageContent {
-    let (media_type, data) = match atomcode_capabilities::image_normalize::normalize_image_raw(raw)
-    {
-        Some((mt, out)) => (mt, base64::engine::general_purpose::STANDARD.encode(out)),
-        None => (
-            media_type.to_string(),
-            base64::engine::general_purpose::STANDARD.encode(raw),
-        ),
-    };
-    ImageContent { media_type, data }
-}
-
 fn is_paste_image_chord(
     code: crossterm::event::KeyCode,
     modifiers: crossterm::event::KeyModifiers,
@@ -368,7 +352,14 @@ fn try_paste_clipboard_image() -> Option<(ImageContent, u64)> {
             if let Some(png_data) =
                 encode_rgba_to_png(img.width as u32, img.height as u32, img.bytes.as_ref())
             {
-                return Some((normalized_image_content("image/png", &png_data), hash));
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&png_data);
+                return Some((
+                    ImageContent {
+                        media_type: "image/png".into(),
+                        data: b64,
+                    },
+                    hash,
+                ));
             }
         }
         Err(_e) => {
@@ -385,7 +376,14 @@ fn try_paste_clipboard_image() -> Option<(ImageContent, u64)> {
             {
                 let hash = rgba_fingerprint(w as usize, h as usize, &rgba);
                 if let Some(png_data) = encode_rgba_to_png(w, h, &rgba) {
-                    return Some((normalized_image_content("image/png", &png_data), hash));
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&png_data);
+                    return Some((
+                        ImageContent {
+                            media_type: "image/png".into(),
+                            data: b64,
+                        },
+                        hash,
+                    ));
                 }
             }
         }
@@ -820,7 +818,14 @@ fn try_attach_image_from_path(text: &str) -> Option<(ImageContent, u64)> {
     }
     let bytes = std::fs::read(path).ok()?;
     let hash = rgba_fingerprint(0, 0, &bytes);
-    Some((normalized_image_content(media_type, &bytes), hash))
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Some((
+        ImageContent {
+            media_type: media_type.into(),
+            data: b64,
+        },
+        hash,
+    ))
 }
 
 /// Resolve an explicit `@image` reference against the same path roots users
@@ -1415,13 +1420,8 @@ fn session_transition_matches(
     let requested = atomcode_capabilities::pathnorm::canonicalize(&pending.requested_working_dir)
         .unwrap_or_else(|_| pending.requested_working_dir.clone());
     pending.operation == operation
-        && atomcode_capabilities::session::SessionManager::project_hash(
-            &requested,
-            &atomcode_coding::config::product_dirs_from_env(),
-        ) == atomcode_capabilities::session::SessionManager::project_hash(
-            &changed.working_dir,
-            &atomcode_coding::config::product_dirs_from_env(),
-        )
+        && atomcode_capabilities::session::SessionManager::project_hash(&requested)
+            == atomcode_capabilities::session::SessionManager::project_hash(&changed.working_dir)
 }
 
 #[cfg(test)]
@@ -1938,7 +1938,6 @@ mod submit_hold_tests {
                 http_status: None,
                 code: None,
                 retryable: None,
-                ends_turn: false,
             },
         ));
         assert_eq!(type_ahead_queue_action(&event), TypeAheadQueueAction::None);
@@ -2209,7 +2208,6 @@ mod submit_hold_tests {
                 http_status: None,
                 code: None,
                 retryable: None,
-                ends_turn: false,
             },
         ));
         let mut state = UiState::new();
@@ -2537,7 +2535,6 @@ impl ReadyRuntimeControl {
                 http_status: None,
                 code: None,
                 retryable: None,
-                ends_turn: false,
             }),
         ));
     }
@@ -3727,13 +3724,7 @@ mod local_restore_scope_tests {
 
         assert!(runtime
             .reload_provider(
-                CodingAgentConfig::new(
-                    "",
-                    "",
-                    "model",
-                    "/project",
-                    atomcode_coding::config::product_dirs_from_env()
-                ),
+                CodingAgentConfig::new("", "", "model", "/project"),
                 RuntimeId::new(1),
                 event_tx,
             )
@@ -3758,13 +3749,7 @@ mod local_restore_scope_tests {
         ));
         assert!(runtime
             .reload_provider(
-                CodingAgentConfig::new(
-                    "",
-                    "",
-                    "model",
-                    "/project",
-                    atomcode_coding::config::product_dirs_from_env()
-                ),
+                CodingAgentConfig::new("", "", "model", "/project"),
                 RuntimeId::new(1),
                 event_tx,
             )
@@ -3856,19 +3841,13 @@ pub(crate) struct AuthObservation {
 impl AuthObservation {
     fn read() -> Self {
         Self {
-            user_id: atomcode_auth::get_stored_auth(
-                atomcode_coding::config::product_dirs_from_env().user(),
-            )
-            .map(|auth| auth.user.id),
+            user_id: atomcode_auth::get_stored_auth().map(|auth| auth.user.id),
         }
     }
 
     fn read_checked() -> anyhow::Result<Self> {
         Ok(Self {
-            user_id: atomcode_auth::get_stored_auth_checked(
-                atomcode_coding::config::product_dirs_from_env().user(),
-            )?
-            .map(|auth| auth.user.id),
+            user_id: atomcode_auth::get_stored_auth_checked()?.map(|auth| auth.user.id),
         })
     }
 
@@ -4064,9 +4043,9 @@ pub struct LoopCtx {
     /// dispatcher as a fallback when the entered name doesn't match a
     /// built-in command.
     pub custom_commands: crate::custom_commands::CustomCommandRegistry,
-    /// Loaded skills (`.claude/skills/*/SKILL.md`, etc.). The TUI's own copy —
-    /// the runtime loads a separate registry in `prepare`, and `/plugin reload`
-    /// reloads both. Used by the slash-command palette to
+    /// Loaded skills (`.claude/skills/*/SKILL.md`, etc.). Same `Arc`
+    /// the agent loop holds, so `reload(...)` there is visible here
+    /// without extra plumbing. Used by the slash-command palette to
     /// surface user-invocable skills, and by the dispatcher to expand
     /// `/skill_name [args]` into a SendMessage.
     pub skill_registry:
@@ -7008,28 +6987,6 @@ mod menu_tests {
             .any(|(n, _)| matches!(n.as_str(), "low" | "medium" | "high" | "max" | "default")));
     }
 
-    /// Picked from the menu, `/upgrade` opens what it can do instead of
-    /// starting a download at once — `rollback` is one of the rows.
-    #[test]
-    fn upgrade_is_picked_through_its_sub_menu() {
-        let reg = CommandRegistry::builtin();
-        let custom = CustomCommandRegistry::empty();
-        assert!(
-            reg.matching_prefix("upgrade")
-                .iter()
-                .any(|c| c.name == "upgrade" && c.needs_args),
-            "picking `/upgrade` must stop for its argument"
-        );
-        let all = build_menu_items("/upgrade ", 0, &reg, &custom, None, None)
-            .expect("/upgrade sub-mode must list its arguments");
-        let names: Vec<&str> = all.iter().map(|(n, _)| n.as_str()).collect();
-        assert_eq!(names, vec!["latest", "--force", "rollback"]);
-        let roll = build_menu_items("/upgrade ro", 0, &reg, &custom, None, None)
-            .expect("`ro` must match rollback");
-        assert_eq!(roll.len(), 1);
-        assert_eq!(roll[0].0, "rollback");
-    }
-
     #[test]
     fn effort_sub_mode_lists_and_filters_choices() {
         let reg = CommandRegistry::builtin();
@@ -9492,13 +9449,7 @@ pub enum ExitReason {
     /// `std::env::current_exe()` returns the renamed path after the swap,
     /// so callers MUST use this path for `re_exec_self` instead of
     /// `current_exe()`.
-    ///
-    /// `rolled_back` is a rollback's restart: the binary started next is the
-    /// OLDER one, so nothing may tell it it was "upgraded".
-    UpgradeRestart {
-        exe: std::path::PathBuf,
-        rolled_back: bool,
-    },
+    UpgradeRestart { exe: std::path::PathBuf },
 }
 
 /// Drive one decision step of a fixed-interval `/loop`.
@@ -9565,42 +9516,22 @@ fn handle_openrouter_connect_event(
             renderer.flush();
         }
         OpenRouterConnectEvent::Ready { api_key, models } => {
-            let mut outcome = atomcode_auth::openrouter::Provisioned::default();
+            let mut added_count = 0usize;
             match ctx.config_store.update(|latest| {
-                outcome = atomcode_auth::openrouter::provision(latest, &api_key, &models);
+                let out = openrouter_connect::provision_openrouter(latest, &api_key, &models);
+                added_count = out.added.len();
                 Ok(())
             }) {
                 Ok(commit) => {
-                    // This window may be pinned to a model that was just removed
-                    // (it keeps its own selection over the shared default). Left
-                    // pinned, it would go on calling a model that is gone or now
-                    // costs money; so it follows the default, which `provision`
-                    // has moved off any removed model.
-                    if active_model_was_removed(&ctx.config, &outcome) {
-                        ctx.provider_selection_mode =
-                            crate::ProviderSelectionMode::FollowGlobalDefault;
-                    }
                     apply_persisted_config(
                         ctx,
                         commit.snapshot.config,
                         commit.snapshot.revision,
                         renderer,
                     );
-                    let added = outcome.added.len();
-                    let removed = outcome.removed.len();
-                    renderer.render(UiLine::CommandOutput(match removed {
-                        0 => format!("已接入 OpenRouter,新增 {added} 个免费模型。/model 可切换。"),
-                        _ => format!(
-                            "已接入 OpenRouter,新增 {added} 个免费模型,移除 {removed} 个不在这次推荐里的旧免费模型(下架、开始收费或被挤出前 5;你自己配置的模型没有改动)。/model 可切换。"
-                        ),
-                    }));
-                    if let (Some(from), Some(to)) =
-                        (&outcome.default_replaced, &outcome.default_model)
-                    {
-                        renderer.render(UiLine::CommandOutput(format!(
-                            "原来的默认模型 `{from}` 不在这次的免费推荐里,已换成 `{to}`。"
-                        )));
-                    }
+                    renderer.render(UiLine::CommandOutput(format!(
+                        "已接入 OpenRouter,新增 {added_count} 个免费模型。/model 可切换。"
+                    )));
                     renderer.flush();
                 }
                 Err(e) => {
@@ -9709,15 +9640,11 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
     {
         // Run migration first so pre-existing plugins are grandfathered before
         // we query trust status — prevents the banner from wrongly listing them.
-        atomcode_capabilities::plugin::hook_trust::ensure_migrated(
-            &atomcode_coding::config::product_dirs_from_env(),
-        );
-        let untrusted: Vec<_> = atomcode_capabilities::plugin::installed_plugin_hook_trust_status(
-            &atomcode_coding::config::product_dirs_from_env(),
-        )
-        .into_iter()
-        .filter(|s| !s.trusted)
-        .collect();
+        atomcode_capabilities::plugin::hook_trust::ensure_migrated();
+        let untrusted: Vec<_> = atomcode_capabilities::plugin::installed_plugin_hook_trust_status()
+            .into_iter()
+            .filter(|s| !s.trusted)
+            .collect();
         if !untrusted.is_empty() {
             let names = untrusted
                 .iter()
@@ -10000,7 +9927,7 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
     // True once Done fired successfully — the loop exits after the
     // current pending message finishes so the user sees the success
     // line before the TUI shuts down.
-    let mut upgrade_done: Option<(std::path::PathBuf, bool)> = None;
+    let mut upgrade_done: Option<std::path::PathBuf> = None;
 
     // DEVIATION from plan:
     // 1. plan uses `SignalKind::terminal_stop()` which does not exist in tokio 1.x.
@@ -10933,8 +10860,8 @@ pub async fn run_loop(mut ctx: LoopCtx, renderer: &mut dyn Renderer) -> Result<E
     // Determine the exit reason. If the upgrade_done flag was set,
     // the loop exited because /upgrade (or /upgrade rollback) succeeded
     // and the live binary has been replaced — the caller should re-exec.
-    if let Some((exe, rolled_back)) = upgrade_done {
-        Ok(ExitReason::UpgradeRestart { exe, rolled_back })
+    if let Some(exe) = upgrade_done {
+        Ok(ExitReason::UpgradeRestart { exe })
     } else {
         Ok(ExitReason::Normal)
     }
@@ -11007,19 +10934,6 @@ fn should_deactivate_for_missing_auth(
 /// Both selection fields are pinned to the running selection:
 /// `default_provider` for legacy configs and `default_model` for the canonical
 /// account/model schema.
-/// Whether the model this window runs on is one `/openrouter` just removed —
-/// the window then stops keeping its own selection and follows the default,
-/// which `provision` has already moved off every removed model.
-fn active_model_was_removed(
-    current: &Config,
-    outcome: &atomcode_auth::openrouter::Provisioned,
-) -> bool {
-    current
-        .default_model
-        .as_ref()
-        .is_some_and(|active| outcome.removed.contains(active))
-}
-
 fn merge_persisted_config_preserving_active(
     current: &Config,
     mut persisted: Config,
@@ -11268,76 +11182,6 @@ mod external_config_tests {
         .unwrap()
     }
 
-    /// The classic screen after `/model` to another AtomGit model, then `/login`
-    /// (which writes the server default and sets FollowGlobalDefault): the
-    /// session follows the file back to the default. Pinned, it would stay —
-    /// the reason `/login` unpins first.
-    #[test]
-    fn a_login_after_a_model_switch_follows_the_server_default() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("config.toml");
-        std::fs::write(
-            &path,
-            r#"
-default_provider = "AtomGit-glm5.3-flash"
-default_model = "AtomGit-glm5.3-flash"
-
-[provider_accounts.AtomGit]
-provider = "openai-compatible"
-base_url = "https://api-ai.gitcode.com/v1"
-
-[models."AtomGit-glm5.3-flash"]
-account = "AtomGit"
-model = "glm5.3-flash"
-context_window = 200000
-
-[models."AtomGit-deepseek-flash"]
-account = "AtomGit"
-model = "deepseek-flash"
-context_window = 200000
-"#,
-        )
-        .unwrap();
-        let disk = Config::load(&path).unwrap();
-        // running session after `/model AtomGit-deepseek-flash` (runtime-only select)
-        let mut current = disk.clone();
-        current.default_model = Some("AtomGit-deepseek-flash".into());
-        current.default_provider = "AtomGit-deepseek-flash".into();
-        let desired = desired_config_from_snapshot_parts(
-            &current,
-            crate::ProviderSelectionMode::FollowGlobalDefault,
-            disk.clone(),
-            true,
-        );
-        assert_eq!(
-            desired.effective_model_selection().as_deref(),
-            Some("AtomGit-glm5.3-flash")
-        );
-        assert!(should_reload_provider(
-            crate::ProviderSelectionMode::FollowGlobalDefault,
-            &current,
-            &desired,
-            RuntimeUiAvailability::Available,
-            true
-        ));
-        let pinned = desired_config_from_snapshot_parts(
-            &current,
-            crate::ProviderSelectionMode::Pinned,
-            disk.clone(),
-            true,
-        );
-        assert!(
-            !should_reload_provider(
-                crate::ProviderSelectionMode::Pinned,
-                &current,
-                &pinned,
-                RuntimeUiAvailability::Available,
-                true
-            ),
-            "pinned, it stays — which is why /login unpins first"
-        );
-    }
-
     #[test]
     fn follow_global_detects_model_change_inside_same_provider() {
         assert!(should_reload_provider(
@@ -11392,23 +11236,6 @@ context_window = 200000
             RuntimeUiAvailability::Available,
             true,
         ));
-    }
-
-    /// A window pinned to a model `/openrouter` just removed stops being pinned
-    /// (and follows the default `provision` moved); one on anything else stays.
-    #[test]
-    fn a_window_on_a_removed_free_model_is_the_one_that_follows_the_default() {
-        let outcome = atomcode_auth::openrouter::Provisioned {
-            removed: vec!["openrouter/a:free".into()],
-            ..Default::default()
-        };
-        let mut current = Config::default();
-        current.default_model = Some("openrouter/a:free".into());
-        assert!(active_model_was_removed(&current, &outcome));
-        current.default_model = Some("openrouter/b:free".into());
-        assert!(!active_model_was_removed(&current, &outcome));
-        current.default_model = None;
-        assert!(!active_model_was_removed(&current, &outcome));
     }
 
     #[test]
@@ -12638,9 +12465,7 @@ fn poll_shared_state(ctx: &mut LoopCtx, renderer: &mut dyn Renderer) -> bool {
 /// If another atomcode process just ran `/codingplan`, clear stale plan hints.
 /// Provider/model reconciliation is handled generically by `poll_external_config`.
 fn refresh_after_cross_process_codingplan_sync(ctx: &mut LoopCtx) {
-    let current = atomcode_codingplan::read_last_sync(
-        atomcode_coding::config::product_dirs_from_env().user(),
-    );
+    let current = atomcode_codingplan::read_last_sync();
     let advanced = match (current, ctx.monitor_last_sync_seen) {
         (Some(new), Some(old)) => new > old,
         (Some(_), None) => true, // marker just appeared
@@ -14428,14 +14253,6 @@ fn handle_input(
                     return Ok(());
                 }
             }
-            // Ctrl+O 在每个收键的阶段都切换详细模式,不只是流式输出时:回合刚结束
-            // (Idle)正是人想回头看刚才那段思考过程的时候。以前它只在
-            // `handle_streaming_key` 里被拦下,其余阶段都落进 `Buffer::apply`,
-            // 被吞成 NoOp,没有任何反馈。
-            if toggles_verbose(app.state.phase, code, modifiers) {
-                toggle_verbose_with_feedback(app, ctx, renderer);
-                return Ok(());
-            }
             match app.state.phase {
                 UiPhase::Idle => handle_idle_key(app, ctx, renderer, code, modifiers)?,
                 UiPhase::Streaming => handle_streaming_key(app, ctx, renderer, code, modifiers)?,
@@ -14450,78 +14267,6 @@ fn handle_input(
         InputEvent::Key(_) => {}
     }
     Ok(())
-}
-
-/// 这个键是不是切换详细模式的 Ctrl+O,且当前阶段收键。Suspended 不收任何键。
-fn toggles_verbose(
-    phase: UiPhase,
-    code: KeyCode,
-    modifiers: crossterm::event::KeyModifiers,
-) -> bool {
-    code == KeyCode::Char('o')
-        && modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
-        && !matches!(phase, UiPhase::Suspended)
-}
-
-/// 详细模式切换后那一行反馈的文字(不含颜色),按界面语言给出。
-fn verbose_status_text(enabled: bool, locale: crate::i18n::Locale) -> &'static str {
-    match (locale, enabled) {
-        (crate::i18n::Locale::ZhCn, true) => {
-            "详细模式已开启（显示工具输出与思考过程）（Ctrl+O 隐藏）"
-        }
-        (crate::i18n::Locale::ZhCn, false) => "详细模式已关闭（Ctrl+O 显示工具输出与思考过程）",
-        (crate::i18n::Locale::En, true) => {
-            "Verbose mode enabled (tool output + reasoning visible) (Ctrl+O to hide)"
-        }
-        (crate::i18n::Locale::En, false) => {
-            "Verbose mode disabled (Ctrl+O to show tool output + reasoning)"
-        }
-    }
-}
-
-/// 切换详细模式(工具输出 + 思考过程),在滚动区写一行反馈,再按当前阶段重画下方。
-fn toggle_verbose_with_feedback(app: &mut App, ctx: &mut LoopCtx, renderer: &mut dyn Renderer) {
-    app.state.toggle_tool_output();
-    // 暗色样式,与 ToolResult 的 summary_style 一致:
-    // 浅色主题 → SGR 90(深灰),深色主题 → SGR 2(淡)
-    let reset = "\x1b[0m";
-    let mute = if crate::highlight::theme::is_light_for_render() {
-        "\x1b[90m"
-    } else {
-        "\x1b[2m"
-    };
-    let text = verbose_status_text(app.state.show_tool_output, crate::i18n::current_locale());
-    let status = format!("{mute}  ○ {text}{reset}\n");
-    renderer.render(UiLine::CommandOutput(status));
-    renderer.flush();
-    match app.state.phase {
-        UiPhase::Streaming => draw_spinner_now(
-            &mut app.state,
-            &app.buf,
-            ctx,
-            renderer,
-            app.message_queue.len(),
-            app.menu.selected,
-        ),
-        // Idle 下可能开着斜杠菜单:和编辑区重画一样把它留住。
-        UiPhase::Idle => match menu_for_display(&app.buf, ctx) {
-            Some(items) => {
-                if app.menu.selected >= items.len() {
-                    app.menu.selected = 0;
-                }
-                redraw_with_menu(
-                    &app.buf,
-                    &items,
-                    app.menu.selected,
-                    &app.state,
-                    ctx,
-                    renderer,
-                );
-            }
-            None => redraw_idle_plain(&app.buf, &app.state, ctx, renderer),
-        },
-        _ => redraw_idle_plain(&app.buf, &app.state, ctx, renderer),
-    }
 }
 
 fn provider_transition_allows_idle_commit(line: &str) -> bool {
@@ -15741,43 +15486,6 @@ mod provider_transition_input_tests {
             );
         }
     }
-
-    #[test]
-    fn ctrl_o_toggles_verbose_in_every_phase_that_takes_keys() {
-        use crate::state::UiPhase;
-        use crossterm::event::{KeyCode, KeyModifiers};
-        for phase in [
-            UiPhase::Idle,
-            UiPhase::Streaming,
-            UiPhase::Approval,
-            UiPhase::UserInput,
-            UiPhase::RoundCap,
-        ] {
-            assert!(
-                super::toggles_verbose(phase, KeyCode::Char('o'), KeyModifiers::CONTROL),
-                "Ctrl+O must toggle verbose mode in {phase:?}"
-            );
-        }
-        assert!(!super::toggles_verbose(
-            UiPhase::Suspended,
-            KeyCode::Char('o'),
-            KeyModifiers::CONTROL
-        ));
-        assert!(!super::toggles_verbose(
-            UiPhase::Idle,
-            KeyCode::Char('o'),
-            KeyModifiers::NONE
-        ));
-    }
-
-    #[test]
-    fn verbose_feedback_follows_the_interface_language() {
-        use crate::i18n::Locale;
-        assert!(super::verbose_status_text(true, Locale::ZhCn).starts_with("详细模式已开启"));
-        assert!(super::verbose_status_text(false, Locale::ZhCn).starts_with("详细模式已关闭"));
-        assert!(super::verbose_status_text(true, Locale::En).starts_with("Verbose mode enabled"));
-        assert!(super::verbose_status_text(false, Locale::En).starts_with("Verbose mode disabled"));
-    }
 }
 
 /// Try handling a scroll-related key (PageUp/PageDown/Home/End).
@@ -16007,7 +15715,7 @@ fn build_skill_menu_items(
     let mut items: Vec<(String, String)> = Vec::new();
     if let Some(reg) = skill_registry {
         if let Ok(reg) = reg.read() {
-            let skills: Vec<_> = reg.user_invocable();
+            let skills: Vec<_> = reg.user_invocable().collect();
             for skill in &skills {
                 let bare = skill
                     .name
@@ -16188,26 +15896,6 @@ fn build_menu_items_with_efforts(
                 "Return to the API default (keeps capability)".to_string(),
             ));
         }
-        return if items.is_empty() { None } else { Some(items) };
-    }
-
-    // `/upgrade`: what it can do, picked rather than guessed — Enter on a
-    // bare `/upgrade` used to start downloading at once.
-    if let Some(after) = buf.strip_prefix("/upgrade ") {
-        if after.contains(char::is_whitespace) {
-            return None;
-        }
-        let prefix = after.to_ascii_lowercase();
-        use crate::i18n::{t, Msg};
-        let items: Vec<(String, String)> = [
-            ("latest", Msg::UpgradeOptLatest),
-            ("--force", Msg::UpgradeOptForce),
-            ("rollback", Msg::UpgradeOptRollback),
-        ]
-        .into_iter()
-        .filter(|(arg, _)| arg.starts_with(prefix.as_str()))
-        .map(|(arg, about)| (arg.to_string(), t(about).into_owned()))
-        .collect();
         return if items.is_empty() { None } else { Some(items) };
     }
 
@@ -16392,7 +16080,7 @@ fn confirm_idle_menu_selected(
     app.menu.selected = 0;
     if needs_args {
         app.buf.replace_all_text(format!("/{name} "));
-        if matches!(name.as_str(), "skills" | "effort" | "upgrade") {
+        if matches!(name.as_str(), "skills" | "effort") {
             let efforts = selection_allowed_efforts(ctx);
             if let Some(next_items) = build_menu_items_with_efforts(
                 &app.buf.text,
@@ -16407,7 +16095,13 @@ fn confirm_idle_menu_selected(
                 return Ok(());
             }
             if name == "skills" {
-                renderer.render(UiLine::CommandOutput(no_skills_hint()));
+                renderer.render(UiLine::CommandOutput(
+                    "  ⓘ No user-invocable skills installed yet.\n    \
+                    • Drop SKILL.md into ~/.atomcode/skills/<name>/ \n      \
+                      (Windows: %USERPROFILE%\\.atomcode\\skills\\<name>\\)\n    \
+                    • Or install a plugin that ships skills via /plugin install <git-url>\n\n"
+                        .into(),
+                ));
             }
         }
         redraw_idle_plain(&app.buf, &app.state, ctx, renderer);
@@ -16759,12 +16453,18 @@ fn handle_idle_key(
                         // hint pointing at the install paths so they
                         // know what to do next; keep the buffer at
                         // `/skills ` so backspace still recovers.
-                        renderer.render(UiLine::CommandOutput(no_skills_hint()));
+                        renderer.render(UiLine::CommandOutput(
+                            "  \u{24d8} No user-invocable skills installed yet.\n    \
+                            \u{2022} Drop SKILL.md into ~/.atomcode/skills/<name>/ \n      \
+                              (Windows: %USERPROFILE%\\.atomcode\\skills\\<name>\\)\n    \
+                            \u{2022} Or install a plugin that ships skills via /plugin install <git-url>\n\n"
+                                .into(),
+                        ));
                     }
 
                     // `/effort` gateway: render the high/max/off sub-menu
                     // immediately so it doesn't blink out and reappear.
-                    if matches!(name.as_str(), "effort" | "upgrade") {
+                    if name == "effort" {
                         let efforts = selection_allowed_efforts(ctx);
                         if let Some(items) = build_menu_items_with_efforts(
                             &app.buf.text,
@@ -16800,19 +16500,14 @@ fn handle_idle_key(
                 // high|max|off. Tab completes to `/effort <choice> ` (parked,
                 // consistent with the top-level Tab≠Enter rule); Enter commits
                 // `/effort <choice>` and executes via the regular dispatch path.
-                // `/upgrade` has the same shape: its sub-menu rows are the
-                // arguments it takes, so picking `/upgrade` never upgrades
-                // before the person has seen that `rollback` is one of them.
-                let picking_for = ["effort", "upgrade"]
-                    .into_iter()
-                    .find(|command| app.buf.text.starts_with(&format!("/{command} ")));
-                if let Some(command) = picking_for {
+                let in_effort_sub_mode = app.buf.text.starts_with("/effort ");
+                if in_effort_sub_mode {
                     if code == KeyCode::Tab {
-                        app.buf.replace_all_text(format!("/{command} {} ", name));
+                        app.buf.replace_all_text(format!("/effort {} ", name));
                         redraw_idle_plain(&app.buf, &app.state, ctx, renderer);
                         return Ok(());
                     }
-                    let committed = format!("/{command} {}", name);
+                    let committed = format!("/effort {}", name);
                     renderer.render(UiLine::ClearTransient);
                     renderer.render(UiLine::User(committed.clone()));
                     app.buf.clear_text();
@@ -17998,11 +17693,7 @@ pub(crate) fn should_auto_show_onboarding(ctx: &LoopCtx) -> bool {
     if ctx.is_plain_renderer {
         return false;
     }
-    provider_configuration_missing(
-        &ctx.config,
-        atomcode_auth::get_stored_auth(atomcode_coding::config::product_dirs_from_env().user())
-            .is_some(),
-    )
+    provider_configuration_missing(&ctx.config, atomcode_auth::get_stored_auth().is_some())
 }
 
 fn provider_configuration_missing(config: &Config, has_stored_auth: bool) -> bool {
@@ -18047,7 +17738,11 @@ mod onboarding_provider_tests {
 /// Returns None if the format ever drifts — caller falls back to "?"
 /// placeholders so the localized sentence still renders cleanly.
 fn parse_already_latest_versions(s: &str) -> Option<(&str, &str)> {
-    atomcode_updater::already_latest_versions(s)
+    let after_on = s.strip_prefix("already on ")?;
+    let (current, rest) = after_on.split_once(" (latest is ")?;
+    let latest = rest.strip_suffix(". Pass --force to reinstall.")?;
+    let latest = latest.strip_suffix(')')?;
+    Some((current, latest))
 }
 
 #[cfg(test)]
@@ -18265,10 +17960,7 @@ pub(crate) fn request_capability_reload(ctx: &mut LoopCtx) -> Result<(), String>
     }
     ctx.runtime
         .reload_capabilities(
-            atomcode_capabilities::plugin::loader::installed_plugin_skill_dirs(
-                &atomcode_coding::config::product_dirs_from_env(),
-                &ctx.working_dir,
-            ),
+            atomcode_capabilities::plugin::loader::installed_plugin_skill_dirs(&ctx.working_dir),
             ctx.foreground_runtime_id,
             ctx.runtime_event_tx.clone(),
         )
@@ -18324,11 +18016,7 @@ pub(crate) fn reload_skill_registry(
     registry: &mut atomcode_capabilities::skills::SkillRegistry,
     working_dir: &std::path::Path,
 ) -> Vec<String> {
-    atomcode_capabilities::plugin::loader::reload_skill_registry(
-        registry,
-        &atomcode_coding::config::product_dirs_from_env(),
-        working_dir,
-    )
+    atomcode_capabilities::plugin::loader::reload_skill_registry(registry, working_dir)
 }
 
 pub(crate) fn reload_plugins(ctx: &mut LoopCtx) -> (usize, Vec<String>) {
@@ -18336,7 +18024,7 @@ pub(crate) fn reload_plugins(ctx: &mut LoopCtx) -> (usize, Vec<String>) {
     let mut warnings = Vec::new();
     if let Ok(mut guard) = ctx.skill_registry.write() {
         warnings = reload_skill_registry(&mut guard, &ctx.working_dir);
-        loaded = guard.all().len();
+        loaded = guard.all().count();
     }
     ctx.custom_commands = crate::custom_commands::CustomCommandRegistry::load(&ctx.working_dir);
     // Hook executor lives on the agent loop. Send a one-shot rebuild signal
@@ -19119,6 +18807,40 @@ fn handle_streaming_key(
     code: KeyCode,
     modifiers: crossterm::event::KeyModifiers,
 ) -> Result<()> {
+    // Ctrl+O toggles verbose mode (real-time tool output + reasoning visibility)
+    if code == KeyCode::Char('o') && modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
+        app.state.toggle_tool_output();
+        // Show feedback to the user about the current state
+        // Use muted style matching ToolResult's summary_style:
+        // light theme → SGR 90 (DarkGrey), dark theme → SGR 2 (faint)
+        let reset = "\x1b[0m";
+        let mute = if crate::highlight::theme::is_light_for_render() {
+            "\x1b[90m"
+        } else {
+            "\x1b[2m"
+        };
+        let status = if app.state.show_tool_output {
+            format!(
+                "{mute}  ○ Verbose mode enabled (tool output + reasoning visible) (Ctrl+o to hide){reset}\n"
+            )
+        } else {
+            format!(
+                "{mute}  ○ Verbose mode disabled (Ctrl+o to show tool output + reasoning){reset}\n"
+            )
+        };
+        renderer.render(UiLine::CommandOutput(status));
+        renderer.flush();
+        draw_spinner_now(
+            &mut app.state,
+            &app.buf,
+            ctx,
+            renderer,
+            app.message_queue.len(),
+            app.menu.selected,
+        );
+        return Ok(());
+    }
+
     // Ctrl+C always cancels the running turn — highest priority so
     // users have a reliable escape hatch even mid-edit. Also drops
     // the type-ahead queue: a user yanking the escape cord doesn't
@@ -19916,11 +19638,7 @@ fn shell_grant_scope(tool: &str, args: &str) -> Option<String> {
         .and_then(|v| v.get("command").and_then(|c| c.as_str()).map(String::from))
         .unwrap_or_default();
     Some(atomcode_capabilities::tools::shell_always_grant_scope(
-        &atomcode_capabilities::tools::SensitivePaths::of(
-            &atomcode_coding::config::product_dirs_from_env(),
-        ),
-        args,
-        &command,
+        args, &command,
     ))
 }
 
@@ -21851,7 +21569,7 @@ pub(super) fn handle_plugin_job_event(
 pub(super) fn handle_upgrade_event(
     ev: atomcode_updater::UpgradeEvent,
     last_pct: &mut i32,
-    done: &mut Option<(std::path::PathBuf, bool)>,
+    done: &mut Option<std::path::PathBuf>,
     ctx: &mut LoopCtx,
     renderer: &mut dyn Renderer,
 ) {
@@ -21913,7 +21631,7 @@ pub(super) fn handle_upgrade_event(
             // Store the *original* exe path so `re_exec_self` uses it
             // instead of `current_exe()` (which on Windows returns the
             // renamed `.atomcode.rolling` after `replace_binary`).
-            *done = Some((exe, false));
+            *done = Some(exe);
             // Tell the agent to shut down so the loop exits cleanly.
             ctx.runtime
                 .dispatch(atomcode_coding::DriverCommand::Shutdown)
@@ -21947,11 +21665,7 @@ pub(super) fn handle_upgrade_event(
                 ));
             }
         }
-        UpgradeEvent::RolledBack {
-            exe,
-            backup,
-            updates,
-        } => {
+        UpgradeEvent::RolledBack { exe, backup } => {
             renderer.render(UiLine::CommandOutput(
                 crate::i18n::t(crate::i18n::Msg::UpgradeRolledBack {
                     exe: &exe.display().to_string(),
@@ -21959,12 +21673,7 @@ pub(super) fn handle_upgrade_event(
                 })
                 .into_owned(),
             ));
-            // Said here, before the restart: the older build started next
-            // knows nothing about the pause this rollback made.
-            for note in atomcode_updater::rollback_notes(&updates) {
-                renderer.render(UiLine::CommandOutput(note));
-            }
-            *done = Some((exe, true));
+            *done = Some(exe);
             ctx.runtime
                 .dispatch(atomcode_coding::DriverCommand::Shutdown)
                 .ok();
@@ -23663,7 +23372,7 @@ fn project_kernel_event(
 ) -> Option<AgentEvent> {
     use atomcode_kernel::event::AgentEvent as Kernel;
     match event {
-        Kernel::TurnStarted { .. } => Some(AgentEvent::PhaseChange(AgentPhase::Thinking)),
+        Kernel::TurnStarted => Some(AgentEvent::PhaseChange(AgentPhase::Thinking)),
         Kernel::TextDelta(text) => Some(AgentEvent::TextDelta(text)),
         Kernel::Reasoning(text) => Some(AgentEvent::ReasoningDelta(text)),
         Kernel::ToolCallStreaming {
@@ -23727,7 +23436,6 @@ fn project_kernel_event(
             snapshot: atomcode_kernel::message::SessionSnapshot::new(Vec::new()),
         }),
         Kernel::Warning(message) => Some(AgentEvent::Warning(message)),
-        Kernel::ContextAdded { text, source } => Some(AgentEvent::ContextAdded { text, source }),
         Kernel::ProviderRetry {
             attempt,
             max_attempts,
@@ -25086,22 +24794,13 @@ fn handle_runtime_event(
                 }
             }
         }
-        bg_runtime::RuntimeEventPayload::Driver(bg_runtime::DriverEvent::LocalShellLine {
-            line,
-        }) => {
-            // The `!` shell streams: the person ran it precisely to watch it.
-            renderer.render(UiLine::CommandOutput(line));
-            renderer.flush();
-        }
         bg_runtime::RuntimeEventPayload::Driver(bg_runtime::DriverEvent::LocalShellFinished {
             output,
             failed,
         }) => {
-            // The body already went by line by line; this is only the status
-            // tail, and a clean run with output has none.
             if failed {
                 renderer.render(UiLine::Error(output));
-            } else if !output.is_empty() {
+            } else {
                 renderer.render(UiLine::CommandOutput(output));
             }
             renderer.flush();
@@ -25621,10 +25320,7 @@ fn apply_native_session_changed(
     if ctx.current_session.id == session_id {
         return Ok(());
     }
-    let project_bucket = atomcode_capabilities::session::SessionManager::project_hash(
-        &working_dir,
-        &atomcode_coding::config::product_dirs_from_env(),
-    );
+    let project_bucket = atomcode_capabilities::session::SessionManager::project_hash(&working_dir);
     let session = match atomcode_daemon::legacy_convert::load_catalog_session_view_in_project(
         &project_bucket,
         &session_id,
@@ -25712,12 +25408,8 @@ fn commit_native_session_changed(
 
     commit_working_dir_projection(ctx, working_dir);
     ctx.current_session_id = Some(session_id.clone());
-    ctx.current_session_project_bucket = Some(
-        atomcode_capabilities::session::SessionManager::project_hash(
-            &ctx.working_dir,
-            &atomcode_coding::config::product_dirs_from_env(),
-        ),
-    );
+    ctx.current_session_project_bucket =
+        Some(atomcode_capabilities::session::SessionManager::project_hash(&ctx.working_dir));
     ctx.loop_ctrl = None;
     state.loop_label = None;
     state.loop_round = 0;
@@ -25936,218 +25628,47 @@ fn escape_runtime_context(value: &str) -> String {
         .replace('>', "&gt;")
 }
 
-/// Wall-clock ceiling for a user-typed `!cmd`. The bridge-era runner used 300s
-/// (a person watching a build tolerates more than the model's 60s default),
-/// and the idle kill in `run_shell` catches the truly stuck case sooner.
-const LOCAL_SHELL_TIMEOUT_SECS: u64 = 300;
-
-/// What a finished `!cmd` leaves behind, given that its body already streamed.
-///
-/// Returns `(tail, context, failed)`: `tail` is the status line the person has
-/// not seen yet (empty on a clean run that printed something); `context` is the
-/// full `<bash-output>` body the model receives on its next turn, framed the way
-/// the model's own `bash` tool frames a result so the two read alike.
-fn format_local_shell_outcome(
-    outcome: &atomcode_capabilities::tools::ShellOutcome,
-) -> (String, String, bool) {
-    use atomcode_capabilities::tools::ShellExit;
-    let stdout = outcome.stdout.trim_end();
-    let stderr = outcome.stderr.trim_end();
-    let mut body = String::new();
-    if !stdout.is_empty() {
-        body.push_str(stdout);
-    }
-    if !stderr.trim().is_empty() {
-        if !body.is_empty() {
-            body.push('\n');
-        }
-        body.push_str("[stderr]\n");
-        body.push_str(stderr);
-    }
-    let (marker, failed) = match outcome.exit {
-        ShellExit::Exited { code: Some(0), .. } => (String::new(), false),
-        ShellExit::Exited {
-            code: Some(code), ..
-        } => (format!("[exit code {code}]"), true),
-        ShellExit::Exited { code: None, .. } => {
-            ("[process terminated by signal]".to_string(), true)
-        }
-        ShellExit::KilledIdle => (
-            format!(
-                "[command killed after {}s without output]",
-                atomcode_capabilities::tools::bash::SILENT_KILL_SECS
-            ),
-            true,
-        ),
-        ShellExit::KilledTimeout => (
-            format!("[command timed out ({LOCAL_SHELL_TIMEOUT_SECS}s)]"),
-            true,
-        ),
-    };
-    let tail = if marker.is_empty() && body.is_empty() {
-        "(no output)".to_string()
-    } else {
-        marker.clone()
-    };
-    let mut context = body;
-    if !marker.is_empty() {
-        if !context.is_empty() {
-            context.push('\n');
-        }
-        context.push_str(&marker);
-    }
-    if context.is_empty() {
-        context = "(no output)".to_string();
-    }
-    (tail, context, failed)
-}
-
 fn run_local_shell_command(command: String, ctx: &LoopCtx) {
+    use atomcode_kernel::tool::Tool;
+
     let working_dir = ctx.working_dir.clone();
     let runtime = ctx.runtime.clone();
     let runtime_id = ctx.foreground_runtime_id;
     let event_tx = ctx.runtime_event_tx.clone();
     tokio::spawn(async move {
-        // Stream the body as it happens, one complete line per event: a chunk
-        // boundary is a read size, not a line, and a row per half-line would
-        // tear the output.
-        let pending = std::sync::Mutex::new(String::new());
-        let send_line = |line: String| {
-            let _ = event_tx.send(bg_runtime::RuntimeEvent {
-                runtime_id,
-                event: bg_runtime::RuntimeEventPayload::Driver(
-                    bg_runtime::DriverEvent::LocalShellLine { line },
-                ),
-            });
+        let tool = atomcode_capabilities::tools::BashTool;
+        let args = serde_json::json!({ "command": command.clone() }).to_string();
+        let tool_ctx = atomcode_kernel::tool::ToolContext {
+            working_dir,
+            cancel: tokio_util::sync::CancellationToken::new(),
+            progress: atomcode_kernel::tool::ProgressSink::noop(),
+            requester: None,
         };
-        let outcome = atomcode_capabilities::tools::run_shell(
-            &atomcode_capabilities::world::LocalShell,
-            &command,
-            &working_dir,
-            LOCAL_SHELL_TIMEOUT_SECS,
-            |chunk| {
-                let mut buf = pending.lock().unwrap();
-                buf.push_str(chunk);
-                while let Some(nl) = buf.find('\n') {
-                    let line = buf[..nl].to_string();
-                    buf.drain(..=nl);
-                    send_line(line);
-                }
-            },
-        )
-        .await;
-        let rest = std::mem::take(&mut *pending.lock().unwrap());
-        if !rest.is_empty() {
-            send_line(rest);
-        }
-
-        let (tail, content, failed) = format_local_shell_outcome(&outcome);
-        let content = truncate_local_shell_output(content);
+        let result = tool.execute(&args, &tool_ctx).await;
+        let output = truncate_local_shell_output(result.content);
         let context = format!(
             "<bash-input>{}</bash-input>\n<bash-output>{}</bash-output>",
             escape_runtime_context(&command),
-            escape_runtime_context(&content)
+            escape_runtime_context(&output)
         );
         let queue_failed = runtime
             .dispatch(atomcode_coding::DriverCommand::QueueLocalContext(
                 atomcode_coding::LocalContextInput { content: context },
             ))
             .is_err();
+        let failed = result.is_error || queue_failed;
         let output = if queue_failed {
-            format!("{tail}\n[failed to add shell output to runtime context]")
+            format!("{output}\n[failed to add shell output to runtime context]")
         } else {
-            tail
+            output
         };
         let _ = event_tx.send(bg_runtime::RuntimeEvent {
             runtime_id,
             event: bg_runtime::RuntimeEventPayload::Driver(
-                bg_runtime::DriverEvent::LocalShellFinished {
-                    output,
-                    failed: failed || queue_failed,
-                },
+                bg_runtime::DriverEvent::LocalShellFinished { output, failed },
             ),
         });
     });
-}
-
-#[cfg(test)]
-mod local_shell_outcome_tests {
-    use super::format_local_shell_outcome;
-    use atomcode_capabilities::tools::{ShellExit, ShellOutcome};
-
-    fn outcome(stdout: &str, stderr: &str, exit: ShellExit) -> ShellOutcome {
-        ShellOutcome {
-            stdout: stdout.into(),
-            stderr: stderr.into(),
-            exit,
-            elapsed_secs: 0.0,
-        }
-    }
-
-    #[test]
-    fn a_clean_run_with_output_leaves_no_tail_but_a_full_context() {
-        let (tail, context, failed) = outcome(
-            "file1\nfile2\n",
-            "",
-            ShellExit::Exited {
-                success: true,
-                code: Some(0),
-            },
-        )
-        .pipe(format_local_shell_outcome);
-        assert!(!failed);
-        assert_eq!(tail, "", "the body already streamed; nothing to add");
-        assert_eq!(context, "file1\nfile2");
-    }
-
-    #[test]
-    fn a_clean_run_with_no_output_says_so() {
-        let (tail, context, failed) = outcome(
-            "",
-            "",
-            ShellExit::Exited {
-                success: true,
-                code: Some(0),
-            },
-        )
-        .pipe(format_local_shell_outcome);
-        assert!(!failed);
-        assert_eq!(tail, "(no output)");
-        assert_eq!(context, "(no output)");
-    }
-
-    #[test]
-    fn a_failure_reports_the_code_and_frames_stderr_like_the_bash_tool() {
-        let (tail, context, failed) = outcome(
-            "partial\n",
-            "boom\n",
-            ShellExit::Exited {
-                success: false,
-                code: Some(2),
-            },
-        )
-        .pipe(format_local_shell_outcome);
-        assert!(failed);
-        assert_eq!(tail, "[exit code 2]");
-        assert_eq!(context, "partial\n[stderr]\nboom\n[exit code 2]");
-    }
-
-    #[test]
-    fn a_kill_is_named_for_its_reason() {
-        let (tail, _, failed) =
-            outcome("", "", ShellExit::KilledTimeout).pipe(format_local_shell_outcome);
-        assert!(failed);
-        assert!(tail.starts_with("[command timed out ("), "{tail}");
-        let (tail, _, _) = outcome("x", "", ShellExit::KilledIdle).pipe(format_local_shell_outcome);
-        assert!(tail.contains("without output"), "{tail}");
-    }
-
-    trait Pipe: Sized {
-        fn pipe<R>(self, f: impl FnOnce(&Self) -> R) -> R {
-            f(&self)
-        }
-    }
-    impl Pipe for ShellOutcome {}
 }
 
 fn handle_undo_success(
@@ -27666,9 +27187,6 @@ fn handle_agent_event(
             // guard: allowing it may forward secrets/sensitive content to the provider.
             let note = (call.name == "bash"
                 && atomcode_capabilities::tools::bash_command_may_expose_credentials(
-                    &atomcode_capabilities::tools::SensitivePaths::of(
-                        &atomcode_coding::config::product_dirs_from_env(),
-                    ),
                     &call.arguments,
                 ))
             .then(|| crate::i18n::t(crate::i18n::Msg::CredentialApprovalNote).into_owned());
@@ -28071,42 +27589,6 @@ fn handle_agent_event(
             // snapshot, so this is normally a no-op.
             persist_current_session(ctx, snapshot, renderer);
         }
-        AgentEvent::ContextAdded { text, source } => {
-            // Model-visible context the person did not type: a delegated
-            // agent's report, a continuation the engine asked for, a memory
-            // block. Muted and labelled, because the ONE thing it must not look
-            // like is the user speaking — that confusion is why the event
-            // exists. Before it, a lead told its own user "your previous
-            // message was actually the subagent's words": the report had
-            // reached the model and nothing else.
-            use atomcode_kernel::event::ContextSource as Src;
-            let label = match &source {
-                Src::Peer { from } => format!(
-                    "{} {from}",
-                    crate::i18n::t(crate::i18n::Msg::ContextFromPeer)
-                ),
-                Src::Memory => crate::i18n::t(crate::i18n::Msg::ContextFromMemory).into_owned(),
-                Src::Reminder => crate::i18n::t(crate::i18n::Msg::ContextFromReminder).into_owned(),
-                Src::Continuation => {
-                    crate::i18n::t(crate::i18n::Msg::ContextFromContinuation).into_owned()
-                }
-                Src::CompactionSummary => {
-                    crate::i18n::t(crate::i18n::Msg::ContextFromCompaction).into_owned()
-                }
-                // `ContextSource` is `#[non_exhaustive]`: a source this build
-                // does not know still gets drawn, unlabelled, rather than
-                // silently dropped. Dropping it is the bug.
-                _ => String::new(),
-            };
-            for line in text.lines() {
-                renderer.render(UiLine::Muted(if label.is_empty() {
-                    format!("↳ {line}")
-                } else {
-                    format!("↳ {label} · {line}")
-                }));
-            }
-            renderer.flush();
-        }
         AgentEvent::Warning(w) => {
             // Non-fatal — flush a yellow advisory line and let the turn
             // continue. Don't touch state/think/buffers; the warning is
@@ -28161,12 +27643,8 @@ fn handle_agent_event(
             // without bumping the AgentEvent contract. Char count helps
             // users notice degenerate near-zero VL outputs that would
             // mislead the main model into "image failed" responses.
-            // The mark is this screen's, not the message's: the table says what
-            // happened, each screen says how "it worked" looks.
-            let msg = format!(
-                "✓ {}",
-                crate::i18n::t(crate::i18n::Msg::VisionPreprocessSuccess { char_count })
-            );
+            let msg = crate::i18n::t(crate::i18n::Msg::VisionPreprocessSuccess { char_count })
+                .into_owned();
             renderer.render(UiLine::VisionPreprocessSuccess {
                 msg,
                 model: vl_model,
@@ -29293,18 +28771,6 @@ fn clipboard_image_hint_state(
                     img.bytes.as_ref(),
                 ))),
                 Err(arboard::Error::ContentNotAvailable) => Ok(None),
-                // The Snipping Tool's and Qt tools' CF_DIBV5 makes arboard fail
-                // rather than say "no image" — the paste path already falls back
-                // to the raw CF_DIB for it (see `try_paste_clipboard_image`), and the
-                // hint has to see the same picture or it never offers one. The
-                // fingerprint is the paste path's, so a picture already on the
-                // line is recognised as the one on the clipboard.
-                #[cfg(windows)]
-                Err(_) => read_raw_cf_dib()
-                    .and_then(|dib| decode_cf_dib_to_rgba(&dib))
-                    .map(|(w, h, rgba)| Some(rgba_fingerprint(w as usize, h as usize, &rgba)))
-                    .ok_or(()),
-                #[cfg(not(windows))]
                 Err(_) => Err(()),
             },
             Err(_) => Err(()),
@@ -29594,8 +29060,7 @@ pub(crate) fn build_status(state: &UiState, ctx: &LoopCtx) -> crate::render::Sta
     let no_provider = status_provider_unconfigured(
         unavailable_reason,
         &ctx.config,
-        atomcode_auth::get_stored_auth(atomcode_coding::config::product_dirs_from_env().user())
-            .is_some(),
+        atomcode_auth::get_stored_auth().is_some(),
     );
     let provider_waiting = matches!(
         runtime_availability,
@@ -32672,18 +32137,4 @@ mod round_cap_key_tests {
         p.move_down(); // clamped: cursor stays 1
         assert!(!p.chosen_continue(), "move_down at 1 is idempotent");
     }
-}
-
-/// What `/skills` says when there is nothing to list: where to drop a skill,
-/// named after this host's own user tree rather than a fixed name.
-fn no_skills_hint() -> String {
-    let skills = atomcode_coding::config::product_dirs_from_env()
-        .user()
-        .join("skills");
-    format!(
-        "  \u{24d8} No user-invocable skills installed yet.\n    \
-         \u{2022} Drop SKILL.md into {}/<name>/\n    \
-         \u{2022} Or install a plugin that ships skills via /plugin install <git-url>\n\n",
-        skills.display()
-    )
 }

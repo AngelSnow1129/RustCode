@@ -197,41 +197,6 @@ impl Default for ReviewToolConfig {
     }
 }
 
-/// Somewhere other than this turn to run a review, when the host has one.
-///
-/// A review takes minutes, and the conversation that asked for it is not a place
-/// to wait them out in. A host that keeps sessions running out of view (the
-/// terminal's background sessions) offers one here; the review then runs there,
-/// the same as `/review`, and its findings come back to the conversation that
-/// asked when it finishes. Hosts without one — and a call made from a
-/// conversation that is itself out of view — run it inline, as before.
-#[async_trait]
-pub trait ReviewDelegate: Send + Sync + std::fmt::Debug {
-    /// Start `task` elsewhere, in `working_dir` — where this conversation is
-    /// now, which is where the changes are. `scope` is the host's word for the
-    /// changes (`working_tree`, `staged`, or a base ref), so it can say how many
-    /// files are in play; `None` when it has none.
-    ///
-    /// `None` means "not here": run it inline. `Some(Err)` means the host
-    /// would have, but could not (all its places are taken, say) — also inline,
-    /// since the person still asked for a review.
-    async fn delegate(
-        &self,
-        working_dir: &Path,
-        task: String,
-        scope: Option<String>,
-    ) -> Option<Result<DelegatedReview, String>>;
-}
-
-/// A review now running out of view.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DelegatedReview {
-    /// Its place in the host's list of background sessions, from 1.
-    pub slot: u32,
-    /// How many files the scope touches, when the host could count them.
-    pub files: Option<usize>,
-}
-
 /// The `code_review` tool. Mount it in any host agent's registry to give that agent a
 /// read-only "review the current changes" capability.
 pub struct ReviewTool {
@@ -240,17 +205,10 @@ pub struct ReviewTool {
     max_rounds: Option<u32>,
     max_turn_duration: Option<Duration>,
     tool_loop_policy: Option<ToolLoopPolicy>,
-    delegate: Option<Arc<dyn ReviewDelegate>>,
-    /// Where the product keeps its data — handed to the child reviewer's tools.
-    dirs: atomcode_capabilities::ProductDirs,
 }
 
 impl ReviewTool {
-    pub fn new(
-        provider: SharedReviewProvider,
-        cfg: ReviewToolConfig,
-        dirs: atomcode_capabilities::ProductDirs,
-    ) -> Self {
+    pub fn new(provider: SharedReviewProvider, cfg: ReviewToolConfig) -> Self {
         let (max_rounds, max_turn_duration) = resolve_embedded_review_limits(
             std::env::var("ATOMCODE_REVIEW_MAX_ROUNDS").ok().as_deref(),
             std::env::var("ATOMCODE_REVIEW_MAX_DURATION_SECS")
@@ -260,10 +218,8 @@ impl ReviewTool {
         Self {
             provider,
             cfg,
-            dirs,
             max_rounds,
             max_turn_duration,
-            delegate: None,
             tool_loop_policy: crate::config::resolve_tool_loop_policy(
                 std::env::var("ATOMCODE_TOOL_LOOP_WARNING_THRESHOLD")
                     .ok()
@@ -279,12 +235,6 @@ impl ReviewTool {
     /// its thresholds applies to nested review work as well.
     pub fn with_tool_loop_policy(mut self, policy: Option<ToolLoopPolicy>) -> Self {
         self.tool_loop_policy = policy;
-        self
-    }
-
-    /// Run reviews out of view where the host can (see [`ReviewDelegate`]).
-    pub fn with_delegate(mut self, delegate: Option<Arc<dyn ReviewDelegate>>) -> Self {
-        self.delegate = delegate;
         self
     }
 }
@@ -363,21 +313,6 @@ enum ReviewScope {
     Range { base: String, head: String },
     Commit { rev: String },
     LegacyBase { base: String },
-}
-
-impl ReviewScope {
-    /// The host's word for this scope — what it counts files by
-    /// (`changed_files` in the terminal host). `None` where the host has no
-    /// such word: a single commit, a range ending anywhere but `HEAD`, and the
-    /// legacy base (whose diff includes the working tree).
-    fn host_word(&self) -> Option<String> {
-        match self {
-            ReviewScope::WorkingTree => Some("working_tree".into()),
-            ReviewScope::Staged => Some("staged".into()),
-            ReviewScope::Range { base, head } if head == "HEAD" => Some(base.clone()),
-            _ => None,
-        }
-    }
 }
 
 impl Args {
@@ -506,9 +441,7 @@ impl Tool for ReviewTool {
          exact scope. Runs a separate reviewer agent and never modifies files. Choose `depth` by \
          the change's risk and size (see the `depth` parameter): default to `single`; escalate to \
          `deep`/`deep+verify` only for substantive, risky, or security-sensitive changes, or when \
-         the user asks for a thorough/careful review. Where the host can, the review runs in a \
-         background session and this call returns at once; its findings then arrive later as a \
-         message in this conversation."
+         the user asks for a thorough/careful review."
     }
     fn parameters_schema(&self) -> serde_json::Value {
         json!({
@@ -584,24 +517,6 @@ impl Tool for ReviewTool {
         {
             return ok(manifest.render_confirmation());
         }
-
-        // The scope is settled — non-empty, and confirmed if it had to be — so
-        // this is the review the person asked for. Where the host can run it out
-        // of view, it goes there and this turn is free again. After the
-        // preflight on purpose: a scope that needs a yes is asked about here,
-        // where the person is, not in a session nobody is looking at. The
-        // arguments go along as they came, `confirm_scope` included, so the
-        // review over there starts on the same scope without asking again.
-        if let Some(delegate) = &self.delegate {
-            let task = delegated_task(args);
-            if let Some(Ok(started)) = delegate
-                .delegate(&ctx.working_dir, task, scope.host_word())
-                .await
-            {
-                return ok(delegated_reply(&started));
-            }
-        }
-
         ctx.progress.emit(format!(
             "{REVIEW_ACTIVITY_MARKER}review · analyzing {} file(s)",
             manifest.files
@@ -626,13 +541,7 @@ impl Tool for ReviewTool {
 
         // Shared per-agent config seed (both paths).
         let make_cfg = || {
-            let mut cfg = ReviewAgentConfig::new(
-                "",
-                "",
-                &self.cfg.model,
-                &ctx.working_dir,
-                self.dirs.clone(),
-            );
+            let mut cfg = ReviewAgentConfig::new("", "", &self.cfg.model, &ctx.working_dir);
             cfg.context_window = self.cfg.context_window;
             cfg.stream_timeout = self.cfg.stream_timeout;
             cfg.first_token_timeout = self.cfg.first_token_timeout;
@@ -760,35 +669,6 @@ impl Tool for ReviewTool {
 // ---------------------------------------------------------------------------
 // Helpers (pure where possible, testable)
 // ---------------------------------------------------------------------------
-
-/// What a background session is asked to do: this very call, over there.
-fn delegated_task(args: &str) -> String {
-    let args = match args.trim() {
-        "" => "{}",
-        args => args,
-    };
-    format!(
-        "Review the requested changes: call the `code_review` tool with {args}, then give me a \
-         concise summary of its findings."
-    )
-}
-
-/// What the model is told when the review went out of view — enough that it
-/// neither waits for it, nor starts a second one, nor says nothing to the person.
-fn delegated_reply(started: &DelegatedReview) -> String {
-    let files = match started.files {
-        Some(n) => format!(" ({n} file(s) in scope)"),
-        None => String::new(),
-    };
-    format!(
-        "code_review: started in background session [#{slot}]{files}. It runs on its own; \
-         its findings will come back to this conversation as a message when it finishes. Do \
-         not wait for it, poll it, or call code_review again for these changes. Tell the \
-         person in one short sentence that the review is running in the background, then \
-         carry on with anything else they asked, or end your turn.",
-        slot = started.slot
-    )
-}
 
 fn ok(content: impl Into<String>) -> ToolResult {
     ToolResult {
@@ -1024,13 +904,6 @@ fn render_incomplete_review(
 
 #[cfg(test)]
 mod tests {
-    fn test_dirs() -> atomcode_capabilities::ProductDirs {
-        atomcode_capabilities::ProductDirs::new(
-            std::env::temp_dir().join("review-test-tree"),
-            ".ours",
-        )
-    }
-
     use super::*;
     use async_trait::async_trait;
     use atomcode_kernel::message::{Message, Role};
@@ -1179,11 +1052,7 @@ mod tests {
                 _ => {}
             }
         }
-        let tool = ReviewTool::new(
-            Arc::new(RwLock::new(None)),
-            ReviewToolConfig::default(),
-            test_dirs(),
-        );
+        let tool = ReviewTool::new(Arc::new(RwLock::new(None)), ReviewToolConfig::default());
         assert_no_forbidden_keys(&tool.parameters_schema(), "$");
     }
 
@@ -1538,7 +1407,6 @@ mod tests {
                 max_changed_lines_without_confirmation: 0,
                 ..Default::default()
             },
-            test_dirs(),
         );
         let ctx = ToolContext {
             working_dir: dir.path().to_path_buf(),
@@ -1553,127 +1421,6 @@ mod tests {
             !result.is_error && result.content.contains("reviewer was NOT started"),
             "{}",
             result.content
-        );
-    }
-
-    /// A delegate that records what it was handed, and either takes the review
-    /// (`Some(Ok)`) or says "not here" (`None`).
-    #[derive(Debug)]
-    struct Recorded {
-        takes: bool,
-        asked: std::sync::Mutex<Vec<(String, Option<String>)>>,
-    }
-
-    #[async_trait]
-    impl ReviewDelegate for Recorded {
-        async fn delegate(
-            &self,
-            _working_dir: &Path,
-            task: String,
-            scope: Option<String>,
-        ) -> Option<Result<DelegatedReview, String>> {
-            self.asked.lock().unwrap().push((task, scope));
-            self.takes.then_some(Ok(DelegatedReview {
-                slot: 2,
-                files: Some(1),
-            }))
-        }
-    }
-
-    fn ctx_in(dir: &Path) -> ToolContext {
-        ToolContext {
-            working_dir: dir.to_path_buf(),
-            cancel: Default::default(),
-            progress: ProgressSink::noop(),
-            requester: None,
-        }
-    }
-
-    /// Where the host can run it out of view, the review goes there — this call
-    /// returns at once, says so, and hands over the arguments as they came.
-    /// Nothing is reviewed here: the provider slot is empty, so an inline run
-    /// would have been an error.
-    #[tokio::test]
-    async fn a_host_that_can_runs_the_review_out_of_view() {
-        if Command::new("git").arg("--version").output().is_err() {
-            return;
-        }
-        let dir = repo_with_working_tree_change();
-        let delegate = Arc::new(Recorded {
-            takes: true,
-            asked: Default::default(),
-        });
-        let tool = ReviewTool::new(
-            Arc::new(RwLock::new(None)),
-            ReviewToolConfig::default(),
-            test_dirs(),
-        )
-        .with_delegate(Some(delegate.clone()));
-
-        let result = tool
-            .execute(r#"{"depth":"deep"}"#, &ctx_in(dir.path()))
-            .await;
-
-        assert!(!result.is_error, "{}", result.content);
-        assert!(
-            result.content.contains("background session [#2]"),
-            "{}",
-            result.content
-        );
-        assert!(result.content.contains("Do not wait"), "{}", result.content);
-        let asked = delegate.asked.lock().unwrap();
-        assert_eq!(asked.len(), 1);
-        assert!(asked[0].0.contains(r#"{"depth":"deep"}"#), "{}", asked[0].0);
-        assert_eq!(asked[0].1.as_deref(), Some("working_tree"));
-    }
-
-    /// "Not here" — a conversation out of view, a host without background
-    /// sessions — is today's review, inline. And a scope that needs a yes is
-    /// asked about here, before anything goes out of view.
-    #[tokio::test]
-    async fn not_here_or_not_yet_confirmed_stays_inline() {
-        if Command::new("git").arg("--version").output().is_err() {
-            return;
-        }
-        let dir = repo_with_working_tree_change();
-        let declines = Arc::new(Recorded {
-            takes: false,
-            asked: Default::default(),
-        });
-        let tool = ReviewTool::new(
-            Arc::new(RwLock::new(None)),
-            ReviewToolConfig::default(),
-            test_dirs(),
-        )
-        .with_delegate(Some(declines.clone()));
-        let result = tool.execute("{}", &ctx_in(dir.path())).await;
-        // Inline, with no provider wired in this test: the error is the proof it
-        // tried to review here rather than claiming it went elsewhere.
-        assert!(result.content.contains("not wired"), "{}", result.content);
-        assert_eq!(declines.asked.lock().unwrap().len(), 1);
-
-        let takes = Arc::new(Recorded {
-            takes: true,
-            asked: Default::default(),
-        });
-        let tool = ReviewTool::new(
-            Arc::new(RwLock::new(None)),
-            ReviewToolConfig {
-                max_changed_lines_without_confirmation: 0,
-                ..Default::default()
-            },
-            test_dirs(),
-        )
-        .with_delegate(Some(takes.clone()));
-        let result = tool.execute("{}", &ctx_in(dir.path())).await;
-        assert!(
-            result.content.contains("reviewer was NOT started"),
-            "{}",
-            result.content
-        );
-        assert!(
-            takes.asked.lock().unwrap().is_empty(),
-            "a scope waiting for a yes never leaves this conversation"
         );
     }
 
@@ -1730,7 +1477,6 @@ mod tests {
                 model: "mock-model".into(),
                 ..Default::default()
             },
-            test_dirs(),
         );
         let ctx = ToolContext {
             working_dir: dir.path().to_path_buf(),
@@ -1764,7 +1510,6 @@ mod tests {
                 request_timeout: Duration::from_secs(700),
                 ..Default::default()
             },
-            test_dirs(),
         );
         let ctx = ToolContext {
             working_dir: dir.path().to_path_buf(),
@@ -1813,7 +1558,6 @@ mod tests {
                 model: "mock-model".into(),
                 ..Default::default()
             },
-            test_dirs(),
         );
         let ctx = ToolContext {
             working_dir: root.to_path_buf(),
@@ -1861,7 +1605,7 @@ mod tests {
     #[test]
     fn depth_schema_guides_when_to_escalate() {
         let provider: SharedReviewProvider = Arc::new(RwLock::new(None));
-        let tool = ReviewTool::new(provider, ReviewToolConfig::default(), test_dirs());
+        let tool = ReviewTool::new(provider, ReviewToolConfig::default());
         let schema = tool.parameters_schema();
         let depth_desc = schema["properties"]["depth"]["description"]
             .as_str()
@@ -1909,7 +1653,6 @@ mod tests {
                 model: "mock-model".into(),
                 ..Default::default()
             },
-            test_dirs(),
         );
         let ctx = ToolContext {
             working_dir: dir.path().to_path_buf(),
@@ -1954,7 +1697,6 @@ mod tests {
                 model: "mock-model".into(),
                 ..Default::default()
             },
-            test_dirs(),
         );
         let ctx = ToolContext {
             working_dir: dir.path().to_path_buf(),
@@ -2000,7 +1742,7 @@ mod tests {
 
         // No working-tree change → clean. Provider must NOT be needed (early return).
         let provider: SharedReviewProvider = Arc::new(RwLock::new(None));
-        let tool = ReviewTool::new(provider, ReviewToolConfig::default(), test_dirs());
+        let tool = ReviewTool::new(provider, ReviewToolConfig::default());
         let ctx = ToolContext {
             working_dir: root.to_path_buf(),
             cancel: Default::default(),

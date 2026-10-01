@@ -238,19 +238,13 @@ fn build_turn_terminal_notification_text(
     (title, body)
 }
 
-/// A title in the product's own name: `{brand}` is whatever the host settled
-/// (`atomcode_config::i18n::set_brand`), so a fork's notifications say its name.
-fn branded(text: &'static str) -> Cow<'static, str> {
-    atomcode_config::i18n::substitute_placeholders(Cow::Borrowed(text))
-}
-
 fn build_turn_system_notification_text(turn: &TurnNotification<'_>) -> (Cow<'static, str>, String) {
     let title = match turn.stop_reason {
-        NotifyStopReason::Natural => branded("{brand} done"),
-        NotifyStopReason::Cancelled => branded("{brand} cancelled"),
-        NotifyStopReason::Error => branded("{brand} failed"),
-        NotifyStopReason::TurnLimit => branded("{brand} stopped"),
-        NotifyStopReason::StepLimit => branded("{brand} stopped"),
+        NotifyStopReason::Natural => Cow::Borrowed("AtomCode done"),
+        NotifyStopReason::Cancelled => Cow::Borrowed("AtomCode cancelled"),
+        NotifyStopReason::Error => Cow::Borrowed("AtomCode failed"),
+        NotifyStopReason::TurnLimit => Cow::Borrowed("AtomCode stopped"),
+        NotifyStopReason::StepLimit => Cow::Borrowed("AtomCode stopped"),
     };
     let status = match turn.stop_reason {
         NotifyStopReason::Natural => "Done",
@@ -276,7 +270,7 @@ fn build_system_notification_text(turn: &TurnNotification<'_>) -> (Cow<'static, 
 fn build_approval_notification_text(
     approval: &ApprovalNotification<'_>,
 ) -> (Cow<'static, str>, String) {
-    let title = branded("{brand} approval needed");
+    let title = Cow::Borrowed("AtomCode approval needed");
     let mut body = format!("{} is waiting for Y/A/N", approval.tool_name);
     if let Some(scope) = approval
         .working_dir
@@ -374,7 +368,7 @@ fn write_iterm2_notification(out: &mut dyn Write, title: &str, body: &str) -> io
         (false, false) => sanitize_plain_text(&format!("{title}: {body}")),
         (false, true) => sanitize_plain_text(title),
         (true, false) => sanitize_plain_text(body),
-        (true, true) => branded("{brand}").into_owned(),
+        (true, true) => String::from("AtomCode"),
     };
     write!(out, "\x1b]9;{payload}\x1b\\")?;
     Ok(())
@@ -572,30 +566,6 @@ mod tests {
         assert_eq!(body, "Done · 12.0s · 3 rounds · 5 tools");
     }
 
-    /// A fork settles its own brand and its notifications carry it — the titles
-    /// are not a second place the upstream name is written down.
-    #[test]
-    fn titles_say_the_brand_the_host_settled() {
-        let _lock = atomcode_config::i18n::test_lock();
-        atomcode_config::i18n::set_brand("ForkCode", "Fork OAuth");
-        let (turn, _) = build_system_notification_text(&TurnNotification {
-            duration: Duration::from_secs(1),
-            turn_count: 0,
-            tool_call_count: 0,
-            total_tokens: None,
-            stop_reason: NotifyStopReason::Error,
-            working_dir: None,
-        });
-        let (approval, _) = build_approval_notification_text(&ApprovalNotification {
-            tool_name: "bash",
-            detail: None,
-            working_dir: None,
-        });
-        atomcode_config::i18n::set_brand("", "");
-        assert_eq!(turn, "ForkCode failed");
-        assert_eq!(approval, "ForkCode approval needed");
-    }
-
     #[test]
     fn terminal_text_is_compact_for_iterm() {
         let (title, body) = build_turn_terminal_notification_text(
@@ -682,7 +652,7 @@ mod tests {
     #[test]
     fn apple_terminal_has_no_native_terminal_notification_path() {
         let plan = NotificationPlan {
-            title: branded("{brand} done"),
+            title: Cow::Borrowed("AtomCode done"),
             body: "Done · 12.0s".into(),
             terminal_id: "atomcode-task",
             visibility: VisibilityPolicy::BackgroundOnlyBestEffort,

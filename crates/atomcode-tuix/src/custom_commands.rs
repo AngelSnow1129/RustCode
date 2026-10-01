@@ -105,20 +105,19 @@ impl CustomCommandRegistry {
     /// (`<project_root>/.atomcode/commands/`) directories, merging results.
     /// Project entries win on name collision.
     pub fn load(project_root: &Path) -> Self {
-        let dirs = atomcode_coding::config::product_dirs_from_env();
+        let config_dir = atomcode_config::config::Config::config_dir();
         let mut commands = HashMap::new();
         // Global first — project overrides on second pass.
-        Self::load_from_dir(&dirs.user().join("commands"), None, &mut commands);
+        Self::load_from_dir(&config_dir.join("commands"), None, &mut commands);
         Self::load_from_dir(
-            &dirs.project(project_root).join("commands"),
+            &project_root.join(".atomcode/commands"),
             None,
             &mut commands,
         );
         // Plugin layer
-        for assets in atomcode_capabilities::plugin::loader::iter_installed_plugin_assets_for(
-            &atomcode_coding::config::product_dirs_from_env(),
-            project_root,
-        ) {
+        for assets in
+            atomcode_capabilities::plugin::loader::iter_installed_plugin_assets_for(project_root)
+        {
             Self::load_from_dir(&assets.commands_dir(), Some(&assets.plugin), &mut commands);
         }
         Self { commands }

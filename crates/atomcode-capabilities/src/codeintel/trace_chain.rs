@@ -115,7 +115,7 @@ mod tests {
             "fn c() {}\nfn b() { c(); }\nfn a() { b(); }\n",
         )
         .unwrap();
-        let tool = TraceChainTool::new(Arc::new(CodeIndex::new(&crate::product_dirs::test_dirs())));
+        let tool = TraceChainTool::new(Arc::new(CodeIndex::new()));
         let ctx = ToolContext {
             working_dir: d.path().to_path_buf(),
             cancel: CancellationToken::new(),
@@ -140,7 +140,7 @@ mod tests {
     async fn no_chain_is_reported() {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("a.rs"), "fn a() {}\nfn b() {}\n").unwrap();
-        let tool = TraceChainTool::new(Arc::new(CodeIndex::new(&crate::product_dirs::test_dirs())));
+        let tool = TraceChainTool::new(Arc::new(CodeIndex::new()));
         let ctx = ToolContext {
             working_dir: d.path().to_path_buf(),
             cancel: CancellationToken::new(),

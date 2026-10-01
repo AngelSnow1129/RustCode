@@ -516,18 +516,13 @@ async fn run_task(id: &str) -> Result<i32> {
         false,
         false,
         false,
-        None,
-        None,
     )
     .await?;
 
     // 7. Mark session origin = Scheduled.
     if let Some(ref session_info) = runtime.session {
         let sid = session_info.id.clone();
-        let manager = SessionManager::for_project(
-            &agent.working_dir,
-            &atomcode_coding::config::product_dirs_from_env(),
-        );
+        let manager = SessionManager::for_project(&agent.working_dir);
         // Best-effort — don't abort the run if meta update fails.
         let _ = manager.update_meta(&sid, |m| {
             m.origin = SessionOrigin::Scheduled;

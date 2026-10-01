@@ -81,13 +81,11 @@ pub fn codeintel_tool_names() -> &'static [&'static str] {
 /// Register all code-intelligence tools. The 5 graph tools SHARE one lazily-built
 /// [`CodeIndex`]; the symbol tools and `find_references` are stateless. With the `lsp`
 /// feature, LSP is still registered separately by the L2 runtime owner.
-///
-/// `dirs` names our own per-project dir, which the graph walk skips.
-pub fn register_codeintel_tools(reg: &mut ToolRegistry, dirs: &crate::ProductDirs) {
+pub fn register_codeintel_tools(reg: &mut ToolRegistry) {
     reg.register(Arc::new(ListSymbolsTool));
     reg.register(Arc::new(ReadSymbolTool));
     reg.register(Arc::new(FindReferencesTool));
-    let index = Arc::new(CodeIndex::new(dirs));
+    let index = Arc::new(CodeIndex::new());
     reg.register(Arc::new(TraceCallersTool::new(index.clone())));
     reg.register(Arc::new(TraceCalleesTool::new(index.clone())));
     reg.register(Arc::new(TraceChainTool::new(index.clone())));

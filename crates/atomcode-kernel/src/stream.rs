@@ -29,14 +29,6 @@ impl TokenUsage {
     }
 }
 
-/// [`ProviderError::code`] for a request the gateway accepted and then never
-/// answered: no response header within the provider's open timeout.
-///
-/// A code rather than a phrase, because the message is written for a person
-/// and in their language — a consumer matching `"timeout"` in it found nothing
-/// in `等待首字节超过 90s` and called a silent gateway a failed connection.
-pub const OPEN_TIMEOUT_CODE: &str = "open_timeout";
-
 /// A streaming failure surfaced by the provider. `retryable=true` =
 /// 429/5xx/timeout (the loop MAY retry later); `false` = terminal
 /// (auth/400/bad-request). The kernel does not retry here — it only surfaces.

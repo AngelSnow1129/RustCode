@@ -37,13 +37,15 @@ serde_json = "1"
 # Async HTTPS client for the passive version_check latest.json fetch
 # (moved here from atomcode-core along with the version_check module).
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-toml = "1"
+toml = "0.8"
 unicode-width = "0.2"
 unicode-segmentation = "1"
 libc = "0.2"
+dirs = "6"
 qrcode = { version = "0.14", default-features = false }
+ignore = "0.4"
 arboard = "3"
-png = "0.18"
+png = "0.17"
 # BMP/DIB decode for the Windows clipboard-image fallback: arboard's headerless
 # decode mis-places the pixel offset for the V4/V5 + BI_BITFIELDS DIBs that Qt /
 # PixPin / Snipaste / the Windows Snipping Tool produce, so it rejects them. We

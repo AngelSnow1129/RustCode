@@ -49,7 +49,7 @@ use super::approval::{
     BASH_ALLOW_ALL_KEY,
 };
 use super::resolve_path;
-use super::sensitive_path::SensitivePaths;
+use super::sensitive_path::{path_is_sensitive, references_sensitive_path};
 use super::write_approval::{canonical_dir_key, path_in_temp_dir, path_in_workspace};
 
 /// A token that contains an unexpanded shell expansion (`$var`, `$(...)`, backtick) whose value —
@@ -103,47 +103,6 @@ fn bash_command(args: &str) -> Option<String> {
         command: String,
     }
     serde_json::from_str::<A>(args).ok().map(|a| a.command)
-}
-
-/// True iff any of these destructive `targets` is a sensitive path — the floor that
-/// makes such a command ask EVERY time (`grantable:false`) and that the session-wide
-/// "allow all bash" blanket must never cover. With a `cwd` the target is resolved
-/// against it (catches a relative `.ssh/authorized_keys`); without one, the raw target
-/// is classified — the same conservative fallback this gate itself uses when the cwd is
-/// unknown (an absolute/home/extension secret is still caught; only a relative secret
-/// is missed). One predicate so the gate and the blanket cannot drift apart.
-pub(crate) fn any_target_sensitive(
-    sensitive: &SensitivePaths,
-    targets: &[String],
-    cwd: Option<&Path>,
-) -> bool {
-    match cwd {
-        Some(cwd) => targets
-            .iter()
-            .any(|t| sensitive.path_is_sensitive(&resolve_path(t, cwd))),
-        None => targets
-            .iter()
-            .any(|t| sensitive.path_is_sensitive(Path::new(t))),
-    }
-}
-
-/// True iff a destructive command in `args` names a sensitive target, classified without
-/// a cwd. [`crate::tools::bash::BashTool::allow_all_group`] calls this so the blanket
-/// withholds "allow all bash" for exactly the destructive commands [`bash_workspace_verdict`]
-/// forces to ask every time. A read, an unparseable command, or an unresolvable target is
-/// not classified here — a sensitive READ is caught upstream by the `references_sensitive_path`
-/// floor the blanket checks first.
-pub(crate) fn args_name_sensitive_destructive_target(
-    sensitive: &SensitivePaths,
-    args: &str,
-) -> bool {
-    let Some(command) = bash_command(args) else {
-        return false;
-    };
-    match scan_destructive_bash(&command) {
-        BashScan::Targets(t) => any_target_sensitive(sensitive, &t, None),
-        BashScan::Unresolvable | BashScan::NotDestructive => false,
-    }
 }
 
 fn base(token: &str) -> &str {
@@ -721,39 +680,32 @@ pub struct BashWorkspaceGate {
     /// remembered out-of-workspace grant survives a `/cd`.
     cwd: Arc<RwLock<PathBuf>>,
     kind: String,
-    sensitive: SensitivePaths,
 }
 
 impl BashWorkspaceGate {
     /// Gate over the LIVE (mutable) working dir handle.
-    pub fn new(cwd: Arc<RwLock<PathBuf>>, sensitive: SensitivePaths) -> Self {
+    pub fn new(cwd: Arc<RwLock<PathBuf>>) -> Self {
         let store: Arc<dyn PermissionStore> = Arc::new(InMemoryPermissionStore::new());
         Self {
             allow_all: Arc::new(InMemoryPermissionStore::new()),
             store,
             cwd,
             kind: APPROVAL_KIND.to_string(),
-            sensitive,
         }
     }
 
     /// Gate over a FIXED workspace root (tests / assemblies that pin an immutable working dir).
-    pub fn pinned(root: PathBuf, sensitive: SensitivePaths) -> Self {
-        Self::new(Arc::new(RwLock::new(root)), sensitive)
+    pub fn pinned(root: PathBuf) -> Self {
+        Self::new(Arc::new(RwLock::new(root)))
     }
 
     /// Use a caller-supplied grant store (tests).
-    pub fn with_store(
-        cwd: Arc<RwLock<PathBuf>>,
-        store: Arc<dyn PermissionStore>,
-        sensitive: SensitivePaths,
-    ) -> Self {
+    pub fn with_store(cwd: Arc<RwLock<PathBuf>>, store: Arc<dyn PermissionStore>) -> Self {
         Self {
             allow_all: Arc::new(InMemoryPermissionStore::new()),
             store,
             cwd,
             kind: APPROVAL_KIND.to_string(),
-            sensitive,
         }
     }
 
@@ -764,14 +716,12 @@ impl BashWorkspaceGate {
         cwd: Arc<RwLock<PathBuf>>,
         store: Arc<dyn PermissionStore>,
         allow_all: Arc<dyn PermissionStore>,
-        sensitive: SensitivePaths,
     ) -> Self {
         Self {
             allow_all,
             store,
             cwd,
             kind: APPROVAL_KIND.to_string(),
-            sensitive,
         }
     }
 
@@ -805,7 +755,6 @@ impl BashWorkspaceGate {
             tool: tool.name().to_string(),
             args: call.arguments.clone(),
             reason,
-            allow_all_bash: false,
         })
         .unwrap_or(serde_json::Value::Null);
         PermissionDecision::from_value(&rt.request(&self.kind, payload).await)
@@ -856,7 +805,7 @@ impl BashWorkspaceGate {
         tool: &Arc<dyn Tool>,
         rt: &RequestCtx,
     ) -> BeforeOutcome {
-        if self.sensitive.references(&call.arguments) {
+        if references_sensitive_path(&call.arguments) {
             return self.prompt_unremembered(call, tool, rt).await;
         }
         // Session-scoped allow-all bypass: if the user already approved "allow all Bash" this
@@ -902,134 +851,6 @@ impl BashWorkspaceGate {
     }
 }
 
-/// What the destructive-bash policy says about one call.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BashWorkspaceVerdict {
-    /// Not a shell tool, not destructive, unparseable, or every target is inside
-    /// the workspace — defer to the ordinary flow. (In-workspace is a DEFER, not
-    /// an allow: a recursive `rm` is still Risky and must reach approval.)
-    Defer,
-    /// Ask a person.
-    Ask {
-        /// Whether "allow always" may be offered. `false` for a sensitive target.
-        grantable: bool,
-        /// What an `allow always` is remembered against. Empty when not grantable.
-        scope: String,
-    },
-}
-
-/// The destructive-bash verdict for one call.
-///
-/// `cwd` is `None` when the working directory could not be read: relative targets
-/// cannot be resolved then, so an ABSOLUTE sensitive target still asks and
-/// everything else defers.
-///
-/// `fallback_scope` is what an unresolvable-but-benign command is remembered
-/// against — the caller passes `Tool::always_grant_scope`, which this module
-/// cannot reach without the tool.
-///
-/// ONE SCOPE, NOT MANY. The kernel shell grants per out-of-workspace DIRECTORY and
-/// auto-allows only when every one of them is already granted. This returns the
-/// same directories joined into a single scope, so "always" remembers exactly the
-/// combination that was shown. That is NARROWER: a later command touching only one
-/// of those directories asks again. Narrower is the safe direction, and it makes
-/// the "ride along" hazard the kernel shell guards against explicitly
-/// (`rm /granted/x && mv ws_file /tmp/stolen`) impossible by construction.
-pub async fn bash_workspace_verdict(
-    sensitive: &SensitivePaths,
-    tool_name: &str,
-    arguments: &str,
-    cwd: Option<&Path>,
-    fallback_scope: &str,
-) -> BashWorkspaceVerdict {
-    let ungrantable = BashWorkspaceVerdict::Ask {
-        grantable: false,
-        scope: String::new(),
-    };
-    if !super::is_command_shell_tool(tool_name) {
-        return BashWorkspaceVerdict::Defer;
-    }
-    let Some(command) = bash_command(arguments) else {
-        return BashWorkspaceVerdict::Defer; // unparseable — the bash tool / risk flow handles it
-    };
-    let targets = match scan_destructive_bash(&command) {
-        BashScan::NotDestructive => return BashWorkspaceVerdict::Defer,
-        BashScan::Unresolvable => {
-            return if sensitive.references(arguments) {
-                ungrantable
-            } else {
-                BashWorkspaceVerdict::Ask {
-                    grantable: true,
-                    scope: format!("bash-unresolvable::{fallback_scope}"),
-                }
-            }
-        }
-        BashScan::Targets(t) => t,
-    };
-    let Some(cwd) = cwd else {
-        return if any_target_sensitive(sensitive, &targets, None) {
-            ungrantable
-        } else {
-            BashWorkspaceVerdict::Defer
-        };
-    };
-    // Sensitive TARGET → ask every time. Classified on the RESOLVED target (not a substring
-    // of the whole command) so a benign command that merely MENTIONS a secret name
-    // (`echo id_rsa >> ./notes.txt`) is not caught.
-    if any_target_sensitive(sensitive, &targets, Some(cwd)) {
-        return ungrantable;
-    }
-    // Canonicalizes paths (filesystem I/O) — off the async worker and bounded, so a hung
-    // mount cannot freeze the caller's loop. On timeout → "not in workspace" → an ordinary
-    // ask (safe, never hangs).
-    let mv_pairs = mv_moves(&command);
-    let (all_in_workspace, out_keys) = {
-        let targets = targets.clone();
-        let cwd = cwd.to_path_buf();
-        let fallback = (false, Vec::<String>::new());
-        super::run_bounded(super::GATE_FS_TIMEOUT, fallback, move || {
-            // Temp-dir targets count as in-workspace (`cargo build > /tmp/x` is scratch).
-            let mut out: Vec<String> = targets
-                .iter()
-                .filter(|t| !(path_in_workspace(t, &cwd) || path_in_temp_dir(t, &cwd)))
-                .cloned()
-                .collect();
-            // A `mv` carrying an in-workspace file OUT removes it from the workspace — an
-            // equivalent delete. Temp does NOT rescue the dest here, so a rejected `rm`
-            // cannot be laundered through `mv <ws_file> /tmp/backup`.
-            for (src, dst) in &mv_pairs {
-                if path_in_workspace(src, &cwd)
-                    && !path_in_workspace(dst, &cwd)
-                    && !out.contains(dst)
-                {
-                    out.push(dst.clone());
-                }
-            }
-            let all_in = out.is_empty();
-            let mut keys: Vec<String> = out
-                .iter()
-                .map(|t| format!("bashdir::{}", canonical_dir_key(t, &cwd)))
-                .collect();
-            keys.sort();
-            keys.dedup();
-            (all_in, keys)
-        })
-        .await
-    };
-    if all_in_workspace {
-        return BashWorkspaceVerdict::Defer;
-    }
-    // Empty keys = the FS-timeout fallback. Nothing to remember, so ask un-grantably
-    // rather than remember a scope that means "we could not tell".
-    if out_keys.is_empty() {
-        return ungrantable;
-    }
-    BashWorkspaceVerdict::Ask {
-        grantable: true,
-        scope: out_keys.join("+"),
-    }
-}
-
 #[async_trait]
 impl ToolMiddleware for BashWorkspaceGate {
     async fn before(
@@ -1057,7 +878,7 @@ impl ToolMiddleware for BashWorkspaceGate {
         let cwd = match self.cwd.read().ok().map(|g| g.clone()) {
             Some(c) => c,
             None => {
-                return if any_target_sensitive(&self.sensitive, &targets, None) {
+                return if targets.iter().any(|t| path_is_sensitive(Path::new(t))) {
                     self.prompt_unremembered(call, tool, rt).await
                 } else {
                     BeforeOutcome::Proceed
@@ -1070,7 +891,10 @@ impl ToolMiddleware for BashWorkspaceGate {
         // command that merely MENTIONS a secret name (`echo id_rsa >> ./notes.txt`) isn't blocked.
         // This check runs BEFORE the allow-all bypass: sensitive targets are NEVER covered by the
         // session-wide allow-all grant — the sensitive floor must not be weakened.
-        if any_target_sensitive(&self.sensitive, &targets, Some(&cwd)) {
+        if targets
+            .iter()
+            .any(|t| path_is_sensitive(&resolve_path(t, &cwd)))
+        {
             return self.prompt_unremembered(call, tool, rt).await;
         }
 
@@ -1526,7 +1350,7 @@ mod tests {
     // ---- gate integration tests ------------------------------------------------------------
 
     fn bash_tool() -> Arc<dyn Tool> {
-        Arc::new(crate::tools::bash::BashTool::default())
+        Arc::new(crate::tools::bash::BashTool)
     }
 
     /// A driver that never answers → the bounded round-trip times out → Null → Deny. Any path
@@ -1546,10 +1370,7 @@ mod tests {
 
     #[tokio::test]
     async fn non_bash_tool_is_not_ours() {
-        let gate = BashWorkspaceGate::pinned(
-            std::env::temp_dir(),
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = BashWorkspaceGate::pinned(std::env::temp_dir());
         let tool: Arc<dyn Tool> = Arc::new(crate::tools::read::ReadFileTool::default());
         let mut call = ToolCall {
             id: "1".into(),
@@ -1566,10 +1387,7 @@ mod tests {
     async fn in_workspace_single_file_rm_proceeds() {
         let ws = tempfile::tempdir().unwrap();
         std::fs::write(ws.path().join("a.txt"), "x").unwrap();
-        let gate = BashWorkspaceGate::pinned(
-            ws.path().to_path_buf(),
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
         let mut call = bash_call("rm a.txt");
         // Proceed → the silent driver is never consulted (would Deny if reached).
@@ -1585,10 +1403,7 @@ mod tests {
         // Use a fabricated non-temp, non-workspace absolute path (need not exist — gate is
         // path-based, canonicalizes ancestors up to `/`).
         let target = std::path::PathBuf::from("/atomcode-test-outside-rm/x.txt");
-        let gate = BashWorkspaceGate::pinned(
-            ws.path().to_path_buf(),
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
         let mut call = bash_call(&format!("rm {}", target.to_str().unwrap()));
         let out = gate.before(&mut call, &tool, &silent_rt()).await;
@@ -1605,11 +1420,8 @@ mod tests {
     async fn out_of_workspace_rm_via_bash_start_prompts() {
         let ws = tempfile::tempdir().unwrap();
         let target = std::path::PathBuf::from("/atomcode-test-outside-rm/x.txt");
-        let gate = BashWorkspaceGate::pinned(
-            ws.path().to_path_buf(),
-            crate::tools::sensitive_path::test_guard(),
-        );
-        let tool: Arc<dyn Tool> = Arc::new(crate::tools::bash::BashStartTool::default());
+        let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
+        let tool: Arc<dyn Tool> = Arc::new(crate::tools::bash::BashStartTool);
         let mut call = ToolCall {
             id: "1".into(),
             name: "bash_start".into(),
@@ -1635,11 +1447,8 @@ mod tests {
             "bashdir::{}",
             canonical_dir_key(secret.to_str().unwrap(), ws.path())
         ));
-        let gate = BashWorkspaceGate::with_store(
-            Arc::new(RwLock::new(ws.path().to_path_buf())),
-            store,
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate =
+            BashWorkspaceGate::with_store(Arc::new(RwLock::new(ws.path().to_path_buf())), store);
         let tool = bash_tool();
         let mut call = bash_call(&format!("rm {}", secret.to_str().unwrap()));
         let out = gate.before(&mut call, &tool, &silent_rt()).await;
@@ -1652,10 +1461,7 @@ mod tests {
     #[tokio::test]
     async fn unresolvable_prompts() {
         let ws = tempfile::tempdir().unwrap();
-        let gate = BashWorkspaceGate::pinned(
-            ws.path().to_path_buf(),
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
         let mut call = bash_call("cd /somewhere/else && rm data.bin");
         let out = gate.before(&mut call, &tool, &silent_rt()).await;
@@ -1681,11 +1487,8 @@ mod tests {
             "bashdir::{}",
             canonical_dir_key(granted.to_str().unwrap(), ws.path())
         ));
-        let gate = BashWorkspaceGate::with_store(
-            Arc::new(RwLock::new(ws.path().to_path_buf())),
-            store,
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate =
+            BashWorkspaceGate::with_store(Arc::new(RwLock::new(ws.path().to_path_buf())), store);
         let tool = bash_tool();
 
         let mut s = bash_call(&format!("rm {}", sibling.to_str().unwrap()));
@@ -1710,10 +1513,7 @@ mod tests {
         // the temp carve-out must NOT rescue an mv DEST when the SOURCE is in the workspace.
         let ws = tempfile::tempdir().unwrap();
         std::fs::write(ws.path().join("data.bin"), "x").unwrap();
-        let gate = BashWorkspaceGate::pinned(
-            ws.path().to_path_buf(),
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
         let mut call = bash_call("mv data.bin /tmp/atomcode-mv-test-backup");
         let out = gate.before(&mut call, &tool, &silent_rt()).await;
@@ -1728,10 +1528,7 @@ mod tests {
         // `\mv` must be gated like `mv` — the backslash-escape can't launder a workspace delete.
         let ws = tempfile::tempdir().unwrap();
         std::fs::write(ws.path().join("data.bin"), "x").unwrap();
-        let gate = BashWorkspaceGate::pinned(
-            ws.path().to_path_buf(),
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
         let mut call = bash_call("\\mv data.bin /tmp/atomcode-esc-backup");
         let out = gate.before(&mut call, &tool, &silent_rt()).await;
@@ -1753,11 +1550,8 @@ mod tests {
             "bashdir::{}",
             canonical_dir_key(granted_dir.join("x").to_str().unwrap(), ws.path())
         ));
-        let gate = BashWorkspaceGate::with_store(
-            Arc::new(RwLock::new(ws.path().to_path_buf())),
-            store,
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate =
+            BashWorkspaceGate::with_store(Arc::new(RwLock::new(ws.path().to_path_buf())), store);
         let tool = bash_tool();
         // Op in the granted dir + an mv-escape of a workspace file to /tmp.
         let mut call = bash_call(&format!(
@@ -1776,10 +1570,7 @@ mod tests {
         // A rename inside the workspace keeps the file in the workspace → no prompt.
         let ws = tempfile::tempdir().unwrap();
         std::fs::write(ws.path().join("a.txt"), "x").unwrap();
-        let gate = BashWorkspaceGate::pinned(
-            ws.path().to_path_buf(),
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
         let mut call = bash_call("mv a.txt b.txt");
         assert_eq!(
@@ -1792,10 +1583,7 @@ mod tests {
     async fn mv_temp_to_temp_proceeds() {
         // No in-workspace source involved → the move doesn't touch the workspace → no prompt.
         let ws = tempfile::tempdir().unwrap();
-        let gate = BashWorkspaceGate::pinned(
-            ws.path().to_path_buf(),
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
         let mut call = bash_call("mv /tmp/atomcode-a /tmp/atomcode-b");
         assert_eq!(
@@ -1809,10 +1597,7 @@ mod tests {
         // A benign in-workspace log write that merely MENTIONS a secret name must NOT prompt
         // (the sensitivity check is on the resolved target, not a substring of the command).
         let ws = tempfile::tempdir().unwrap();
-        let gate = BashWorkspaceGate::pinned(
-            ws.path().to_path_buf(),
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
         let mut call = bash_call("echo id_rsa >> ./notes.txt");
         assert_eq!(
@@ -1824,10 +1609,7 @@ mod tests {
     #[tokio::test]
     async fn in_workspace_redirect_proceeds() {
         let ws = tempfile::tempdir().unwrap();
-        let gate = BashWorkspaceGate::pinned(
-            ws.path().to_path_buf(),
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
         let mut call = bash_call("echo hi > out.txt");
         assert_eq!(
@@ -1842,10 +1624,7 @@ mod tests {
     #[tokio::test]
     async fn redirect_to_slash_tmp_proceeds() {
         let ws = tempfile::tempdir().unwrap();
-        let gate = BashWorkspaceGate::pinned(
-            ws.path().to_path_buf(),
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
         let mut call = bash_call("cargo build > /tmp/build_all.json");
         // /tmp is a writable temp root (codex parity) → no prompt.
@@ -1862,10 +1641,7 @@ mod tests {
         // prompt — the absolute /tmp target is a writable temp root, and the leading `cd` cannot
         // move it, so it stays classifiable instead of failing closed on the cd.
         let ws = tempfile::tempdir().unwrap();
-        let gate = BashWorkspaceGate::pinned(
-            ws.path().to_path_buf(),
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
         let cmd = format!(
             "cd {} && cargo build --workspace 2>&1 > /tmp/atomcode_dead_full.txt; wc -l /tmp/atomcode_dead_full.txt",
@@ -1883,10 +1659,7 @@ mod tests {
     async fn cd_then_relative_redirect_still_prompts() {
         // Counterpart: with a cd, a RELATIVE redirect target can't be resolved → still fail closed.
         let ws = tempfile::tempdir().unwrap();
-        let gate = BashWorkspaceGate::pinned(
-            ws.path().to_path_buf(),
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
         let mut call = bash_call("cd /somewhere && echo x > out.txt");
         let out = gate.before(&mut call, &tool, &silent_rt()).await;
@@ -1900,10 +1673,7 @@ mod tests {
     #[tokio::test]
     async fn redirect_to_system_tmpdir_proceeds() {
         let ws = tempfile::tempdir().unwrap();
-        let gate = BashWorkspaceGate::pinned(
-            ws.path().to_path_buf(),
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
         let target = std::env::temp_dir().join("atomcode_gate_probe.json");
         let mut call = bash_call(&format!("echo x > {}", target.to_str().unwrap()));
@@ -1917,10 +1687,7 @@ mod tests {
     #[tokio::test]
     async fn traversal_out_of_tmp_still_prompts() {
         let ws = tempfile::tempdir().unwrap();
-        let gate = BashWorkspaceGate::pinned(
-            ws.path().to_path_buf(),
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = BashWorkspaceGate::pinned(ws.path().to_path_buf());
         let tool = bash_tool();
         // /tmp/../atomcode_gate_escape.txt canonicalizes OUT of temp → still out-of-workspace → prompts (fail-closed under silent_rt).
         let mut call = bash_call("echo x > /tmp/../atomcode_gate_escape.txt");
@@ -1944,7 +1711,6 @@ mod tests {
             Arc::new(RwLock::new(ws.path().to_path_buf())),
             Arc::new(InMemoryPermissionStore::new()),
             allow_all,
-            crate::tools::sensitive_path::test_guard(),
         );
         let tool = bash_tool();
         let mut call = bash_call("rm /atomcode-test-allow-all/x.txt");
@@ -1970,7 +1736,6 @@ mod tests {
             Arc::new(RwLock::new(ws.path().to_path_buf())),
             Arc::new(InMemoryPermissionStore::new()),
             allow_all,
-            crate::tools::sensitive_path::test_guard(),
         );
         let tool = bash_tool();
         let mut call = bash_call(&format!("rm {}", secret.to_str().unwrap()));
@@ -1992,7 +1757,6 @@ mod tests {
             Arc::new(RwLock::new(ws.path().to_path_buf())),
             Arc::new(InMemoryPermissionStore::new()),
             allow_all,
-            crate::tools::sensitive_path::test_guard(),
         );
         let tool = bash_tool();
         // Both classic unresolvable forms: cd-then-relative and command-substitution target.
@@ -2021,7 +1785,6 @@ mod tests {
             Arc::new(RwLock::new(ws.path().to_path_buf())),
             Arc::new(InMemoryPermissionStore::new()),
             allow_all,
-            crate::tools::sensitive_path::test_guard(),
         );
         let tool = bash_tool();
         // A command referencing a sensitive path is still unresolvable (dynamic token), but the

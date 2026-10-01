@@ -22,8 +22,7 @@ use ignore::WalkBuilder;
 /// inside. The general gitignore filter — which keeps `node_modules/`,
 /// `target/`, build output, etc. out of the popup — stays intact for
 /// everything else; only these names are force-indexed.
-const ALWAYS_INDEX_DIRS: &[&str] = &[".claude", ".agents"];
-// …and our own per-project dir, whose name the host hands in (`FileIndex::new`).
+const ALWAYS_INDEX_DIRS: &[&str] = &[".claude", ".atomcode", ".agents"];
 
 /// How long a completed full-tree index stays "fresh" before the next
 /// `filter()` call kicks a background re-walk. This is what lets files
@@ -264,8 +263,6 @@ pub struct FileIndex {
     /// until the first full walk completes (the shallow warm-up doesn't
     /// count). Drives the TTL-based background refresh in `maybe_refresh`.
     built_at: RefCell<Option<Instant>>,
-    /// Our own per-project dir's name — force-indexed with `ALWAYS_INDEX_DIRS`.
-    own: std::sync::Arc<str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -278,16 +275,13 @@ pub struct Entry {
 }
 
 impl FileIndex {
-    /// `project_dir_name` is our own per-project dir, force-indexed alongside
-    /// the other agents' dirs even when `.gitignore` excludes it.
-    pub fn new(root: PathBuf, project_dir_name: &str) -> Self {
+    pub fn new(root: PathBuf) -> Self {
         Self {
             root: std::cell::RefCell::new(root),
             entries: RefCell::new(None),
             pending: RefCell::new(None),
             building: RefCell::new(false),
             built_at: RefCell::new(None),
-            own: project_dir_name.into(),
         }
     }
 
@@ -313,15 +307,14 @@ impl FileIndex {
 
         // Stage 1: quick synchronous depth-1 scan of root's direct children.
         // Bounded to one directory level (gitignore-aware) — effectively instant.
-        *self.entries.borrow_mut() = Some(Self::scan_shallow(&self.root.borrow(), &self.own));
+        *self.entries.borrow_mut() = Some(Self::scan_shallow(&self.root.borrow()));
 
         // Stage 2: spawn background thread for the full walk.
         let (tx, rx) = std::sync::mpsc::channel();
         *self.pending.borrow_mut() = Some(rx);
         let root = self.root.borrow().clone();
-        let own = self.own.clone();
         std::thread::spawn(move || {
-            let walked = Self::walk_inner(root, &own);
+            let walked = Self::walk_inner(root);
             let _ = tx.send(walked);
         });
         true
@@ -355,25 +348,6 @@ impl FileIndex {
         filter_entries(entries, scope_dir, filter)
     }
 
-    /// Every **file** under `root` (directories left out), relative and
-    /// forward-slashed, shallowest first, then alphabetical — the same
-    /// gitignore-aware [`walk_inner`](Self::walk_inner) the index takes, for a
-    /// caller that lists them all and filters as it goes (the TUI's bare
-    /// `/view`) rather than asking for the 30 best matches. Blocks on the walk;
-    /// call it from `spawn_blocking` in async contexts.
-    pub fn files_blocking(root: &Path, project_dir_name: &str) -> Vec<String> {
-        let mut files: Vec<Entry> = Self::walk_inner(root.to_path_buf(), project_dir_name)
-            .into_iter()
-            .filter(|entry| !entry.is_dir)
-            .collect();
-        files.sort_by(|a, b| {
-            a.depth
-                .cmp(&b.depth)
-                .then_with(|| a.rel_path.cmp(&b.rel_path))
-        });
-        files.into_iter().map(|entry| entry.rel_path).collect()
-    }
-
     /// Synchronous full-tree search for one-shot callers that have no
     /// session-lived cache to amortize against — currently the daemon
     /// `/fs/search` endpoint that powers the webui `@`-mention picker. Walks
@@ -386,13 +360,8 @@ impl FileIndex {
     /// on which to drain a background walk — the first call must be complete.
     /// It blocks on the filesystem walk; call it from `spawn_blocking` in async
     /// contexts. `MAX_INDEX_ENTRIES` still backstops a pathological tree.
-    pub fn search_blocking(
-        root: &Path,
-        scope_dir: &str,
-        filter: &str,
-        project_dir_name: &str,
-    ) -> Vec<Entry> {
-        let entries = Self::walk_inner(root.to_path_buf(), project_dir_name);
+    pub fn search_blocking(root: &Path, scope_dir: &str, filter: &str) -> Vec<Entry> {
+        let entries = Self::walk_inner(root.to_path_buf());
         filter_entries(&entries, scope_dir, filter)
     }
 
@@ -417,7 +386,7 @@ impl FileIndex {
             }
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                 // Thread panicked or dropped — fall back to a synchronous walk.
-                let walked = Self::walk_inner(self.root.borrow().clone(), &self.own);
+                let walked = Self::walk_inner(self.root.borrow().clone());
                 *self.entries.borrow_mut() = Some(walked);
                 *self.built_at.borrow_mut() = Some(Instant::now());
                 *self.building.borrow_mut() = false;
@@ -443,22 +412,21 @@ impl FileIndex {
         let (tx, rx) = std::sync::mpsc::channel();
         *self.pending.borrow_mut() = Some(rx);
         let root = self.root.borrow().clone();
-        let own = self.own.clone();
         std::thread::spawn(move || {
-            let _ = tx.send(Self::walk_inner(root, &own));
+            let _ = tx.send(Self::walk_inner(root));
         });
     }
 
-    fn walk_inner(root: PathBuf, own: &str) -> Vec<Entry> {
+    fn walk_inner(root: PathBuf) -> Vec<Entry> {
         // A full recursive index of an entire home directory or filesystem
         // root is never a useful `@`-mention scope, and traverses millions of
         // files (macOS `~/Library`, caches, every node_modules outside a repo)
         // — pegging a core at 100% CPU for minutes. Serve only the top level
         // there; `MAX_INDEX_ENTRIES` still backstops any other huge tree.
         if Self::is_home_or_filesystem_root(&root) {
-            return Self::walk_with_depth(root, Some(1), MAX_INDEX_ENTRIES, own);
+            return Self::walk_with_depth(root, Some(1), MAX_INDEX_ENTRIES);
         }
-        Self::walk_with_depth(root, None, MAX_INDEX_ENTRIES, own)
+        Self::walk_with_depth(root, None, MAX_INDEX_ENTRIES)
     }
 
     /// True when `root` is a filesystem root (`/`, `C:\`, …) or the user's
@@ -487,12 +455,7 @@ impl FileIndex {
     /// shallow and full views apply identical filtering (gitignore, `.git/`,
     /// whitespace), so warm-up results never include entries the full index
     /// later hides.
-    fn walk_with_depth(
-        root: PathBuf,
-        max_depth: Option<usize>,
-        max_entries: usize,
-        own: &str,
-    ) -> Vec<Entry> {
+    fn walk_with_depth(root: PathBuf, max_depth: Option<usize>, max_entries: usize) -> Vec<Entry> {
         let mut out = Vec::new();
         // Dedup key shared across the allowlist pass and the main walk, so an
         // allowlisted dir that is NOT gitignored isn't indexed twice.
@@ -504,8 +467,7 @@ impl FileIndex {
         // `.claude` can't monopolize the budget and starve the main walk's
         // source files. The main gitignore-aware walk below fills the rest, so
         // `node_modules/` / `target/` stay filtered out as before.
-        let own = Some(own).filter(|name| !name.is_empty());
-        for name in ALWAYS_INDEX_DIRS.iter().copied().chain(own) {
+        for name in ALWAYS_INDEX_DIRS {
             let dir = root.join(name);
             if !dir.is_dir() {
                 continue;
@@ -591,8 +553,8 @@ impl FileIndex {
     /// (`node_modules/`, `target/`, …) from flashing in the popup and then
     /// vanishing once the full walk replaces the cache. Still bounded to one
     /// directory level, so it stays effectively instant.
-    fn scan_shallow(root: &Path, own: &str) -> Vec<Entry> {
-        Self::walk_with_depth(root.to_path_buf(), Some(1), MAX_INDEX_ENTRIES, own)
+    fn scan_shallow(root: &Path) -> Vec<Entry> {
+        Self::walk_with_depth(root.to_path_buf(), Some(1), MAX_INDEX_ENTRIES)
     }
 
     /// Re-point the index to a new root directory and clear all cached
@@ -622,7 +584,6 @@ impl FileIndex {
             pending: RefCell::new(None),
             building: RefCell::new(false),
             built_at: RefCell::new(None),
-            own: "".into(),
         }
     }
 
@@ -919,7 +880,7 @@ mod tests {
         write_file(&tmp.path().join("Cargo.toml"), "[package]");
         fs::create_dir_all(tmp.path().join("crates")).unwrap();
 
-        let idx = FileIndex::new(tmp.path().to_path_buf(), ".ours");
+        let idx = FileIndex::new(tmp.path().to_path_buf());
         let result = filter_walk(&idx, "", "");
         let names: Vec<&str> = result.iter().map(|e| e.rel_path.as_str()).collect();
 
@@ -932,7 +893,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         write_file(&tmp.path().join(".env"), "KEY=val");
 
-        let idx = FileIndex::new(tmp.path().to_path_buf(), ".ours");
+        let idx = FileIndex::new(tmp.path().to_path_buf());
         let result = filter_walk(&idx, "", "");
         let names: Vec<&str> = result.iter().map(|e| e.rel_path.as_str()).collect();
         assert!(names.contains(&".env"), "got: {:?}", names);
@@ -945,7 +906,7 @@ mod tests {
         write_file(&tmp.path().join("ignored.txt"), "x");
         write_file(&tmp.path().join("kept.txt"), "y");
 
-        let idx = FileIndex::new(tmp.path().to_path_buf(), ".ours");
+        let idx = FileIndex::new(tmp.path().to_path_buf());
         let result = filter_walk(&idx, "", "");
         let names: Vec<&str> = result.iter().map(|e| e.rel_path.as_str()).collect();
         assert!(names.contains(&"kept.txt"));
@@ -956,26 +917,8 @@ mod tests {
         );
     }
 
-    /// Our own project dir is force-indexed by the name handed in — not by the
-    /// upstream name, which a renamed distribution does not use.
-    #[test]
-    fn our_own_dir_is_the_one_handed_in() {
-        let tmp = tempfile::tempdir().unwrap();
-        write_file(&tmp.path().join(".gitignore"), ".fork/\n.atomcode/\n");
-        write_file(&tmp.path().join(".fork/skills/a/SKILL.md"), "x");
-        write_file(&tmp.path().join(".atomcode/skills/b/SKILL.md"), "y");
-
-        let idx = FileIndex::new(tmp.path().to_path_buf(), ".fork");
-        let top: Vec<String> = filter_walk(&idx, "", "")
-            .iter()
-            .map(|e| e.rel_path.clone())
-            .collect();
-        assert!(top.contains(&".fork/".to_string()), "{top:?}");
-        assert!(!top.contains(&".atomcode/".to_string()), "{top:?}");
-    }
-
-    // Feature: the well-known agent-config dirs (`.claude`, our own project
-    // dir, `.agents`) must be `@`-indexable even when `.gitignore` excludes them,
+    // Feature: the well-known agent-config dirs (`.claude`, `.atomcode`,
+    // `.agents`) must be `@`-indexable even when `.gitignore` excludes them,
     // so a project that gitignores `.claude` can still `@`-reference the
     // skills/commands inside. Other gitignored paths stay filtered out.
     #[test]
@@ -986,7 +929,7 @@ mod tests {
         write_file(&tmp.path().join("node_modules/dep/index.js"), "y");
         write_file(&tmp.path().join("kept.txt"), "z");
 
-        let idx = FileIndex::new(tmp.path().to_path_buf(), ".ours");
+        let idx = FileIndex::new(tmp.path().to_path_buf());
 
         // Top-level view (empty filter = direct children only): the
         // gitignored `.claude/` dir is now indexed; `node_modules/` is not.
@@ -1041,7 +984,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         write_file(&tmp.path().join(".claude/skills/wiki/SKILL.md"), "x");
 
-        let idx = FileIndex::new(tmp.path().to_path_buf(), ".ours");
+        let idx = FileIndex::new(tmp.path().to_path_buf());
         let result = filter_walk(&idx, "", "");
         let claude_hits = result.iter().filter(|e| e.rel_path == ".claude/").count();
         assert_eq!(
@@ -1061,7 +1004,7 @@ mod tests {
         write_file(&tmp.path().join(".claude/skills/repo/.git/HEAD"), "ref: x");
         write_file(&tmp.path().join(".claude/skills/repo/SKILL.md"), "y");
 
-        let idx = FileIndex::new(tmp.path().to_path_buf(), ".ours");
+        let idx = FileIndex::new(tmp.path().to_path_buf());
         let all: Vec<String> = filter_walk(&idx, "", "git")
             .iter()
             .map(|e| e.rel_path.clone())
@@ -1098,7 +1041,7 @@ mod tests {
         }
         write_file(&tmp.path().join("main.rs"), "fn main() {}");
 
-        let idx = FileIndex::new(tmp.path().to_path_buf(), ".ours");
+        let idx = FileIndex::new(tmp.path().to_path_buf());
 
         // The source file survived (main walk still ran after the cap).
         let top: Vec<String> = filter_walk(&idx, "", "")
@@ -1141,7 +1084,7 @@ mod tests {
         write_file(&tmp.path().join("ignored/").join("secret.txt"), "x");
         write_file(&tmp.path().join("visible.txt"), "v");
 
-        let shallow = FileIndex::scan_shallow(tmp.path(), ".ours");
+        let shallow = FileIndex::scan_shallow(tmp.path());
         let names: Vec<&str> = shallow.iter().map(|e| e.rel_path.as_str()).collect();
         assert!(
             names.contains(&"visible.txt"),
@@ -1162,7 +1105,7 @@ mod tests {
         write_file(&tmp.path().join(".git/HEAD"), "ref: refs/heads/main");
         write_file(&tmp.path().join("Cargo.toml"), "[package]");
 
-        let idx = FileIndex::new(tmp.path().to_path_buf(), ".ours");
+        let idx = FileIndex::new(tmp.path().to_path_buf());
         let result = filter_walk(&idx, "", "");
         let names: Vec<&str> = result.iter().map(|e| e.rel_path.as_str()).collect();
         assert!(names.contains(&"Cargo.toml"));
@@ -1179,7 +1122,7 @@ mod tests {
         write_file(&tmp.path().join("normal.txt"), "x");
         write_file(&tmp.path().join("with space.txt"), "y");
 
-        let idx = FileIndex::new(tmp.path().to_path_buf(), ".ours");
+        let idx = FileIndex::new(tmp.path().to_path_buf());
         let result = filter_walk(&idx, "", "");
         let names: Vec<&str> = result.iter().map(|e| e.rel_path.as_str()).collect();
         assert!(names.contains(&"normal.txt"));
@@ -1194,7 +1137,7 @@ mod tests {
     fn build_async_only_spawns_once() {
         let tmp = tempfile::tempdir().unwrap();
         write_file(&tmp.path().join("a.txt"), "x");
-        let idx = FileIndex::new(tmp.path().to_path_buf(), ".ours");
+        let idx = FileIndex::new(tmp.path().to_path_buf());
 
         // First call spawns the thread.
         assert!(idx.build_async());
@@ -1218,7 +1161,7 @@ mod tests {
     fn stale_cache_refresh_picks_up_new_files() {
         let tmp = tempfile::tempdir().unwrap();
         write_file(&tmp.path().join("first.txt"), "x");
-        let idx = FileIndex::new(tmp.path().to_path_buf(), ".ours");
+        let idx = FileIndex::new(tmp.path().to_path_buf());
 
         // Initial full walk sees first.txt only.
         let r1 = filter_walk(&idx, "", "");
@@ -1254,7 +1197,7 @@ mod tests {
     fn filter_returns_results_immediately_via_shallow_scan() {
         let tmp = tempfile::tempdir().unwrap();
         write_file(&tmp.path().join("hello.txt"), "x");
-        let idx = FileIndex::new(tmp.path().to_path_buf(), ".ours");
+        let idx = FileIndex::new(tmp.path().to_path_buf());
 
         // First call triggers staged warm-up: shallow scan (read_dir)
         // returns direct children instantly, background thread fills in
@@ -1281,7 +1224,7 @@ mod tests {
         let dir_b = tempfile::tempdir().unwrap();
         write_file(&dir_b.path().join("beta.txt"), "b");
 
-        let idx = FileIndex::new(dir_a.path().to_path_buf(), ".ours");
+        let idx = FileIndex::new(dir_a.path().to_path_buf());
         // Wait for full walk of dir_a.
         let result_a = filter_walk(&idx, "", "");
         let names_a: Vec<&str> = result_a.iter().map(|e| e.rel_path.as_str()).collect();
@@ -1311,7 +1254,7 @@ mod tests {
         write_file(&dir_b.path().join("only_b.txt"), "b");
         write_file(&dir_b.path().join("sub/").join("nested.txt"), "nested");
 
-        let idx = FileIndex::new(dir_a.path().to_path_buf(), ".ours");
+        let idx = FileIndex::new(dir_a.path().to_path_buf());
         // Let the background build for dir_a complete.
         let _ = filter_walk(&idx, "", "");
 
@@ -1348,7 +1291,7 @@ mod tests {
         let dir_b = tempfile::tempdir().unwrap();
         write_file(&dir_b.path().join("b.txt"), "b");
 
-        let idx = FileIndex::new(dir_a.path().to_path_buf(), ".ours");
+        let idx = FileIndex::new(dir_a.path().to_path_buf());
 
         // Start the background build but do NOT wait for it to complete.
         assert!(idx.build_async(), "first build_async should spawn");
@@ -1382,7 +1325,7 @@ mod tests {
         for i in 0..10 {
             write_file(&tmp.path().join(format!("f{i}.txt")), "x");
         }
-        let capped = FileIndex::walk_with_depth(tmp.path().to_path_buf(), None, 3, ".ours");
+        let capped = FileIndex::walk_with_depth(tmp.path().to_path_buf(), None, 3);
         assert!(
             capped.len() <= 3,
             "walk must stop at the cap, got {} entries",
@@ -1427,7 +1370,7 @@ mod tests {
 
         // Deep files matched by a cross-level substring, from root scope, on the
         // very first (and only) call — no busy-wait like the async `filter`.
-        let hits: Vec<String> = FileIndex::search_blocking(tmp.path(), "", "applystock", ".ours")
+        let hits: Vec<String> = FileIndex::search_blocking(tmp.path(), "", "applystock")
             .iter()
             .map(|e| e.rel_path.clone())
             .collect();
@@ -1455,7 +1398,7 @@ mod tests {
         write_file(&tmp.path().join("target/ApplyStockGenerated.java"), "x");
         write_file(&tmp.path().join("src/ApplyStockReal.java"), "y");
 
-        let hits: Vec<String> = FileIndex::search_blocking(tmp.path(), "", "applystock", ".ours")
+        let hits: Vec<String> = FileIndex::search_blocking(tmp.path(), "", "applystock")
             .iter()
             .map(|e| e.rel_path.clone())
             .collect();
@@ -1469,37 +1412,13 @@ mod tests {
         );
     }
 
-    // `files_blocking` lists every file (no directories), past any 30-row cap,
-    // shallowest first, and keeps the same gitignore rule.
-    #[test]
-    fn files_blocking_lists_every_file_and_respects_gitignore() {
-        let tmp = tempfile::tempdir().unwrap();
-        write_file(&tmp.path().join(".gitignore"), "target/\n");
-        write_file(&tmp.path().join("target/built.rs"), "x");
-        for n in 0..40 {
-            write_file(&tmp.path().join(format!("src/f{n:02}.rs")), "y");
-        }
-        write_file(&tmp.path().join("Cargo.toml"), "z");
-
-        let files = FileIndex::files_blocking(tmp.path(), ".ours");
-        assert_eq!(files.iter().filter(|p| p.starts_with("src/")).count(), 40);
-        assert!(
-            !files.iter().any(|p| p.ends_with('/')),
-            "no directories: {files:?}"
-        );
-        assert!(!files.iter().any(|p| p.contains("target/")), "{files:?}");
-        let top = files.iter().position(|p| p == "Cargo.toml").unwrap();
-        let deep = files.iter().position(|p| p == "src/f00.rs").unwrap();
-        assert!(top < deep, "shallowest first: {files:?}");
-    }
-
     #[test]
     fn reset_works_on_fresh_unbuilt_index() {
         let dir = tempfile::tempdir().unwrap();
         write_file(&dir.path().join("fresh.txt"), "fresh");
 
         // Create index pointing to a non-existent dir, then reset.
-        let idx = FileIndex::new(PathBuf::from("/nonexistent/path"), ".ours");
+        let idx = FileIndex::new(PathBuf::from("/nonexistent/path"));
         idx.reset(dir.path().to_path_buf());
 
         // filter() should lazily build for the new root.

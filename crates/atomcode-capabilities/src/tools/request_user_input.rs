@@ -31,14 +31,8 @@ fn default_true() -> bool {
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct UserInputRequest {
-    /// The question itself — the one thing a caller must supply. Declared before `header`
-    /// so that a call carrying neither is reported as missing `question`: `header` is only
-    /// a label derived from this text (see [`fill_default_header`]), and naming it would
-    /// send the model off to fix a field it never needed to send.
-    pub question: String,
-    /// The short label drawn above the question. Still offered as required to the model,
-    /// but repaired from the question when one is dropped (see [`fill_default_header`]).
     pub header: String,
+    pub question: String,
     pub mode: UserInputMode,
     #[serde(default)]
     pub options: Vec<UserInputOption>,
@@ -107,74 +101,13 @@ fn fill_default_mode(value: &mut serde_json::Value) {
     map.insert("mode".into(), serde_json::Value::String(inferred.into()));
 }
 
-/// How many characters of a question become its derived `header`.
-const HEADER_MAX_CHARS: usize = 24;
-
-/// The short label for a question that arrived without one: its first non-blank line,
-/// trimmed and cut to `HEADER_MAX_CHARS` **characters** — not bytes, so a Chinese question
-/// is never split mid-glyph — with `…` marking the cut.
-///
-/// `None` when there is no question text to derive one from: then the missing `question`
-/// is the field worth reporting, not `header`.
-fn derive_header(question: &str) -> Option<String> {
-    let first = question
-        .lines()
-        .find(|line| !line.trim().is_empty())?
-        .trim();
-    if first.is_empty() {
-        return None;
-    }
-    let mut label: String = first.chars().take(HEADER_MAX_CHARS).collect();
-    if first.chars().count() > HEADER_MAX_CHARS {
-        label.push('…');
-    }
-    Some(label)
-}
-
-/// Fill in a default `header` when the model omits it, sends `null`, or sends something
-/// that is not a usable non-blank string. Like `mode`, this is a required field weak models
-/// drop — and the call would otherwise hard-fail with `missing field 'header'`, even though
-/// `header` is only the short label the panel draws above the question. Derived from the
-/// question (see [`derive_header`]). A usable `header` is left untouched, as is a payload
-/// with no question text to derive one from. No-op on a non-object value.
-fn fill_default_header(value: &mut serde_json::Value) {
-    let serde_json::Value::Object(map) = value else {
-        return;
-    };
-    let usable = map
-        .get("header")
-        .and_then(serde_json::Value::as_str)
-        .map(|header| !header.trim().is_empty())
-        .unwrap_or(false);
-    if usable {
-        return;
-    }
-    let label = map
-        .get("question")
-        .and_then(serde_json::Value::as_str)
-        .and_then(derive_header);
-    if let Some(label) = label {
-        map.insert("header".into(), serde_json::Value::String(label));
-    }
-}
-
-/// Repair the fields a weak model frequently drops, on the raw JSON before deserialization:
-/// `mode` (inferred from `options`) and `header` (derived from the question). A call that
-/// would have hard-failed becomes a usable one. Both the single and the batch path funnel
-/// through here, so a question is repaired the same way wherever it arrived.
-fn fill_defaults(value: &mut serde_json::Value) {
-    fill_default_mode(value);
-    fill_default_header(value);
-}
-
 /// Parse raw tool args into a `UserInputRequest`. A missing `mode` is inferred from
-/// `options` (see [`fill_default_mode`]) and a missing `header` derived from the question
-/// (see [`fill_default_header`]); choice modes with no options are rejected.
+/// `options` (see [`fill_default_mode`]); choice modes with no options are rejected.
 /// Returns a human message on failure (never panics).
 pub fn parse_args(args: &str) -> Result<UserInputRequest, String> {
     let mut value: serde_json::Value = serde_json::from_str(args)
         .map_err(|e| format!("invalid request_user_input arguments: {e}"))?;
-    fill_defaults(&mut value);
+    fill_default_mode(&mut value);
     let mut req: UserInputRequest = serde_json::from_value(value)
         .map_err(|e| format!("invalid request_user_input arguments: {e}"))?;
     // Keep accepting the legacy field for wire compatibility, but a
@@ -187,7 +120,6 @@ pub fn parse_args(args: &str) -> Result<UserInputRequest, String> {
 /// Parse args into 1..=`MAX_QUESTIONS` questions. Accepts a `{ "questions": [...] }`
 /// array (batch) or the flat single-question shape (legacy). The bool is `is_batch`
 /// — the caller uses it to pick the wire shape. Clamps a batch to `MAX_QUESTIONS`.
-/// Every question is repaired the same way [`parse_args`] repairs a lone one.
 pub fn parse_batch(args: &str) -> Result<(Vec<UserInputRequest>, bool), String> {
     let val: serde_json::Value = serde_json::from_str(args)
         .map_err(|e| format!("invalid request_user_input arguments: {e}"))?;
@@ -198,7 +130,7 @@ pub fn parse_batch(args: &str) -> Result<(Vec<UserInputRequest>, bool), String> 
         let mut out = Vec::new();
         for q in qs.iter().take(MAX_QUESTIONS) {
             let mut q = q.clone();
-            fill_defaults(&mut q);
+            fill_default_mode(&mut q);
             let mut req: UserInputRequest = serde_json::from_value(q)
                 .map_err(|e| format!("invalid question in `questions`: {e}"))?;
             req.custom = true;
@@ -265,7 +197,10 @@ fn answer_clause(resp: &UserInputResponse) -> String {
 /// question was declined, degrade to the same "no answer" guidance a single decline gives.
 pub fn format_batch_result(reqs: &[UserInputRequest], resps: &[UserInputResponse]) -> ToolResult {
     if resps.len() >= reqs.len() && resps.iter().all(|r| r.declined) {
-        return ok_result(NO_ANSWER);
+        return ok_result(
+            "No answer was provided. Proceed with your own best judgment; only ask again if you \
+             are truly blocked.",
+        );
     }
     let lines: Vec<String> = reqs
         .iter()
@@ -307,158 +242,13 @@ fn ok_result(msg: impl Into<String>) -> ToolResult {
     }
 }
 
-/// What the model is told when nobody answered — one question or all of a batch.
-pub const NO_ANSWER: &str = "No answer was provided. Proceed with your own best judgment; \
-                             only ask again if you are truly blocked.";
-
-/// One question's answer, as a result read back says it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ReadAnswer {
-    /// Closed without an answer: declined, or nobody there.
-    Declined,
-    /// What was picked and what was typed. `text` is `None` when nothing was typed.
-    Given {
-        selected: Vec<String>,
-        text: Option<String>,
-        images: usize,
-    },
-}
-
-/// The answers a result carries, one per question asked, read back from the text
-/// [`format_result`] / [`format_batch_result`] wrote for the model.
-///
-/// The log keeps no other record of them: a model's question goes over the request
-/// round-trip, not the `user-questions` seam, so no `Asked`/`Answered` fact is ever
-/// committed for it — the result text IS the answer, in a resumed session as much
-/// as a live one. Read here, beside the code that writes it, so a change to the
-/// wording breaks the round-trip criterion below instead of a screen that parses
-/// English it does not own.
-///
-/// `questions` is how many were asked (see [`parse_batch`]). `None` for any text
-/// these writers did not produce — an error, a result from an older wording — and
-/// the caller then shows the text as it is.
-pub fn read_result(content: &str, questions: usize) -> Option<Vec<ReadAnswer>> {
-    if questions == 0 {
-        return None;
-    }
-    if content == NO_ANSWER {
-        return Some(vec![ReadAnswer::Declined; questions]);
-    }
-    if questions == 1 {
-        return read_clause(content).map(|one| vec![one]);
-    }
-    let lines: Vec<&str> = content.split('\n').collect();
-    if lines.len() != questions {
-        return None;
-    }
-    lines
-        .iter()
-        .enumerate()
-        .map(|(i, line)| {
-            let rest = line.strip_prefix(&format!("Q{} (", i + 1))?;
-            // The header is the asker's own words and may hold `): ` itself; the
-            // clause is the first split that reads as one.
-            rest.match_indices("): ")
-                .find_map(|(at, sep)| read_clause(&rest[at + sep.len()..]))
-        })
-        .collect()
-}
-
-/// One answer clause, the inverse of [`answer_clause`].
-fn read_clause(clause: &str) -> Option<ReadAnswer> {
-    if clause == "No answer (declined)." {
-        return Some(ReadAnswer::Declined);
-    }
-    let (said, images) = match clause.rsplit_once(", and User attached ") {
-        Some((said, count)) => match count
-            .strip_suffix(" images")
-            .or_else(|| count.strip_suffix(" image"))
-            .and_then(|n| n.parse::<usize>().ok())
-        {
-            Some(n) => (said, n),
-            // The words were inside a quoted answer, not the suffix.
-            None => (clause, 0),
-        },
-        None => (clause, 0),
-    };
-    if said == "User selected nothing." {
-        return Some(ReadAnswer::Given {
-            selected: Vec::new(),
-            text: None,
-            images,
-        });
-    }
-    let typed = |rest: &str| -> Option<String> {
-        let (text, after) = read_quoted(rest)?;
-        after.is_empty().then_some(text)
-    };
-    if let Some(rest) = said.strip_prefix("User answered: ") {
-        return Some(ReadAnswer::Given {
-            selected: Vec::new(),
-            text: Some(typed(rest)?),
-            images,
-        });
-    }
-    let mut rest = said.strip_prefix("User selected: ")?;
-    let mut selected = Vec::new();
-    loop {
-        let (label, after) = read_quoted(rest)?;
-        selected.push(label);
-        if after.is_empty() {
-            return Some(ReadAnswer::Given {
-                selected,
-                text: None,
-                images,
-            });
-        }
-        if let Some(text) = after.strip_prefix(", and User answered: ") {
-            return Some(ReadAnswer::Given {
-                selected,
-                text: Some(typed(text)?),
-                images,
-            });
-        }
-        rest = after.strip_prefix(", ")?;
-    }
-}
-
-/// A string as `{:?}` wrote it, and what follows it.
-fn read_quoted(s: &str) -> Option<(String, &str)> {
-    let mut chars = s.strip_prefix('"')?.char_indices();
-    let mut out = String::new();
-    while let Some((i, c)) = chars.next() {
-        match c {
-            '"' => return Some((out, &s[1 + i + 1..])),
-            '\\' => match chars.next()?.1 {
-                'n' => out.push('\n'),
-                'r' => out.push('\r'),
-                't' => out.push('\t'),
-                '0' => out.push('\0'),
-                'u' => {
-                    let mut hex = String::new();
-                    if chars.next()?.1 != '{' {
-                        return None;
-                    }
-                    loop {
-                        match chars.next()?.1 {
-                            '}' => break,
-                            h => hex.push(h),
-                        }
-                    }
-                    out.push(char::from_u32(u32::from_str_radix(&hex, 16).ok()?)?);
-                }
-                other => out.push(other),
-            },
-            c => out.push(c),
-        }
-    }
-    None
-}
-
 /// Map the user's answer to a tool result string.
 pub fn format_result(resp: &UserInputResponse) -> ToolResult {
     if resp.declined {
-        return ok_result(NO_ANSWER);
+        return ok_result(
+            "No answer was provided. Proceed with your own best judgment; only ask again if you \
+             are truly blocked.",
+        );
     }
     ToolResult {
         call_id: String::new(),
@@ -605,75 +395,6 @@ mod tests {
     fn omitted_mode_without_options_infers_text() {
         let r = parse_args(r#"{"header":"H","question":"Q?"}"#).unwrap();
         assert_eq!(r.mode, UserInputMode::Text);
-    }
-
-    /// A required field weak models drop, in the flat shape: `header` is only the label the
-    /// panel draws above the question, so derive one rather than hard-failing the call.
-    #[test]
-    fn omitted_header_is_derived_from_the_question() {
-        let r = parse_args(r#"{"question":"Which database?"}"#).unwrap();
-        assert_eq!(r.header, "Which database?");
-        assert_eq!(r.mode, UserInputMode::Text);
-    }
-
-    /// The same repair in the batch shape, per question. A batch used to lose every one of
-    /// its questions to `invalid question in questions: missing field header`.
-    #[test]
-    fn batch_questions_without_headers_get_one_each() {
-        let (reqs, is_batch) = parse_batch(
-            r#"{"questions":[
-                {"question":"First one?","options":[{"label":"A"}]},
-                {"header":"Kept","question":"Second one?"}
-            ]}"#,
-        )
-        .unwrap();
-        assert!(is_batch);
-        assert_eq!(reqs[0].header, "First one?");
-        assert_eq!(reqs[1].header, "Kept", "a usable header is left alone");
-        assert_eq!(reqs[0].mode, UserInputMode::Single);
-    }
-
-    /// Blank, null and non-string: all three are "no header", because a question labelled
-    /// `7` has no label at all.
-    #[test]
-    fn unusable_header_is_replaced_by_the_derived_one() {
-        for args in [
-            r#"{"header":"   ","question":"Q?"}"#,
-            r#"{"header":null,"question":"Q?"}"#,
-            r#"{"header":7,"question":"Q?"}"#,
-        ] {
-            let r = parse_args(args).unwrap_or_else(|e| panic!("{args}: {e}"));
-            assert_eq!(r.header, "Q?", "{args}");
-        }
-    }
-
-    #[test]
-    fn usable_header_is_never_overridden() {
-        let r = parse_args(r#"{"header":"Auth","question":"A much longer question?"}"#).unwrap();
-        assert_eq!(r.header, "Auth");
-    }
-
-    /// The cut counts characters, so a Chinese question is never split mid-glyph.
-    #[test]
-    fn derived_header_cuts_on_char_boundaries() {
-        let question = "这是一个非常长的中文问题需要被截断成一个短标签而且不能把任何一个汉字切开?";
-        let r = parse_args(&format!(r#"{{"question":"{question}"}}"#)).unwrap();
-        assert_eq!(
-            r.header.chars().count(),
-            HEADER_MAX_CHARS + 1,
-            "{:?}",
-            r.header
-        );
-        assert!(r.header.ends_with('…'), "{:?}", r.header);
-    }
-
-    /// Nothing to derive from: the missing `question` is what the caller must hear about,
-    /// not the `header` that was going to be built out of it.
-    #[test]
-    fn without_a_question_the_missing_header_is_not_what_is_reported() {
-        let err = parse_args(r#"{"mode":"text"}"#).unwrap_err();
-        assert!(err.contains("question"), "{err}");
-        assert!(!err.contains("header"), "{err}");
     }
 
     #[test]
@@ -987,112 +708,5 @@ mod tests {
         let r: UserInputResponse =
             serde_json::from_str(r#"{"declined":false,"selected":["A"],"text":null}"#).unwrap();
         assert!(r.images.is_empty());
-    }
-
-    /// Every answer the writers can say reads back as what was answered.
-    ///
-    /// The screen draws a model's question and its answer from the result text
-    /// alone (the log has nothing else, see [`read_result`]), so the reader and
-    /// the writers are one contract: rewording either side must fail here, not
-    /// turn a transcript's answers back into English meant for the model.
-    #[test]
-    fn a_result_reads_back_as_the_answers_it_was_written_from() {
-        let image = || ImageContent {
-            media_type: "image/png".into(),
-            data: "x".into(),
-        };
-        let given = |selected: &[&str], text: Option<&str>, images: usize| UserInputResponse {
-            declined: false,
-            selected: selected.iter().map(|s| s.to_string()).collect(),
-            text: text.map(str::to_string),
-            images: (0..images).map(|_| image()).collect(),
-        };
-        // What each response should read back as: blank words typed beside a
-        // pick are not said to the model, so they are not read back either.
-        let expected = |r: &UserInputResponse| {
-            if r.declined {
-                return ReadAnswer::Declined;
-            }
-            let text = if r.selected.is_empty() {
-                r.text.clone()
-            } else {
-                r.text.clone().filter(|t| !t.trim().is_empty())
-            };
-            ReadAnswer::Given {
-                selected: r.selected.clone(),
-                text,
-                images: r.images.len(),
-            }
-        };
-        let answers = vec![
-            given(&["推"], None, 0),
-            given(&["a", "b"], None, 0),
-            given(&["Python"], Some("plus Rust"), 0),
-            given(&[], Some("看下日志为什么没有生效？"), 0),
-            given(&[], Some("   "), 0),
-            given(&[], None, 0),
-            given(&["x"], Some("  "), 0),
-            given(&["截图"], None, 1),
-            given(&[], Some("见图"), 3),
-            // Words that look like the wording itself, quotes, escapes, lines.
-            given(&[r#"a", "b"#, "): User selected: \"z\""], None, 0),
-            given(
-                &["line\nbreak\ttab\\slash"],
-                Some("bell\u{7}, and User attached 2 images"),
-                0,
-            ),
-            given(&["C. 导航 + 全部操作 🚀"], Some("it's fine"), 2),
-            UserInputResponse::declined(),
-        ];
-
-        for r in &answers {
-            let content = format_result(r).content;
-            assert_eq!(
-                read_result(&content, 1),
-                Some(vec![expected(r)]),
-                "single: {content}"
-            );
-        }
-
-        let req = |header: &str| UserInputRequest {
-            question: "Q?".into(),
-            header: header.into(),
-            mode: UserInputMode::Text,
-            options: vec![],
-            custom: true,
-        };
-        for pair in answers.windows(2) {
-            let reqs = [req("用途"), req("tricky): header")];
-            let content = format_batch_result(&reqs, pair).content;
-            assert_eq!(
-                read_result(&content, 2),
-                Some(pair.iter().map(expected).collect()),
-                "batch: {content}"
-            );
-        }
-        // A batch nobody answered at all is the single-question wording.
-        let none = [UserInputResponse::declined(), UserInputResponse::declined()];
-        let content = format_batch_result(&[req("A"), req("B")], &none).content;
-        assert_eq!(
-            read_result(&content, 2),
-            Some(vec![ReadAnswer::Declined, ReadAnswer::Declined])
-        );
-    }
-
-    /// Text these writers did not produce is not guessed at: the caller shows it
-    /// as it is.
-    #[test]
-    fn a_result_nobody_here_wrote_is_not_read_as_answers() {
-        for content in [
-            "Interactive questions are not supported in this environment.",
-            "invalid request_user_input arguments: missing field `question`",
-            "User selected: unquoted",
-            r#"User selected: "a" and more"#,
-            "",
-        ] {
-            assert_eq!(read_result(content, 1), None, "{content}");
-        }
-        // A batch that does not have one line per question.
-        assert_eq!(read_result(r#"Q1 (A): User selected: "x""#, 2), None);
     }
 }

@@ -191,11 +191,11 @@ pub async fn resolve_policy_intervention(
         .await
 }
 
-/// The pending request of `kind` as the runtime raised it (id and payload).
-pub fn pending_of_kind(
+pub async fn respond_pending_kind_confirmed(
     kind: &str,
-) -> Option<(atomcode_kernel::event::RequestId, serde_json::Value)> {
-    hub().pending_of_kind(kind)
+    value: serde_json::Value,
+) -> Result<u64, HubError> {
+    hub().respond_pending_kind_confirmed(kind, value).await
 }
 
 pub fn cancel() -> Result<(), HubError> {
@@ -205,59 +205,6 @@ pub fn cancel() -> Result<(), HubError> {
 pub async fn cancel_confirmed() -> Result<(), HubError> {
     hub().cancel_confirmed().await
 }
-
-/// Force-tear-down the daemon's headless live runtime regardless of its phase or
-/// turn state, and unbind — so a wedged/orphaned runtime can be replaced.
-///
-/// The explicit recovery for feedback B12. `ensure_headless_runtime` refuses to
-/// replace a runtime whose phase is `InTurn`/`WaitingApproval`/`Reconfiguring`,
-/// while `cancel_confirmed` refuses when the hub's `turn_active` is false — so if
-/// those two ever disagree (a stalled reconfigure, an orphaned approval whose
-/// consumer disconnected), NEITHER the rebind nor the cancel converges it and
-/// every `GET /live?session_id=` 404s forever. This is the escape hatch a client
-/// calls after that refusal: kill the current turn and unbind, unconditionally.
-///
-/// `Ok(true)` when something was released, `Ok(false)` when nothing was bound.
-/// Scoped to the daemon-owned (headless) runtime; an **embedded** runtime (the
-/// in-process TUI's) is refused — it is the TUI's to own, not the daemon's to kill.
-pub async fn force_release() -> Result<bool, String> {
-    if embedded_binding().is_some() {
-        return Err("live runtime is owned by the in-process TUI; not force-releasing it".into());
-    }
-    let old = {
-        let mut owner = headless().lock().await;
-        let Some(old) = owner.take() else {
-            return Ok(false);
-        };
-        // Unbind in the same critical section as the `take`, BEFORE any await.
-        // The handler can be dropped at an await (the client gives up); after
-        // `take` but before an unbind that used to leave `owner == None` with the
-        // hub still bound and `turn_active == true` — the very wedge this exists
-        // to clear, now unreachable by a second release (nothing to take).
-        // Scoped to this runtime's binding (`unbind_retired`), and it clears
-        // `turn_active` too, so the next bind succeeds. `Unbound`/`StaleBinding`
-        // mean the hub no longer holds this runtime: nothing left to clear.
-        let _ = hub().unbind_retired(&old.binding);
-        old
-        // The headless lock is released here: a wedged runtime's shutdown must
-        // not hold every `GET /live` / `/live/message` behind it.
-    };
-    // Bounded: the target is a runtime that may not be processing commands at
-    // all, and `shutdown` waits for its terminal. Past the bound the task is
-    // abandoned (its handle is already out of the owner and the hub).
-    match tokio::time::timeout(FORCE_RELEASE_SHUTDOWN_TIMEOUT, old.handle.shutdown()).await {
-        Ok(_) => {}
-        Err(_) => tracing::warn!(
-            session = %old.binding.session_id,
-            "force-released runtime did not shut down within {:?}; abandoned",
-            FORCE_RELEASE_SHUTDOWN_TIMEOUT
-        ),
-    }
-    Ok(true)
-}
-
-/// How long [`force_release`] waits for the released runtime to shut down.
-const FORCE_RELEASE_SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 pub fn dispatch(command: DriverCommand) -> Result<(), HubError> {
     hub().dispatch(command)
@@ -308,10 +255,8 @@ pub async fn resume_session(
             working_dir: binding.working_dir,
         });
     }
-    let project_bucket = atomcode_capabilities::session::SessionManager::project_hash(
-        &binding.working_dir,
-        &atomcode_coding::config::product_dirs_from_env(),
-    );
+    let project_bucket =
+        atomcode_capabilities::session::SessionManager::project_hash(&binding.working_dir);
     let prepared = match crate::legacy_convert::prepare_catalog_session_resume_in_project(
         &project_bucket,
         &session_id,
@@ -346,18 +291,6 @@ pub async fn change_directory(
 
 pub async fn reload_capabilities() -> Result<atomcode_coding::SessionChanged, HubError> {
     hub().reload_capabilities().await
-}
-
-/// "Always allow" an MCP tool through the live runtime — see
-/// [`atomcode_coding::CodingRuntimeHandle::approve_mcp_tool`].
-pub async fn approve_mcp_tool(
-    alias: String,
-) -> Result<Option<atomcode_coding::McpToolApproval>, HubError> {
-    hub().approve_mcp_tool(alias).await
-}
-
-pub async fn mcp_servers() -> Result<(PathBuf, Vec<crate::live_hub::LiveMcpServer>), HubError> {
-    hub().mcp_servers().await
 }
 
 pub fn publish_command_output(text: String) -> Result<(), HubError> {
@@ -403,10 +336,7 @@ pub fn commit_runtime_snapshot(
 }
 
 fn load_snapshot(working_dir: &Path, session_id: &str) -> Result<SessionSnapshot, String> {
-    let bucket = atomcode_capabilities::session::SessionManager::project_hash(
-        working_dir,
-        &atomcode_coding::config::product_dirs_from_env(),
-    );
+    let bucket = atomcode_capabilities::session::SessionManager::project_hash(working_dir);
     crate::legacy_convert::load_catalog_session_view_in_project(&bucket, session_id)
         .map_err(|error| error.to_string())?
         .map(|session| session.snapshot)
@@ -426,84 +356,13 @@ where
     bind()
 }
 
-/// Why a live runtime could not be joined — and, when another runtime is in
-/// the way, which one and in what phase.
-///
-/// Serialized as the bare message, so `{"error": …}` is the same string on the
-/// wire it always was and a client that matches it keeps working; who is in
-/// the way is carried separately ([`occupant`](Self::occupant)) for the caller
-/// that wants to report it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LiveJoinError {
-    message: String,
-    occupant: Option<LiveOccupant>,
-}
-
-/// The runtime that holds the live binding a request wanted.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct LiveOccupant {
-    pub session_id: String,
-    pub working_dir: String,
-    pub phase: String,
-}
-
-impl LiveJoinError {
-    pub fn occupant(&self) -> Option<&LiveOccupant> {
-        self.occupant.as_ref()
-    }
-}
-
-impl From<String> for LiveJoinError {
-    fn from(message: String) -> Self {
-        Self {
-            message,
-            occupant: None,
-        }
-    }
-}
-
-impl std::fmt::Display for LiveJoinError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl serde::Serialize for LiveJoinError {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.message)
-    }
-}
-
-/// The refusal for a rebind while `binding`'s runtime is busy (`phase`).
-///
-/// The opening words are the ones this refusal has always had — adapters match
-/// on them — and after them, which session holds the binding and doing what,
-/// since with every health check green that is the one thing an operator
-/// cannot otherwise see.
-fn occupied_by(binding: &LiveBinding, phase: RuntimePhase) -> LiveJoinError {
-    let phase = format!("{phase:?}");
-    LiveJoinError {
-        message: format!(
-            "cannot replace an active live runtime: session {} is {phase} — if it is \
-             wedged/orphaned (its consumer disconnected mid-turn), POST /live/release to \
-             force-release it, then retry",
-            binding.session_id
-        ),
-        occupant: Some(LiveOccupant {
-            session_id: binding.session_id.clone(),
-            working_dir: binding.working_dir.display().to_string(),
-            phase,
-        }),
-    }
-}
-
 pub async fn ensure_headless_runtime(
     working_dir: PathBuf,
     telemetry: Arc<Telemetry>,
     provider_name: String,
     mode: RuntimeMode,
     requested_session_id: Option<String>,
-) -> Result<LiveJoin, LiveJoinError> {
+) -> Result<LiveJoin, String> {
     if let Some(binding) = embedded_binding() {
         if requested_session_id
             .as_deref()
@@ -513,10 +372,9 @@ pub async fn ensure_headless_runtime(
                 "embedded runtime is bound to session {:?}, requested {:?}",
                 binding.session_id,
                 requested_session_id.as_deref().unwrap_or_default()
-            )
-            .into());
+            ));
         }
-        return join().map_err(|error| format!("live hub join failed: {error:?}").into());
+        return join().map_err(|error| format!("live hub join failed: {error:?}"));
     }
 
     let mut owner = headless().lock().await;
@@ -528,40 +386,29 @@ pub async fn ensure_headless_runtime(
                     .is_none_or(|requested| requested == current.binding.session_id)
         });
     if can_reuse {
-        return join().map_err(|error| format!("live hub join failed: {error:?}").into());
+        return join().map_err(|error| format!("live hub join failed: {error:?}"));
     }
 
     if let Some(old) = owner.take() {
-        let phase = old.handle.status().phase;
         if matches!(
-            phase,
+            old.handle.status().phase,
             RuntimePhase::InTurn | RuntimePhase::WaitingApproval | RuntimePhase::Reconfiguring
         ) {
-            let refused = occupied_by(&old.binding, phase);
             *owner = Some(old);
-            return Err(refused);
+            return Err("cannot replace an active live runtime".into());
         }
         old.handle
             .shutdown()
             .await
             .map_err(|_| "failed to stop previous live runtime".to_string())?;
-        // Shut down, so there is no turn left to protect: a `turn_active` the
-        // hub still holds only means the terminal event never reached it, and
-        // the plain `unbind` would refuse — leaving this dead runtime bound and
-        // the bind below rejected. Someone else's binding is not ours to clear.
-        match hub().unbind_retired(&old.binding) {
-            Ok(()) | Err(HubError::Unbound) | Err(HubError::StaleBinding) => {}
-            Err(error) => {
-                return Err(format!("failed to unbind previous live runtime: {error:?}").into())
-            }
-        }
+        let _ = hub().unbind(&old.binding);
     }
 
     let config =
         atomcode_config::config::Config::load(&atomcode_config::config::Config::default_path())
             .map_err(|error| error.to_string())?;
     if !config.selection_exists(&provider_name) {
-        return Err(format!("provider {provider_name:?} not found").into());
+        return Err(format!("provider {provider_name:?} not found"));
     }
     let provider_fingerprint = provider_fingerprint(&config, &provider_name)?;
     let runtime_config: CodingRuntimeConfig =
@@ -667,7 +514,7 @@ pub async fn ensure_headless_runtime(
     });
     *owner = Some(HeadlessRuntime { binding, handle });
     drop(owner);
-    join().map_err(|error| format!("live hub join failed: {error:?}").into())
+    join().map_err(|error| format!("live hub join failed: {error:?}"))
 }
 
 #[cfg(test)]
@@ -675,61 +522,6 @@ mod tests {
     use super::bind_after_mcp_ready;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
-
-    /// Refused because another runtime is busy: the refusal says **which one
-    /// and doing what**. "cannot replace an active live runtime" alone left an
-    /// operator with every health check green and no way to see that session X
-    /// was parked on an approval nobody could answer.
-    #[test]
-    fn a_refused_rebind_names_the_runtime_in_the_way() {
-        let binding = crate::live_hub::LiveBinding {
-            id: 3,
-            generation: 1,
-            session_id: "session-held".into(),
-            working_dir: std::path::PathBuf::from("/work/proj"),
-            provider: "p".into(),
-            provider_fingerprint: "f".into(),
-        };
-        let refused = super::occupied_by(&binding, atomcode_coding::RuntimePhase::WaitingApproval);
-
-        let said = refused.to_string();
-        // What clients already match on stays where it was.
-        assert!(
-            said.starts_with("cannot replace an active live runtime"),
-            "{said}"
-        );
-        assert!(
-            said.contains("session-held") && said.contains("WaitingApproval"),
-            "{said}"
-        );
-        assert!(
-            said.contains("POST /live/release"),
-            "the way out is still named: {said}"
-        );
-
-        // `error` stays a string on the wire — an adapter that matches it keeps
-        // working — and who is in the way rides beside it.
-        assert_eq!(
-            serde_json::to_value(&refused).unwrap(),
-            serde_json::Value::String(said)
-        );
-        assert_eq!(
-            serde_json::to_value(refused.occupant()).unwrap(),
-            serde_json::json!({
-                "session_id": "session-held",
-                "working_dir": "/work/proj",
-                "phase": "WaitingApproval",
-            })
-        );
-
-        // Any other failure has nobody in the way.
-        let other = super::LiveJoinError::from("provider \"x\" not found".to_string());
-        assert!(other.occupant().is_none());
-        assert_eq!(
-            serde_json::to_value(&other).unwrap(),
-            serde_json::json!("provider \"x\" not found")
-        );
-    }
 
     #[tokio::test]
     async fn headless_bind_waits_for_mcp_catalog_readiness() {

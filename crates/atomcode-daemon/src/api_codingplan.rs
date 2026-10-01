@@ -117,9 +117,7 @@ struct CodingPlanDailyUsageRowResponse {
 /// account-wide usage must not mutate or depend on the active session.
 pub(crate) async fn codingplan_usage_summary() -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(|| {
-        let client = coding_plan::Client::from_stored_auth(
-            atomcode_coding::config::product_dirs_from_env().user(),
-        )?;
+        let client = coding_plan::Client::from_stored_auth()?;
         client.status_v2()
     })
     .await;
@@ -142,9 +140,7 @@ pub(crate) async fn codingplan_usage_summary() -> impl IntoResponse {
 /// usage series used by the TUI's `/usage` view.
 pub(crate) async fn codingplan_usage_daily() -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(|| {
-        let client = coding_plan::Client::from_stored_auth(
-            atomcode_coding::config::product_dirs_from_env().user(),
-        )?;
+        let client = coding_plan::Client::from_stored_auth()?;
         client.usage()
     })
     .await;
@@ -333,7 +329,7 @@ pub(crate) async fn codingplan_setup(
     daemon_scope(&state, None, client_mode, || async move {
         let state = state_clone;
         // Check if already logged in
-        let is_logged_in = tokio::task::spawn_blocking(|| auth::get_valid_token(atomcode_coding::config::product_dirs_from_env().user()).is_ok())
+        let is_logged_in = tokio::task::spawn_blocking(|| auth::get_valid_token().is_ok())
             .await
             .unwrap_or(false);
 
@@ -458,7 +454,7 @@ pub(crate) async fn codingplan_setup(
             // Background / cross-client sync: preserve the model this client is on
             // (never clobber another client's selection — see a63f6591).
             let report = coding_plan::run(
-                &mut config, atomcode_coding::config::product_dirs_from_env().user(),
+                &mut config,
                 None,
                 coding_plan::DefaultModelPolicy::PreservePrevious,
             )?;
@@ -530,7 +526,7 @@ pub(crate) async fn codingplan_setup(
                     return json_error(StatusCode::INTERNAL_SERVER_ERROR, e).into_response();
                 }
             };
-            if let Err(e) = coding_plan::write_last_sync_now(atomcode_coding::config::product_dirs_from_env().user()) {
+            if let Err(e) = coding_plan::write_last_sync_now() {
                 state.telemetry.track(Event::TakeCodingplan {
                     type_: result_type,
                     error_kind: Some(CodingplanErrorKind::ExecutionFailed),
@@ -654,7 +650,6 @@ pub(crate) fn sync_codingplan_after_login(state: AppState, client_mode: SessionM
                 // (never clobber another client's selection — see a63f6591).
                 let report = coding_plan::run(
                     &mut config,
-                    atomcode_coding::config::product_dirs_from_env().user(),
                     None,
                     coding_plan::DefaultModelPolicy::PreservePrevious,
                 )?;
@@ -718,9 +713,7 @@ pub(crate) fn sync_codingplan_after_login(state: AppState, client_mode: SessionM
                 tracing::warn!(error = %e, "codingplan auto-sync: config merge failed");
                 return;
             }
-            if let Err(e) = coding_plan::write_last_sync_now(
-                atomcode_coding::config::product_dirs_from_env().user(),
-            ) {
+            if let Err(e) = coding_plan::write_last_sync_now() {
                 tracing::warn!(error = ?e, "codingplan auto-sync: sync marker write failed");
             }
 

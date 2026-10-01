@@ -8,7 +8,7 @@
       {
         "id": "atomcode-documentation",
         "heading": "AtomCode Documentation",
-        "body": "An AI coding agent that lives in your terminal. Hand it a natural-language task and it will autonomously read, edit, run, and self-verify. These docs walk you from a fresh install to every feature AtomCode offers. v5.2.0 许可证 MIT 语言 Rust 1.88+ 平台 macOS · Linux · HarmonyOS PC · Windows 100% AI 生成"
+        "body": "An AI coding agent that lives in your terminal. Hand it a natural-language task and it will autonomously read, edit, run, and self-verify. These docs walk you from a fresh install to every feature AtomCode offers. v5.1.0 许可证 MIT 语言 Rust 1.88+ 平台 macOS · Linux · HarmonyOS PC · Windows 100% AI 生成"
       },
       {
         "id": "three-steps-to-start",
@@ -151,7 +151,7 @@
       {
         "id": "step-13-welcome",
         "heading": "Step 1/3 · Welcome",
-        "body": "███ █████ ███ █ █ ████ ███ ████ █████ █ █ █ █ █ ██ ██ █ █ █ █ █ █ █████ █ █ █ █ █ █ █ █ █ █ █ █ ████ █ █ █ █ █ █ █ █ █ █ █ █ █ █ █ █ █ ███ █ █ ████ ███ ████ █████ AtomCode Version 5.2.0 · AI coding agent in your terminal • Multi-step agent loop · built-in code-graph tools • Compatible with any OpenAI-style API • Free tokens via CodingPlan Press Enter to continue. Ctrl+C exits at any point."
+        "body": "███ █████ ███ █ █ ████ ███ ████ █████ █ █ █ █ █ ██ ██ █ █ █ █ █ █ █████ █ █ █ █ █ █ █ █ █ █ █ █ ████ █ █ █ █ █ █ █ █ █ █ █ █ █ █ █ █ █ ███ █ █ ████ ███ ████ █████ AtomCode Version 5.1.0 · AI coding agent in your terminal • Multi-step agent loop · built-in code-graph tools • Compatible with any OpenAI-style API • Free tokens via CodingPlan Press Enter to continue. Ctrl+C exits at any point."
       },
       {
         "id": "step-23-language-choose-your-language-选择语言",
@@ -488,7 +488,7 @@
       {
         "id": "core",
         "heading": "Core",
-        "body": "Command Purpose /login Recommended — one command runs AtomGit OAuth + claims CodingPlan free tokens + auto-configures a provider from the granted model list. The lowest-friction entry point for first-time users; re-running after you're already signed in idempotently re-syncs the model list. As of v4.25.0 /codingplan has been folded into /login ; the standalone entry has been removed /resume Open the session picker to restore any previously persisted session (messages, directory, and model state) /session Start a fresh, clean session /background · /bg One command, two names — every form works under either. Bare: send the current session to the background and open a new foreground. With a task ( /background <task> ): start a one-shot task in a background slot directly. Subcommands: list , <N> , drop <N|id> , help . See Background sessions /rename <new-name> Rename the current session (changes the display name in the /resume picker) /provider Manage provider accounts and their models, using a vendor preset or a custom endpoint /model Set the default model / provider and switch the current session; other open sessions are unchanged /cd Change working directory and start a new session, writing it back as default_workdir . You can also just type cd /path (no slash prefix)"
+        "body": "Command Purpose /login Recommended — one command runs AtomGit OAuth + claims CodingPlan free tokens + auto-configures a provider from the granted model list. The lowest-friction entry point for first-time users; re-running after you're already signed in idempotently re-syncs the model list. As of v4.25.0 /codingplan has been folded into /login ; the standalone entry has been removed /resume Open the session picker to restore any previously persisted session (messages, directory, and model state) /session Start a fresh, clean session /bg Send the current session to the background and open a new foreground; subcommands: /bg list , /bg <N> , /bg drop <N> , /bg help . See Background sessions /background <task> Compatibility entry: start a one-shot task in a /bg slot ( details ) /rename <new-name> Rename the current session (changes the display name in the /resume picker) /provider Manage provider accounts and their models, using a vendor preset or a custom endpoint /model Set the default model / provider and switch the current session; other open sessions are unchanged /cd Change working directory and start a new session, writing it back as default_workdir . You can also just type cd /path (no slash prefix)"
       },
       {
         "id": "tools-utilities",
@@ -591,12 +591,7 @@
       {
         "id": "control-flow",
         "heading": "Control flow",
-        "body": "Key Action F2 / Shift+F2 Switch to the next / previous configured model; Mac keyboards usually require Fn+F2 / Fn+Shift+F2 Ctrl+T Cycle the active model's reasoning_effort Ctrl+O Show / hide tool output and reasoning (verbose mode) Esc Cancel the in-progress tool call or streaming output Ctrl+C First press cancels the current action; second consecutive press exits"
-      },
-      {
-        "id": "new-screen",
-        "heading": "New screen (atomcode --tui)",
-        "body": "Most keys are the same as above; these differ. Type /keys in a session for the full list. Key Action Ctrl+O Reasoning: one line / in full / folded, cycles (also /reasoning ; Alt+R works too when the terminal sends Option as Meta) Ctrl+T Tool output: all / one summary each / summarised in groups, cycles; the opening step opens answered approvals too (the way to them while the mouse is handed back and a click cannot reach them) Ctrl+G Hand the mouse to the terminal (use its own selection), again to take it back (also /mouse ). While it is handed back the wheel, the trackpad and ↑ ↓ scroll the conversation; with [ui] mouse = false it starts that way Ctrl+P / Ctrl+N Step through the input history (always; with the mouse handed back ↑ ↓ scroll, so these are the way to the history) Ctrl+X Interrupt the current turn and immediately send the queued messages, one per turn (each with its image); with nothing queued it is a plain interrupt Double-tap Esc Open the rewind panel (same as /rewind ) to pick an earlier prompt to roll back"
+        "body": "Key Action F2 / Shift+F2 Switch to the next / previous configured model; Mac keyboards usually require Fn+F2 / Fn+Shift+F2 Ctrl+T Cycle the active model's reasoning_effort Esc Cancel the in-progress tool call or streaming output Ctrl+C First press cancels the current action; second consecutive press exits"
       },
       {
         "id": "tool-permission-dialog",
@@ -648,8 +643,8 @@
       },
       {
         "id": "bg",
-        "heading": "Background sessions ( /background · /bg )",
-        "body": "Need to juggle multiple tasks without losing the current conversation? /background (alias /bg ; the two are equivalent) parks the current session in the background and opens a fresh foreground — switch back any time. Up to 16 concurrent background slots . Command What it does /bg Send the current session to the background and open a new foreground /background <task> (same as /bg <task> ) Start a one-shot task in a background slot without swapping foreground (see below) /bg list (alias /bg ls ) List all background sessions: slot, ID, state, created, summary /bg <N> Resume slot N as foreground (the current foreground is swapped to background) /bg drop <N> Drop background slot N /bg help (aliases -h , --help ) Show built-in help"
+        "heading": "Background sessions ( /bg )",
+        "body": "Need to juggle multiple tasks without losing the current conversation? /bg parks the current session in the background and opens a fresh foreground — switch back any time. Up to 16 concurrent background slots . Command What it does /bg Send the current session to the background and open a new foreground /bg list (alias /bg ls ) List all background sessions: slot, ID, state, created, summary /bg <N> Resume slot N as foreground (the current foreground is swapped to background) /bg drop <N> Drop background slot N /bg help (aliases -h , --help ) Show built-in help"
       },
       {
         "id": "session-states",
@@ -659,7 +654,7 @@
       {
         "id": "background-task-one-shot-dispatch",
         "heading": "/background <task> — one-shot dispatch",
-        "body": "If you don't want to swap foreground/background manually and just want to \"have it look something up real quick\", just pass a task (both names work) — /background <task> or /bg <task> : /background list every unused dependency under src It starts a one-shot task in a /bg slot (configured with a read-only tool subset by default so the main conversation context isn't polluted). When done, check /bg list , use /bg <N> to read the result, /bg drop <N> to discard. Typical pattern The foreground is debugging module A; the model is editing and running cargo check (slow). You realise you also want to refactor module B — /bg straight to a new foreground for B. The build on A finishes in the background, state flips to done ; /bg 1 to switch back and read the result."
+        "body": "If you don't want to swap foreground/background manually and just want to \"have it look something up real quick\", use the /background compatibility entry: /background list every unused dependency under src It starts a one-shot task in a /bg slot (configured with a read-only tool subset by default so the main conversation context isn't polluted). When done, check /bg list , use /bg <N> to read the result, /bg drop <N> to discard. Typical pattern The foreground is debugging module A; the model is editing and running cargo check (slow). You realise you also want to refactor module B — /bg straight to a new foreground for B. The build on A finishes in the background, state flips to done ; /bg 1 to switch back and read the result."
       },
       {
         "id": "clear-vs-compact-vs-new-session",

@@ -35,11 +35,9 @@ impl std::error::Error for ProviderBuildError {}
 /// uses the configured static API key. The implementation owns gateway identification as well as
 /// signer construction, keeping auth and stored-credential access out of the coding layer.
 pub trait ProviderAuthenticator: Send + Sync {
-    /// `dirs` is the runtime's own — the user tree a stored login is read from.
     fn request_signer(
         &self,
         base_url: &str,
-        dirs: &atomcode_capabilities::ProductDirs,
     ) -> Result<Option<Arc<dyn RequestSigner>>, ProviderBuildError>;
 }
 
@@ -49,7 +47,6 @@ impl ProviderAuthenticator for AtomGitProviderAuthenticator {
     fn request_signer(
         &self,
         base_url: &str,
-        dirs: &atomcode_capabilities::ProductDirs,
     ) -> Result<Option<Arc<dyn RequestSigner>>, ProviderBuildError> {
         if !is_atomgit_gateway(base_url) {
             return Ok(None);
@@ -59,7 +56,7 @@ impl ProviderAuthenticator for AtomGitProviderAuthenticator {
                 base_url: base_url.to_string(),
             });
         }
-        atomgit_request_signer(base_url, dirs.user())
+        atomgit_request_signer(base_url)
             .map(Some)
             .map_err(ProviderBuildError::Authentication)
     }
@@ -115,13 +112,11 @@ impl CodingProviderFactory for DefaultCodingProviderFactory {
         let provider: Arc<dyn LlmProvider> = match cfg.provider_type.as_str() {
             "claude" | "anthropic" => {
                 let mut ac = AnthropicConfig::new(&cfg.api_key, &cfg.base_url, &cfg.model);
-                ac.wire_dump_dir = Some(cfg.dirs.user().join("wire-dump"));
                 ac.context_window = cfg.context_window;
                 ac.idle_timeout = cfg.stream_timeout;
                 ac.first_token_timeout = cfg.first_token_timeout;
                 ac.max_tokens = default_max_tokens(cfg.context_window);
                 ac.supports_vision = cfg.supports_vision;
-                ac.effort_levels = cfg.effort_levels.clone();
                 ac.thinking = cfg.thinking_enabled.unwrap_or(false);
                 ac.user_agent = Some(ua.clone());
                 ac.skip_tls_verify = cfg.skip_tls_verify;
@@ -133,7 +128,6 @@ impl CodingProviderFactory for DefaultCodingProviderFactory {
             }
             "ollama" => {
                 let mut oc = OllamaConfig::new(&cfg.base_url, &cfg.model);
-                oc.wire_dump_dir = Some(cfg.dirs.user().join("wire-dump"));
                 oc.api_key = cfg.api_key.clone();
                 oc.context_window = cfg.context_window;
                 oc.idle_timeout = cfg.stream_timeout;
@@ -144,7 +138,6 @@ impl CodingProviderFactory for DefaultCodingProviderFactory {
                 oc.num_ctx =
                     parse_ollama_num_ctx(std::env::var("ATOMCODE_OLLAMA_NUM_CTX").ok().as_deref());
                 oc.supports_vision = cfg.supports_vision;
-                oc.effort_levels = cfg.effort_levels.clone();
                 oc.think = cfg.thinking_enabled.unwrap_or(false);
                 oc.user_agent = Some(ua.clone());
                 oc.skip_tls_verify = cfg.skip_tls_verify;
@@ -158,12 +151,10 @@ impl CodingProviderFactory for DefaultCodingProviderFactory {
                 // OpenAiCompatConfig shape (same auth/timeouts/signer fields);
                 // only the URL path + codecs differ.
                 let mut pc = OpenAiCompatConfig::new(&cfg.api_key, &cfg.base_url, &cfg.model);
-                pc.wire_dump_dir = Some(cfg.dirs.user().join("wire-dump"));
                 pc.context_window = cfg.context_window;
                 pc.idle_timeout = cfg.stream_timeout;
                 pc.first_token_timeout = cfg.first_token_timeout;
                 pc.supports_vision = cfg.supports_vision;
-                pc.effort_levels = cfg.effort_levels.clone();
                 pc.max_tokens = Some(default_max_tokens(cfg.context_window));
                 pc.supports_reasoning_effort = supports_reasoning_effort(cfg);
                 pc.reasoning_policy =
@@ -173,7 +164,7 @@ impl CodingProviderFactory for DefaultCodingProviderFactory {
                 pc.skip_tls_verify = cfg.skip_tls_verify;
                 pc.retry = retry_policy_for(cfg.retry_max_attempts)?;
                 if let Some(authenticator) = &self.authenticator {
-                    pc.request_signer = authenticator.request_signer(&cfg.base_url, &cfg.dirs)?;
+                    pc.request_signer = authenticator.request_signer(&cfg.base_url)?;
                 }
                 Arc::new(
                     ResponsesProvider::new(pc)
@@ -182,12 +173,10 @@ impl CodingProviderFactory for DefaultCodingProviderFactory {
             }
             _ => {
                 let mut pc = OpenAiCompatConfig::new(&cfg.api_key, &cfg.base_url, &cfg.model);
-                pc.wire_dump_dir = Some(cfg.dirs.user().join("wire-dump"));
                 pc.context_window = cfg.context_window;
                 pc.idle_timeout = cfg.stream_timeout;
                 pc.first_token_timeout = cfg.first_token_timeout;
                 pc.supports_vision = cfg.supports_vision;
-                pc.effort_levels = cfg.effort_levels.clone();
                 pc.max_tokens = Some(default_max_tokens(cfg.context_window));
                 // An explicit per-model default is also an explicit capability
                 // declaration. CodingPlan's DeepSeek V4 Flash predates server-side
@@ -202,7 +191,7 @@ impl CodingProviderFactory for DefaultCodingProviderFactory {
                 pc.skip_tls_verify = cfg.skip_tls_verify;
                 pc.retry = retry_policy_for(cfg.retry_max_attempts)?;
                 if let Some(authenticator) = &self.authenticator {
-                    pc.request_signer = authenticator.request_signer(&cfg.base_url, &cfg.dirs)?;
+                    pc.request_signer = authenticator.request_signer(&cfg.base_url)?;
                 }
                 Arc::new(
                     OpenAiCompatProvider::new(pc)
@@ -272,8 +261,6 @@ pub fn derive_tier_config(
     provider_name: &str,
     provider: &atomcode_config::config::provider::ProviderConfig,
 ) -> CodingAgentConfig {
-    // `base.clone()` carries `atomgit_enabled` from the host agent — subagents
-    // share the switch with their parent (no main-off / sub-on split).
     let mut tier = base.clone();
     tier.model = provider.model.clone();
     tier.supports_vision = provider.accepts_images();
@@ -295,10 +282,6 @@ pub fn derive_tier_config(
     );
     tier.supports_reasoning_effort = atomcode_config::config::endpoint_supports_reasoning_effort(
         provider.reasoning_effort.as_deref(),
-        provider.reasoning_effort_levels.as_deref(),
-    );
-    tier.effort_levels = crate::config::effort_levels_for(
-        tier.supports_reasoning_effort,
         provider.reasoning_effort_levels.as_deref(),
     );
     tier.thinking_enabled = provider.thinking_enabled;
@@ -333,8 +316,6 @@ pub fn derive_tier_config_from_resolved(
     base: &CodingAgentConfig,
     resolved: &atomcode_config::config::provider::ResolvedModelConfig,
 ) -> CodingAgentConfig {
-    // `base.clone()` carries `atomgit_enabled` from the host agent — subagents
-    // share the switch with their parent (no main-off / sub-on split).
     let mut tier = base.clone();
     tier.model = resolved.model.clone();
     tier.supports_vision = resolved.supports_vision;
@@ -356,10 +337,6 @@ pub fn derive_tier_config_from_resolved(
     );
     tier.supports_reasoning_effort = atomcode_config::config::endpoint_supports_reasoning_effort(
         resolved.reasoning_effort.as_deref(),
-        resolved.reasoning_effort_levels.as_deref(),
-    );
-    tier.effort_levels = crate::config::effort_levels_for(
-        tier.supports_reasoning_effort,
         resolved.reasoning_effort_levels.as_deref(),
     );
     tier.thinking_enabled = resolved.thinking_enabled;
@@ -498,7 +475,6 @@ mod tests {
             "http://localhost:11434/v1",
             "model",
             PathBuf::from("."),
-            crate::config::product_dirs_from_env(),
         );
         cfg.provider_type = provider_type.to_string();
         cfg.context_window = 64_000;

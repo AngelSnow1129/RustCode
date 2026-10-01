@@ -259,13 +259,6 @@ pub(crate) fn is_stale_connection_error(err: &reqwest::Error) -> bool {
 /// ("error sending request for url (…)"); the actionable cause
 /// (`connection reset by peer (os error 54)`, `dns error`, …) lives in the
 /// chain. Surfacing it turns the error line into a self-diagnosing probe.
-///
-/// **Never with a credential in it.** reqwest names the request's address in
-/// full, and a base_url may carry one — `?key=…`, `user:password@`. This line
-/// is shown, kept in the session log and written to `atomcode.log`, the file a
-/// person is asked to send when something keeps failing. So every address a
-/// reqwest error in the chain names is said without its userinfo, query and
-/// fragment: the host and path, which are what the diagnosis needs, stay.
 pub(crate) fn err_chain(err: &(dyn std::error::Error + 'static)) -> String {
     let mut out = err.to_string();
     let mut cur = err.source();
@@ -274,30 +267,7 @@ pub(crate) fn err_chain(err: &(dyn std::error::Error + 'static)) -> String {
         out.push_str(&e.to_string());
         cur = e.source();
     }
-    let mut cur: Option<&(dyn std::error::Error + 'static)> = Some(err);
-    while let Some(e) = cur {
-        if let Some(url) = e
-            .downcast_ref::<reqwest::Error>()
-            .and_then(reqwest::Error::url)
-        {
-            let safe = url_without_credentials(url);
-            if safe != url.as_str() {
-                out = out.replace(url.as_str(), &safe);
-            }
-        }
-        cur = e.source();
-    }
     out
-}
-
-/// `url` as it may be said: no `user:password@`, no query, no fragment.
-fn url_without_credentials(url: &reqwest::Url) -> String {
-    let mut safe = url.clone();
-    let _ = safe.set_username("");
-    let _ = safe.set_password(None);
-    safe.set_query(None);
-    safe.set_fragment(None);
-    safe.to_string()
 }
 
 /// Human-readable message for a mid-stream response-body read failure.
@@ -1146,39 +1116,6 @@ mod tests {
             hint.contains("no_proxy"),
             "names the exact menu option: {hint}"
         );
-    }
-
-    /// A base_url may carry a credential — a `?key=` or a `user:password@` —
-    /// and reqwest names the address in full. The message is shown, kept in
-    /// the session log and written to `atomcode.log`: it names the host and
-    /// path, never the credential. No proxy, so the refusal is the machine's
-    /// own and not a proxy's answer.
-    #[tokio::test]
-    async fn an_open_failure_names_the_address_without_its_credential() {
-        let e = reqwest::Client::builder()
-            .no_proxy()
-            .build()
-            .unwrap()
-            .post("http://me:hunter2@127.0.0.1:1/v1/chat/completions?key=topsecret#frag")
-            .body("{}")
-            .send()
-            .await
-            .expect_err("connection refused");
-        assert!(
-            e.to_string().contains("topsecret"),
-            "reqwest names it in full, which is the point: {e}"
-        );
-        for msg in [
-            open_failed_message(&e),
-            stream_read_error_message(&e, StreamReadRecovery::RetryExhausted { attempts: 1 }),
-        ] {
-            assert!(!msg.contains("topsecret"), "{msg}");
-            assert!(!msg.contains("hunter2"), "{msg}");
-            assert!(
-                msg.contains("127.0.0.1:1/v1/chat/completions"),
-                "the host and path stay: {msg}"
-            );
-        }
     }
 
     #[tokio::test]

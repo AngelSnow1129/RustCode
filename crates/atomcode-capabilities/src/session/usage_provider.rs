@@ -33,17 +33,6 @@ impl LlmProvider for UsageRecordingProvider {
         self.inner.context_window()
     }
 
-    /// Forwarded, not defaulted: this is a decorator, and answering `false` here
-    /// would tell every front end behind it that a vision model is blind.
-    fn supports_vision(&self) -> bool {
-        self.inner.supports_vision()
-    }
-
-    /// Forwarded for the same reason: dropping it would hide a model's levels.
-    fn effort_levels(&self) -> Vec<String> {
-        self.inner.effort_levels()
-    }
-
     fn bind_session_id(&self, session_id: &str) {
         self.inner.bind_session_id(session_id);
     }

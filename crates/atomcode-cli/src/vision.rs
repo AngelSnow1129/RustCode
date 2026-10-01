@@ -49,44 +49,15 @@ impl ImagePreprocessor for VlImagePreprocessor {
         }
         let config = match Config::load(&Config::default_path()) {
             Ok(c) => c,
-            // Past `should_skip` there ARE images and the model is text-only, so a
-            // passthrough here would drop them silently — the very thing this path
-            // exists to prevent. If the config cannot be read there is no VL helper
-            // to reach either: clear the bytes and say so.
-            Err(_) => {
-                return apply_outcome(
-                    text,
-                    images,
-                    PreprocessOutcome::Failed {
-                        reason: "no vision: the model does not accept images and the \
-                                 configuration could not be read to find a \
-                                 vision_preprocessor_provider"
-                            .to_string(),
-                    },
-                )
-            }
+            Err(_) => return (UserInput { text, images }, None),
         };
-        // Non-vision main model AND no VL helper configured: the bytes cannot
-        // reach the model, and the adapter would drop them silently. Fold the
-        // failure marker + clear the images (same as an unresolvable helper
-        // below), so a pasted picture never vanishes without a word — the
-        // guarantee the new TUI's paste-time gate used to give, now enforced on
-        // the turn (the gate no longer refuses a text-only model, since a
-        // configured or `/codingplan`-auto-detected VL helper may caption it).
+        // Nothing configured (None or empty) ⇒ pass through unchanged (Skipped).
         let Some(vl_name) = config
             .vision_preprocessor_provider
             .clone()
             .filter(|s| !s.is_empty())
         else {
-            return apply_outcome(
-                text,
-                images,
-                PreprocessOutcome::Failed {
-                    reason: "no vision: the model does not accept images and no \
-                             vision_preprocessor_provider is configured"
-                        .to_string(),
-                },
-            );
+            return (UserInput { text, images }, None);
         };
         // Resolve through the boundary so a new-schema / folded-CodingPlan VL
         // selection (no longer in `config.providers`) still resolves. Absent ⇒
@@ -148,14 +119,10 @@ fn apply_outcome(
             // char_count is the VL description length — computed BEFORE merging
             // with the caption, so the toast reports the recognised content size.
             let char_count = vl.chars().count();
-            let said = atomcode_config::i18n::t(atomcode_config::i18n::Msg::VisionRecognised {
-                model: &vl_model,
-                text: &vl,
-            });
             let merged = if text.trim().is_empty() {
-                said.into_owned()
+                format!("[图片内容（由 {vl_model} 识别）]\n{vl}")
             } else {
-                format!("{text}\n\n{said}")
+                format!("{text}\n\n[图片内容（由 {vl_model} 识别）]\n{vl}")
             };
             (
                 UserInput {
@@ -169,11 +136,10 @@ fn apply_outcome(
             )
         }
         PreprocessOutcome::Failed { reason } => {
-            let said = atomcode_config::i18n::t(atomcode_config::i18n::Msg::VisionFailed);
             let merged = if text.trim().is_empty() {
-                said.into_owned()
+                "[图片识别失败]".to_string()
             } else {
-                format!("{text}\n\n{said}")
+                format!("{text}\n\n[图片识别失败]")
             };
             (
                 UserInput {

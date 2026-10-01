@@ -248,7 +248,6 @@ interface PermissionRequestEvent {
   reason: string;
   call_id: string;
   arguments: unknown;
-  allow_all_bash?: boolean;
 }
 
 interface ChatProps {
@@ -594,7 +593,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
   syncRef.current = sync;
   // Pending live-session permission request (shown as PermissionCard, calls /live/permission).
   // Kept separate from the non-sync `onPermission` prop so the /chat path is untouched.
-  const [livePending, setLivePending] = useState<{ tool_name: string; reason: string; call_id: string; arguments: string; allow_all_bash?: boolean } | null>(null);
+  const [livePending, setLivePending] = useState<{ tool_name: string; reason: string; call_id: string; arguments: string } | null>(null);
   // Pending structured input from either transport. The event's optional session_id
   // selects `/chat/user-input`; live requests answer the bound `/live` runtime.
   const [userInputReq, setUserInputReq] = useState<RoutedUserInputRequest | null>(null);
@@ -1688,7 +1687,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
         // Mark the tool row as waiting for approval (same as non-sync path)
         updateToolInLastAssistant(e.call_id, { status: 'waiting_approval' });
         // Show the PermissionCard for the live session (calls /live/permission via onDecide)
-        setLivePending({ tool_name: e.tool_name, reason: e.reason, call_id: e.call_id, arguments: e.arguments, allow_all_bash: e.allow_all_bash });
+        setLivePending({ tool_name: e.tool_name, reason: e.reason, call_id: e.call_id, arguments: e.arguments });
         break;
       }
       case 'user_input_request': {
@@ -3347,7 +3346,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, pendingPermiss
   // Uses onDecide to call /live/permission instead of /chat/permission.
   const livePermissionCard = livePending && (
     <PermissionCard
-      req={{ session_id: '', tool_name: livePending.tool_name, reason: livePending.reason, call_id: livePending.call_id, arguments: livePending.arguments, allow_all_bash: livePending.allow_all_bash }}
+      req={{ session_id: '', tool_name: livePending.tool_name, reason: livePending.reason, call_id: livePending.call_id, arguments: livePending.arguments }}
       onDone={() => setLivePending((cur) => resolvePendingAfterDecision(cur, livePending.call_id))}
       onDecide={async (decision, toolName) => { await postLivePermission(decision, toolName); }}
     />

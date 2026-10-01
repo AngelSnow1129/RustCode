@@ -118,8 +118,7 @@ pub async fn require_webui_token(
     next: Next,
 ) -> Result<Response, StatusCode> {
     if !state.enforce_token {
-        // 只有 `--no-auth` 或 App 中继路径（webui_tokens=None）才走到这里；默认的
-        // 独立 daemon / IDE 守护进程 enforce_token=true，会继续往下做 token 校验。
+        // 独立 daemon / VSCode 实例：不强制 token，保持原行为。
         return Ok(next.run(req).await);
     }
     // Accept the token from either the `Authorization: Bearer` header

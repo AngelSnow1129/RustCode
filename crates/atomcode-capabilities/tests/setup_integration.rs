@@ -1,20 +1,21 @@
 #![cfg(feature = "setup")]
 //! End-to-end integration tests for `setup::run`.
 //!
-//! Each run gets its own user tree and project in temp dirs, handed in through
-//! `ProductDirs` — no environment variable, so the tests need no serialisation
-//! and cannot touch a real `~/.atomcode/`.
+//! 这些测试通过 `ATOMCODE_HOME` 环境变量把 `Config::config_dir()` 重定向到
+//! tempdir,确保不会污染真实的 `~/.atomcode/`。Env var 是进程全局的,所以全部
+//! 测试都用 `#[serial]` 序列化。
 
 use atomcode_capabilities::setup::{self, RunOptions};
-use atomcode_capabilities::ProductDirs;
+use serial_test::serial;
 use std::path::Path;
 
-fn opts(proj: &Path, user: &Path) -> RunOptions {
-    RunOptions::new(proj.to_path_buf(), ProductDirs::new(user, ".ours"))
+#[ctor::ctor]
+fn _isolate_atomcode_home() {
+    atomcode_kernel::test_support::isolate_home();
 }
 
-/// Run setup in a temp project against a temp user tree.
-/// Returns (`SetupResult`, both temp-dir guards).
+/// 在 tempdir 项目中跑 setup,同时把 `ATOMCODE_HOME` 指向另一个 tempdir。
+/// 返回 (`SetupResult`, 两个 tempdir 守卫)。
 fn run_in_tempdir<F, G>(
     project_setup: F,
     mutate_opts: G,
@@ -31,43 +32,24 @@ where
     let user = tempfile::tempdir().unwrap();
     project_setup(proj.path());
 
-    let mut opts = opts(proj.path(), user.path());
+    let old = std::env::var_os("ATOMCODE_HOME");
+    std::env::set_var("ATOMCODE_HOME", user.path());
+
+    let mut opts = RunOptions::new(proj.path().to_path_buf());
     mutate_opts(&mut opts);
 
-    (setup::run(opts), proj, user)
-}
+    let result = setup::run(opts);
 
-/// A distribution's names are the only names setup writes under: its project
-/// dir holds the lock, state and backups, `.gitignore` names its local subdir,
-/// seeds land in its user tree — and no `.atomcode` appears anywhere.
-#[test]
-fn a_renamed_distribution_writes_only_under_its_own_names() {
-    let proj = tempfile::tempdir().unwrap();
-    let user = tempfile::tempdir().unwrap();
-    let dirs = ProductDirs::new(user.path().join("fork-tree"), ".fork");
-    setup::run(RunOptions::new(proj.path().to_path_buf(), dirs)).expect("setup runs");
-
-    assert!(proj.path().join(".fork/setup-state.json").exists());
-    let gitignore = std::fs::read_to_string(proj.path().join(".gitignore")).unwrap();
-    assert!(gitignore.contains(".fork/local/"), "{gitignore}");
-    assert!(user.path().join("fork-tree/skills").exists());
-    for root in [proj.path(), user.path()] {
-        assert!(
-            !walk_has(root, ".atomcode"),
-            "setup created a `.atomcode` under {root:?}"
-        );
+    match old {
+        Some(v) => std::env::set_var("ATOMCODE_HOME", v),
+        None => std::env::remove_var("ATOMCODE_HOME"),
     }
-}
 
-fn walk_has(dir: &Path, name: &str) -> bool {
-    std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .any(|e| e.file_name() == name || (e.path().is_dir() && walk_has(&e.path(), name)))
+    (result, proj, user)
 }
 
 #[test]
+#[serial]
 fn setup_installs_seeds_in_empty_project() {
     let (result, _proj, _user) = run_in_tempdir(|_| {}, |_| {});
 
@@ -89,14 +71,23 @@ fn setup_installs_seeds_in_empty_project() {
 }
 
 #[test]
+#[serial]
 fn second_run_skips_already_installed() {
     let proj = tempfile::tempdir().unwrap();
     let user = tempfile::tempdir().unwrap();
 
-    let make_opts = || opts(proj.path(), user.path());
+    let old = std::env::var_os("ATOMCODE_HOME");
+    std::env::set_var("ATOMCODE_HOME", user.path());
+
+    let make_opts = || RunOptions::new(proj.path().to_path_buf());
 
     let report1 = setup::run(make_opts()).unwrap();
     let report2 = setup::run(make_opts()).unwrap();
+
+    match old {
+        Some(v) => std::env::set_var("ATOMCODE_HOME", v),
+        None => std::env::remove_var("ATOMCODE_HOME"),
+    }
 
     // First run should install or attempt some items.
     let first_attempted = report1.summary.installed.len()
@@ -131,9 +122,13 @@ fn second_run_skips_already_installed() {
 }
 
 #[test]
+#[serial_test::serial]
 fn concurrent_runs_second_fails_lock() {
     let proj = tempfile::tempdir().unwrap();
     let user = tempfile::tempdir().unwrap();
+
+    let old = std::env::var_os("ATOMCODE_HOME");
+    std::env::set_var("ATOMCODE_HOME", user.path());
 
     let proj_a = proj.path().to_path_buf();
     let proj_b = proj.path().to_path_buf();
@@ -142,7 +137,7 @@ fn concurrent_runs_second_fails_lock() {
     // invocations — the lock must prevent both from succeeding simultaneously.
     let (r1, r2) = std::thread::scope(|s| {
         let t1 = s.spawn(|| {
-            let o = opts(&proj_a, user.path());
+            let o = atomcode_capabilities::setup::RunOptions::new(proj_a);
             atomcode_capabilities::setup::run(o)
         });
 
@@ -150,7 +145,7 @@ fn concurrent_runs_second_fails_lock() {
         std::thread::sleep(std::time::Duration::from_millis(20));
 
         let t2 = s.spawn(|| {
-            let o = opts(&proj_b, user.path());
+            let o = atomcode_capabilities::setup::RunOptions::new(proj_b);
             atomcode_capabilities::setup::run(o)
         });
 
@@ -158,6 +153,12 @@ fn concurrent_runs_second_fails_lock() {
         let r2 = t2.join().unwrap();
         (r1, r2)
     });
+
+    if let Some(v) = old {
+        std::env::set_var("ATOMCODE_HOME", v);
+    } else {
+        std::env::remove_var("ATOMCODE_HOME");
+    }
 
     // At least one should succeed; failures must be lock-related.
     let succeeded = r1.is_ok() as usize + r2.is_ok() as usize;

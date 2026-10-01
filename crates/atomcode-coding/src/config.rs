@@ -7,26 +7,14 @@ use std::time::Duration;
 use atomcode_config::locale::Locale;
 use atomcode_kernel::agent::ToolLoopPolicy;
 
-/// Everything an assembly needs: provider credentials, the working directory the
-/// tools are scoped to, and liveness bounds.
+/// Everything [`build_coding_agent`](crate::build_coding_agent) needs: provider
+/// credentials, the working directory the tools are scoped to, and liveness bounds.
 ///
 /// Timeouts default to sane non-infinite values — the kernel itself defaults to
 /// unbounded, and the assembly map flagged "L2 MUST set stream/request timeouts" so a
 /// stalled provider or silent driver can never park a turn forever.
 #[derive(Clone)]
 pub struct CodingAgentConfig {
-    /// What the configuration asked for that was left out or changed — a
-    /// malformed permission rule, an external agent with an unknown kind — said
-    /// in one line each. The runtime tells the person when it starts
-    /// (`CodingRuntimeEvent::ControllerWarning`), which every front end renders;
-    /// not stderr, which a full-screen front end is holding.
-    pub startup_warnings: Vec<String>,
-    /// Where the product keeps its data — the one place this runtime learns it.
-    /// Every capability that persists or guards something (skills, memory, MCP,
-    /// sessions, plugins, the credential gates) is built from this, and nothing
-    /// in the runtime reads `$ATOMCODE_HOME` behind its back. A program that
-    /// embeds the runtime under its own name sets its own here.
-    pub dirs: atomcode_capabilities::ProductDirs,
     pub api_key: String,
     pub base_url: String,
     pub model: String,
@@ -37,26 +25,11 @@ pub struct CodingAgentConfig {
     /// Kept separate from `chat_options.reasoning_effort`: API-default effort is
     /// still a supported endpoint with no per-call value.
     pub supports_reasoning_effort: bool,
-    /// The reasoning-effort LEVELS this endpoint exposes, canonical order.
-    /// **Empty when the endpoint has no reasoning-effort control** (i.e.
-    /// `!supports_reasoning_effort`); otherwise every level the config allows
-    /// (all of them when unrestricted). Surfaced to `AgentDescription` so the
-    /// TUI `/effort` menu and the webui selector offer the same set.
-    pub effort_levels: Vec<String>,
     /// Preferred language for natural-language commit subjects and bodies.
     /// `None` means follow the current conversation language.
     pub preferred_language: Option<Locale>,
     /// Resolved `[tools.todo]` policy for this runtime generation.
     pub todo: atomcode_config::config::TodoToolConfig,
-    /// Resolved `[tools.atomgit]` switch for this runtime generation.
-    /// `true` ⇒ the 4 typed AtomGit tools are registered and the persona guidance
-    /// block is included; `false` ⇒ both are omitted (no phantom tool calls).
-    /// See `atomcode_config::config::AtomGitToolConfig` for the excluded paths
-    /// (`GitPushLabelMiddleware`, raw REST via `bash`).
-    pub atomgit_enabled: bool,
-    /// `[tools.output] threshold_bytes`: spill a tool result above this many
-    /// bytes instead of the default. `None` leaves the row as the tree mounts it.
-    pub tool_output_threshold_bytes: Option<usize>,
     /// Stable config/provider registry key exposed to drivers. This is distinct
     /// from `provider_type`, which selects the adapter implementation.
     pub provider_name: String,
@@ -66,7 +39,7 @@ pub struct CodingAgentConfig {
     /// Model context window in tokens (forwarded to the provider). Default 128k.
     pub context_window: u32,
     /// Liveness: max byte-idle wait BETWEEN stream events, once the first content byte
-    /// has arrived (inter-token). Default 120s, override via `ATOMCODE_STREAM_TIMEOUT_SECS`.
+    /// has arrived (inter-token). Default 300s, override via `ATOMCODE_STREAM_TIMEOUT_SECS`.
     /// The prefill / first-token wait is governed separately by `first_token_timeout`.
     pub stream_timeout: Duration,
     /// Liveness: max wait for the FIRST content byte (prefill / time-to-first-token).
@@ -109,7 +82,7 @@ pub struct CodingAgentConfig {
     /// implement the corresponding UI. The interactive TUI opts in explicitly.
     pub next_prompt_suggestions: bool,
     /// Exact no-progress loop policy. `None` disables it for explicitly intentional
-    /// identical repetition. Defaults to 3/5 and is configurable through
+    /// identical repetition. Defaults to 3/4 and is configurable through
     /// `ATOMCODE_TOOL_LOOP_WARNING_THRESHOLD` / `ATOMCODE_TOOL_LOOP_STOP_THRESHOLD`;
     /// a stop threshold of `0` disables the policy.
     pub tool_loop_policy: Option<ToolLoopPolicy>,
@@ -165,9 +138,6 @@ pub struct CodingAgentConfig {
     /// /unknown ⇒ Exa. Mirrors v1's `[web_search] provider` config knob — without this the
     /// tool was hardwired to Exa with no way to opt into DDG.
     pub web_search_provider: Option<String>,
-    /// `[web_search] api_key`, for Exa. `None` leaves the tool to `EXA_API_KEY` or
-    /// the keyless tier.
-    pub web_search_api_key: Option<String>,
     /// Opt-in read-only LSP policy. The manager is created by this runtime's tool
     /// assembly, so provider/session reloads cannot create a second hidden owner.
     pub lsp: atomcode_capabilities::codeintel::LspSettings,
@@ -217,53 +187,15 @@ pub struct CodingAgentConfig {
     pub subagent_model_providers: Option<Arc<SubagentModelProviders>>,
 }
 
-/// This product's dirs as its own hosts resolve them: the user tree from
-/// `$ATOMCODE_HOME` (else `~/<distribution::HOME_DIR_NAME>`), the per-project
-/// dir named `distribution::PROJECT_DIR_NAME`.
-///
-/// For the CLI, daemon and TUI — the hosts that ARE this product. It is the only
-/// place in the runtime that reads the environment for a directory, and it is
-/// called by the host, explicitly, where it builds the config. A program
-/// embedding the runtime under another name builds its own `ProductDirs`.
-pub fn product_dirs_from_env() -> atomcode_capabilities::ProductDirs {
-    atomcode_capabilities::ProductDirs::new(
-        atomcode_config::config::Config::config_dir(),
-        atomcode_config::distribution::PROJECT_DIR_NAME,
-    )
-    .with_home_dir_name(atomcode_config::distribution::HOME_DIR_NAME)
-}
-
-/// Tell the message tables where `dirs` are, so `{user_dir}` / `{project_dir}`
-/// render as this host's trees. The user tree is shown `~/…` when it is under
-/// the home, which is how a person would type it.
-pub fn settle_dir_names(dirs: &atomcode_capabilities::ProductDirs) {
-    let user = dirs.user();
-    let shown = match dirs::home_dir()
-        .and_then(|home| user.strip_prefix(home).ok().map(|r| r.to_path_buf()))
-    {
-        Some(rest) => format!("~/{}", rest.display()),
-        None => user.display().to_string(),
-    };
-    atomcode_config::i18n::set_dirs(&shown, dirs.project_dir_name());
-}
-
 /// Host-resolved inputs shared by CLI and daemon runtime construction.
 /// This is a driver configuration object, not a legacy command protocol.
 #[derive(Clone)]
 pub struct CodingRuntimeConfig {
-    /// See [`CodingAgentConfig::startup_warnings`].
-    pub startup_warnings: Vec<String>,
-    /// See [`CodingAgentConfig::dirs`].
-    pub dirs: atomcode_capabilities::ProductDirs,
     pub api_key: String,
     pub base_url: String,
     pub model: String,
     pub preferred_language: Option<Locale>,
     pub todo: atomcode_config::config::TodoToolConfig,
-    /// Resolved `[tools.atomgit]` switch — see `CodingAgentConfig::atomgit_enabled`.
-    pub atomgit_enabled: bool,
-    /// See `CodingAgentConfig::tool_output_threshold_bytes`.
-    pub tool_output_threshold_bytes: Option<usize>,
     pub provider_name: String,
     pub working_dir: PathBuf,
     pub context_window: u32,
@@ -310,9 +242,6 @@ pub struct CodingRuntimeConfig {
     pub next_prompt_suggestions: bool,
     pub supports_vision: bool,
     pub lsp: atomcode_capabilities::codeintel::LspSettings,
-    /// `[web_search]`, see [`web_search_from_config`].
-    pub web_search_provider: Option<String>,
-    pub web_search_api_key: Option<String>,
 }
 
 pub fn lsp_settings_from_config(
@@ -340,102 +269,20 @@ pub fn lsp_settings_from_config(
 }
 
 /// Parse `[permissions] allow/deny` into the neutral capabilities rule set. Malformed rules
-/// are skipped and come back as warnings rather than silently widening or narrowing the
-/// policy — a typo in a permission rule is exactly the kind of mistake that must not pass
-/// unnoticed. The caller puts them in [`CodingAgentConfig::startup_warnings`].
+/// are skipped and reported on stderr rather than silently widening or narrowing the policy —
+/// a typo in a permission rule is exactly the kind of mistake that must not pass unnoticed.
 pub fn permission_rules_from_config(
     permissions: &atomcode_config::config::PermissionsConfig,
-) -> (atomcode_capabilities::tools::PermissionRules, Vec<String>) {
+) -> atomcode_capabilities::tools::PermissionRules {
     let (rules, invalid) =
         atomcode_capabilities::tools::PermissionRules::parse(&permissions.allow, &permissions.deny);
-    let warnings = invalid
-        .iter()
-        .map(|raw| {
-            format!(
-                "[permissions] ignoring malformed rule {raw:?} \
-                 (expected `Tool` or `Tool(pattern)`, e.g. `Bash(git *)`)"
-            )
-        })
-        .collect();
-    (rules, warnings)
-}
-
-/// What this runtime takes from `config.toml`, for an agent asked how AtomCode is
-/// configured.
-///
-/// Here, beside [`CodingRuntimeConfig::from_config`] and the `*_from_config`
-/// helpers, because these are the functions that read each section: a key
-/// added or dropped there is a sentence to change a few lines away, not in a
-/// document somewhere else. Sections a front end reads (`[ui]`,
-/// `[notifications]`, the proxy) are the front end's to describe.
-pub fn describe_config_file(config_file: &std::path::Path) -> String {
-    format!(
-        "CONFIG FILE. This runtime was configured from `{file}` — the AtomCode home's \
-         `config.toml`, unless the front end was started with `--config <file>`. It read \
-         the file when it was built and does not watch it: an edit reaches a runtime \
-         built after the file is read again (a new session, or a restart). Switching the \
-         model is `/model`, not an edit.\n\
-         What this runtime takes from it:\n\
-         - Model: `default_model` names a `[models.<id>]` entry (`account`, `model`, and \
-         optional `context_window`, `max_tokens`, `supports_vision`, `reasoning_effort`, \
-         `capable_model`, `note`) whose `account` is a `[provider_accounts.<id>]` entry \
-         (`provider`, `api_key`, `base_url`). The legacy form is `default_provider` naming \
-         a `[providers.<name>]` entry (`type`, `model`, `api_key`, `base_url`, …); \
-         `default_model` wins. An `api_key` may be written `${{VAR}}`. `capable_model` \
-         ranks models for `task` and `team`: the lowest rank is the fast tier, the \
-         highest the capable one.\n\
-         - `evaluator_provider`: the model that judges whether a `/goal` is met.\n\
-         - `[permissions]` `allow` / `deny`: rules such as `Bash(git *)`, `Read(<path>)` or \
-         `mcp__<server>__<tool>`. `deny` wins, and `allow` never opens a sensitive path.\n\
-         - `[coding]` `max_rounds` (per turn; 0 = no cap; `ATOMCODE_TURN_MAX_ROUNDS` wins) \
-         and `shell_guard_policy`: a shell command that reaches for credentials is asked \
-         about (`prompt`, the default), refused and the turn ended (`strict`), or left to \
-         the ordinary approval rules (`off`).\n\
-         - `[loop_config]` `max_rounds`: how many passes a `/loop` may run (default 100; \
-         0 = no cap).\n\
-         - `[subagent]` `max_concurrent` (default 3) and `max_rounds` (default 200) for \
-         `task` and `team`; `codex` / `claude` = `off` | `read-only` | `accept-edits` | \
-         `auto`, and `[[subagent.external]]` entries (`name`, `kind` = `codex` | \
-         `claude-code`, `model`, `permission`, `timeout_secs`, `enabled`), add the Codex \
-         or Claude Code CLI as a delegate where the front end allows it.\n\
-         - `[tools.todo]` `enabled`, and `eager` = `auto` | `preferred` | `always`.\n\
-         - `[tools.output]` `threshold_bytes`: a tool result larger than this (default \
-         51200, clamped to 46080..=4194304) is saved whole and shown as a head + tail \
-         preview that `fetch_output` reads past; `ATOMCODE_TOOL_OUTPUT_THRESHOLD_BYTES` \
-         wins.\n\
-         - `[lsp]` `enabled`, `auto_detect`, and `[lsp.servers.<extension>]` = \
-         `{{ command, args, root_markers }}`.\n\
-         - `[web_search]` `provider` = `exa` | `duckduckgo`, and `api_key` for Exa; the \
-         `ATOMCODE_WEB_SEARCH_PROVIDER` and `EXA_API_KEY` environment variables win.\n\
-         - `keep_interrupted_context` (keep a cancelled turn's partial work; default \
-         true), `language` (`en` | `zh_CN`), `[network]` `upstream_retry_max_attempts`, \
-         and `[datalog]` `enabled` / `dir`.\n\
-         Sections not listed here are read by the front end, not by this runtime. \
-         `describe_self` with `aspect: settings` lists the settings that are safe to \
-         edit and when each takes effect.",
-        file = config_file.display(),
-    )
-}
-
-/// `[web_search]` as the `tool-web` row takes it: `(provider, api_key)`.
-///
-/// The environment keeps the last word it always had — `ATOMCODE_WEB_SEARCH_PROVIDER`
-/// over `provider`, `EXA_API_KEY` over `api_key` — by leaving the file's value out
-/// when the variable is set, so the row falls back to it. Before this the section
-/// was parsed and then read by nobody: a person's `provider = "duckduckgo"` did
-/// nothing at all.
-pub fn web_search_from_config(
-    web_search: &atomcode_config::config::WebSearchConfig,
-) -> (Option<String>, Option<String>) {
-    let set = |name: &str| std::env::var(name).is_ok_and(|value| !value.trim().is_empty());
-    let provider = (!set("ATOMCODE_WEB_SEARCH_PROVIDER"))
-        .then(|| web_search.provider.trim().to_string())
-        .filter(|provider| !provider.is_empty());
-    let api_key = (!set("EXA_API_KEY"))
-        .then(|| web_search.api_key.clone())
-        .flatten()
-        .filter(|key| !key.trim().is_empty());
-    (provider, api_key)
+    for raw in &invalid {
+        eprintln!(
+            "[permissions] ignoring malformed rule {raw:?} \
+             (expected `Tool` or `Tool(pattern)`, e.g. `Bash(git *)`)"
+        );
+    }
+    rules
 }
 
 pub fn credential_shell_policy_from_config(
@@ -458,7 +305,6 @@ impl CodingRuntimeConfig {
     pub fn from_config(
         config: &atomcode_config::config::Config,
         working_dir: &std::path::Path,
-        dirs: atomcode_capabilities::ProductDirs,
         provider_override: Option<&str>,
         telemetry: Option<Arc<atomcode_telemetry::Telemetry>>,
         dangerously_skip_permissions: bool,
@@ -483,16 +329,7 @@ impl CodingRuntimeConfig {
                 .find_map(|id| config.resolve_model(Some(&id)).ok())
         });
         let r = resolved.as_ref();
-        let (permission_rules, mut startup_warnings) =
-            permission_rules_from_config(&config.permissions);
-        // The external agents are resolved again at each spawn site
-        // (`parts::prepare_from_config`); what they said about the file is said
-        // once, here.
-        startup_warnings
-            .extend(crate::parts::resolve_external_subagents(&config.subagent, interactive).1);
         Self {
-            startup_warnings,
-            dirs,
             api_key: r.and_then(|r| r.api_key.clone()).unwrap_or_default(),
             base_url: r.and_then(|r| r.base_url.clone()).unwrap_or_default(),
             model: r.map(|r| r.model.clone()).unwrap_or_default(),
@@ -502,11 +339,6 @@ impl CodingRuntimeConfig {
                 config.language,
             )),
             todo: config.tools.todo.clone(),
-            atomgit_enabled: atomcode_config::config::atomgit_enabled_from_env(
-                std::env::var("ATOMCODE_ATOMGIT").ok().as_deref(),
-                config.tools.atomgit.enabled,
-            ),
-            tool_output_threshold_bytes: config.tools.output.threshold_bytes,
             provider_name: r.map(|r| r.selection_id.clone()).unwrap_or_default(),
             working_dir: working_dir.to_path_buf(),
             context_window: r.map(|r| r.context_window as u32).unwrap_or(128_000),
@@ -529,7 +361,9 @@ impl CodingRuntimeConfig {
             credential_shell_policy: credential_shell_policy_from_config(
                 config.coding.shell_guard_policy,
             ),
-            permission_rules: std::sync::Arc::new(permission_rules),
+            permission_rules: std::sync::Arc::new(permission_rules_from_config(
+                &config.permissions,
+            )),
             user_agent: r.and_then(|r| r.user_agent.clone()),
             skip_tls_verify: r.map(|r| r.skip_tls_verify).unwrap_or(false),
             retry_max_attempts: r.and_then(|r| r.retry_max_attempts),
@@ -548,8 +382,6 @@ impl CodingRuntimeConfig {
             round_cap_checkpoint: false,
             next_prompt_suggestions: false,
             lsp: lsp_settings_from_config(&config.lsp),
-            web_search_provider: web_search_from_config(&config.web_search).0,
-            web_search_api_key: web_search_from_config(&config.web_search).1,
         }
     }
 
@@ -559,9 +391,7 @@ impl CodingRuntimeConfig {
             &self.base_url,
             &self.model,
             &self.working_dir,
-            self.dirs.clone(),
         );
-        config.startup_warnings = self.startup_warnings.clone();
         config.context_window = self.context_window;
         config.supports_vision = self.supports_vision;
         config.supports_reasoning_effort =
@@ -569,14 +399,8 @@ impl CodingRuntimeConfig {
                 self.reasoning_effort.as_deref(),
                 self.reasoning_effort_levels.as_deref(),
             );
-        config.effort_levels = effort_levels_for(
-            config.supports_reasoning_effort,
-            self.reasoning_effort_levels.as_deref(),
-        );
         config.preferred_language = self.preferred_language;
         config.todo = self.todo.clone();
-        config.atomgit_enabled = self.atomgit_enabled;
-        config.tool_output_threshold_bytes = self.tool_output_threshold_bytes;
         config.provider_name = self.provider_name.clone();
         config.chat_options.max_tokens = self.max_tokens;
         config.telemetry = self.telemetry.clone();
@@ -607,24 +431,7 @@ impl CodingRuntimeConfig {
         config.round_cap_checkpoint = self.round_cap_checkpoint;
         config.next_prompt_suggestions = self.next_prompt_suggestions;
         config.lsp = self.lsp.clone();
-        config.web_search_provider = self.web_search_provider.clone();
-        config.web_search_api_key = self.web_search_api_key.clone();
         config
-    }
-}
-
-/// The reasoning-effort levels to advertise for an endpoint: the config's
-/// allowed set when it has an effort control, else empty (no reasoning-effort
-/// control — a front end offers only "leave it to the endpoint"). One place, so
-/// every `CodingAgentConfig` builder agrees, and the set matches the webui's.
-pub(crate) fn effort_levels_for(supports: bool, declared_levels: Option<&[String]>) -> Vec<String> {
-    if supports {
-        atomcode_config::config::allowed_effort_levels(declared_levels)
-            .into_iter()
-            .map(str::to_string)
-            .collect()
-    } else {
-        Vec::new()
     }
 }
 
@@ -647,10 +454,6 @@ pub fn apply_provider_config(
     );
     config.supports_reasoning_effort = atomcode_config::config::endpoint_supports_reasoning_effort(
         provider.reasoning_effort.as_deref(),
-        provider.reasoning_effort_levels.as_deref(),
-    );
-    config.effort_levels = effort_levels_for(
-        config.supports_reasoning_effort,
         provider.reasoning_effort_levels.as_deref(),
     );
     config.provider_type = provider.provider_type.clone();
@@ -886,13 +689,7 @@ fn env_duration_secs(var: &str) -> Option<Duration> {
 /// The default byte-idle stream timeout: `ATOMCODE_STREAM_TIMEOUT_SECS` if set to a valid
 /// positive integer, else 300s. Ported from core's env-configurable liveness knob.
 fn default_stream_timeout() -> Duration {
-    // Two minutes, not five. A gateway that opens a stream and then goes quiet
-    // is recovered from without loss — the partial output is preserved and the
-    // turn continues — so the budget buys nothing but the wait itself, and the
-    // wait is what a person sits through with no way to tell a slow model from
-    // a dead one. Measured against a real stall (2026-09-23): one token, then
-    // five minutes of silence before the recovery that always worked.
-    env_duration_secs("ATOMCODE_STREAM_TIMEOUT_SECS").unwrap_or_else(|| Duration::from_secs(120))
+    env_duration_secs("ATOMCODE_STREAM_TIMEOUT_SECS").unwrap_or_else(|| Duration::from_secs(300))
 }
 /// The default first-token (prefill / TTFB) timeout. An explicit
 /// `ATOMCODE_FIRST_TOKEN_TIMEOUT_SECS` (valid positive integer) wins as-is — a
@@ -974,8 +771,8 @@ fn resolve_tool_loop_policy(
     }
     // Values below 3 cannot satisfy the public policy invariant (warning >= 2
     // and warning < stop), so malformed/unsafe external input retains the shipped
-    // 3/5 policy instead of panicking or silently disabling protection.
-    let stop = requested_stop.filter(|value| *value >= 3).unwrap_or(5);
+    // 3/4 policy instead of panicking or silently disabling protection.
+    let stop = requested_stop.filter(|value| *value >= 3).unwrap_or(4);
     let fallback_warning = 3.min(stop - 1).max(2);
     let warning = warning_env
         .and_then(|value| value.trim().parse::<u32>().ok())
@@ -1036,32 +833,22 @@ impl CodingAgentConfig {
     }
 
     /// Construct with the required fields and sane defaults for the rest.
-    ///
-    /// `dirs` is required on purpose: a runtime that guessed its tree would read a
-    /// login, a memory or a session from wherever the environment happened to
-    /// point — and a program embedding it would find out from a user.
     pub fn new(
         api_key: impl Into<String>,
         base_url: impl Into<String>,
         model: impl Into<String>,
         working_dir: impl Into<PathBuf>,
-        dirs: atomcode_capabilities::ProductDirs,
     ) -> Self {
         let model = model.into();
         Self {
-            startup_warnings: Vec::new(),
-            dirs,
             api_key: api_key.into(),
             base_url: base_url.into(),
             provider_name: model.clone(),
             supports_vision: atomcode_capabilities::provider::model_suggests_vision(&model),
             supports_reasoning_effort: false,
-            effort_levels: Vec::new(),
             model,
             preferred_language: None,
             todo: Default::default(),
-            atomgit_enabled: true,
-            tool_output_threshold_bytes: None,
             working_dir: working_dir.into(),
             context_window: 128_000,
             stream_timeout: default_stream_timeout(),
@@ -1086,7 +873,6 @@ impl CodingAgentConfig {
             thinking_keep: None,
             compact_threshold: 0.7,
             web_search_provider: None,
-            web_search_api_key: None,
             lsp: Default::default(),
             keep_interrupted_context: false,
             credential_shell_policy: Default::default(),
@@ -1119,7 +905,6 @@ mod tests {
         let runtime = CodingRuntimeConfig::from_config(
             &config,
             std::path::Path::new("/work"),
-            crate::config::product_dirs_from_env(),
             None,
             None,
             false,
@@ -1130,25 +915,11 @@ mod tests {
         let git = serde_json::json!({ "command": "git status" }).to_string();
         let rm = serde_json::json!({ "command": "rm -rf /" }).to_string();
         assert_eq!(
-            agent.permission_rules.decide(
-                &atomcode_capabilities::tools::SensitivePaths::of(
-                    &crate::config::product_dirs_from_env()
-                ),
-                "bash",
-                &git,
-                cwd
-            ),
+            agent.permission_rules.decide("bash", &git, cwd),
             atomcode_capabilities::tools::RuleDecision::Allow
         );
         assert_eq!(
-            agent.permission_rules.decide(
-                &atomcode_capabilities::tools::SensitivePaths::of(
-                    &crate::config::product_dirs_from_env()
-                ),
-                "bash",
-                &rm,
-                cwd
-            ),
+            agent.permission_rules.decide("bash", &rm, cwd),
             atomcode_capabilities::tools::RuleDecision::Deny
         );
     }
@@ -1171,13 +942,7 @@ mod tests {
 
     #[test]
     fn ordinary_turns_are_unbounded_by_default() {
-        let c = CodingAgentConfig::new(
-            "k",
-            "https://x/v1",
-            "m",
-            "/tmp",
-            crate::config::product_dirs_from_env(),
-        );
+        let c = CodingAgentConfig::new("k", "https://x/v1", "m", "/tmp");
         assert_eq!(c.max_rounds, 0);
         // No CodingPlan info at construction → the non-CodingPlan fallback.
         assert_eq!(c.goal_max_rounds, 300);
@@ -1204,7 +969,6 @@ mod tests {
         let runtime = CodingRuntimeConfig::from_config(
             &config,
             std::path::Path::new("/workspace"),
-            crate::config::product_dirs_from_env(),
             None,
             None,
             false,
@@ -1218,13 +982,7 @@ mod tests {
         assert_eq!(rust.command, "custom-ra");
         assert_eq!(rust.args, vec!["--stdio"]);
 
-        let defaults = CodingAgentConfig::new(
-            "",
-            "",
-            "",
-            "/workspace",
-            crate::config::product_dirs_from_env(),
-        );
+        let defaults = CodingAgentConfig::new("", "", "", "/workspace");
         assert!(!defaults.lsp.enabled);
     }
 
@@ -1278,7 +1036,6 @@ mod tests {
         let runtime = CodingRuntimeConfig::from_config(
             &source,
             std::path::Path::new("/tmp"),
-            crate::config::product_dirs_from_env(),
             None,
             None,
             false,
@@ -1302,7 +1059,6 @@ mod tests {
         let runtime = CodingRuntimeConfig::from_config(
             &source,
             std::path::Path::new("/tmp"),
-            crate::config::product_dirs_from_env(),
             None,
             None,
             false,
@@ -1324,7 +1080,6 @@ mod tests {
         let runtime = CodingRuntimeConfig::from_config(
             &source,
             std::path::Path::new("/tmp"),
-            crate::config::product_dirs_from_env(),
             None,
             None,
             false,
@@ -1358,7 +1113,6 @@ mod tests {
         let rt = CodingRuntimeConfig::from_config(
             &source,
             std::path::Path::new("/tmp"),
-            crate::config::product_dirs_from_env(),
             None,
             None,
             false,
@@ -1390,7 +1144,6 @@ mod tests {
         let rt = CodingRuntimeConfig::from_config(
             &source,
             std::path::Path::new("/tmp"),
-            crate::config::product_dirs_from_env(),
             None,
             None,
             false,
@@ -1406,7 +1159,6 @@ mod tests {
         let rt2 = CodingRuntimeConfig::from_config(
             &source,
             std::path::Path::new("/tmp"),
-            crate::config::product_dirs_from_env(),
             Some("acc/chat"),
             None,
             false,
@@ -1441,7 +1193,6 @@ mod tests {
         let runtime = CodingRuntimeConfig::from_config(
             &source,
             std::path::Path::new("/tmp"),
-            crate::config::product_dirs_from_env(),
             None,
             None,
             false,
@@ -1478,23 +1229,11 @@ mod tests {
         let fallback = resolve_tool_loop_policy(Some("99"), Some("4")).unwrap();
         assert_eq!(fallback.warning_threshold(), 3);
         assert_eq!(fallback.stop_threshold(), 4);
-
-        // The shipped default when nothing is configured: warn at 3, stop at 5 —
-        // two rounds for the course-correction to land before the turn is cut.
-        let default = resolve_tool_loop_policy(None, None).unwrap();
-        assert_eq!(default.warning_threshold(), 3);
-        assert_eq!(default.stop_threshold(), 5);
     }
 
     #[test]
     fn coding_cfg_new_defaults_subagent_providers_none() {
-        let c = CodingAgentConfig::new(
-            "k",
-            "https://api.example.com/v1",
-            "m",
-            "/tmp",
-            crate::config::product_dirs_from_env(),
-        );
+        let c = CodingAgentConfig::new("k", "https://api.example.com/v1", "m", "/tmp");
         assert!(c.subagent_fast_provider.is_none());
         assert!(c.subagent_capable_provider.is_none());
         assert!(c.subagent_model_providers.is_none());
@@ -1731,7 +1470,6 @@ impl std::fmt::Debug for CodingAgentConfig {
             .field("model", &self.model)
             .field("provider_name", &self.provider_name)
             .field("working_dir", &self.working_dir)
-            .field("dirs", &self.dirs)
             .field("context_window", &self.context_window)
             .field("stream_timeout", &self.stream_timeout)
             .field("first_token_timeout", &self.first_token_timeout)

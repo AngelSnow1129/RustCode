@@ -21,7 +21,6 @@ use atomcode_kernel::hook::LifecycleHooks;
 use atomcode_kernel::message::{Conversation, Message, Role};
 
 use super::MemoryStore;
-use crate::ProductDirs;
 
 /// The fixed first line of `MemoryStore::merged_for_prompt` output — how the hook
 /// recognizes ITS message in a resumed snapshot. Guarded against drift by a test.
@@ -38,20 +37,19 @@ pub struct MemoryHook {
 }
 
 impl MemoryHook {
-    /// The standard wiring: the global `<user tree>/memory.md` + the project's
-    /// `<project dir>/memory.md` + the machine-local `<project dir>/local/memory.md`,
+    /// The standard wiring: the global `$ATOMCODE_HOME/memory.md` + the project's
+    /// `<root>/.atomcode/memory.md` + the machine-local `<root>/.atomcode/local/memory.md`,
     /// labeled with the root's directory name (the literal `"project"` when the root has
     /// none — e.g. `/` — same as production).
-    pub fn for_project(project_root: &Path, dirs: &ProductDirs) -> Self {
+    pub fn for_project(project_root: &Path) -> Self {
         let project_name = project_root
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "project".to_string());
-        let project_dir = dirs.project(project_root);
         Self {
-            global: MemoryStore::global(dirs.user()),
-            project: MemoryStore::project(&project_dir),
-            local: MemoryStore::local(&project_dir),
+            global: MemoryStore::global(),
+            project: MemoryStore::project(project_root),
+            local: MemoryStore::local(project_root),
             project_name,
         }
     }
@@ -132,10 +130,10 @@ mod tests {
         local: &str,
     ) -> (MemoryStore, MemoryStore, MemoryStore) {
         let g = MemoryStore::new(dir.join("memory.md"));
-        let p = MemoryStore::new(dir.join("proj").join(".ours").join("memory.md"));
+        let p = MemoryStore::new(dir.join("proj").join(".atomcode").join("memory.md"));
         let l = MemoryStore::new(
             dir.join("localmd")
-                .join(".ours")
+                .join(".atomcode")
                 .join("local")
                 .join("memory.md"),
         );
@@ -348,23 +346,18 @@ mod tests {
 
     #[test]
     fn for_project_labels_with_directory_name() {
-        let dirs = ProductDirs::new("/tree", ".ours");
-        let h = MemoryHook::for_project(Path::new("/tmp/some/repo-name"), &dirs);
+        let h = MemoryHook::for_project(Path::new("/tmp/some/repo-name"));
         assert_eq!(h.project_name, "repo-name");
-        assert_eq!(h.global.path(), Path::new("/tree/memory.md"));
-        assert_eq!(
-            h.project.path(),
-            Path::new("/tmp/some/repo-name/.ours/memory.md")
-        );
-        assert_eq!(
-            h.local.path(),
-            Path::new("/tmp/some/repo-name/.ours/local/memory.md")
-        );
+        // Env-neutral: the default `.atomcode` dir is covered deterministically by
+        // `store::project_memory_path_resolves_override`. Asserting the literal `.atomcode`
+        // here would couple this test to `ATOMCODE_PROJECT_MEMORY_DIR` being unset, and
+        // mutating the process env (remove_var) would race sibling tests that read it.
+        assert!(h.project.path().ends_with("memory.md"));
     }
 
     #[test]
     fn for_project_root_without_name_falls_back_to_project_like_production() {
-        let h = MemoryHook::for_project(Path::new("/"), &ProductDirs::new("/tree", ".ours"));
+        let h = MemoryHook::for_project(Path::new("/"));
         assert_eq!(h.project_name, "project");
     }
 }

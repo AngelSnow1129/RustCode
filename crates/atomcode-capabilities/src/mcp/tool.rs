@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn trusted_server_makes_its_tools_safe() {
-        let reg = Arc::new(McpRegistry::new("/nonexistent/tree"));
+        let reg = Arc::new(McpRegistry::new());
         reg.mark_server_trusted("docs");
         let adapter = McpToolAdapter::new(reg, info("docs", "query")).unwrap();
         assert_eq!(adapter.risk("{}"), RiskLevel::Safe);
@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn untrusted_server_tool_is_risky() {
-        let reg = Arc::new(McpRegistry::new("/nonexistent/tree"));
+        let reg = Arc::new(McpRegistry::new());
         let adapter = McpToolAdapter::new(reg, info("docs", "query")).unwrap();
         assert_eq!(adapter.risk("{}"), RiskLevel::Risky);
         assert!(
@@ -235,7 +235,7 @@ mod tests {
     fn read_only_hint_tool_is_safe_even_when_untrusted() {
         // A server-declared read-only tool (readOnlyHint: true) has no side effects →
         // Safe (skips approval) and exposes read_only_hint() for plan mode.
-        let reg = Arc::new(McpRegistry::new("/nonexistent/tree"));
+        let reg = Arc::new(McpRegistry::new());
         let mut ro = info("docs", "query");
         ro.read_only = true;
         let adapter = McpToolAdapter::new(reg, ro).unwrap();
@@ -245,7 +245,7 @@ mod tests {
 
     #[test]
     fn auto_approved_tool_is_safe_but_only_that_tool() {
-        let reg = Arc::new(McpRegistry::new("/nonexistent/tree"));
+        let reg = Arc::new(McpRegistry::new());
         reg.mark_tool_auto_approved("mcp__docs__query");
         assert_eq!(
             McpToolAdapter::new(reg.clone(), info("docs", "query"))
@@ -264,11 +264,8 @@ mod tests {
 
     #[test]
     fn always_grant_scope_is_tool_wide_not_per_args() {
-        let adapter = McpToolAdapter::new(
-            Arc::new(McpRegistry::new("/nonexistent/tree")),
-            info("docs", "query"),
-        )
-        .unwrap();
+        let adapter =
+            McpToolAdapter::new(Arc::new(McpRegistry::new()), info("docs", "query")).unwrap();
         // Same scope regardless of args → "Always" persists across differing calls.
         assert_eq!(
             adapter.always_grant_scope(r#"{"q":"a"}"#),
@@ -285,7 +282,7 @@ mod tests {
     #[test]
     fn full_name_sanitizes_characters_opena_llm_rejects() {
         let adapter = McpToolAdapter::new(
-            Arc::new(McpRegistry::new("/nonexistent/tree")),
+            Arc::new(McpRegistry::new()),
             info("docs w/ spaces", "query#result"),
         )
         .unwrap();
@@ -304,11 +301,9 @@ mod tests {
     /// servers) must likewise sanitize to a valid OpenAI function name.
     #[test]
     fn non_ascii_names_are_sanitized() {
-        let adapter = McpToolAdapter::new(
-            Arc::new(McpRegistry::new("/nonexistent/tree")),
-            info("文档服务", "读取文件"),
-        )
-        .unwrap();
+        let adapter =
+            McpToolAdapter::new(Arc::new(McpRegistry::new()), info("文档服务", "读取文件"))
+                .unwrap();
         let name = adapter.full_name();
         assert!(name.is_ascii(), "must be pure ASCII: {name}");
         for ch in name.chars() {
@@ -348,7 +343,7 @@ mod tests {
 
     #[test]
     fn registry_rejects_an_explicit_alias_collision() {
-        let registry = Arc::new(McpRegistry::new("/nonexistent/tree"));
+        let registry = Arc::new(McpRegistry::new());
         registry
             .register_tool_alias("mcp__collision", "first", "tool")
             .unwrap();

@@ -1,4 +1,4 @@
-//! Setup wizard — install seed files (skills/commands/hooks/MCP) to the user tree.
+//! Setup wizard — install seed files (skills/commands/hooks/MCP) to `$ATOMCODE_HOME/`.
 //!
 //! Simplified pipeline: lock → scan → install all seeds → setup-state → report.
 
@@ -14,23 +14,18 @@ pub mod types;
 pub use error::{SetupError, SetupResult};
 pub use types::*;
 
-use crate::ProductDirs;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct RunOptions {
     pub project_root: PathBuf,
-    /// Where seeds are installed (the user tree) and where the project's lock,
-    /// state and backups go (its project dir).
-    pub dirs: ProductDirs,
     pub force: bool,
 }
 
 impl RunOptions {
-    pub fn new(project_root: PathBuf, dirs: ProductDirs) -> Self {
+    pub fn new(project_root: PathBuf) -> Self {
         Self {
             project_root,
-            dirs,
             force: false,
         }
     }
@@ -47,8 +42,7 @@ pub fn run(opts: RunOptions) -> SetupResult<SetupReport> {
     let started = std::time::Instant::now();
 
     // 1. Lock — RAII; released on function exit / panic.
-    let project_dir = opts.dirs.project(&opts.project_root);
-    let _lock = lock::SetupLock::acquire(&project_dir, opts.force).map_err(|e| match e {
+    let _lock = lock::SetupLock::acquire(&opts.project_root, opts.force).map_err(|e| match e {
         lock::LockError::Held {
             pid,
             start_time,
@@ -65,22 +59,17 @@ pub fn run(opts: RunOptions) -> SetupResult<SetupReport> {
     let signals = scan::scan(&opts.project_root);
 
     // 3. Install all embedded seeds (skills + commands + hooks + mcp).
-    let cache_dir = ensure_seeds_extracted(opts.dirs.user()).map_err(SetupError::Other)?;
+    let seeds_cache_root = atomcode_config::config::Config::config_dir();
+    let cache_dir = ensure_seeds_extracted(&seeds_cache_root).map_err(SetupError::Other)?;
 
-    let mut txn = install::InstalledTxn::new(opts.project_root.clone(), &project_dir)
-        .map_err(SetupError::Io)?;
+    let mut txn = install::InstalledTxn::new(opts.project_root.clone()).map_err(SetupError::Io)?;
     let mut summary = InstalledSummary::default();
 
     // Install directory-style skills (e.g., atomcode-automation-recommender/).
-    install_directory_skills_from_seeds(
-        &cache_dir,
-        &opts.dirs.user().join("skills"),
-        &mut summary,
-        opts.force,
-    );
+    install_directory_skills_from_seeds(&cache_dir, &mut summary, opts.force);
 
-    // Append the .gitignore marker for the project dir's machine-local subdir.
-    if let Err(e) = txn.append_gitignore(&opts.project_root, opts.dirs.project_dir_name()) {
+    // Append .gitignore marker for .atomcode/local/.
+    if let Err(e) = txn.append_gitignore(&opts.project_root) {
         tracing::warn!("failed to append .gitignore: {e}");
     }
 
@@ -101,7 +90,7 @@ pub fn run(opts: RunOptions) -> SetupResult<SetupReport> {
             })
             .collect(),
     };
-    if let Err(e) = state::save_setup_state(&project_dir, &state_data) {
+    if let Err(e) = state::save_setup_state(&opts.project_root, &state_data) {
         tracing::warn!("failed to save setup-state.json: {e}");
     }
 
@@ -111,19 +100,21 @@ pub fn run(opts: RunOptions) -> SetupResult<SetupReport> {
     })
 }
 
-/// Copy directory-style skills from seeds-cache to `target_skills` (the user
-/// tree's `skills/` — the dir `standard_skill_dirs` scans at the user level).
+/// Copy directory-style skills from seeds-cache to $ATOMCODE_HOME/skills/.
 /// E.g., `atomcode-automation-recommender/SKILL.md` + `references/`.
 ///
 /// When `force` is true, skills are reinstalled even if the content hash matches
 /// (i.e., `--force` forces a clean reinstall, not just a lock bypass).
 fn install_directory_skills_from_seeds(
     cache_dir: &std::path::Path,
-    target_skills: &std::path::Path,
     summary: &mut InstalledSummary,
     force: bool,
 ) {
     let seeds_skills = cache_dir.join("skills");
+    // Target path must match SkillRegistry::reload's scan path: a single
+    // unified config dir (Config::config_dir()) that resolves to
+    // ATOMCODE_HOME when set, else $HOME/.atomcode.
+    let target_skills = atomcode_config::config::Config::config_dir().join("skills");
 
     let entries = match std::fs::read_dir(&seeds_skills) {
         Ok(e) => e,

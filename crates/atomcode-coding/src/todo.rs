@@ -5,12 +5,9 @@
 
 use async_trait::async_trait;
 use atomcode_capabilities::reminder::synthetic_system_reminder;
-use atomcode_capabilities::session::manager::{
-    SessionManager, TodoCallPosition, TodoSidecar, TodoSidecarItem,
-};
+use atomcode_capabilities::session::manager::{SessionManager, TodoSidecarItem};
 use atomcode_capabilities::tools::todo::{
-    active_todo_calls, apply_todo_action, derive_current_todos, ends_on_a_question, is_todo_call,
-    is_todo_plan, reduce_todos, render_todos_numbered, ActiveTodoCall, TodoItem, TodoStatus,
+    derive_current_todos, is_todo_plan, render_todos_numbered, TodoItem, TodoStatus,
 };
 use atomcode_kernel::event::StopReason;
 use atomcode_kernel::hook::{LifecycleHooks, TurnCtx};
@@ -24,21 +21,11 @@ use atomcode_config::config::TodoEagerness;
 /// (e.g. the closing summary) then ends WITHOUT marking it completed. Mirrors
 /// `VerifyCadenceHook`'s `offer_continuation` cadence; nudges at most ONCE per real-user turn
 /// (and the kernel `max_continuations` fuse bounds it), so it can never spin.
-///
-/// The nudge asks for a TRUE LIST, not for more work: the list exists to show where the work
-/// actually stands, so an item that is finished gets closed, one the plan outgrew gets replaced
-/// or dropped, and one still ahead stays open. An earlier wording ("If some are NOT done, keep
-/// working through them") read as a demand to keep executing — it pushed models to grind on
-/// items the task no longer needed instead of reconciling the list, which is the opposite of
-/// what the list is for. Stopping is legitimate; stopping with a list that lies is not.
 const TODO_COMPLETION_NUDGE: &str = "Before you finish: the task list still has open items. \
-Take a moment to make it match where the work actually stands — the list is there to reflect \
-reality, not to keep you working. \
-If an item is done, mark it completed with `todowrite` \
-(`{\"action\":\"update\",\"id\":<id>,\"status\":\"completed\"}`). If the plan changed and an item \
-is no longer part of the task, replace or drop it rather than leaving it open. If it is genuinely \
-still ahead of you, keep going — and if you are stopping, say briefly which items are open and why \
-(blocked, needs approval, ambiguous, or simply no longer wanted).";
+If you have actually completed them, mark each one done now with `todowrite` \
+(`{\"action\":\"update\",\"id\":<id>,\"status\":\"completed\"}`). If some are NOT done, keep working \
+through them. Only stop with open items if you genuinely need approval/input, are stuck, or the \
+request is ambiguous — in that case say so briefly.";
 
 pub struct TodoHook {
     /// Project root for locating the session todo sidecar
@@ -46,44 +33,19 @@ pub struct TodoHook {
     /// tests / headless drivers: sidecar persistence is skipped and the hook
     /// stays transcript-derived only (matches the pre-sidecar behavior).
     working_dir: Option<std::path::PathBuf>,
-    /// Where the sidecar's session store is (`<user tree>/sessions/<bucket>`).
-    dirs: Option<atomcode_capabilities::ProductDirs>,
-    /// The list this round's request showed the model — `None` until a request
-    /// has been made. The stop check reads it rather than folding the
-    /// conversation again: after a compaction the conversation alone is the
-    /// turn's updates over an empty list, and the model would be let go with
-    /// items open that it had just been shown.
-    shown: std::sync::Mutex<Option<Vec<TodoItem>>>,
 }
 
 impl TodoHook {
-    pub fn new(
-        working_dir: impl Into<std::path::PathBuf>,
-        dirs: atomcode_capabilities::ProductDirs,
-    ) -> Self {
+    pub fn new(working_dir: impl Into<std::path::PathBuf>) -> Self {
         Self {
             working_dir: Some(working_dir.into()),
-            dirs: Some(dirs),
-            shown: Default::default(),
         }
-    }
-
-    /// The session store the sidecar lives in, when there is a project to key it on.
-    fn sessions(&self) -> Option<SessionManager> {
-        Some(SessionManager::for_project(
-            self.working_dir.as_deref()?,
-            self.dirs.as_ref()?,
-        ))
     }
 }
 
 impl Default for TodoHook {
     fn default() -> Self {
-        Self {
-            working_dir: None,
-            dirs: None,
-            shown: Default::default(),
-        }
+        Self { working_dir: None }
     }
 }
 
@@ -97,12 +59,6 @@ pub struct TodoEagerHook {
     /// forces the tool choice (that was unsupported by DeepSeek V4 and regressed
     /// efficiency on small tasks; only `always` hard-forces).
     force_complex_for_weak_model: bool,
-    /// Where the session's todo sidecar is found, as for [`TodoHook`]. A plan a
-    /// compaction took out of the conversation is still a plan, and is only in
-    /// the sidecar; without it the policy would ask for a new one over it.
-    working_dir: Option<std::path::PathBuf>,
-    /// Where the sidecar's session store is — see [`TodoHook`].
-    dirs: Option<atomcode_capabilities::ProductDirs>,
 }
 
 impl TodoEagerHook {
@@ -118,8 +74,10 @@ impl TodoEagerHook {
             TodoEagerness::Auto => TodoEagerness::Auto,
             other => other,
         };
-        // Said to the person by `parts::prepare` (a startup warning), not here.
         if eagerness == TodoEagerness::Always && provider_type.eq_ignore_ascii_case("ollama") {
+            eprintln!(
+                "[todo] eager=always is unsupported by provider type ollama; using preferred"
+            );
             eagerness = TodoEagerness::Preferred;
         }
         // Ollama's adapter cannot express a forced tool choice. Keep the
@@ -130,42 +88,16 @@ impl TodoEagerHook {
         Self {
             eagerness,
             force_complex_for_weak_model,
-            working_dir: None,
-            dirs: None,
         }
-    }
-
-    /// Read the list the way [`TodoHook`] does, sidecar included.
-    pub fn with_working_dir(
-        mut self,
-        working_dir: impl Into<std::path::PathBuf>,
-        dirs: atomcode_capabilities::ProductDirs,
-    ) -> Self {
-        self.working_dir = Some(working_dir.into());
-        self.dirs = Some(dirs);
-        self
-    }
-
-    fn sessions(&self) -> Option<SessionManager> {
-        Some(SessionManager::for_project(
-            self.working_dir.as_deref()?,
-            self.dirs.as_ref()?,
-        ))
     }
 
     fn should_activate(&self, messages: &[Message], ctx: &TurnCtx) -> bool {
-        if ctx.round != 1 || self.eagerness == TodoEagerness::Auto {
-            return false;
-        }
-        current_todos(messages, || read_sidecar(self.sessions().as_ref(), ctx)).map_or(
-            true,
-            |current| {
-                current
-                    .items
-                    .iter()
-                    .all(|todo| todo.status == TodoStatus::Completed)
-            },
-        )
+        let todos = derive_current_todos(messages);
+        ctx.round == 1
+            && self.eagerness != TodoEagerness::Auto
+            && todos
+                .iter()
+                .all(|todo| todo.status == TodoStatus::Completed)
     }
 
     /// The explicit `always` policy is the ONLY one that hard-forces the tool
@@ -337,47 +269,15 @@ fn current_real_user_start(convo: &Conversation) -> usize {
         .unwrap_or(0)
 }
 
-/// How many times one real-user turn is asked to close out its list before a stop is let be.
-const MAX_COMPLETION_NUDGES: usize = 3;
-
-/// Whether this turn may be nudged again: under [`MAX_COMPLETION_NUDGES`], and — when it
-/// was nudged already — only if the model called a tool since. A nudge answered with more
-/// talk is a model that means to stop, and asking again would only spin.
-///
-/// It used to be once per turn. A long turn spent that early, and when the model later
-/// ended a reply on the step it was about to take ("运行测试：") without taking it, the turn
-/// closed as a clean finish with the list still open (a 45-minute, 50-round turn, reported
-/// against 5.1.0).
-fn completion_nudge_allowed(convo: &Conversation) -> bool {
-    let turn = &convo.messages[current_real_user_start(convo)..];
-    let nudges: Vec<usize> = turn
-        .iter()
-        .enumerate()
-        .filter(|(_, m)| {
-            m.role == Role::User
-                && m.synthetic
-                && m.text.trim_start().starts_with(TODO_COMPLETION_NUDGE)
-        })
-        .map(|(i, _)| i)
-        .collect();
-    match nudges.last() {
-        None => true,
-        Some(_) if nudges.len() >= MAX_COMPLETION_NUDGES => false,
-        Some(&last) => turn[last + 1..]
-            .iter()
-            .any(|m| m.role == Role::Assistant && !m.tool_calls.is_empty()),
-    }
-}
-
-/// True iff the reply the model stopped on ends by asking the person something (see
-/// [`ends_on_a_question`]). That stop is waiting for an answer, not stalling.
-fn stops_on_a_question(convo: &Conversation) -> bool {
-    convo
-        .messages
-        .iter()
-        .rev()
-        .find(|m| m.role == Role::Assistant)
-        .is_some_and(|m| ends_on_a_question(&m.text))
+/// True iff the completion nudge was already injected in the CURRENT real-user turn — so we
+/// nudge at most once; if the model stops again with open items, we let it end.
+fn completion_nudge_already_present(convo: &Conversation) -> bool {
+    let start = current_real_user_start(convo);
+    convo.messages[start..].iter().any(|m| {
+        m.role == Role::User
+            && m.synthetic
+            && m.text.trim_start().starts_with(TODO_COMPLETION_NUDGE)
+    })
 }
 
 /// True iff the model actively MANAGED the task list this turn (a `todo`/`todowrite` call after
@@ -393,109 +293,41 @@ fn managed_todos_this_turn(convo: &Conversation) -> bool {
     })
 }
 
-/// Where the list stands, stated — not a demand to check it.
-///
-/// Weak models drift (leave `in_progress` on a task they finished, or work with nothing
-/// marked), and the `[~]` glyph in the list below is low-salience, so the current item is
-/// named on its own line. It used to be an imperative — ">> You are currently ON task #N.
-/// Before your NEXT action, reconcile: …" — and a demand to check before every action is a
-/// demand to be seen checking: on a task that legitimately spans many steps there is
-/// nothing to change, so the only visible way to comply is to say so. deepseek-flash did,
-/// in 13–45% of its replies across four long sessions (2026-09-21..23: "Pointer is accurate
-/// — still #6", "任务指针准确，继续"); the word "pointer" in those replies came from this
-/// line and nowhere else. A permission-to-stay-quiet sentence riding beside the imperative
-/// (09-19) did not stop it — the command was the stronger of the two.
-///
-/// Drift after a stretch of silence is named once, by [`todo_quiet_note`]; this line only
-/// states the fact.
-/// - An `in_progress` task → its `#<id>` and title.
-/// - Nothing in progress but items open → that fact.
-/// - All completed → `None`.
+/// The mid-work "reconcile your pointer" anchor prepended to the per-request reminder.
+/// Weak models DRIFT: they leave `in_progress` on a task they already finished or moved
+/// past (e.g. still on #4 while actually editing #6's code), or work with nothing marked
+/// in_progress at all. The full numbered list is already injected below, but the
+/// in_progress status is just a `[~]` glyph buried in it — low salience for weak models.
+/// This surfaces the current pointer as an explicit imperative every turn so the model
+/// re-confronts it BEFORE acting. Deterministic: reads only the derived state, never
+/// guesses which task the model "should" be on.
+/// - An `in_progress` task → name its `#<id>` + title and force a reconcile.
+/// - No `in_progress` but open (pending) items remain → tell it to mark what it's on.
+/// - Otherwise (all completed) → `None` (nothing to reconcile; don't add noise).
 /// `id` is the 1-based position, matching `render_todos_numbered`.
-fn todo_status_line(todos: &[TodoItem]) -> Option<String> {
+fn todo_anchor_line(todos: &[TodoItem]) -> Option<String> {
     if let Some(i) = todos
         .iter()
         .position(|t| t.status == TodoStatus::InProgress)
     {
-        return Some(format!("In progress: #{} \"{}\".", i + 1, todos[i].content));
-    }
-    let open = todos
-        .iter()
-        .filter(|t| t.status == TodoStatus::Pending)
-        .count();
-    (open > 0).then(|| format!("Nothing is marked in progress; {open} item(s) still open."))
-}
-
-/// What the list is, and the one rule about talking about it. The list is shown to the
-/// person by the front end, so its state is never news: the model changes it with a call
-/// when the work moves and otherwise leaves it alone — in its text as well as its calls.
-const TODO_LIST_HEADER: &str = "Current task list — the person sees it in the UI, so it needs \
-no comment from you: never write about which item you are on or whether the list is up to \
-date. Change it with a call only when an item actually finishes, you switch to another item, \
-or the plan changes.";
-
-/// Steps without touching the list after which it is named once as possibly stale.
-///
-/// Not zero-tolerance: reading a file, grepping and editing between two status updates is
-/// ordinary work. The same threshold the harness's `todo-reminder` row defaults to — this
-/// hook is what says it in coding, which keeps that row off (see `CODING_ROWS`).
-const TODO_QUIET_STEPS: usize = 3;
-
-/// How many tool-using steps the model has taken since it last touched the list, counted
-/// inside the current real-user turn — a new message from the person starts it over, as the
-/// list was true when the last turn ended and the person has spoken since. Injected messages
-/// are all `synthetic` in the projection, so only the person's own words reset it.
-fn quiet_steps(messages: &[Message]) -> usize {
-    let start = messages
-        .iter()
-        .rposition(|m| m.role == Role::User && !m.synthetic)
-        .unwrap_or(0);
-    let turn = &messages[start..];
-    let since = turn
-        .iter()
-        .rposition(|m| m.tool_calls.iter().any(|c| is_todo_call(&c.name)))
-        .map_or(0, |i| i + 1);
-    turn[since..]
-        .iter()
-        .filter(|m| m.role == Role::Assistant && !m.tool_calls.is_empty())
-        .count()
-}
-
-/// Said once, on the one request where the list has gone exactly [`TODO_QUIET_STEPS`] steps
-/// untouched — the tail is rebuilt every request, so "once" needs no state, and nothing about
-/// it reaches the log.
-///
-/// Before, two voices said this: the per-request line demanded a check every round, and the
-/// harness's `todo-reminder` committed "has not been updated for N steps" every three steps
-/// into the log, where each note then stayed in every later request. One long regression hunt
-/// (2026-09-22) collected seven of them, and the model restated its whole diagnosis after
-/// nearly each one to show it was still on the task. Now it is this sentence, once per
-/// stretch, with no step count and an explicit "that is fine" for a task that is just long.
-fn todo_quiet_note(todos: &[TodoItem], quiet: usize) -> Option<String> {
-    if quiet != TODO_QUIET_STEPS {
-        return None;
-    }
-    if let Some(i) = todos
-        .iter()
-        .position(|t| t.status == TodoStatus::InProgress)
-    {
-        let id = i + 1;
         return Some(format!(
-            "The list has not moved for a few steps. If #{id} is finished, mark it completed \
-(`{{\"action\":\"update\",\"id\":{id},\"status\":\"completed\"}}`); if you moved on, mark that \
-item in progress; if the plan changed, send the new list. If #{id} is what you are doing, that \
-is fine — carry on."
+            ">> You are currently ON task #{} \"{}\". Before your NEXT action, reconcile: if it \
+is actually DONE, mark it completed now (`{{\"action\":\"update\",\"id\":{},\"status\":\"completed\"}}`); \
+if you have moved on to a DIFFERENT task, switch in_progress to THAT id FIRST. Do not leave \
+in_progress pointing at a task you are no longer working on.",
+            i + 1,
+            todos[i].content,
+            i + 1
         ));
     }
-    todos
-        .iter()
-        .any(|t| t.status == TodoStatus::Pending)
-        .then(|| {
-            "Nothing has been marked in progress for a few steps. Mark the item you are working \
-on (`{\"action\":\"update\",\"id\":<id>,\"status\":\"in_progress\"}`), or send a new list if \
-the plan changed."
-                .to_string()
-        })
+    if todos.iter().any(|t| t.status == TodoStatus::Pending) {
+        return Some(
+            ">> NOTHING is in_progress but tasks remain. Before you act, mark the task you are \
+actually working on as in_progress (`{\"action\":\"update\",\"id\":<id>,\"status\":\"in_progress\"}`)."
+                .to_string(),
+        );
+    }
+    None
 }
 
 /// The static "how to drive the list with `todowrite`" rules. These are CONSTANT
@@ -503,15 +335,11 @@ the plan changed."
 /// after it (re)plans — so re-sending them on every execution round is pure wasted
 /// cache (~170 tokens/round of never-cached tail). Rides the reminder only when the
 /// model JUST wrote a full list (see `just_wrote_full_list`).
-///
-/// The last rule asks for a TRUE LIST rather than more work: the list records where the
-/// work stands, so reconciliation (close / replace / drop) is the duty, not grinding on
-/// every open item. A task that changed should change the list with it.
 const TODO_DRIVE_RULES: &str = "\n\
 - The MOMENT you START an item: `todowrite` with `{\"action\":\"update\",\"id\":<id>,\"status\":\"in_progress\"}`.\n\
 - The MOMENT you FINISH an item: `todowrite` with `{\"action\":\"update\",\"id\":<id>,\"status\":\"completed\"}` (do not leave a done item showing incomplete).\n\
 - Update ONE item at a time (the `{\"action\":...}` shape) — do NOT resend the whole `todos` list for a single status change (the full list is only for the initial plan or a full re-plan).\n\
-- Keep the list TRUE as the work moves: an item you finished is marked completed, an item the task outgrew is replaced or dropped (`todowrite` with the new full list), and an item still ahead stays open. If the work changed shape, change the list with it — a stale or inflated list is worse than a short one. Stopping is allowed; stopping with a list that no longer matches reality is not.";
+- Do NOT stop, summarize, or hand back while ANY item is still pending or in_progress — keep working through them, unless you truly need approval, are genuinely stuck, or the request is ambiguous.";
 
 /// True iff the model's most recent tool-using action was a FULL `todowrite` list
 /// (re)plan, as opposed to a single `todo` status update or a non-todo action. Used to
@@ -532,68 +360,57 @@ fn just_wrote_full_list(messages: &[Message]) -> bool {
 #[async_trait]
 impl LifecycleHooks for TodoHook {
     async fn pre_request(&self, messages: &mut Vec<Message>, ctx: &TurnCtx) {
-        let current = current_todos(messages, || self.sidecar(ctx));
-        // Persist as soon as the list moves, not only at turn end. A compaction later
-        // in THIS turn can drain the call that wrote it (a single long turn is split,
-        // see `recent_keep_boundary_splitting`); with the sidecar still one turn behind,
-        // the turn's remaining updates were then laid, by index, over the previous
-        // turn's plan — the model was shown, and turn end saved, a mix of the two.
-        if let Some(current) = current.as_ref() {
-            self.persist_if_ahead(current, messages.len(), ctx);
-        }
-        *self.shown.lock().unwrap_or_else(|e| e.into_inner()) = Some(
-            current
-                .as_ref()
-                .map(|c| c.items.clone())
-                .unwrap_or_default(),
-        );
-        let Some(CurrentTodos { items: todos, .. }) = current else {
-            return;
+        let todos = derive_current_todos(messages);
+        // Transcript-derived list may be EMPTY after a compaction drained the old
+        // turns (incl. the early todowrite plan call) — recover from the persisted
+        // sidecar so the model keeps seeing its plan (issue #1503). Fall back to
+        // the sidecar ONLY when the transcript has nothing; otherwise the live
+        // transcript is the authoritative source.
+        let todos = if todos.is_empty() {
+            // Only reach for the sidecar when a session context exists.
+            let Some(working_dir) = self.working_dir.as_deref() else {
+                return;
+            };
+            let Some(session_id) = ctx.session_id.as_deref() else {
+                return;
+            };
+            sidecar_todos_for(working_dir, session_id).unwrap_or_default()
+        } else {
+            todos
         };
         if todos.is_empty() {
             return;
         }
         // ASCII-safe body (the model doesn't need glyph prettiness; the TUI renders
         // the pretty version). Tail-append so the cached prefix is preserved.
-        // Header, status line and list ride EVERY round; the static drive rules ride
-        // ONLY right after a (re)plan, to stop wasting cache re-sending constant
-        // guidance every execution round.
+        // The anchor line (mid-work drift backstop) leads, so the current in_progress
+        // pointer is the first thing the model sees — above the list and the rules.
+        // The anchor + list ride EVERY round (the per-round drift backstop); the static
+        // drive rules ride ONLY right after a (re)plan, to stop wasting cache re-sending
+        // constant guidance every execution round.
+        let anchor = todo_anchor_line(&todos)
+            .map(|a| format!("{a}\n\n"))
+            .unwrap_or_default();
         let rules = if just_wrote_full_list(messages) {
             TODO_DRIVE_RULES
         } else {
             ""
         };
-        let status = todo_status_line(&todos)
-            .map(|s| format!("\n{s}"))
-            .unwrap_or_default();
-        let note = todo_quiet_note(&todos, quiet_steps(messages))
-            .map(|n| format!(" {n}"))
-            .unwrap_or_default();
         let body = format!(
-            "{TODO_LIST_HEADER}{rules}\n{status}{note}\n{}",
+            "{anchor}Current task list (each line is `#<id> <task>`) — keep it accurate and finish it:{rules}\n{}",
             render_todos_numbered(&todos, false)
         );
         messages.push(synthetic_system_reminder(&body));
     }
 
     /// The model wants to stop. If the task list still has OPEN items (pending or in_progress),
-    /// inject a nudge to close them out (or keep working) and continue the turn — the gap where
-    /// a weak model finishes the last item's work but forgets the final `todo update`, or ends
-    /// a reply on the step it was about to take. At most [`MAX_COMPLETION_NUDGES`] per
-    /// real-user turn, a further one only after the model did work since the last, and never
-    /// on a reply that asks the person something; `None` otherwise lets it stop.
-    ///
-    /// The list is the one this round's request showed (see `shown`); a driver
-    /// that stops without a request having been made folds the conversation.
+    /// inject a one-shot nudge to close them out (or keep working) and continue the turn — the
+    /// residual gap where a weak model finishes the last item's work but forgets the final
+    /// `todo update`. Fires at most once per real-user turn; `None` otherwise lets it stop.
     async fn offer_continuation(&self, convo: &Conversation) -> Option<String> {
-        let shown = self.shown.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let todos = shown.unwrap_or_else(|| derive_current_todos(&convo.messages));
+        let todos = derive_current_todos(&convo.messages);
         let has_open = todos.iter().any(|t| t.status != TodoStatus::Completed);
-        if !has_open
-            || !managed_todos_this_turn(convo)
-            || stops_on_a_question(convo)
-            || !completion_nudge_allowed(convo)
-        {
+        if !has_open || !managed_todos_this_turn(convo) || completion_nudge_already_present(convo) {
             return None;
         }
         Some(TODO_COMPLETION_NUDGE.to_string())
@@ -601,11 +418,10 @@ impl LifecycleHooks for TodoHook {
 
     /// Turn ended: persist the CURRENT todo list to the session sidecar so a later
     /// compaction (which drains the transcript's todowrite calls) can't erase the
-    /// list the model / vscode panel rely on (issue #1503). Best-effort, and only
-    /// when there is a list (see [`current_todos`]; a session that never planned
-    /// has nothing to persist). What is written is the list as the model saw it —
-    /// after a compaction, the previous sidecar with this turn's updates on top —
-    /// so a second compaction does not roll those updates back.
+    /// list the model / vscode panel rely on (issue #1503). Best-effort and only
+    /// when the transcript still yields todos (a turn that never planned has
+    /// nothing to persist; a rollback/undo that truncated the transcript past the
+    /// plan will simply not reach a `turn_complete` write with that stale state).
     /// `ctx.session_id` is `None` for headless drivers — nothing to key the file on.
     async fn turn_complete(&self, convo: &Conversation, _reason: &StopReason, ctx: &TurnCtx) {
         let Some(working_dir) = self.working_dir.as_deref() else {
@@ -614,167 +430,40 @@ impl LifecycleHooks for TodoHook {
         let Some(session_id) = ctx.session_id.as_deref() else {
             return;
         };
-        // An explicitly emptied list is written too: left unwritten, the sidecar would
-        // keep the list from before the clear and hand it back after a compaction.
-        let Some(current) = current_todos(&convo.messages, || self.sidecar(ctx)) else {
+        let todos = derive_current_todos(&convo.messages);
+        if todos.is_empty() {
             return;
-        };
-        let _ = working_dir;
-        if let Some(sessions) = self.sessions() {
-            write_sidecar(&sessions, session_id, &current, convo.messages.len());
         }
+        let items: Vec<TodoSidecarItem> = todos
+            .iter()
+            .map(|t| TodoSidecarItem {
+                content: t.content.clone(),
+                status: todo_status_str(&t.status).to_string(),
+            })
+            .collect();
+        let manager = SessionManager::for_project(working_dir);
+        let _ = manager.write_todo_sidecar(session_id, &items, convo.messages.len());
     }
 }
 
-impl TodoHook {
-    /// The session's persisted todo sidecar, when there is a session to key it on.
-    fn sidecar(&self, ctx: &TurnCtx) -> Option<TodoSidecar> {
-        read_sidecar(self.sessions().as_ref(), ctx)
-    }
-
-    /// Write `current` to the sidecar when it reflects a todo call the sidecar does
-    /// not (see [`sidecar_is_behind`]). Mid-turn, so best-effort like the turn-end write.
-    ///
-    /// Known limit, the same one [`current_todos`] documents for a completed turn: a
-    /// turn that is later undone may already have been written here, and nothing in a
-    /// compacted transcript tells its calls apart from ones that stand.
-    fn persist_if_ahead(&self, current: &CurrentTodos, message_count: usize, ctx: &TurnCtx) {
-        let Some(working_dir) = self.working_dir.as_deref() else {
-            return;
-        };
-        let Some(session_id) = ctx.session_id.as_deref() else {
-            return;
-        };
-        let persisted = self.sidecar(ctx).and_then(|sidecar| sidecar.through);
-        let _ = working_dir;
-        if sidecar_is_behind(current, persisted) {
-            if let Some(sessions) = self.sessions() {
-                write_sidecar(&sessions, session_id, current, message_count);
-            }
-        }
-    }
-}
-
-/// Whether the list the transcript yields reflects a todo call made after the last one
-/// the sidecar reflects. A list with no positioned call (records from before positions)
-/// is never "ahead": there is nothing to compare, so it waits for turn end as before.
-fn sidecar_is_behind(current: &CurrentTodos, persisted: Option<TodoCallPosition>) -> bool {
-    match (current.through, persisted) {
-        (None, _) => false,
-        (Some(_), None) => true,
-        (Some(now), Some(then)) => now > then,
-    }
-}
-
-fn write_sidecar(
-    manager: &SessionManager,
-    session_id: &str,
-    current: &CurrentTodos,
-    message_count: usize,
-) {
-    let items: Vec<TodoSidecarItem> = current
-        .items
-        .iter()
-        .map(|t| TodoSidecarItem {
-            content: t.content.clone(),
-            status: todo_status_str(&t.status).to_string(),
-        })
-        .collect();
-    let _ = manager.write_todo_sidecar(session_id, &items, message_count, current.through);
-}
-
-/// The session's persisted todo sidecar, when there is a session to key it on.
-fn read_sidecar(manager: Option<&SessionManager>, ctx: &TurnCtx) -> Option<TodoSidecar> {
-    let session_id = ctx.session_id.as_deref()?;
-    manager?.read_todo_sidecar(session_id).ok()?
-}
-
-/// The task list as it stands, and where the last todo call it reflects was made.
-struct CurrentTodos {
-    items: Vec<TodoItem>,
-    through: Option<TodoCallPosition>,
-}
-
-/// Where `call` was made, when its message carries the kernel's turn stats. A message
-/// without them (`turn_id` 0 is a record from before they existed) has no position.
-fn position(call: &ActiveTodoCall<'_>) -> Option<TodoCallPosition> {
-    let meta = call.meta.filter(|meta| meta.turn_id > 0)?;
-    Some(TodoCallPosition {
-        turn: meta.turn_id,
-        round: meta.round,
-        index: u32::try_from(call.index).unwrap_or(u32::MAX),
-    })
-}
-
-/// The current task list: the transcript's todo calls, over the session's sidecar when
-/// the transcript no longer holds a plan. `None` when there is no list at all.
-///
-/// A plan in the transcript is authoritative — including an empty one, which is the list
-/// being cleared, not the list being absent. Only when compaction has drained the plan
-/// (issue #1503) is the sidecar the baseline, and the updates the transcript still carries
-/// are laid over it rather than dropped. Folded on their own they name ids an empty list
-/// does not have and come to nothing, so the model was shown the sidecar's list from the
-/// last completed turn: it marked #3 completed, still saw `[~]`, sent the same update
-/// again, and was stopped by the tool-loop guard for repeating itself. A cleared list fell
-/// back to the same stale sidecar and was cleared again for the same reason.
-///
-/// Only the calls made after the sidecar's `through` are laid over it — by position, not
-/// by call id (see [`TodoCallPosition`]). Calls at or before it are already in the list: a
-/// compaction kept them, or an undo left them behind while taking later ones away, and
-/// applying them again would append each `add` a second time. A call with no position is
-/// from a record older than positions and is treated the same way. A sidecar with no
-/// `through` (written before it existed) takes every call.
-///
-/// Known limit: an undo that takes back a turn whose calls the sidecar already reflects
-/// leaves those calls' effect in the list — nothing in the transcript tells an undone turn
-/// from a compacted one.
-///
-/// `sidecar` is read only when the transcript holds no plan.
-fn current_todos(
-    messages: &[Message],
-    sidecar: impl FnOnce() -> Option<TodoSidecar>,
-) -> Option<CurrentTodos> {
-    let calls = active_todo_calls(messages);
-    let last = calls.iter().filter_map(position).max();
-    if calls.iter().any(|c| is_todo_plan(&c.call.arguments)) {
-        let items = reduce_todos(
-            calls
-                .iter()
-                .map(|c| (c.call.name.as_str(), c.call.arguments.as_str())),
-        );
-        return Some(CurrentTodos {
-            items,
-            through: last,
-        });
-    }
-    let (mut items, through) = match sidecar() {
-        Some(sidecar) => {
-            let items = sidecar
-                .todos
-                .into_iter()
-                .map(|item| TodoItem {
-                    content: item.content,
-                    status: parse_todo_status(&item.status),
-                })
-                .collect();
-            (items, sidecar.through)
-        }
-        None if calls.is_empty() => return None,
-        None => (Vec::new(), None),
-    };
-    for call in &calls {
-        let newer = match through {
-            None => true,
-            Some(through) => position(call).is_some_and(|at| at > through),
-        };
-        if newer {
-            apply_todo_action(&mut items, &call.call.arguments);
-        }
-    }
-    Some(CurrentTodos {
-        items,
-        through: last.max(through),
-    })
+/// Recover the todo list from the persisted sidecar when the transcript-derived
+/// list is empty (post-compaction). Stale sidecars (written against MORE messages
+/// than the current transcript — a rollback/undo truncated history) are discarded
+/// by `read_todo_sidecar`'s marker check, so a rolled-back session never shows an
+/// outdated list.
+fn sidecar_todos_for(working_dir: &std::path::Path, session_id: &str) -> Option<Vec<TodoItem>> {
+    let manager = SessionManager::for_project(working_dir);
+    let sidecar = manager.read_todo_sidecar(session_id).ok()??;
+    Some(
+        sidecar
+            .todos
+            .into_iter()
+            .map(|item| TodoItem {
+                content: item.content,
+                status: parse_todo_status(&item.status),
+            })
+            .collect(),
+    )
 }
 
 /// Map the canonical sidecar status strings back to [`TodoStatus`].
@@ -844,7 +533,7 @@ mod tests {
         );
 
         // An execution round whose most recent action was a single `todo` update: the
-        // rules are OMITTED (cache win), but the header + list still ride every round.
+        // rules are OMITTED (cache win), but the anchor + list still ride every round.
         let mut exec = vec![
             Message::user("go"),
             todowrite_msg(list),
@@ -859,7 +548,7 @@ mod tests {
             "drive rules must NOT repeat on execution rounds:\n{after_update}"
         );
         assert!(
-            after_update.contains(TODO_LIST_HEADER),
+            after_update.contains("Current task list"),
             "list header still rides every round:\n{after_update}"
         );
 
@@ -883,7 +572,7 @@ mod tests {
         );
     }
 
-    // ---- the status line: stated, never a demand to check -------------------------------
+    // ---- mid-work drift backstop: the anchor line ------------------------------------------
 
     fn item(content: &str, status: TodoStatus) -> TodoItem {
         TodoItem {
@@ -892,196 +581,73 @@ mod tests {
         }
     }
 
-    /// The words that turned the per-round tail into something to answer. A demand to
-    /// check before every action is a demand to be seen checking: deepseek-flash replied
-    /// "Pointer is accurate — still #6" to it in up to 45% of its rounds.
-    const DEMANDS_A_CHECK: [&str; 5] = [
-        "reconcile",
-        "pointer",
-        "Before your NEXT action",
-        "Before you act",
-        "FIRST",
-    ];
-
-    async fn tail_for(list: &str) -> String {
-        let mut msgs = vec![
-            Message::user("do it"),
-            todowrite_msg(list),
-            // An ordinary execution round: the drive rules are not riding.
-            Message::assistant(
-                "",
-                vec![ToolCall {
-                    id: "r".into(),
-                    name: "read_file".into(),
-                    arguments: "{}".into(),
-                }],
-            ),
-        ];
-        TodoHook::default()
-            .pre_request(&mut msgs, &TurnCtx::default())
-            .await;
-        msgs.last().unwrap().text.clone()
-    }
-
-    #[tokio::test]
-    async fn the_tail_states_where_the_list_stands_and_asks_for_no_check() {
-        for (state, list) in [
-            (
-                "a task in progress",
-                r#"{"todos":[{"content":"first","status":"completed"},{"content":"do the thing","status":"in_progress"},{"content":"later","status":"pending"}]}"#,
-            ),
-            (
-                "open items, none in progress",
-                r#"{"todos":[{"content":"first","status":"completed"},{"content":"second","status":"pending"}]}"#,
-            ),
-        ] {
-            let text = tail_for(list).await;
-            for demand in DEMANDS_A_CHECK {
-                assert!(
-                    !text.contains(demand),
-                    "{state}: the tail must state the list, not demand a check ({demand:?}): {text}"
-                );
-            }
-            assert!(
-                text.contains(TODO_LIST_HEADER),
-                "{state}: and it says the list needs no comment: {text}"
-            );
-        }
-    }
-
     #[test]
-    fn the_status_line_names_the_item_in_progress() {
+    fn anchor_names_in_progress_id_and_title() {
+        // #2 is in_progress → anchor must name that exact id + title and force a reconcile.
         let todos = vec![
             item("first", TodoStatus::Completed),
             item("do the thing", TodoStatus::InProgress),
             item("later", TodoStatus::Pending),
         ];
-        let s = todo_status_line(&todos).expect("in_progress → status line");
-        assert!(s.contains("#2"), "the 1-based id: {s}");
-        assert!(s.contains("do the thing"), "the title: {s}");
+        let a = todo_anchor_line(&todos).expect("in_progress → anchor");
+        assert!(a.contains("#2"), "must name the 1-based id: {a}");
+        assert!(a.contains("do the thing"), "must name the title: {a}");
+        assert!(
+            a.contains("reconcile") && a.contains("moved on"),
+            "must force reconcile: {a}"
+        );
     }
 
     #[test]
-    fn the_status_line_says_when_nothing_is_in_progress() {
+    fn anchor_when_nothing_in_progress_but_open_items_remain() {
+        // No in_progress, but a pending item exists → tell the model to mark what it's on.
         let todos = vec![
             item("first", TodoStatus::Completed),
             item("second", TodoStatus::Pending),
         ];
-        let s = todo_status_line(&todos).expect("open + nothing in progress → status line");
-        assert!(s.contains("Nothing is marked in progress"), "{s}");
-        assert!(s.contains('1'), "and how many are open: {s}");
+        let a = todo_anchor_line(&todos).expect("open + no in_progress → anchor");
+        assert!(a.contains("NOTHING is in_progress"), "{a}");
+        assert!(a.contains("in_progress"), "must tell it to mark one: {a}");
     }
 
     #[test]
-    fn a_settled_list_has_no_status_line() {
+    fn no_anchor_when_all_completed() {
+        // Everything done → nothing to reconcile; don't add noise.
         let todos = vec![
             item("a", TodoStatus::Completed),
             item("b", TodoStatus::Completed),
         ];
-        assert!(todo_status_line(&todos).is_none());
+        assert!(todo_anchor_line(&todos).is_none());
     }
 
     #[tokio::test]
-    async fn the_status_line_sits_between_the_header_and_the_list() {
-        let text = tail_for(r#"{"todos":[{"content":"step one","status":"in_progress"}]}"#).await;
-        let header = text.find(TODO_LIST_HEADER).expect("header");
-        let status = text.find("In progress: #1").expect("status line");
-        let list = text.find("1. step one").expect("list");
-        assert!(header < status && status < list, "{text}");
-    }
-
-    // ---- once per stretch of silence ----------------------------------------------------
-
-    fn step() -> Message {
-        Message::assistant(
-            "",
-            vec![ToolCall {
-                id: "s".into(),
-                name: "read_file".into(),
-                arguments: "{}".into(),
-            }],
-        )
-    }
-
-    const DOING: &str = r#"{"todos":[{"content":"read the parser","status":"in_progress"},{"content":"fix the parser","status":"pending"}]}"#;
-
-    async fn tail(mut msgs: Vec<Message>) -> String {
+    async fn pre_request_prepends_anchor_for_in_progress() {
+        let mut msgs = vec![
+            Message::user("do it"),
+            todowrite_msg(r#"{"todos":[{"content":"step one","status":"in_progress"}]}"#),
+        ];
         TodoHook::default()
             .pre_request(&mut msgs, &TurnCtx::default())
             .await;
-        msgs.last().unwrap().text.clone()
-    }
-
-    fn after_plan(steps: usize) -> Vec<Message> {
-        let mut msgs = vec![Message::user("fix the parser"), todowrite_msg(DOING)];
-        msgs.extend((0..steps).map(|_| step()));
-        msgs
-    }
-
-    const NOTE: &str = "has not moved for a few steps";
-
-    #[tokio::test]
-    async fn a_quiet_list_is_named_once_not_every_round() {
-        let said: Vec<usize> = {
-            let mut said = Vec::new();
-            for steps in 0..=8 {
-                if tail(after_plan(steps)).await.contains(NOTE) {
-                    said.push(steps);
-                }
-            }
-            said
-        };
-        assert_eq!(
-            said,
-            vec![TODO_QUIET_STEPS],
-            "eight quiet steps: the note rides exactly one request"
-        );
-        let text = tail(after_plan(TODO_QUIET_STEPS)).await;
+        let last = &msgs[msgs.len() - 1];
         assert!(
-            text.contains("#1") && text.contains("that is fine"),
-            "{text}"
+            last.text.contains("currently ON task #1"),
+            "anchor must lead: {}",
+            last.text
         );
-        let note = todo_quiet_note(
-            &[item("read the parser", TodoStatus::InProgress)],
-            TODO_QUIET_STEPS,
-        )
-        .unwrap();
         assert!(
-            !note.contains(&format!("{TODO_QUIET_STEPS} steps")),
-            "a long task is not late — no step count: {note}"
+            last.text.contains("step one"),
+            "anchor must name the task: {}",
+            last.text
         );
-    }
-
-    #[tokio::test]
-    async fn touching_the_list_starts_a_new_stretch() {
-        let mut msgs = after_plan(5);
-        msgs.push(todo_update_msg(
-            r#"{"action":"update","id":1,"status":"completed"}"#,
-        ));
-        msgs.push(todo_update_msg(
-            r#"{"action":"update","id":2,"status":"in_progress"}"#,
-        ));
-        msgs.extend((0..TODO_QUIET_STEPS).map(|_| step()));
-        let text = tail(msgs).await;
+        // The anchor precedes the list body.
+        let anchor_at = last.text.find("currently ON task").unwrap();
+        let list_at = last.text.find("Current task list").unwrap();
         assert!(
-            text.contains(NOTE) && text.contains("#2"),
-            "the new stretch is about the item it moved to: {text}"
+            anchor_at < list_at,
+            "anchor must come before the list: {}",
+            last.text
         );
-    }
-
-    #[tokio::test]
-    async fn the_person_speaking_starts_a_new_stretch_and_a_note_does_not() {
-        // Five quiet steps last turn, then the person says something: two steps into
-        // the new turn is not three.
-        let mut msgs = after_plan(5);
-        msgs.push(Message::assistant("done for now", vec![]));
-        msgs.push(Message::user("and the lexer?"));
-        msgs.extend((0..2).map(|_| step()));
-        assert!(!tail(msgs.clone()).await.contains(NOTE));
-        // An injected note in between is not the person: it does not reset the count.
-        msgs.push(synthetic_system_reminder("Current date: 2026-09-23 (Wed)"));
-        msgs.push(step());
-        assert!(tail(msgs).await.contains(NOTE));
     }
 
     #[tokio::test]
@@ -1391,7 +957,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_second_stop_with_no_work_since_the_nudge_is_let_go() {
+    async fn nudges_at_most_once_per_turn() {
         let mut convo = convo_of(vec![
             Message::user("do it"),
             todowrite_msg(r#"{"todos":[{"content":"a","status":"in_progress"}]}"#),
@@ -1416,381 +982,7 @@ mod tests {
                 .offer_continuation(&convo)
                 .await
                 .is_none(),
-            "nudged, and nothing was done since → let it stop (no spin)"
+            "already nudged this turn → let it stop (no spin)"
         );
-    }
-
-    /// A tool call made between two stops: the work the model did after a nudge.
-    fn worked() -> Message {
-        Message::assistant(
-            "running the tests",
-            vec![ToolCall {
-                id: "w".into(),
-                name: "bash".into(),
-                arguments: r#"{"command":"cargo test"}"#.into(),
-            }],
-        )
-    }
-
-    /// A long turn that already spent its nudge, went back to work and then stopped again
-    /// on an announced step ("运行测试：") with items still open, is asked again.
-    ///
-    /// Reported on a 45-minute, 50-round turn: the one nudge a turn used to get was long
-    /// spent, the model ended a reply on the step it was about to take without taking it,
-    /// and the turn closed as a clean finish with the list still open.
-    #[tokio::test]
-    async fn a_stop_after_work_that_followed_a_nudge_is_nudged_again() {
-        let convo = convo_of(vec![
-            Message::user("do it"),
-            todowrite_msg(r#"{"todos":[{"content":"a","status":"in_progress"}]}"#),
-            Message::assistant("summary", vec![]),
-            Message::synthetic_user(TODO_COMPLETION_NUDGE),
-            worked(),
-            Message::assistant("接下来运行测试：", vec![]),
-        ]);
-        assert!(TodoHook::default()
-            .offer_continuation(&convo)
-            .await
-            .is_some());
-    }
-
-    /// Three nudges is the most one turn gets, however much work came between them.
-    #[tokio::test]
-    async fn a_turn_is_nudged_at_most_three_times() {
-        let mut messages = vec![
-            Message::user("do it"),
-            todowrite_msg(r#"{"todos":[{"content":"a","status":"in_progress"}]}"#),
-            Message::assistant("summary", vec![]),
-        ];
-        for _ in 0..3 {
-            messages.push(Message::synthetic_user(TODO_COMPLETION_NUDGE));
-            messages.push(worked());
-            messages.push(Message::assistant("stopping again", vec![]));
-        }
-        assert!(TodoHook::default()
-            .offer_continuation(&convo_of(messages))
-            .await
-            .is_none());
-    }
-
-    /// A reply that ends on a question is waiting for the person, not stalling.
-    #[tokio::test]
-    async fn a_stop_that_asks_the_person_something_is_not_nudged() {
-        for question in ["Which database should I target?", "要我接着改 CI 配置吗？"] {
-            let convo = convo_of(vec![
-                Message::user("do it"),
-                todowrite_msg(r#"{"todos":[{"content":"a","status":"in_progress"}]}"#),
-                Message::assistant(format!("The migration is ready.\n{question}"), vec![]),
-            ]);
-            assert!(
-                TodoHook::default()
-                    .offer_continuation(&convo)
-                    .await
-                    .is_none(),
-                "{question}"
-            );
-        }
-    }
-
-    // ---- the list after a compaction: the sidecar plus what the transcript still carries --
-
-    /// A todo call made in `turn`/`round`, as the kernel records it.
-    fn todo_call(id: &str, turn: u64, round: u32, args: &str) -> Message {
-        let mut message = Message::assistant(
-            "",
-            vec![ToolCall {
-                id: id.into(),
-                name: "todowrite".into(),
-                arguments: args.into(),
-            }],
-        );
-        message.meta = Some(atomcode_kernel::message::MessageMeta {
-            turn_id: turn,
-            round,
-            ..Default::default()
-        });
-        message
-    }
-
-    fn at(turn: u64, round: u32) -> TodoCallPosition {
-        TodoCallPosition {
-            turn,
-            round,
-            index: 0,
-        }
-    }
-
-    fn sidecar_of(items: &[(&str, &str)], through: Option<TodoCallPosition>) -> TodoSidecar {
-        TodoSidecar {
-            todos: items
-                .iter()
-                .map(|(content, status)| TodoSidecarItem {
-                    content: (*content).into(),
-                    status: (*status).into(),
-                })
-                .collect(),
-            message_count: 40,
-            through,
-        }
-    }
-
-    fn titles(current: &CurrentTodos) -> Vec<String> {
-        current.items.iter().map(|t| t.content.clone()).collect()
-    }
-
-    const THREE_STARTED: [(&str, &str); 3] = [
-        ("parse the config file", "completed"),
-        ("wire the loader into main", "completed"),
-        ("verify resume after restart", "in_progress"),
-    ];
-
-    const ADD_DOCS: &str = r#"{"action":"add","content":"document the loader flags"}"#;
-
-    /// The reported loop: compaction took the plan, the model marked #3 completed, and the
-    /// list it was shown still had #3 in progress — so it sent the same update again until
-    /// the tool-loop guard stopped it. The update lands on the sidecar's list.
-    ///
-    /// Negative control: fold the transcript alone (the old path) and the update names an
-    /// id an empty list does not have, which left the sidecar's `in_progress` standing.
-    #[test]
-    fn an_update_after_compaction_lands_on_the_sidecar_list() {
-        let messages = vec![
-            Message::user("carry on"),
-            todo_call(
-                "c9",
-                6,
-                1,
-                r#"{"action":"update","id":3,"status":"completed"}"#,
-            ),
-            Message::tool_result("c9", "#3 → completed", false),
-        ];
-        let current = current_todos(&messages, || {
-            Some(sidecar_of(&THREE_STARTED, Some(at(5, 4))))
-        })
-        .expect("a sidecar is a list");
-        assert_eq!(current.items[2].status, TodoStatus::Completed);
-        assert_eq!(current.through, Some(at(6, 1)));
-        assert!(
-            derive_current_todos(&messages).is_empty(),
-            "the old path folded to nothing"
-        );
-    }
-
-    /// A plan written earlier in THIS turn, drained by a compaction later in the same
-    /// turn. Persisting it the round after it was written means the turn's remaining
-    /// updates land on it — not, by index, on the previous turn's plan.
-    ///
-    /// Negative control: with the sidecar still holding the previous turn's plan, the
-    /// same transcript marks that plan's #2 in progress instead.
-    #[test]
-    fn a_plan_drained_later_in_its_own_turn_is_not_swapped_for_the_last_one() {
-        let previous = sidecar_of(&THREE_STARTED, Some(at(5, 4)));
-        let plan_b = r#"{"todos":[{"content":"write the migration","status":"in_progress"},{"content":"run it on staging","status":"pending"}]}"#;
-        let update = r#"{"action":"update","id":2,"status":"in_progress"}"#;
-
-        // Round 2 of turn 6: the plan from round 1 is in the transcript.
-        let round_two = vec![Message::user("migrate"), todo_call("p", 6, 1, plan_b)];
-        let current =
-            current_todos(&round_two, || Some(previous.clone())).expect("the plan is a list");
-        assert!(sidecar_is_behind(&current, previous.through));
-        let persisted = sidecar_of(
-            &[
-                ("write the migration", "in_progress"),
-                ("run it on staging", "pending"),
-            ],
-            current.through,
-        );
-        assert!(
-            !sidecar_is_behind(&current, persisted.through),
-            "written once, not every round"
-        );
-
-        // A compaction drained round 1; round 3 carries only the update.
-        let compacted = vec![Message::user("migrate"), todo_call("u", 6, 2, update)];
-        let now = current_todos(&compacted, || Some(persisted.clone())).unwrap();
-        assert_eq!(titles(&now), ["write the migration", "run it on staging"]);
-        assert_eq!(now.items[1].status, TodoStatus::InProgress);
-
-        let stale = current_todos(&compacted, || Some(previous.clone())).unwrap();
-        assert_eq!(
-            titles(&stale)[1],
-            "wire the loader into main",
-            "without the mid-turn write the update lands on the old plan"
-        );
-    }
-
-    /// Records from before positions carry none: nothing says the list moved.
-    #[test]
-    fn a_list_with_no_positioned_call_is_left_for_turn_end() {
-        let current = CurrentTodos {
-            items: Vec::new(),
-            through: None,
-        };
-        assert!(!sidecar_is_behind(&current, None));
-        assert!(!sidecar_is_behind(&current, Some(at(1, 1))));
-    }
-
-    /// The sidecar already reflects every call up to `through`; a compaction that kept
-    /// some of those calls must not apply them again — an `add` would append twice.
-    #[test]
-    fn calls_the_sidecar_already_reflects_are_not_applied_twice() {
-        let messages = vec![
-            todo_call("a1", 5, 2, ADD_DOCS),
-            Message::user("next"),
-            todo_call(
-                "u2",
-                6,
-                1,
-                r#"{"action":"update","id":4,"status":"in_progress"}"#,
-            ),
-        ];
-        let mut after_add = THREE_STARTED.to_vec();
-        after_add[2].1 = "completed";
-        after_add.push(("document the loader flags", "pending"));
-        let current = current_todos(&messages, || Some(sidecar_of(&after_add, Some(at(5, 2)))))
-            .expect("a sidecar is a list");
-        assert_eq!(current.items.len(), 4, "{:?}", titles(&current));
-        assert_eq!(current.items[3].status, TodoStatus::InProgress);
-    }
-
-    /// Call ids are not positions: Ollama numbers every reply's calls from
-    /// `ollama_call_0`, so a whole session's todo calls can share one id. The sidecar is
-    /// matched by where a call was made, so only the one made after it lands.
-    #[test]
-    fn calls_that_share_an_id_are_told_apart_by_where_they_were_made() {
-        let messages = vec![
-            todo_call("ollama_call_0", 5, 1, ADD_DOCS),
-            todo_call(
-                "ollama_call_0",
-                6,
-                1,
-                r#"{"action":"add","content":"benchmark the loader"}"#,
-            ),
-            todo_call(
-                "ollama_call_0",
-                7,
-                1,
-                r#"{"action":"add","content":"announce the loader flags"}"#,
-            ),
-        ];
-        let mut reflected = THREE_STARTED.to_vec();
-        reflected.push(("document the loader flags", "pending"));
-        reflected.push(("benchmark the loader", "pending"));
-        let current =
-            current_todos(&messages, || Some(sidecar_of(&reflected, Some(at(6, 1))))).unwrap();
-        assert_eq!(
-            titles(&current)[3..],
-            [
-                "document the loader flags",
-                "benchmark the loader",
-                "announce the loader flags"
-            ],
-        );
-        assert_eq!(current.through, Some(at(7, 1)));
-    }
-
-    /// An undo takes the latest turn's calls out of the transcript. What is left is at or
-    /// before the sidecar's `through`, so it is not laid over the list a second time.
-    #[test]
-    fn an_undo_does_not_apply_what_the_sidecar_already_has() {
-        // Turn 6 added the docs task; turn 7 (the sidecar's last) was taken back.
-        let messages = vec![todo_call("a1", 6, 1, ADD_DOCS)];
-        let mut reflected = THREE_STARTED.to_vec();
-        reflected.push(("document the loader flags", "pending"));
-        reflected.push(("benchmark the loader", "pending"));
-        let current =
-            current_todos(&messages, || Some(sidecar_of(&reflected, Some(at(7, 1))))).unwrap();
-        assert_eq!(current.items.len(), 5, "{:?}", titles(&current));
-        assert_eq!(current.through, Some(at(7, 1)));
-    }
-
-    /// A call recorded without the kernel's turn stats is older than any sidecar that has
-    /// a `through`: it is not laid over one.
-    #[test]
-    fn a_call_without_a_position_is_older_than_the_sidecar() {
-        let messages = vec![Message::assistant(
-            "",
-            vec![ToolCall {
-                id: "old".into(),
-                name: "todowrite".into(),
-                arguments: ADD_DOCS.into(),
-            }],
-        )];
-        let current = current_todos(&messages, || {
-            Some(sidecar_of(&THREE_STARTED, Some(at(2, 1))))
-        })
-        .unwrap();
-        assert_eq!(current.items.len(), 3);
-    }
-
-    /// A sidecar written before `through` existed says nothing about which calls it has
-    /// seen; every call the transcript carries is laid over it.
-    #[test]
-    fn a_sidecar_without_a_position_takes_every_update() {
-        let messages = vec![todo_call(
-            "c1",
-            3,
-            1,
-            r#"{"action":"update","id":3,"status":"completed"}"#,
-        )];
-        let current = current_todos(&messages, || Some(sidecar_of(&THREE_STARTED, None))).unwrap();
-        assert_eq!(current.items[2].status, TodoStatus::Completed);
-        assert_eq!(current.through, Some(at(3, 1)));
-    }
-
-    /// Clearing the list is a plan with nothing in it, not the absence of a plan: it must
-    /// not fall back to the sidecar, which still holds the list from before the clear.
-    #[test]
-    fn a_cleared_list_stays_cleared() {
-        let messages = vec![
-            Message::user("clear your todos"),
-            todo_call("c1", 8, 1, r#"{"todos":[]}"#),
-            Message::tool_result("c1", "(no tasks)", false),
-        ];
-        let current = current_todos(&messages, || {
-            panic!("a plan in the transcript is authoritative; the sidecar is not read")
-        })
-        .expect("an emptied list is still a list");
-        assert!(current.items.is_empty());
-        assert_eq!(current.through, Some(at(8, 1)));
-    }
-
-    /// A plan still in the transcript wins over the sidecar, as before.
-    #[test]
-    fn a_plan_in_the_transcript_is_the_list() {
-        let messages = vec![todo_call(
-            "p1",
-            1,
-            1,
-            r#"{"todos":[{"content":"rename the session flag","status":"in_progress"}]}"#,
-        )];
-        let current = current_todos(&messages, || panic!("sidecar must not be read")).unwrap();
-        assert_eq!(titles(&current), ["rename the session flag"]);
-    }
-
-    /// A rejected call is not part of the list, over the sidecar as in the transcript.
-    #[test]
-    fn a_failed_update_does_not_land_on_the_sidecar() {
-        let messages = vec![
-            todo_call(
-                "c1",
-                6,
-                1,
-                r#"{"action":"update","id":3,"status":"completed"}"#,
-            ),
-            Message::tool_result("c1", "todowrite: bad", true),
-        ];
-        let current = current_todos(&messages, || {
-            Some(sidecar_of(&THREE_STARTED, Some(at(5, 1))))
-        })
-        .unwrap();
-        assert_eq!(current.items[2].status, TodoStatus::InProgress);
-        assert_eq!(current.through, Some(at(5, 1)));
-    }
-
-    /// No plan, no sidecar, no todo calls: there is no list.
-    #[test]
-    fn no_list_anywhere_is_none() {
-        assert!(current_todos(&[Message::user("hi")], || None).is_none());
     }
 }

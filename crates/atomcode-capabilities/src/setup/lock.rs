@@ -3,10 +3,10 @@
 //! where flock alone is unreliable.
 //!
 //! Acquire order:
-//! 1. Read `<project dir>/.setup.lock.sentinel` if present. If recorded PID is alive **and**
+//! 1. Read `.atomcode/.setup.lock.sentinel` if present. If recorded PID is alive **and**
 //!    its start_time matches, return [`LockError::Held`] (unless `force = true`).
 //!    Stale sentinel is removed.
-//! 2. `try_lock_exclusive` on `<project dir>/.setup.lock` — second rail.
+//! 2. `try_lock_exclusive` on `.atomcode/.setup.lock` — second rail.
 //! 3. Write a fresh sentinel JSON with current PID, start_time, host, version.
 //!
 //! Drop releases both rails (unlock fs2, rm sentinel) but keeps the `.setup.lock`
@@ -39,7 +39,7 @@ pub enum LockError {
 #[derive(Debug)]
 pub struct SetupLock {
     fd: File,
-    /// Path to the project dir's `.setup.lock` file. Kept around for
+    /// Path to the project's `.atomcode/.setup.lock` file. Kept around for
     /// diagnostics and future callers (e.g. error messages, force-cleanup CLI).
     #[allow(dead_code)]
     pub(super) lock_path: PathBuf,
@@ -52,6 +52,10 @@ struct Sentinel {
     start_time_nanos: u128,
     host: String,
     atomcode_version: String,
+}
+
+fn lock_dir(project_root: &Path) -> PathBuf {
+    project_root.join(".atomcode")
 }
 
 fn current_pid() -> u32 {
@@ -104,10 +108,9 @@ fn process_alive_at(pid: u32, start_time_nanos: u128) -> bool {
 }
 
 impl SetupLock {
-    /// Lock the project whose own dir is `project_dir` (`<root>/.atomcode`).
-    pub fn acquire(project_dir: &Path, force: bool) -> Result<Self, LockError> {
-        let dir = project_dir;
-        std::fs::create_dir_all(dir)?;
+    pub fn acquire(project_root: &Path, force: bool) -> Result<Self, LockError> {
+        let dir = lock_dir(project_root);
+        std::fs::create_dir_all(&dir)?;
         let lock_path = dir.join(LOCK_FILE);
         let sentinel_path = dir.join(SENTINEL_FILE);
 

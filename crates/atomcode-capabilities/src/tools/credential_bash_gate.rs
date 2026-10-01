@@ -14,8 +14,7 @@ use super::approval::{
     ApprovalRequest, InMemoryPermissionStore, PermissionDecision, PermissionStore, APPROVAL_KIND,
 };
 use super::bash::is_read_only_bash;
-use super::bash_invocations;
-use super::sensitive_path::SensitivePaths;
+use super::{bash_invocations, references_sensitive_path};
 
 /// Stable, policy-authored reason carried in the blocked ToolResult. It contains
 /// no rejected command bytes or credential values, so drivers may compare it for
@@ -181,12 +180,12 @@ fn invokes_any(command: &str, commands: &[&str]) -> bool {
     })
 }
 
-fn references_sensitive_shell_argument(sensitive: &SensitivePaths, command: &str) -> bool {
+fn references_sensitive_shell_argument(command: &str) -> bool {
     bash_invocations(command).is_some_and(|invocations| {
         invocations.iter().any(|invocation| {
             invocation.arguments.iter().any(|argument| {
                 let encoded = serde_json::json!({ "path": argument }).to_string();
-                sensitive.references(&encoded)
+                references_sensitive_path(&encoded)
             })
         })
     })
@@ -373,13 +372,9 @@ fn classify_explicit_credentials(command: &str) -> ExplicitCredentialVerdict {
     }
 }
 
-fn credential_bash_decision(
-    sensitive: &SensitivePaths,
-    raw_args: &str,
-    command: &str,
-) -> Option<CredentialBashDecision> {
+fn credential_bash_decision(raw_args: &str, command: &str) -> Option<CredentialBashDecision> {
     let references_sensitive_source =
-        sensitive.references(raw_args) || references_sensitive_shell_argument(sensitive, command);
+        references_sensitive_path(raw_args) || references_sensitive_shell_argument(command);
     // Value extraction of a credential-named field from an ordinary config file: the
     // coarse sensitive-path markers only know credential *stores*, so a real secret in
     // the user's own `config/prod.toml` would otherwise read out freely (e.g.
@@ -427,21 +422,16 @@ fn credential_bash_decision(
 /// bytes made a cosmetic re-emit of the SAME command — a model retrying with `# attempt 2`
 /// appended — read as a new decision and prompt again, which is the "总是询问" failure this
 /// tree has already fixed twice elsewhere. Unparseable args fall back to the raw bytes.
-/// The remembered scope for a credential-shell grant: the command, normalized,
-/// so "the same command" is asked about once rather than once per spelling.
-///
-/// `pub` because the harness row keys its grant on the same thing — two shells
-/// that remembered different scopes would ask the person twice for one decision.
-pub fn grant_scope(args: &str) -> String {
+fn grant_scope(args: &str) -> String {
     match serde_json::from_str::<BashArgs>(args) {
         Ok(a) => super::bash::normalize_command_for_grant(&a.command),
         Err(_) => args.to_string(),
     }
 }
 
-pub fn bash_command_may_expose_credentials(sensitive: &SensitivePaths, arguments: &str) -> bool {
+pub fn bash_command_may_expose_credentials(arguments: &str) -> bool {
     match serde_json::from_str::<BashArgs>(arguments) {
-        Ok(args) => credential_bash_decision(sensitive, arguments, &args.command).is_some(),
+        Ok(args) => credential_bash_decision(arguments, &args.command).is_some(),
         Err(_) => false,
     }
 }
@@ -453,49 +443,37 @@ pub struct CredentialBashGate {
     // team children run `AutoRespond::AllowAll`, so a prompt would auto-approve itself) ⇒
     // under `Prompt`, fail closed to a call-only deny, mirroring `DenySensitivePaths`.
     approval_store: Option<Arc<dyn PermissionStore>>,
-    sensitive: SensitivePaths,
 }
 
-#[cfg(test)]
 impl Default for CredentialBashGate {
     fn default() -> Self {
-        Self::new(
-            CredentialShellPolicy::default(),
-            super::sensitive_path::test_guard(),
-        )
+        Self::new(CredentialShellPolicy::default())
     }
 }
 
 impl CredentialBashGate {
     /// Interactive gate: `Prompt` asks the user for approval before a detected access.
-    pub fn new(policy: CredentialShellPolicy, sensitive: SensitivePaths) -> Self {
+    pub fn new(policy: CredentialShellPolicy) -> Self {
         Self {
             policy,
             approval_store: Some(Arc::new(InMemoryPermissionStore::new())),
-            sensitive,
         }
     }
 
     /// Interactive gate over a caller-supplied (shared / persisted) grant store.
-    pub fn with_store(
-        policy: CredentialShellPolicy,
-        store: Arc<dyn PermissionStore>,
-        sensitive: SensitivePaths,
-    ) -> Self {
+    pub fn with_store(policy: CredentialShellPolicy, store: Arc<dyn PermissionStore>) -> Self {
         Self {
             policy,
             approval_store: Some(store),
-            sensitive,
         }
     }
 
     /// Non-interactive gate for subagent / team children (no human in the loop): under
     /// `Prompt`, fail closed to a call-only deny instead of auto-approving the prompt.
-    pub fn non_interactive(policy: CredentialShellPolicy, sensitive: SensitivePaths) -> Self {
+    pub fn non_interactive(policy: CredentialShellPolicy) -> Self {
         Self {
             policy,
             approval_store: None,
-            sensitive,
         }
     }
 
@@ -522,7 +500,6 @@ impl CredentialBashGate {
             tool: tool.name().to_string(),
             args: call.arguments.clone(),
             reason: None,
-            allow_all_bash: false,
         })
         .unwrap_or(serde_json::Value::Null);
         match PermissionDecision::from_value(&rt.request(APPROVAL_KIND, payload).await) {
@@ -536,60 +513,6 @@ impl CredentialBashGate {
     }
 }
 
-/// What the credential-shell policy says about one call — the judgement alone,
-/// with no opinion about how a person is asked.
-///
-/// The kernel [`ToolMiddleware`] below turns this into a `BeforeOutcome` and does
-/// its own round-trip; the harness `tool-credential-shell` row turns the same
-/// verdict into a delegation to the `approval` seam. Sharing the verdict is what
-/// keeps "which commands count as touching credentials" one answer instead of two.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CredentialShellVerdict {
-    /// Not a shell tool, unparseable, no credential access detected, or the
-    /// policy is off — nothing for this gate to say.
-    NotOurs,
-    /// `Strict`: a hard boundary. Block AND end the turn, because retrying
-    /// another shell spelling would be unsafe.
-    DenyTurn,
-    /// `Prompt` with nobody to ask (a subagent / team child runs AutoRespond and
-    /// would approve itself). Fail closed, this call only.
-    Deny,
-    /// `Prompt` with a human in the loop.
-    Ask,
-}
-
-/// The credential-shell verdict for one call.
-///
-/// `has_human` is what separates [`CredentialShellVerdict::Ask`] from
-/// [`CredentialShellVerdict::Deny`]: without someone to answer, a prompt is an
-/// auto-approval wearing a question mark.
-pub fn credential_shell_verdict(
-    sensitive: &SensitivePaths,
-    policy: CredentialShellPolicy,
-    tool_name: &str,
-    arguments: &str,
-    has_human: bool,
-) -> CredentialShellVerdict {
-    if !super::is_command_shell_tool(tool_name) {
-        return CredentialShellVerdict::NotOurs;
-    }
-    let Ok(args) = serde_json::from_str::<BashArgs>(arguments) else {
-        return CredentialShellVerdict::NotOurs;
-    };
-    // The detected severity (`DenyTurn` vs `DenyCall`) drives only `strict` vs the
-    // detection tests; `Prompt` treats every detection the same (prompt / fail-closed,
-    // never terminating the turn), so a legitimate sensitive read is not interrupted.
-    if credential_bash_decision(sensitive, arguments, &args.command).is_none() {
-        return CredentialShellVerdict::NotOurs;
-    }
-    match policy {
-        CredentialShellPolicy::Off => CredentialShellVerdict::NotOurs,
-        CredentialShellPolicy::Strict => CredentialShellVerdict::DenyTurn,
-        CredentialShellPolicy::Prompt if has_human => CredentialShellVerdict::Ask,
-        CredentialShellPolicy::Prompt => CredentialShellVerdict::Deny,
-    }
-}
-
 #[async_trait]
 impl ToolMiddleware for CredentialBashGate {
     async fn before(
@@ -598,25 +521,33 @@ impl ToolMiddleware for CredentialBashGate {
         tool: &Arc<dyn Tool>,
         rt: &RequestCtx,
     ) -> BeforeOutcome {
-        // `approval_store` is this shell's stand-in for "there is a human": it is
-        // `None` exactly for the non-interactive children that would auto-approve.
-        match credential_shell_verdict(
-            &self.sensitive,
-            self.policy,
-            tool.name(),
-            &call.arguments,
-            self.approval_store.is_some(),
-        ) {
-            CredentialShellVerdict::NotOurs => BeforeOutcome::Proceed,
+        if !super::is_command_shell_tool(tool.name()) {
+            return BeforeOutcome::Proceed;
+        }
+        let Ok(args) = serde_json::from_str::<BashArgs>(&call.arguments) else {
+            return BeforeOutcome::Proceed;
+        };
+        // The detected severity (`DenyTurn` vs `DenyCall`) drives only `strict` vs the
+        // detection tests; `Prompt` treats every detection the same (prompt / fail-closed,
+        // never terminating the turn), so a legitimate sensitive read is not interrupted.
+        if credential_bash_decision(&call.arguments, &args.command).is_none() {
+            return BeforeOutcome::Proceed;
+        }
+        match self.policy {
+            // Detection disabled — defer to ordinary tool approval.
+            CredentialShellPolicy::Off => BeforeOutcome::Proceed,
             // Hard boundary: block and terminate the turn. For headless / bypass /
             // high-security deployments that want credentials un-bypassable.
-            CredentialShellVerdict::DenyTurn => BeforeOutcome::deny_turn_with_intervention(
+            CredentialShellPolicy::Strict => BeforeOutcome::deny_turn_with_intervention(
                 CREDENTIAL_BASH_DENIAL_REASON,
                 PolicyIntervention::credential_shell_blocked(),
             ),
-            // Never terminates the turn — a reject ends only this call.
-            CredentialShellVerdict::Deny => BeforeOutcome::deny(CREDENTIAL_BASH_DENIAL_REASON),
-            CredentialShellVerdict::Ask => match &self.approval_store {
+            // Prompt the user (interactive), or fail closed to a call-only deny for a
+            // non-interactive child (which runs AutoRespond::AllowAll and would otherwise
+            // auto-approve itself). Never terminates the turn — a reject ends only this
+            // call; with a human in the loop the user gates each attempt, and `strict`
+            // remains the hard wall for no-human contexts.
+            CredentialShellPolicy::Prompt => match &self.approval_store {
                 Some(store) => self.request_approval(call, tool, rt, store).await,
                 None => BeforeOutcome::deny(CREDENTIAL_BASH_DENIAL_REASON),
             },
@@ -658,7 +589,7 @@ mod tests {
     /// extraction/exfil, `DenyCall` = literal/config read)?
     fn decide(command: &str) -> Option<CredentialBashDecision> {
         let raw = serde_json::json!({ "command": command }).to_string();
-        credential_bash_decision(&crate::tools::sensitive_path::test_guard(), &raw, command)
+        credential_bash_decision(&raw, command)
     }
 
     /// A `RequestCtx` whose approval round-trip is never answered: the bounded timeout
@@ -670,7 +601,7 @@ mod tests {
     }
 
     async fn run(gate: &CredentialBashGate, command: &str) -> BeforeOutcome {
-        let tool: Arc<dyn Tool> = Arc::new(BashTool::default());
+        let tool: Arc<dyn Tool> = Arc::new(BashTool);
         let mut call = ToolCall {
             id: "call-1".into(),
             name: "bash".into(),
@@ -684,7 +615,6 @@ mod tests {
     #[tokio::test]
     async fn extraction_and_exfil_are_detected_as_deny_turn() {
         assert!(references_sensitive_shell_argument(
-            &crate::tools::sensitive_path::test_guard(),
             "grep '^IMGBED_TOKEN' src-tauri/.env > /tmp/token.txt"
         ));
         for command in [
@@ -796,20 +726,14 @@ mod tests {
 
     #[tokio::test]
     async fn off_defers_to_ordinary_approval() {
-        let gate = CredentialBashGate::new(
-            CredentialShellPolicy::Off,
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = CredentialBashGate::new(CredentialShellPolicy::Off);
         assert_eq!(run(&gate, DETECTED).await, BeforeOutcome::Proceed);
         assert_eq!(run(&gate, EXFIL).await, BeforeOutcome::Proceed);
     }
 
     #[tokio::test]
     async fn strict_terminates_the_turn() {
-        let gate = CredentialBashGate::new(
-            CredentialShellPolicy::Strict,
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = CredentialBashGate::new(CredentialShellPolicy::Strict);
         for command in [DETECTED, EXFIL, "grep '^sasl_password' config/prod.toml"] {
             assert!(
                 matches!(
@@ -826,10 +750,7 @@ mod tests {
         // Under `Prompt`, NO detection terminates the turn — not even extraction / exfil.
         // A silent driver degrades the round-trip to a call-only deny (reject ends only
         // this call), so a legitimate sensitive read is never interrupted.
-        let gate = CredentialBashGate::new(
-            CredentialShellPolicy::Prompt,
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = CredentialBashGate::new(CredentialShellPolicy::Prompt);
         for command in [DETECTED, EXFIL] {
             assert!(
                 matches!(run(&gate, command).await, BeforeOutcome::Deny { .. }),
@@ -848,11 +769,7 @@ mod tests {
             "credential-shell::bash::{}",
             super::grant_scope(&args)
         ));
-        let gate = CredentialBashGate::with_store(
-            CredentialShellPolicy::Prompt,
-            store,
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = CredentialBashGate::with_store(CredentialShellPolicy::Prompt, store);
         assert_eq!(run(&gate, DETECTED).await, BeforeOutcome::Proceed);
     }
 
@@ -861,10 +778,7 @@ mod tests {
         // A subagent/team child cannot prompt (AllowAll auto-approves), so `Prompt`
         // denies just the call (both literal and extraction) without terminating the
         // turn; undetected commands still proceed.
-        let gate = CredentialBashGate::non_interactive(
-            CredentialShellPolicy::Prompt,
-            crate::tools::sensitive_path::test_guard(),
-        );
+        let gate = CredentialBashGate::non_interactive(CredentialShellPolicy::Prompt);
         for command in [DETECTED, EXFIL] {
             assert!(
                 matches!(run(&gate, command).await, BeforeOutcome::Deny { .. }),

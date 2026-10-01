@@ -266,12 +266,9 @@ pub struct WorkspaceCheckpoint {
 }
 
 impl WorkspaceCheckpoint {
-    /// The store lives under `<user tree>/rewind/<bucket>/<session_id>` — not
-    /// inside the worktree.
     pub fn for_session(
         worktree: &Path,
         session_id: &str,
-        dirs: &crate::ProductDirs,
     ) -> Result<Self, WorkspaceCheckpointError> {
         let requested =
             fs::canonicalize(worktree).map_err(|source| WorkspaceCheckpointError::Io {
@@ -279,14 +276,17 @@ impl WorkspaceCheckpoint {
                 source,
             })?;
         let worktree = git_worktree_root(&requested)?;
-        let bucket = super::SessionManager::project_hash(&worktree, dirs);
+        let bucket = super::SessionManager::project_hash(&worktree);
         let safe_session = session_id
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'));
         if !safe_session {
             return Err(WorkspaceCheckpointError::InvalidPath(session_id.into()));
         }
-        let git_dir = dirs.user().join("rewind").join(bucket).join(session_id);
+        let git_dir = super::config_dir()
+            .join("rewind")
+            .join(bucket)
+            .join(session_id);
         Self::with_store(worktree, git_dir)
     }
 
@@ -296,7 +296,6 @@ impl WorkspaceCheckpoint {
     pub(crate) fn for_session_recovery(
         worktree: &Path,
         session_id: &str,
-        dirs: &crate::ProductDirs,
     ) -> Result<Self, WorkspaceCheckpointError> {
         let requested =
             fs::canonicalize(worktree).map_err(|source| WorkspaceCheckpointError::Io {
@@ -310,10 +309,9 @@ impl WorkspaceCheckpoint {
         if !safe_session {
             return Err(WorkspaceCheckpointError::InvalidPath(session_id.into()));
         }
-        let git_dir = dirs
-            .user()
+        let git_dir = super::config_dir()
             .join("rewind")
-            .join(super::SessionManager::project_hash(&worktree, dirs))
+            .join(super::SessionManager::project_hash(&worktree))
             .join(session_id);
         let regular_file = |path: &Path| {
             fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
@@ -555,41 +553,6 @@ impl WorkspaceCheckpoint {
     ) -> Result<Vec<FileChangeSummary>, WorkspaceCheckpointError> {
         let _guard = self.guard();
         self.with_process_lock(|| self.diff_locked(before, after))
-    }
-
-    /// The unified diff of one file between two trees.
-    ///
-    /// The text rather than a summary, for a front end showing what actually
-    /// changed. `path` is validated as a relative path inside the worktree for
-    /// the same reason [`Self::diff`] validates the ones it reports: a path
-    /// with `..` in it would reach outside the tree this checkpoint owns.
-    ///
-    /// Bounded by git's own `--stat`-less output — a file whose diff is
-    /// enormous is the caller's problem to window, not this layer's to
-    /// truncate, because a truncated diff that does not say it was truncated is
-    /// a lie about the workspace.
-    pub fn diff_text(
-        &self,
-        before: &str,
-        after: &str,
-        path: &str,
-    ) -> Result<String, WorkspaceCheckpointError> {
-        validate_object_id(before)?;
-        validate_object_id(after)?;
-        validate_relative_path(path)?;
-        let _guard = self.guard();
-        self.with_process_lock(|| {
-            let output = self.run_owned([
-                "diff".into(),
-                "--no-renames".into(),
-                "--no-color".into(),
-                before.into(),
-                after.into(),
-                "--".into(),
-                path.into(),
-            ])?;
-            Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-        })
     }
 
     /// Restore only files changed between `before` and `after`.
@@ -1392,19 +1355,15 @@ mod tests {
         let worktree = tempfile::tempdir().unwrap();
         git(worktree.path(), &["init", "--quiet"]);
         let root = fs::canonicalize(worktree.path()).unwrap();
-        let home = tempfile::tempdir().unwrap();
-        let dirs = crate::ProductDirs::new(home.path(), ".ours");
-        let store = dirs
-            .user()
+        let store = super::super::config_dir()
             .join("rewind")
-            .join(super::super::SessionManager::project_hash(&root, &dirs))
+            .join(super::super::SessionManager::project_hash(&root))
             .join("absent-recovery-store");
         assert!(!store.exists());
 
         let error = match WorkspaceCheckpoint::for_session_recovery(
             worktree.path(),
             "absent-recovery-store",
-            &dirs,
         ) {
             Ok(_) => panic!("recovery must not initialize an absent store"),
             Err(error) => error,

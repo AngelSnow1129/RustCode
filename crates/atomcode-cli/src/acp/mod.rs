@@ -75,6 +75,10 @@ pub(crate) struct SharedState {
     pub auto_approve: bool,
     /// Initial session config option catalog.
     pub config_options: Arc<Vec<SessionConfigOption>>,
+    /// Resolves a model id to the kernel config for provider reloads.
+    pub model_resolver: Option<Arc<SessionModelResolver>>,
+    /// Resolves a reasoning-effort value to the kernel config.
+    pub effort_resolver: Option<Arc<SessionModelResolver>>,
     /// Per-connection message-id counter shared by both chains.
     pub msg_ids: Arc<AtomicU64>,
     /// Whether the client advertised form elicitation during `initialize`.
@@ -134,12 +138,15 @@ pub struct AcpServeOptions {
     /// Initial session config option catalog. Empty → `session/set_config_option`
     /// is not advertised and errors on use.
     pub session_config_options: Vec<SessionConfigOption>,
-    /// Resolves a model id to the configuration a session runs on.
-    ///
-    /// It reaches the contract as the host's `for_model`: `HostCommand::SwitchModel`
-    /// carries a name, and turning a name into a configuration is the host's
-    /// job. `None` → this server cannot switch models.
+    /// Resolves a model id (the `model` select option) to the kernel config for
+    /// `session/set_config_option` provider reloads. `None` → model switching
+    /// errors on use.
     pub session_model_resolver: Option<Arc<SessionModelResolver>>,
+    /// Resolves a reasoning-effort value (`off` / `high` / `max`, the
+    /// `reasoning_effort` select option) to the kernel config for
+    /// `session/set_config_option` provider reloads. `None` → effort switching
+    /// errors on use.
+    pub session_effort_resolver: Option<Arc<SessionModelResolver>>,
 }
 
 /// Run the ACP agent server on stdin/stdout until the connection closes.
@@ -169,13 +176,12 @@ where
     // One shared-state bundle, handed to both handler chains.
     let state = SharedState {
         sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
-        engine: Arc::new(
-            opts.engine
-                .map(|engine| engine.with_model_resolver(opts.session_model_resolver.clone())),
-        ),
+        engine: Arc::new(opts.engine),
         provider_factory: opts.provider_factory,
         auto_approve: opts.auto_approve,
         config_options: Arc::new(opts.session_config_options),
+        model_resolver: opts.session_model_resolver,
+        effort_resolver: opts.session_effort_resolver,
         // Per-connection message-id counter, shared by the v1 and v2 chains so
         // message ids never collide across protocol generations.
         msg_ids: Arc::new(AtomicU64::new(0)),
@@ -219,6 +225,8 @@ fn build_v1_agent(state: SharedState) -> impl ConnectTo<Client> + 'static {
         provider_factory,
         auto_approve,
         config_options,
+        model_resolver,
+        effort_resolver,
         msg_ids,
         client_elicitation_form,
     } = state;
@@ -276,12 +284,10 @@ fn build_v1_agent(state: SharedState) -> impl ConnectTo<Client> + 'static {
                     // the handler returns success (the request is already
                     // answered, so a send failure only means the connection is
                     // closing and there is nobody to receive it).
-                    let catalog =
-                        crate::acp::commands::catalog_of(&sessions, sid.0.as_ref()).await;
                     let _ = cx.send_notification(SessionNotification::new(
                         sid,
                         SessionUpdate::AvailableCommandsUpdate(AvailableCommandsUpdate::new(
-                            crate::acp::commands::available_acp_commands(&catalog),
+                            crate::acp::commands::available_acp_commands(),
                         )),
                     ));
                     Ok(())
@@ -298,7 +304,7 @@ fn build_v1_agent(state: SharedState) -> impl ConnectTo<Client> + 'static {
                 async move |req: ResumeSessionRequest, responder, cx: ConnectionTo<Client>| {
                     let engine_ref = require_engine(&engine)?;
                     // Persisted history: same native catalog as `session/list`.
-                    let scan = SessionManager::scan_all(atomcode_coding::config::product_dirs_from_env().user());
+                    let scan = SessionManager::scan_all();
                     let (mcp_configs, ignored) =
                         mcp::acp_mcp_server_configs(&req.mcp_servers);
                     mcp::log_ignored_mcp_server_names(&ignored);
@@ -325,12 +331,10 @@ fn build_v1_agent(state: SharedState) -> impl ConnectTo<Client> + 'static {
                     // Best-effort: a dropped notification must not fail the
                     // already-accepted session/resume (same reasoning as the
                     // session/new handler above).
-                    let catalog =
-                        crate::acp::commands::catalog_of(&sessions, id.0.as_ref()).await;
                     let _ = cx.send_notification(SessionNotification::new(
                         id,
                         SessionUpdate::AvailableCommandsUpdate(AvailableCommandsUpdate::new(
-                            crate::acp::commands::available_acp_commands(&catalog),
+                            crate::acp::commands::available_acp_commands(),
                         )),
                     ));
                     Ok(())
@@ -347,7 +351,7 @@ fn build_v1_agent(state: SharedState) -> impl ConnectTo<Client> + 'static {
                 let msg_ids = Arc::clone(&msg_ids);
                 async move |req: LoadSessionRequest, responder, cx: ConnectionTo<Client>| {
                     let engine_ref = require_engine(&engine)?;
-                    let scan = SessionManager::scan_all(atomcode_coding::config::product_dirs_from_env().user());
+                    let scan = SessionManager::scan_all();
                     let (mcp_configs, ignored) = mcp::acp_mcp_server_configs(&req.mcp_servers);
                     mcp::log_ignored_mcp_server_names(&ignored);
                     // Restore FIRST: replay only makes sense for a session that
@@ -402,10 +406,16 @@ fn build_v1_agent(state: SharedState) -> impl ConnectTo<Client> + 'static {
         .on_receive_request(
             {
                 let sessions = Arc::clone(&sessions);
+                let model_resolver = model_resolver.clone();
+                let effort_resolver = effort_resolver.clone();
                 async move |req: SetSessionConfigOptionRequest,
                             responder,
                             cx: ConnectionTo<Client>| {
-                    let resp = handle_set_session_config_option(&sessions, &cx, &req).await?;
+                    let resolver = model_resolver.as_deref();
+                    let effort = effort_resolver.as_deref();
+                    let resp =
+                        handle_set_session_config_option(&sessions, &cx, &req, resolver, effort)
+                            .await?;
                     responder.respond(resp)
                 }
             },
@@ -425,7 +435,7 @@ fn build_v1_agent(state: SharedState) -> impl ConnectTo<Client> + 'static {
             {
                 let sessions = Arc::clone(&sessions);
                 async move |req: DeleteSessionRequest, responder, _cx: ConnectionTo<Client>| {
-                    let scan = SessionManager::scan_all(atomcode_coding::config::product_dirs_from_env().user());
+                    let scan = SessionManager::scan_all();
                     let resp = handle_delete_session(&sessions, &req.session_id, &scan).await?;
                     responder.respond(resp)
                 }
@@ -436,7 +446,7 @@ fn build_v1_agent(state: SharedState) -> impl ConnectTo<Client> + 'static {
             {
                 let sessions = Arc::clone(&sessions);
                 async move |req: ListSessionsRequest, responder, _cx: ConnectionTo<Client>| {
-                    let scan = SessionManager::scan_all(atomcode_coding::config::product_dirs_from_env().user());
+                    let scan = SessionManager::scan_all();
                     let resp = handle_list_sessions(&sessions, &req, &scan).await?;
                     responder.respond(resp)
                 }
@@ -446,6 +456,8 @@ fn build_v1_agent(state: SharedState) -> impl ConnectTo<Client> + 'static {
         .on_receive_request(
             {
                 let sessions = Arc::clone(&sessions);
+                let model_resolver = model_resolver.clone();
+                let effort_resolver = effort_resolver.clone();
                 let turn_msg_ids = Arc::clone(&msg_ids);
                 let client_elicitation_form = Arc::clone(&client_elicitation_form);
                 async move |req: PromptRequest, responder, cx: ConnectionTo<Client>| {
@@ -458,11 +470,15 @@ fn build_v1_agent(state: SharedState) -> impl ConnectTo<Client> + 'static {
                     let (text, images, has_attachments) = dispatch::prompt_text(&req);
                     let sid = req.session_id.clone();
                     let sessions = Arc::clone(&sessions);
+                    let resolver_arc = model_resolver.clone();
+                    let effort_arc = effort_resolver.clone();
                     let elicitation_form_arc = Arc::clone(&client_elicitation_form);
                     cx.spawn({
                         let cx = cx.clone();
                         let msg_ids = Arc::clone(&turn_msg_ids);
                         async move {
+                            let resolver = resolver_arc.as_deref();
+                            let effort = effort_arc.as_deref();
                             dispatch::run_prompt_turn(
                                 cx,
                                 sessions,
@@ -472,6 +488,8 @@ fn build_v1_agent(state: SharedState) -> impl ConnectTo<Client> + 'static {
                                 has_attachments,
                                 responder,
                                 auto_approve,
+                                resolver,
+                                effort,
                                 msg_ids,
                                 elicitation_form_arc.as_ref(),
                             )

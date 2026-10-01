@@ -248,25 +248,22 @@ impl Tool for ExternalSubagentTool {
 }
 
 /// Register one tool per enabled profile whose backing binary is present on
-/// `PATH`. Profiles whose binary is missing are skipped rather than failing
-/// assembly. Returns the registered tool names, and one line per profile that
-/// was skipped — for the host to tell the person (not stderr, which a
-/// full-screen front end may be holding).
+/// `PATH`. Profiles whose binary is missing are skipped (with a one-line stderr
+/// warning) rather than failing assembly. Returns the registered tool names.
 pub fn register_external_subagent_tools(
     registry: &mut ToolRegistry,
     profiles: &[ExternalSubagentProfile],
-) -> (Vec<String>, Vec<String>) {
+) -> Vec<String> {
     let mut registered = Vec::new();
-    let mut skipped = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for profile in profiles {
         if !binary_on_path(profile.kind.binary()) {
-            skipped.push(format!(
+            eprintln!(
                 "subagent: `{}` ({}) not registered — binary `{}` not found on PATH",
                 profile.name,
                 profile.kind,
                 profile.kind.binary()
-            ));
+            );
             continue;
         }
         let backend = build_backend(profile);
@@ -276,17 +273,17 @@ pub fn register_external_subagent_tools(
         // overwrite in the registry (BTreeMap::insert) — the later one winning
         // with a possibly different permission posture. Refuse the collision.
         if !seen.insert(tool_name.clone()) {
-            skipped.push(format!(
+            eprintln!(
                 "subagent: `{}` → tool `{tool_name}` collides with an earlier profile; skipped \
                  (rename to a distinct instance name)",
                 profile.name
-            ));
+            );
             continue;
         }
         registered.push(tool_name);
         registry.register(std::sync::Arc::new(tool));
     }
-    (registered, skipped)
+    registered
 }
 
 #[cfg(test)]

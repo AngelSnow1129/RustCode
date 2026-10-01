@@ -38,16 +38,9 @@ pub const MIN_COLLAPSE_SIZE: usize = 500;
 /// Cache-friendly stub compaction (port of core's `collapse_committed` /
 /// `compact_old_tool_results_in_place`).
 pub struct StubCompaction {
-    /// Token budget for the protect window: keep the most-recent WHOLE turns whose combined
-    /// token estimate fits (ALWAYS ≥ the active turn) via [`recent_keep_boundary`]; stub the
-    /// big tool results of everything older.
-    ///
-    /// `None` (the default) scales the budget with the context window at plan time
-    /// ([`recent_keep_budget`]) — the SAME budget the proactive drain uses, so gentle-stub
-    /// and drain agree on "recent", and a small-window model still stubs proactively rather
-    /// than never reaching a fixed budget. `Some(n)` pins a fixed budget; the mechanism
-    /// tests pin `Some(1)` (= keep only the active turn).
-    protect_tokens: Option<usize>,
+    /// Keep this many most-recent turns FULL (`1` = only the active turn). A "turn"
+    /// begins at a non-synthetic [`Role::User`] message.
+    keep_recent_turns: usize,
     /// Never stub `read_file` results — compacting them makes the model "falsely
     /// confident" and re-edit the same file (core's 5–7 atomgr finding); keeping them
     /// preserves line-number context for edit mode.
@@ -55,26 +48,19 @@ pub struct StubCompaction {
 }
 
 impl Default for StubCompaction {
-    /// Window-scaled protect window (`None` → [`recent_keep_budget`]), exempt read_file.
-    /// A fixed turn count stubbed the PREVIOUS turn's tool outputs to a one-line summary
-    /// the moment the next turn began — so a multi-step investigation lost its `bash`/`grep`
-    /// results almost immediately. A window-scaled token window keeps recent tool output
-    /// readable, matches the proactive drain, and scales with the model's context.
+    /// The normal-path policy from core: keep only the active turn full, exempt read_file.
     fn default() -> Self {
         Self {
-            protect_tokens: None,
+            keep_recent_turns: 1,
             exempt_read_file: true,
         }
     }
 }
 
 impl StubCompaction {
-    /// Pin a FIXED protect-window budget (mostly for tests / callers that want a
-    /// window-independent boundary). Production uses [`StubCompaction::default`], which
-    /// scales the budget with the context window.
-    pub fn new(protect_tokens: usize, exempt_read_file: bool) -> Self {
+    pub fn new(keep_recent_turns: usize, exempt_read_file: bool) -> Self {
         Self {
-            protect_tokens: Some(protect_tokens),
+            keep_recent_turns,
             exempt_read_file,
         }
     }
@@ -84,14 +70,7 @@ impl StubCompaction {
 impl CompactionStrategy for StubCompaction {
     async fn plan(&self, view: &CompactionView<'_>) -> CompactionPlan {
         let msgs = view.messages;
-        // Token-based protect window (turn-aligned, always ≥ the active turn, clamped to the
-        // sacred floor). The budget scales with the context window by default — the SAME
-        // `recent_keep_budget` the proactive drain uses, so gentle-stub and drain agree on
-        // what "recent" means and a small-window model still stubs proactively.
-        let budget = self
-            .protect_tokens
-            .unwrap_or_else(|| recent_keep_budget(view.ctx_window));
-        let boundary = recent_keep_boundary(msgs, budget, view.sacred_floor);
+        let boundary = active_turn_start(msgs, self.keep_recent_turns);
         if boundary <= view.sacred_floor {
             return CompactionPlan::noop(); // nothing older than the kept window
         }
@@ -196,7 +175,7 @@ const MAX_SUMMARY_TOKENS: u32 = 16_000;
 /// 180s (up from 120s): gives a slow model more room now that the summary INPUT is bounded
 /// (tool outputs truncated — see `SUMMARY_TOOL_OUTPUT_MAX_CHARS`), so a legit slow-but-
 /// progressing summary isn't cut early, while still bounding a genuinely hung call.
-pub const SUMMARY_TIMEOUT: Duration = Duration::from_secs(180);
+const SUMMARY_TIMEOUT: Duration = Duration::from_secs(180);
 /// Surfaced (as a `resume_note` → synthetic user message) when the summary times out and we
 /// fall back to stub compaction, so the user understands why they got a lighter compaction.
 const SUMMARY_TIMEOUT_NOTE: &str =
@@ -309,17 +288,8 @@ impl OverflowCompaction {
                 // stub so the model keeps the files it just read; older reads still stub.
                 let read_exempt_from =
                     recent_keep_boundary(msgs, recent_keep_budget(view.ctx_window), floor);
-                let mut rewrites =
+                let rewrites =
                     Self::aggressive_stub_rewrites(msgs, floor, msgs.len(), read_exempt_from);
-                if rewrites.is_empty() {
-                    // The exemption left nothing to shed: the recent reads ARE the only
-                    // thing over the line (a one-turn session whose whole content is what
-                    // it just read, or a provider whose overflow we cannot see the shape
-                    // of). Stub them rather than strand the turn — a stubbed read is
-                    // something the model can re-read, a failed request is not. When
-                    // anything else can shed, the exemption above still holds.
-                    rewrites = Self::aggressive_stub_rewrites(msgs, floor, msgs.len(), usize::MAX);
-                }
                 if rewrites.is_empty() {
                     return CompactionPlan::noop();
                 }
@@ -462,23 +432,6 @@ impl OverflowCompaction {
     /// `focus` (from `/compact <focus>`) steers the summary toward a topic when present.
     async fn summarize(&self, span: &[Message], focus: Option<&str>) -> Option<String> {
         let provider = self.summary_provider.as_ref()?;
-        summarize_span(provider.as_ref(), span, focus).await
-    }
-}
-
-/// Summarize a span of conversation with `provider`, the way a manual `/compact`
-/// does: the prior summary (if the span holds one) is the base being updated,
-/// the rest is folded in, `focus` steers it, and the result is framed so the next
-/// compaction recognizes it. `None` when the call fails or says nothing.
-///
-/// No timeout of its own — callers bound it with [`SUMMARY_TIMEOUT`] and fall
-/// back to something model-free.
-pub async fn summarize_span(
-    provider: &dyn LlmProvider,
-    span: &[Message],
-    focus: Option<&str>,
-) -> Option<String> {
-    {
         // Split: the prior anchor (if any) is the UPDATE base; everything else is the new
         // transcript to fold in. The anchor is NEVER re-rendered as transcript (erosion fix).
         let previous_anchor = find_prior_anchor(span);
@@ -608,7 +561,7 @@ fn render_transcript(span: &[Message]) -> String {
 /// Sentinel first line stamped on every anchored compaction summary. Used to find the
 /// prior anchor in a drained span. Bumping the version invalidates older anchors (they
 /// are simply treated as plain history → re-summarized once, which is safe).
-pub const ANCHOR_SENTINEL: &str = "<!-- atomcode:anchor v1 -->";
+pub(crate) const ANCHOR_SENTINEL: &str = "<!-- atomcode:anchor v1 -->";
 
 /// Injection-time FRAMING placed after the sentinel: tells the model this block is compressed
 /// EARLIER context to reference, NOT instructions to obey — a prompt-injection guard for a
@@ -624,13 +577,10 @@ pub(crate) const SUMMARY_FRAMING: &str = "[Compressed summary of EARLIER convers
 /// UPDATE base. Must remain a prefix of `SUMMARY_FRAMING` (asserted in tests).
 const SUMMARY_FRAMING_LEAD: &str = "[Compressed summary of EARLIER conversation context";
 
-/// True iff `m` is an anchored compaction summary: an injected (`synthetic`) message whose
-/// text starts with [`ANCHOR_SENTINEL`]. The kernel inserts one as a user message; an event
-/// log projects its summary as a system note. The role is where it was put, not what it is.
+/// True iff `m` is an anchored compaction summary: a kernel-injected (`synthetic`)
+/// user-role message whose text starts with [`ANCHOR_SENTINEL`].
 fn is_anchor_message(m: &Message) -> bool {
-    matches!(m.role, Role::User | Role::System)
-        && m.synthetic
-        && m.text.starts_with(ANCHOR_SENTINEL)
+    m.role == Role::User && m.synthetic && m.text.starts_with(ANCHOR_SENTINEL)
 }
 
 /// The body of the LAST anchor in `span` (sentinel + framing stripped, trimmed), or `None` if
@@ -1005,10 +955,24 @@ fn call_id_to_tool(msgs: &[Message]) -> HashMap<String, String> {
 }
 
 /// The one-line stub a stubbed tool result is replaced with. Byte-for-byte port of core's
-/// The one-line stub a compacted tool result becomes. Part of the session
-/// projection, so the kernel's (`docs/adr/0024` §6); re-exported here where
-/// compaction has always called it.
-pub use atomcode_kernel::session::build_compact_stub;
+/// `build_compact_stub`: `[<tool> ok|FAILED: N lines, first: <≤80 chars>]`. For a bash
+/// result whose first line is the `[elapsed: …]` metadata prefix, the SECOND line is used
+/// so `first:` surfaces real output, not the exit-code banner.
+pub fn build_compact_stub(tool_name: &str, output: &str, success: bool) -> String {
+    let line_count = output.lines().count();
+    let first_line: String = {
+        let mut iter = output.lines();
+        let l1 = iter.next().unwrap_or("(empty)");
+        let chosen = if l1.starts_with("[elapsed:") {
+            iter.next().unwrap_or(l1)
+        } else {
+            l1
+        };
+        chosen.chars().take(80).collect()
+    };
+    let status = if success { "ok" } else { "FAILED" };
+    format!("[{tool_name} {status}: {line_count} lines, first: {first_line}]")
+}
 
 #[cfg(test)]
 mod tests {
@@ -1184,9 +1148,7 @@ mod tests {
         conv.messages = msgs;
         let floor = conv.sacred_floor();
 
-        // Pin keep=1 to exercise the stubbing MECHANISM on this 2-turn history (the
-        // default now keeps 2 recent turns, so both turns here would stay full).
-        let plan = StubCompaction::new(1, true)
+        let plan = StubCompaction::default()
             .plan(&view(&conv.messages, floor))
             .await;
         // Only the OLD bash result is stubbed: read_file exempt, grep is in the active turn.
@@ -1222,8 +1184,7 @@ mod tests {
         conv.messages = msgs;
         let floor = conv.sacred_floor();
 
-        // Pin keep=1 to exercise the mechanism on this 2-turn history (default is now 2).
-        let p1 = StubCompaction::new(1, true)
+        let p1 = StubCompaction::default()
             .plan(&view(&conv.messages, floor))
             .await;
         let r1 = conv.apply_plan(p1, floor);
@@ -1231,7 +1192,7 @@ mod tests {
         let epoch = conv.cache_epoch;
 
         // Re-plan on the now-stubbed history → nothing left to stub → noop, no epoch bump.
-        let p2 = StubCompaction::new(1, true)
+        let p2 = StubCompaction::default()
             .plan(&view(&conv.messages, floor))
             .await;
         assert!(
@@ -1396,18 +1357,12 @@ mod tests {
         let mut b = Conversation::new();
         b.messages = msgs;
         let floor = a.sacred_floor();
-        // Pin keep=1 so this 2-turn history produces a REAL stub on both sides (the
-        // default keeps 2 turns → both plans empty → the equality would be vacuous).
-        let pa = OverflowCompaction::new(StubCompaction::new(1, true), None)
+        let pa = OverflowCompaction::new(StubCompaction::default(), None)
             .plan(&view(&a.messages, floor))
             .await;
-        let pb = StubCompaction::new(1, true)
+        let pb = StubCompaction::default()
             .plan(&view(&b.messages, floor))
             .await;
-        assert!(
-            !pa.rewrites.is_empty(),
-            "the delegation must actually rewrite something"
-        );
         assert_eq!(
             pa.rewrites, pb.rewrites,
             "Auto trigger must match inner StubCompaction byte-for-byte"
@@ -2452,57 +2407,6 @@ mod tests {
             out.contains("[2 image(s) attached]"),
             "image presence must be recorded in the summary input, got: {out}"
         );
-    }
-
-    /// Records the prompt it was asked, answers with a stock summary.
-    struct CapturingProvider(std::sync::Mutex<Vec<Message>>);
-    #[async_trait]
-    impl LlmProvider for CapturingProvider {
-        fn model_name(&self) -> &str {
-            "capture"
-        }
-        async fn chat_stream(
-            &self,
-            messages: &[Message],
-            _: &[atomcode_kernel::tool::ToolDef],
-            _: &ChatOptions,
-        ) -> Result<
-            futures::stream::BoxStream<'static, StreamEvent>,
-            atomcode_kernel::stream::ProviderError,
-        > {
-            *self.0.lock().unwrap() = messages.to_vec();
-            Ok(Box::pin(futures::stream::iter(vec![
-                StreamEvent::TextDelta("NEW".into()),
-                StreamEvent::Done { truncated: false },
-            ])))
-        }
-    }
-
-    /// An event-log projection carries the last summary as a synthetic SYSTEM note,
-    /// not the synthetic user message the kernel inserts. Either way it is the
-    /// summary being updated — never a transcript line summarized a second time.
-    #[tokio::test]
-    async fn a_summary_projected_as_a_system_note_is_updated_not_resummarized() {
-        let text = format!("{ANCHOR_SENTINEL}\n{SUMMARY_FRAMING}\n## Goal\n- use postgres");
-        let mut note = Message::system(text.clone());
-        note.synthetic = true;
-        for prior in [Message::synthetic_user(text.clone()), note] {
-            let provider = CapturingProvider(Default::default());
-            let span = vec![prior, Message::user("q3"), Message::assistant("a3", vec![])];
-            summarize_span(&provider, &span, None)
-                .await
-                .expect("a summary");
-            let sent = provider.0.lock().unwrap();
-            let prompt = &sent[1].text;
-            assert!(
-                prompt.contains("<previous-summary>\n## Goal\n- use postgres"),
-                "not updated: {prompt}"
-            );
-            assert!(
-                !prompt.contains(ANCHOR_SENTINEL),
-                "summarized as a transcript line: {prompt}"
-            );
-        }
     }
 }
 

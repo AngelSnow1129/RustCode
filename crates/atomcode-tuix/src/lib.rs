@@ -678,9 +678,9 @@ pub async fn run(
 
     let capability_scan_start = std::time::Instant::now();
     let custom_commands = crate::custom_commands::CustomCommandRegistry::load(&working_dir);
-    // The TUI's own registry for the slash menu — NOT the runtime's, which loads
-    // its own in `prepare`. `/plugin reload` reloads both (this one directly, the
-    // runtime's through a capability rebuild).
+    // Same Arc the agent loop holds — reload() calls there propagate
+    // here automatically, so the slash menu reflects newly-installed
+    // skills without re-plumbing.
     let foreground_runtime_id = event_loop::bg_runtime::RuntimeId::new(1);
     let skill_registry = std::sync::Arc::new(std::sync::RwLock::new(
         atomcode_capabilities::skills::SkillRegistry::new(),
@@ -720,10 +720,7 @@ pub async fn run(
         let job_tx = plugin_job_tx.clone();
         tokio::spawn(async move {
             let events = tokio::task::spawn_blocking(move || {
-                let events = atomcode_capabilities::plugin::bootstrap::run_startup_hooks(
-                    &cfg,
-                    &atomcode_coding::config::product_dirs_from_env(),
-                );
+                let events = atomcode_capabilities::plugin::bootstrap::run_startup_hooks(&cfg);
                 // Refresh the shared SkillRegistry from disk so the
                 // freshly-installed skills are visible to the slash
                 // menu + agent loop without a restart.
@@ -784,10 +781,7 @@ pub async fn run(
         let cache = std::sync::Arc::new(atomcode_capabilities::askpass::cache::PasswordCache::new(
             std::time::Duration::from_secs(300),
         ));
-        match atomcode_capabilities::askpass::server::start(
-            cache,
-            atomcode_coding::config::product_dirs_from_env().home_dir_name(),
-        ) {
+        match atomcode_capabilities::askpass::server::start(cache) {
             Ok((mut env, rx, guard)) => {
                 // Write the wrapper script next to the socket.  On failure,
                 // degrade (no askpass) rather than crashing the TUI.
@@ -859,9 +853,7 @@ pub async fn run(
         // Seed with whatever's on disk now — any NEWER mtime observed
         // later means another atomcode process resynced and our drift
         // warning (if any) is stale.
-        monitor_last_sync_seen: atomcode_codingplan::read_last_sync(
-            atomcode_coding::config::product_dirs_from_env().user(),
-        ),
+        monitor_last_sync_seen: atomcode_codingplan::read_last_sync(),
         wake_rx,
         wake_tx: wake_tx.clone(),
         oauth_event_rx,
@@ -884,10 +876,7 @@ pub async fn run(
         caps,
         replay_on_start: session_to_continue,
         startup_notice,
-        file_index: crate::event_loop::file_index::FileIndex::new(
-            file_index_root,
-            atomcode_coding::config::product_dirs_from_env().project_dir_name(),
-        ),
+        file_index: crate::event_loop::file_index::FileIndex::new(file_index_root),
         current_session_id: None,
         current_session_project_bucket: None,
         pending_session_resume: None,
@@ -958,28 +947,14 @@ pub async fn run(
     // On Windows, `std::env::current_exe()` would return the renamed
     // `.atomcode.rolling` path after the swap, so we MUST use this saved
     // value instead.
-    if let Ok(event_loop::ExitReason::UpgradeRestart { exe, rolled_back }) = &result {
+    if let Ok(event_loop::ExitReason::UpgradeRestart { exe }) = &result {
         // Set env var so the new process can show a one-time "upgraded" banner
-        // on the welcome screen. Not after a rollback: the process started
-        // next is the OLDER build, and it reads this var as "you were just
-        // upgraded from …" — so it is cleared instead, in case this launch
-        // was itself an upgrade's restart and still carries one.
-        if *rolled_back {
-            std::env::remove_var("ATOMCODE_UPGRADED_FROM");
-        } else {
-            std::env::set_var(
-                "ATOMCODE_UPGRADED_FROM",
-                format!("v{}", env!("CARGO_PKG_VERSION")),
-            );
-        }
-        // A rollback starts the older build bare, in this directory: it may
-        // not know this launch's flags, nor open the session this build wrote.
-        let restarted = if *rolled_back {
-            atomcode_updater::restart_fresh(exe)
-        } else {
-            atomcode_updater::re_exec_self(Some(exe))
-        };
-        match restarted {
+        // on the welcome screen.
+        std::env::set_var(
+            "ATOMCODE_UPGRADED_FROM",
+            format!("v{}", env!("CARGO_PKG_VERSION")),
+        );
+        match atomcode_updater::re_exec_self(Some(exe)) {
             Ok(_infallible) => unreachable!("re_exec_self returned Ok"),
             Err(e) => {
                 // Re-exec failed. The upgrade is on disk, so the user just

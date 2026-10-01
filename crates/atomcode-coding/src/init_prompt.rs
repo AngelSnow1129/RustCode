@@ -53,14 +53,7 @@ pub const INIT_PROMPT_ZH_CN: &str = "\
 /// Build the effective `/init` prompt. Custom content is appended instead of
 /// replacing the built-in contract, so file-selection and preservation rules
 /// cannot be accidentally removed by configuration.
-///
-/// A relative `custom_file` is read from `config_dir`, the directory of the
-/// `config.toml` that named it.
-pub fn build_init_prompt(
-    locale: Locale,
-    custom_file: Option<&Path>,
-    config_dir: &Path,
-) -> Result<String, String> {
+pub fn build_init_prompt(locale: Locale, custom_file: Option<&Path>) -> Result<String, String> {
     let builtin = match locale {
         Locale::En => INIT_PROMPT,
         Locale::ZhCn => INIT_PROMPT_ZH_CN,
@@ -68,7 +61,7 @@ pub fn build_init_prompt(
     let Some(custom_file) = custom_file else {
         return Ok(builtin.to_string());
     };
-    let path = resolve_custom_prompt_path(custom_file, config_dir);
+    let path = resolve_custom_prompt_path(custom_file);
     let file = File::open(&path).map_err(|error| {
         format!(
             "failed to read custom /init prompt {}: {error}",
@@ -123,7 +116,7 @@ fn custom_prompt_too_large(path: &Path, actual: u64) -> String {
     )
 }
 
-fn resolve_custom_prompt_path(path: &Path, config_dir: &Path) -> PathBuf {
+fn resolve_custom_prompt_path(path: &Path) -> PathBuf {
     if path.is_absolute() {
         return path.to_path_buf();
     }
@@ -136,7 +129,7 @@ fn resolve_custom_prompt_path(path: &Path, config_dir: &Path) -> PathBuf {
             return home.join(rest);
         }
     }
-    config_dir.join(path)
+    atomcode_config::Config::config_dir().join(path)
 }
 
 #[cfg(test)]
@@ -145,8 +138,8 @@ mod tests {
 
     #[test]
     fn builtins_follow_locale_and_keep_maintenance_contract() {
-        let en = build_init_prompt(Locale::En, None, Path::new(".")).unwrap();
-        let zh = build_init_prompt(Locale::ZhCn, None, Path::new(".")).unwrap();
+        let en = build_init_prompt(Locale::En, None).unwrap();
+        let zh = build_init_prompt(Locale::ZhCn, None).unwrap();
         assert!(en.contains("AGENTS.md"));
         assert!(en.contains("update this instruction file"));
         assert!(zh.contains("简体中文"));
@@ -158,7 +151,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("init.md");
         std::fs::write(&path, "额外检查数据库迁移命令").unwrap();
-        let prompt = build_init_prompt(Locale::ZhCn, Some(&path), Path::new(".")).unwrap();
+        let prompt = build_init_prompt(Locale::ZhCn, Some(&path)).unwrap();
         assert!(prompt.contains("选择正确的文件"));
         assert!(prompt.contains("额外检查数据库迁移命令"));
     }
@@ -168,7 +161,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("empty.md");
         std::fs::write(&path, " \n").unwrap();
-        assert!(build_init_prompt(Locale::En, Some(&path), Path::new("."))
+        assert!(build_init_prompt(Locale::En, Some(&path))
             .unwrap_err()
             .to_string()
             .contains("is empty"));
@@ -179,7 +172,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("large.md");
         std::fs::write(&path, vec![b'x'; MAX_CUSTOM_INIT_PROMPT_BYTES as usize + 1]).unwrap();
-        let error = build_init_prompt(Locale::En, Some(&path), Path::new(".")).unwrap_err();
+        let error = build_init_prompt(Locale::En, Some(&path)).unwrap_err();
         assert!(error.contains("too large"));
         assert!(error.contains("65536"));
     }

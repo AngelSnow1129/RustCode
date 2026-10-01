@@ -67,7 +67,7 @@ impl PanelSetting {
     fn label(self, zh: bool, selection: &str) -> String {
         match self {
             Self::Static(setting) => if zh {
-                setting.label()
+                setting.label_zh
             } else {
                 setting.label_en
             }

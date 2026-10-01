@@ -33,12 +33,6 @@ pub enum RuntimeEventPayload {
 
 #[derive(Clone, Debug)]
 pub enum DriverEvent {
-    /// One complete line of a `!cmd`'s output, as it happens. The body of the
-    /// command streams through these; `LocalShellFinished` then carries only
-    /// what a person could not already have seen — the exit status.
-    LocalShellLine {
-        line: String,
-    },
     LocalShellFinished {
         output: String,
         failed: bool,
@@ -426,9 +420,7 @@ fn load_background_session_projection(
     changed: &atomcode_coding::SessionChanged,
 ) -> Result<Session, String> {
     load_background_session_projection_in_root(
-        &atomcode_capabilities::session::SessionManager::sessions_root(
-            atomcode_coding::config::product_dirs_from_env().user(),
-        ),
+        &atomcode_capabilities::session::SessionManager::sessions_root(),
         changed,
     )
 }
@@ -442,10 +434,7 @@ fn load_background_session_projection_in_root(
         .as_deref()
         .ok_or_else(|| "background runtime changed to a sessionless state".to_string())?;
     let working_dir = atomcode_capabilities::pathnorm::strip_verbatim_path(&changed.working_dir);
-    let project_bucket = atomcode_capabilities::session::SessionManager::project_hash(
-        &working_dir,
-        &atomcode_coding::config::product_dirs_from_env(),
-    );
+    let project_bucket = atomcode_capabilities::session::SessionManager::project_hash(&working_dir);
     let manager = atomcode_capabilities::session::SessionManager::with_root(
         sessions_root.join(&project_bucket),
     );
@@ -808,10 +797,8 @@ impl BgRuntimeManager {
             runtime_id,
             name,
             |working_dir, session_id, name| {
-                let project_bucket = atomcode_capabilities::session::SessionManager::project_hash(
-                    working_dir,
-                    &atomcode_coding::config::product_dirs_from_env(),
-                );
+                let project_bucket =
+                    atomcode_capabilities::session::SessionManager::project_hash(working_dir);
                 atomcode_daemon::legacy_convert::apply_ai_catalog_name_in_project(
                     &project_bucket,
                     session_id,
@@ -940,7 +927,6 @@ impl BgRuntimeManager {
                                         http_status: None,
                                         code: None,
                                         retryable: None,
-                                        ends_turn: false,
                                     },
                                 ),
                             ));
@@ -1745,7 +1731,6 @@ mod tests {
                     http_status: None,
                     code: None,
                     retryable: None,
-                    ends_turn: false,
                 },
             )),
         );
@@ -2087,10 +2072,7 @@ mod tests {
         let first_dir = PathBuf::from("/projects/first");
         let second_dir = PathBuf::from("/projects/second");
         for (working_dir, name) in [(&first_dir, "first"), (&second_dir, "second")] {
-            let bucket = SessionManager::project_hash(
-                working_dir,
-                &atomcode_coding::config::product_dirs_from_env(),
-            );
+            let bucket = SessionManager::project_hash(working_dir);
             let manager = SessionManager::with_root(root.path().join(bucket));
             let lease = manager.acquire_lease(id).unwrap();
             let snapshot = SessionSnapshot::new(vec![Message::user(name)]);

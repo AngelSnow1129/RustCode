@@ -92,14 +92,8 @@ pub fn spawn_oauth_poll(
                 // `is_logged_in()` returns false and the subsequent
                 // /codingplan flow re-runs login, popping a second
                 // QR + asking the user to scan AGAIN.
-                match session.finish(
-                    atomcode_coding::config::product_dirs_from_env().user(),
-                    tel.as_ref(),
-                ) {
-                    Ok(auth_info) => match atomcode_auth::save_auth(
-                        atomcode_coding::config::product_dirs_from_env().user(),
-                        &auth_info,
-                    ) {
+                match session.finish(tel.as_ref()) {
+                    Ok(auth_info) => match atomcode_auth::save_auth(&auth_info) {
                         Ok(()) => OauthEvent::Authorized,
                         Err(e) => OauthEvent::Failed(format!("auth.toml write failed: {e:#}")),
                     },

@@ -926,8 +926,7 @@ impl ProviderPanel {
             .unwrap_or_else(|| id.to_string())
     }
 
-    /// Model selection ids grouped by account, ranked ones in their rank —
-    /// `model_list_order`, the key `/model` sorts by too.
+    /// Model selection ids grouped by account (matches the /model order).
     fn model_ids(config: &Config) -> Vec<String> {
         let models = config.logical_models();
         let mut ids: Vec<String> = models.keys().cloned().collect();
@@ -935,8 +934,8 @@ impl ProviderPanel {
             let key = |id: &String| {
                 models
                     .get(id)
-                    .map(atomcode_config::config::provider::model_list_order)
-                    .unwrap_or_else(|| (id.clone(), u32::MAX, String::new()))
+                    .map(|m| (m.account.clone(), m.model.clone()))
+                    .unwrap_or_else(|| (id.clone(), String::new()))
             };
             key(a).cmp(&key(b))
         });
@@ -1366,10 +1365,6 @@ impl ProviderPanel {
 
                 let selection_id = if let Some(id) = &edit_id {
                     if let Some(model) = persisted.models.get_mut(id) {
-                        // Edited by a person, so theirs: `/openrouter` never
-                        // swaps out a model someone has saved from the panel.
-                        model.origin = None;
-                        model.rank = None;
                         model.model = model_name.clone();
                         model.supports_vision = supports_vision;
                         model.reasoning_effort = reasoning_effort.clone();
@@ -1411,10 +1406,7 @@ impl ProviderPanel {
                             context_window,
                             max_tokens: None,
                             capable_model: None,
-                            note: None,
                             retry_max_attempts: None,
-                            origin: None,
-                            rank: None,
                             thinking_type: None,
                             thinking_keep: None,
                             reasoning_history: None,

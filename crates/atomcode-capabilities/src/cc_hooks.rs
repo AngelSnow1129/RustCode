@@ -167,123 +167,46 @@ struct HookEntry {
     disabled: bool,
 }
 
-/// What reading one hooks file came to — the answer `atomcode hooks list/paths` shows
-/// beside the path, so "the file is there" is never mistaken for "its hooks run".
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HooksFileStatus {
-    /// No file: no hooks from it, and nothing wrong.
-    Missing,
-    /// The file is there but could not be read (permissions, not UTF-8, a directory).
-    Unreadable { error: String },
-    /// The file does not parse. None of its hooks run.
-    Malformed { error: String },
-    /// The file parsed. `hooks` will run; `disabled` are switched off with
-    /// `"disabled": true`; `unknown_events` names each entry dropped because its
-    /// `event` is not one of the eight (a typo, or an event from the retired engine).
-    Loaded {
-        hooks: usize,
-        disabled: usize,
-        unknown_events: Vec<String>,
-    },
-}
-
-/// Read one hooks file: its hooks, and what reading it came to. Says nothing itself —
-/// [`load_hooks_file`] logs, [`hooks_file_status`] reports — so a caller that asks for
-/// both does not log twice.
-///
-/// Comments are allowed (`//`, `/* */`), as in `.mcp.json`: one stripper for both
-/// hand-edited configs, so a comment that works in one works in the other.
-fn read_hooks_file(path: &Path) -> (Vec<HookConfig>, HooksFileStatus) {
-    let raw = match std::fs::read_to_string(path) {
-        Ok(raw) => raw,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return (Vec::new(), HooksFileStatus::Missing);
-        }
-        Err(error) => {
-            let error = error.to_string();
-            return (Vec::new(), HooksFileStatus::Unreadable { error });
-        }
-    };
-    let parsed: HooksFile = match serde_json::from_str(&crate::jsonc::strip_comments(&raw)) {
-        Ok(parsed) => parsed,
-        Err(error) => {
-            let error = error.to_string();
-            return (Vec::new(), HooksFileStatus::Malformed { error });
-        }
-    };
-    let mut disabled = 0;
-    let mut unknown_events = Vec::new();
-    let mut hooks = Vec::new();
-    for entry in parsed.hooks.into_values() {
-        if entry.disabled {
-            disabled += 1;
-            continue;
-        }
-        let Some(event) = HookEvent::parse(&entry.event) else {
-            unknown_events.push(entry.event);
-            continue;
-        };
-        hooks.push(HookConfig {
-            event,
-            matcher: entry.matcher,
-            command: entry.command,
-            timeout_ms: entry.timeout_ms,
-            plugin_root: None,
-        });
-    }
-    let status = HooksFileStatus::Loaded {
-        hooks: hooks.len(),
-        disabled,
-        unknown_events,
-    };
-    (hooks, status)
-}
-
-/// What reading the hooks file at `path` comes to, for diagnostics.
-pub fn hooks_file_status(path: &Path) -> HooksFileStatus {
-    read_hooks_file(path).1
-}
-
 fn load_hooks_file(path: &Path) -> Vec<HookConfig> {
-    let (hooks, status) = read_hooks_file(path);
-    // A file that is dropped (or an entry in it) is skipped rather than wedging
-    // startup, but SAID: a silently-dropped hooks file (one stray comma) means every
-    // hook quietly stops firing with nothing on screen or in the log to explain it —
-    // for an audit or a gate that is worse than failing to start. One warn with the
-    // path and the reason is the difference between a five-minute fix and a day of
-    // bisecting; `atomcode hooks list` shows the same status beside the path.
-    match &status {
-        HooksFileStatus::Missing => {}
-        HooksFileStatus::Unreadable { error } => tracing::warn!(
-            target: "atomcode::hooks",
-            path = %path.display(),
-            %error,
-            "cannot read hooks file — no hooks from it will run"
-        ),
-        HooksFileStatus::Malformed { error } => tracing::warn!(
-            target: "atomcode::hooks",
-            path = %path.display(),
-            %error,
-            "ignoring malformed hooks file — no hooks from it will run"
-        ),
-        HooksFileStatus::Loaded { unknown_events, .. } => {
-            for event in unknown_events {
-                tracing::warn!(
-                    target: "atomcode::hooks",
-                    path = %path.display(),
-                    %event,
-                    "skipping hook with unknown event — it will not run"
-                );
-            }
-        }
-    }
-    hooks
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return Vec::new(); // missing file → no hooks (not an error).
+    };
+    let Ok(parsed) = serde_json::from_str::<HooksFile>(&raw) else {
+        return Vec::new(); // malformed → skip the file rather than wedge startup.
+    };
+    parsed
+        .hooks
+        .into_values()
+        .filter(|e| !e.disabled)
+        .filter_map(|e| {
+            HookEvent::parse(&e.event).map(|event| HookConfig {
+                event,
+                matcher: e.matcher,
+                command: e.command,
+                timeout_ms: e.timeout_ms,
+                plugin_root: None,
+            })
+        })
+        .collect()
 }
 
-/// The GLOBAL hooks file `load_hooks_config` reads: `<user tree>/hooks.json`.
-/// Exposed so diagnostics (`hooks paths`/`list`) show EXACTLY the file that is loaded.
-pub fn global_hooks_path(user_dir: &Path) -> PathBuf {
-    user_dir.join("hooks.json")
+/// Resolve `$ATOMCODE_HOME` (fallback `~/.atomcode`).
+fn atomcode_home() -> Option<PathBuf> {
+    if let Ok(h) = std::env::var("ATOMCODE_HOME") {
+        if !h.is_empty() {
+            return Some(PathBuf::from(h));
+        }
+    }
+    dirs::home_dir().map(|h| h.join(".atomcode"))
+}
+
+/// The GLOBAL hooks file `load_hooks_config` reads
+/// (`$ATOMCODE_HOME`/`~/.atomcode` + `/hooks.json`), or `None` when no home resolves.
+/// Exposed so diagnostics (`atomcode hooks paths`/`list`) show EXACTLY the file that is
+/// loaded — which under `sudo` is NOT the sudo-aware `Config::config_dir()` this module
+/// deliberately does not use.
+pub fn global_hooks_path() -> Option<PathBuf> {
+    atomcode_home().map(|h| h.join("hooks.json"))
 }
 
 /// The PROJECT hooks file `load_hooks_config` reads (`<root>/.hooks.json`).
@@ -291,10 +214,12 @@ pub fn project_hooks_path(project_dir: &Path) -> PathBuf {
     project_dir.join(".hooks.json")
 }
 
-/// Load user (`<user tree>/hooks.json`) + project (`<root>/.hooks.json`) hooks.
-pub fn load_hooks_config(project_dir: &Path, user_dir: &Path) -> Vec<HookConfig> {
+/// Load user (`$ATOMCODE_HOME/hooks.json`) + project (`<root>/.hooks.json`) hooks.
+pub fn load_hooks_config(project_dir: &Path) -> Vec<HookConfig> {
     let mut out = Vec::new();
-    out.extend(load_hooks_file(&global_hooks_path(user_dir)));
+    if let Some(p) = global_hooks_path() {
+        out.extend(load_hooks_file(&p));
+    }
     out.extend(load_hooks_file(&project_hooks_path(project_dir)));
     out
 }
@@ -370,32 +295,14 @@ fn shell_command(command: &str) -> tokio::process::Command {
 /// (b) tell a DELIBERATE exit-2 block from a hook that merely failed to launch (see
 /// [`deliberate_block_reason`]). The OUTER `None` (timeout / spawn-failure) → the
 /// caller treats it as a silent continue.
-///
-/// The hook runs **in the project** (`project_dir`) and is told where it is, as
-/// `ATOMCODE_PROJECT_DIR` and Claude Code's `CLAUDE_PROJECT_DIR`. That is what
-/// lets one hooks file serve every place the project is mounted — the command
-/// names its script `./hooks/x.sh` or `"$ATOMCODE_PROJECT_DIR"/hooks/x.sh`.
-/// Variables are the shell's to expand, never substituted into the command
-/// here: a value spliced into a shell line would be parsed as shell.
 async fn run_command_hook(
     hook: &HookConfig,
-    project_dir: &str,
     stdin_json: &str,
 ) -> Option<(Option<i32>, String, String)> {
     use std::process::Stdio;
     use tokio::io::AsyncWriteExt;
 
     let mut cmd = shell_command(&hook.command);
-    if !project_dir.is_empty() {
-        cmd.env("ATOMCODE_PROJECT_DIR", project_dir);
-        cmd.env("CLAUDE_PROJECT_DIR", project_dir);
-        // Only a directory that is there: a working directory the child cannot
-        // enter fails the spawn, and a failed spawn is a silent continue — the
-        // hook would quietly never run.
-        if Path::new(project_dir).is_dir() {
-            cmd.current_dir(project_dir);
-        }
-    }
     #[cfg(unix)]
     crate::process_utils::apply_utf8_locale_env(&mut cmd);
     cmd.stdin(Stdio::piped())
@@ -449,14 +356,9 @@ pub struct HookRunOutput {
 /// Run ONE hook for diagnostics, piping `payload` to its stdin (the CC
 /// `json.load(sys.stdin)` contract) and honoring the hook's timeout. Reuses the
 /// SAME executor the live middleware uses, so `atomcode hooks test` observes exactly
-/// what a real turn would run — in `project_dir`, with the same variables. Returns
-/// `None` if the hook timed out or failed to spawn.
-pub async fn run_hook_for_test(
-    hook: &HookConfig,
-    project_dir: &Path,
-    payload: &Value,
-) -> Option<HookRunOutput> {
-    run_command_hook(hook, &project_dir.to_string_lossy(), &payload.to_string())
+/// what a real turn would run. Returns `None` if the hook timed out or failed to spawn.
+pub async fn run_hook_for_test(hook: &HookConfig, payload: &Value) -> Option<HookRunOutput> {
+    run_command_hook(hook, &payload.to_string())
         .await
         .map(|(exit_code, stdout, stderr)| HookRunOutput {
             exit_code,
@@ -611,10 +513,10 @@ impl CCExternalHooks {
         }
     }
 
-    /// Load user (`user_dir`'s) + project `hooks.json` for `project_dir`.
-    pub fn load(project_dir: &Path, user_dir: &Path) -> Self {
+    /// Load user + project `hooks.json` for `project_dir`.
+    pub fn load(project_dir: &Path) -> Self {
         Self::new(
-            load_hooks_config(project_dir, user_dir),
+            load_hooks_config(project_dir),
             project_dir.to_string_lossy().into_owned(),
         )
     }
@@ -624,8 +526,8 @@ impl CCExternalHooks {
     /// live behind the plugin loader that L1 cannot depend on. File hooks come first, then
     /// the extras (order only affects context-injection order; the gate fold is
     /// order-independent). An empty `extra` makes this identical to `load`.
-    pub fn load_with_extra(project_dir: &Path, user_dir: &Path, extra: Vec<HookConfig>) -> Self {
-        let mut hooks = load_hooks_config(project_dir, user_dir);
+    pub fn load_with_extra(project_dir: &Path, extra: Vec<HookConfig>) -> Self {
+        let mut hooks = load_hooks_config(project_dir);
         hooks.extend(extra);
         Self::new(hooks, project_dir.to_string_lossy().into_owned())
     }
@@ -697,12 +599,8 @@ impl LifecycleHooks for CCExternalHooks {
         // injected context stays deterministic. A single slow hook no longer serializes
         // the rest.
         let matched = self.matching(HookEvent::SessionStart, None);
-        let outs = futures::future::join_all(
-            matched
-                .iter()
-                .map(|h| run_command_hook(h, &self.cwd, &payload)),
-        )
-        .await;
+        let outs =
+            futures::future::join_all(matched.iter().map(|h| run_command_hook(h, &payload))).await;
         for (_code, stdout, _stderr) in outs.into_iter().flatten() {
             // SessionStart: stdout (plain or hookSpecificOutput.additionalContext)
             // is injected as context. CC cannot block here.
@@ -735,12 +633,8 @@ impl LifecycleHooks for CCExternalHooks {
         // rest contribute injected context. (CC likewise runs UserPromptSubmit hooks in
         // parallel and aggregates.)
         let matched = self.matching(HookEvent::UserPromptSubmit, None);
-        let outs = futures::future::join_all(
-            matched
-                .iter()
-                .map(|h| run_command_hook(h, &self.cwd, &payload)),
-        )
-        .await;
+        let outs =
+            futures::future::join_all(matched.iter().map(|h| run_command_hook(h, &payload))).await;
         let mut injected: Vec<String> = Vec::new();
         for out in outs {
             let Some((exit_code, stdout, stderr)) = out else {
@@ -800,12 +694,7 @@ impl LifecycleHooks for CCExternalHooks {
         .to_string();
         // Observation only — fire all matching hooks concurrently and ignore output.
         let matched = self.matching(HookEvent::SessionEnd, None);
-        futures::future::join_all(
-            matched
-                .iter()
-                .map(|h| run_command_hook(h, &self.cwd, &payload)),
-        )
-        .await;
+        futures::future::join_all(matched.iter().map(|h| run_command_hook(h, &payload))).await;
     }
 
     /// CC's turn-terminal pair: EVERY turn end fires EXACTLY ONE of `Stop` /
@@ -838,12 +727,7 @@ impl LifecycleHooks for CCExternalHooks {
         })
         .to_string();
         // Observation only — fire all matching hooks concurrently and ignore output.
-        futures::future::join_all(
-            matched
-                .iter()
-                .map(|h| run_command_hook(h, &self.cwd, &payload)),
-        )
-        .await;
+        futures::future::join_all(matched.iter().map(|h| run_command_hook(h, &payload))).await;
     }
 }
 
@@ -882,42 +766,6 @@ impl ToolMiddleware for CCExternalHooks {
         _tool: &Arc<dyn Tool>,
         rt: &RequestCtx,
     ) -> BeforeOutcome {
-        let mut gate = self.pre_tool_gate(call).await;
-        // Resolve a folded `ask` (CC `permissionDecision:"ask"`) into a REAL approval
-        // prompt. The kernel has no L0 approval mechanism (it treats `Ask` as a no-op), so
-        // — like `BashWorkspaceGate` / `WriteApprovalGate` — we round-trip the driver here
-        // and map the decision. This middleware runs BEFORE the downstream auto-approve
-        // gates, so returning `Allow` on approval short-circuits them: an explicit hook
-        // "ask" forces a prompt even for an in-workspace edit or a Safe read, which would
-        // otherwise auto-approve and drop the "ask" silently. Resolved AFTER the fold so a
-        // later hook's `Deny` still outranks it (Deny > Ask).
-        if matches!(gate, BeforeOutcome::Ask { .. }) {
-            gate = self.resolve_ask(call, rt).await;
-        }
-        self.note_call_for_post(call, &gate);
-        gate
-    }
-
-    async fn after(
-        &self,
-        result: &mut ToolResult,
-        _tool: Option<&std::sync::Arc<dyn atomcode_kernel::tool::Tool>>,
-    ) -> AfterOutcome {
-        self.post_tool(result).await
-    }
-}
-
-/// The CC hook engine as a SINK, apart from the seams that drive it.
-///
-/// Only ONE thing in the whole `before` fold is kernel-shaped: resolving a
-/// hook's `ask` into a real prompt, which the chain does through `RequestCtx`
-/// and the harness does through the `approval` seam. Everything else — running
-/// the matching hooks, the `updatedInput` rewrite, the most-restrictive fold,
-/// the CC exit-code contract — is the same judgement either way, so it is
-/// written once and the two assemblies differ in one line.
-impl CCExternalHooks {
-    /// The PreToolUse fold, with an `ask` left UNRESOLVED for the caller.
-    pub async fn pre_tool_gate(&self, call: &mut ToolCall) -> BeforeOutcome {
         // PreToolUse stdin: tool_input is the PARSED args object (CC sends an
         // object, not a string), falling back to the raw string if unparseable.
         let tool_input: Value = serde_json::from_str(&call.arguments)
@@ -925,12 +773,6 @@ impl CCExternalHooks {
         let payload = serde_json::json!({
             "session_id": self.session_id,
             "hook_event_name": HookEvent::PreToolUse.cc_name(),
-            // The call's id, so a hook can correlate this PreToolUse with the
-            // PostToolUse/PostToolUseFailure of the SAME call — the only way to
-            // pair "arguments / duration / result", and the only way to tell two
-            // concurrent calls of the same tool apart (a PostToolUse-side file
-            // written by a PreToolUse-side file otherwise has no unique key).
-            "call_id": call.id,
             "tool_name": call.name,
             "tool_input": tool_input,
             "cwd": self.cwd,
@@ -944,9 +786,7 @@ impl CCExternalHooks {
         // remaining hooks — and so the rewrite order is deterministic.
         let mut gate = BeforeOutcome::Proceed;
         for hook in self.matching(HookEvent::PreToolUse, Some(&call.name)) {
-            let Some((exit_code, stdout, stderr)) =
-                run_command_hook(hook, &self.cwd, &payload).await
-            else {
+            let Some((exit_code, stdout, stderr)) = run_command_hook(hook, &payload).await else {
                 continue;
             };
             let decided =
@@ -1009,28 +849,34 @@ impl CCExternalHooks {
                 break; // deny is final.
             }
         }
-        gate
-    }
-
-    /// Remember this call's tool name for PostToolUse / PostToolUseFailure
-    /// (neither engine threads a tool name into the post-tool seam), but ONLY
-    /// for a call that will actually run — a `Deny` means the tool is blocked,
-    /// so its post-tool hook must not fire. [`Self::post_tool`] removes it.
-    ///
-    /// The kernel chain of 5.1.0 still sent a denied call's `blocked: …` result
-    /// through every `after`, so PostToolUseFailure fired for it with
-    /// `tool_name: null`. The harness path returns the refusal without running
-    /// `post_tool`, which is the line this method always drew.
-    pub fn note_call_for_post(&self, call: &ToolCall, gate: &BeforeOutcome) {
+        // Resolve a folded `ask` (CC `permissionDecision:"ask"`) into a REAL approval
+        // prompt. The kernel has no L0 approval mechanism (it treats `Ask` as a no-op), so
+        // — like `BashWorkspaceGate` / `WriteApprovalGate` — we round-trip the driver here
+        // and map the decision. This middleware runs BEFORE the downstream auto-approve
+        // gates, so returning `Allow` on approval short-circuits them: an explicit hook
+        // "ask" forces a prompt even for an in-workspace edit or a Safe read, which would
+        // otherwise auto-approve and drop the "ask" silently. Resolved AFTER the fold so a
+        // later hook's `Deny` still outranks it (Deny > Ask).
+        if matches!(gate, BeforeOutcome::Ask { .. }) {
+            gate = self.resolve_ask(call, rt).await;
+        }
+        // Remember this call's tool name for PostToolUse / PostToolUseFailure `after`
+        // (kernel hands it no tool name), but ONLY for a call that will actually run — a
+        // Deny here means the tool is blocked, so its post-tool hook must not fire.
+        // `after` removes the entry.
         if self.has_post_tool_hooks && !gate.is_deny() {
             if let Ok(mut m) = self.call_tools.lock() {
                 m.insert(call.id.clone(), call.name.clone());
             }
         }
+        gate
     }
 
-    /// The PostToolUse / PostToolUseFailure fold. Nothing kernel-shaped here.
-    pub async fn post_tool(&self, result: &mut ToolResult) -> AfterOutcome {
+    async fn after(
+        &self,
+        result: &mut ToolResult,
+        _tool: Option<&std::sync::Arc<dyn atomcode_kernel::tool::Tool>>,
+    ) -> AfterOutcome {
         // Recover the tool name `before` stashed for this call_id (kernel doesn't thread
         // it into `after`), so PostToolUse / PostToolUseFailure tool-name matchers are
         // honored. Absent ⇒ the call never ran our `before` (e.g. denied earlier) ⇒ only
@@ -1051,12 +897,6 @@ impl CCExternalHooks {
         let payload = serde_json::json!({
             "session_id": self.session_id,
             "hook_event_name": event.cc_name(),
-            // The same call id the PreToolUse frame carried, so a hook can pair a
-            // call's arguments, duration and result. A call a PreToolUse hook
-            // denied never reaches here — the failure stream is for calls that
-            // ran — so "which tool got blocked" is recorded on the PreToolUse
-            // side, whose frame names the tool and carries this id.
-            "call_id": result.call_id,
             "tool_name": tool_name,
             "tool_response": result.content,
             "cwd": self.cwd,
@@ -1071,8 +911,7 @@ impl CCExternalHooks {
             .iter()
             .filter(|h| h.event == event && post_tool_matches(&h.matcher, tool_name.as_deref()))
         {
-            let Some((_code, stdout, _stderr)) = run_command_hook(hook, &self.cwd, &payload).await
-            else {
+            let Some((_code, stdout, _stderr)) = run_command_hook(hook, &payload).await else {
                 continue;
             };
             if let Some(d) =
@@ -1385,128 +1224,12 @@ mod tests {
             }}"#,
         )
         .unwrap();
-        let hooks = load_hooks_config(dir.path(), &dir.path().join("tree"));
+        let hooks = load_hooks_config(dir.path());
         // `b` disabled, `c` unknown event → only `a` survives.
         assert_eq!(hooks.len(), 1);
         assert_eq!(hooks[0].event, HookEvent::PreToolUse);
         assert_eq!(hooks[0].matcher.as_deref(), Some("bash"));
         assert_eq!(hooks[0].timeout_ms, 10_000);
-    }
-
-    /// A comment in `.hooks.json` is allowed, as in `.mcp.json`. It used to make the
-    /// whole file fail to parse, so every hook in it silently stopped firing while
-    /// `hooks list` showed the file ✓ present — an audit hook that never ran.
-    #[test]
-    fn a_commented_hooks_file_loads() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".hooks.json");
-        std::fs::write(
-            &path,
-            r#"{
-  // audit every bash call
-  "hooks": {
-    "audit": {
-      "event": "PreToolUse", /* gate */
-      "matcher": "bash",
-      "command": "/usr/local/bin/audit.sh --url=https://audit.example.com/in"
-    }
-  }
-}"#,
-        )
-        .unwrap();
-        let (hooks, status) = read_hooks_file(&path);
-        assert_eq!(hooks.len(), 1, "{status:?}");
-        assert_eq!(
-            hooks[0].command, "/usr/local/bin/audit.sh --url=https://audit.example.com/in",
-            "a `//` inside a string is not a comment"
-        );
-        assert_eq!(
-            status,
-            HooksFileStatus::Loaded {
-                hooks: 1,
-                disabled: 0,
-                unknown_events: Vec::new()
-            }
-        );
-    }
-
-    /// What reading the file came to is reported, so "the file is there" is never
-    /// mistaken for "its hooks run": a parse failure carries the serde error, a
-    /// dropped entry names its event, and an absent file is just absent.
-    #[test]
-    fn the_status_tells_a_broken_file_from_an_empty_one() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".hooks.json");
-        assert_eq!(hooks_file_status(&path), HooksFileStatus::Missing);
-
-        std::fs::write(&path, r#"{"hooks":{"a":{"event":"Stop","command":"x",}}}"#).unwrap();
-        match hooks_file_status(&path) {
-            HooksFileStatus::Malformed { error } => {
-                assert!(
-                    error.contains("line 1"),
-                    "the serde position is kept: {error}"
-                )
-            }
-            other => panic!("a trailing comma is malformed, got {other:?}"),
-        }
-
-        std::fs::write(
-            &path,
-            r#"{"hooks":{
-                "a":{"event":"Stop","command":"x"},
-                "b":{"event":"Stop","command":"y","disabled":true},
-                "c":{"event":"OnUserPromptSubmit","command":"z"}
-            }}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            hooks_file_status(&path),
-            HooksFileStatus::Loaded {
-                hooks: 1,
-                disabled: 1,
-                unknown_events: vec!["OnUserPromptSubmit".into()]
-            }
-        );
-
-        std::fs::write(&path, r#"{"hooks":{}}"#).unwrap();
-        assert_eq!(
-            hooks_file_status(&path),
-            HooksFileStatus::Loaded {
-                hooks: 0,
-                disabled: 0,
-                unknown_events: Vec::new()
-            }
-        );
-    }
-
-    /// A path that exists but cannot be read as a file is not "missing".
-    #[test]
-    fn a_hooks_path_that_cannot_be_read_is_not_missing() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".hooks.json");
-        std::fs::create_dir(&path).unwrap();
-        assert!(
-            matches!(hooks_file_status(&path), HooksFileStatus::Unreadable { .. }),
-            "{:?}",
-            hooks_file_status(&path)
-        );
-    }
-
-    /// A malformed hooks file is skipped gracefully (never wedges startup) — the
-    /// A8 contract — and a valid one right beside it in a different scope still
-    /// loads. The warn is a side effect; what a test can pin is that a stray comma
-    /// costs only that file, and does not throw or take the others down.
-    #[test]
-    fn a_malformed_hooks_file_is_skipped_not_fatal() {
-        let dir = tempfile::tempdir().unwrap();
-        // A trailing comma — the exact "one stray comma" the report describes.
-        std::fs::write(
-            dir.path().join(".hooks.json"),
-            r#"{"hooks":{"a":{"event":"PreToolUse","command":"echo a"},}}"#,
-        )
-        .unwrap();
-        let hooks = load_hooks_config(dir.path(), &dir.path().join("tree"));
-        assert!(hooks.is_empty(), "malformed file yields no hooks, no panic");
     }
 
     #[test]
@@ -1572,13 +1295,9 @@ mod tests {
             timeout_ms: 5_000,
             plugin_root: None,
         };
-        let out = run_hook_for_test(
-            &hook,
-            Path::new("/tmp"),
-            &serde_json::json!({"hook_event_name": "PreToolUse"}),
-        )
-        .await
-        .expect("hook ran");
+        let out = run_hook_for_test(&hook, &serde_json::json!({"hook_event_name": "PreToolUse"}))
+            .await
+            .expect("hook ran");
         assert_eq!(out.exit_code, Some(0));
         assert!(out.stdout.contains("hooktest-ok"), "stdout: {}", out.stdout);
     }
@@ -1649,97 +1368,6 @@ mod tests {
         assert!(cc.user_prompt_submit(&mut text).await.is_ok());
         assert!(text.contains("hi"), "original prompt preserved");
         assert!(text.contains("CTX"), "context appended: {text}");
-    }
-
-    /// A hook runs **in the project**, and is told where that is.
-    ///
-    /// The payload has always said `cwd: <project>`, while the process ran in
-    /// whatever directory the atomcode process happened to be in — a daemon's,
-    /// or the one before a `/cd`. And with no variable naming the project, one
-    /// hooks file could not serve two mount points: `${WORKSPACE}` is only as
-    /// good as an environment the daemon may not have. `CLAUDE_PROJECT_DIR` is
-    /// the name Claude Code gives the same thing.
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_hook_runs_in_the_project_and_is_told_where_it_is() {
-        let project = tempfile::tempdir().expect("tempdir");
-        let dir = project.path().display().to_string();
-        let hook = HookConfig {
-            event: HookEvent::UserPromptSubmit,
-            matcher: None,
-            command: r#"printf '{"hookSpecificOutput":{"additionalContext":"cwd=%s|a=%s|c=%s"}}' "$(pwd -P)" "$ATOMCODE_PROJECT_DIR" "$CLAUDE_PROJECT_DIR""#.into(),
-            timeout_ms: 5_000,
-            plugin_root: None,
-        };
-        let cc = CCExternalHooks::new(vec![hook], dir.clone());
-        let mut text = "hi".to_string();
-        assert!(cc.user_prompt_submit(&mut text).await.is_ok());
-        let real = project.path().canonicalize().expect("canonical");
-        assert!(
-            text.contains(&format!("cwd={}|", real.display())),
-            "the process runs in the project: {text}"
-        );
-        assert!(
-            text.contains(&format!("|a={dir}|c={dir}")),
-            "both names say where the project is: {text}"
-        );
-    }
-
-    /// The case from the field: one hooks file for many mount points. The
-    /// script sits under the project; the hook names it relatively, or through
-    /// the variable — and both find it wherever the project is mounted.
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn one_hooks_file_finds_its_script_wherever_the_project_is() {
-        use std::os::unix::fs::PermissionsExt;
-        let project = tempfile::tempdir().expect("tempdir");
-        std::fs::create_dir(project.path().join("hooks")).expect("hooks dir");
-        let script = project.path().join("hooks/guard.sh");
-        std::fs::write(
-            &script,
-            "#!/bin/sh\nprintf '{\"hookSpecificOutput\":{\"additionalContext\":\"%s\"}}' \"$1\"\n",
-        )
-        .expect("script");
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
-        let hook = |command: &str| HookConfig {
-            event: HookEvent::UserPromptSubmit,
-            matcher: None,
-            command: command.into(),
-            timeout_ms: 5_000,
-            plugin_root: None,
-        };
-        let cc = CCExternalHooks::new(
-            vec![
-                hook("./hooks/guard.sh RELATIVE-RAN"),
-                hook(r#""$ATOMCODE_PROJECT_DIR"/hooks/guard.sh VARIABLE-RAN"#),
-            ],
-            project.path().display().to_string(),
-        );
-        let mut text = "hi".to_string();
-        assert!(cc.user_prompt_submit(&mut text).await.is_ok());
-        assert!(text.contains("RELATIVE-RAN"), "a relative path: {text}");
-        assert!(
-            text.contains("VARIABLE-RAN"),
-            "through the variable: {text}"
-        );
-    }
-
-    /// A project directory that is not there does not stop the hook: a working
-    /// directory the child cannot enter fails the spawn, and a spawn failure is
-    /// a silent continue — the hook would quietly never run.
-    #[tokio::test]
-    async fn a_missing_project_directory_does_not_stop_the_hook() {
-        let hook = HookConfig {
-            event: HookEvent::UserPromptSubmit,
-            matcher: None,
-            command: r#"echo '{"hookSpecificOutput":{"additionalContext":"STILL-RAN"}}'"#.into(),
-            timeout_ms: 5_000,
-            plugin_root: None,
-        };
-        let cc = CCExternalHooks::new(vec![hook], "/nonexistent/atomcode-project-dir");
-        let mut text = "hi".to_string();
-        assert!(cc.user_prompt_submit(&mut text).await.is_ok());
-        assert!(text.contains("STILL-RAN"), "{text}");
     }
 
     #[tokio::test]
@@ -1852,7 +1480,7 @@ mod tests {
         std::env::set_var("LANG", "C");
         std::env::set_var("LC_CTYPE", "C");
 
-        let (_code, stdout, _stderr) = run_command_hook(&hook, "", "{}").await.unwrap();
+        let (_code, stdout, _stderr) = run_command_hook(&hook, "{}").await.unwrap();
 
         assert!(
             stdout.contains("产品需求/流水线/帮助文档/GitCode-Action-官网文档.md"),
@@ -2135,32 +1763,6 @@ mod tests {
         assert!(
             text.contains("MATCHED"),
             "session_id must reach the payload: {text}"
-        );
-    }
-
-    /// E4: the call id is threaded into the tool payload, so a hook can correlate
-    /// a PreToolUse with the matching Post frame (and tell concurrent same-name
-    /// calls apart). The hook greps its own stdin for the id and blocks on a hit.
-    #[tokio::test]
-    async fn call_id_is_threaded_into_the_tool_payload() {
-        let hook = HookConfig {
-            event: HookEvent::PreToolUse,
-            matcher: None,
-            command: r#"grep -q '"call_id":"tc-42"' && echo '{"decision":"block","reason":"saw call_id"}'"#
-                .into(),
-            timeout_ms: 5_000,
-            plugin_root: None,
-        };
-        let cc = CCExternalHooks::new(vec![hook], "/tmp");
-        let mut call = ToolCall {
-            id: "tc-42".into(),
-            name: "bash".into(),
-            arguments: "{}".into(),
-        };
-        let gate = cc.pre_tool_gate(&mut call).await;
-        assert!(
-            gate.is_deny(),
-            "the hook saw call_id in its stdin and blocked: {gate:?}"
         );
     }
 

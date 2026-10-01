@@ -135,8 +135,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("core.rs"), "pub fn core_fn() {}\n").unwrap();
         std::fs::write(d.path().join("user.rs"), "fn u() { core_fn(); }\n").unwrap();
-        let tool =
-            BlastRadiusTool::new(Arc::new(CodeIndex::new(&crate::product_dirs::test_dirs())));
+        let tool = BlastRadiusTool::new(Arc::new(CodeIndex::new()));
         let ctx = ToolContext {
             working_dir: d.path().to_path_buf(),
             cancel: CancellationToken::new(),
@@ -158,8 +157,7 @@ mod tests {
     async fn unknown_file_errors() {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("a.rs"), "fn a() {}\n").unwrap();
-        let tool =
-            BlastRadiusTool::new(Arc::new(CodeIndex::new(&crate::product_dirs::test_dirs())));
+        let tool = BlastRadiusTool::new(Arc::new(CodeIndex::new()));
         let ctx = ToolContext {
             working_dir: d.path().to_path_buf(),
             cancel: CancellationToken::new(),

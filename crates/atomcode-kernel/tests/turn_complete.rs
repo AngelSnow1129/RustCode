@@ -128,8 +128,7 @@ async fn does_not_fire_when_prompt_is_rejected() {
         if matches!(
             ev,
             AgentEvent::TurnComplete {
-                reason: StopReason::PromptRejected,
-                ..
+                reason: StopReason::PromptRejected
             }
         ) {
             saw_rejected = true;

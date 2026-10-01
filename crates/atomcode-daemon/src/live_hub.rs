@@ -42,15 +42,6 @@ pub struct LiveBinding {
     pub provider_fingerprint: String,
 }
 
-/// One MCP server of the live runtime, as [`LiveViewHub::mcp_servers`] reports it.
-#[derive(Clone, Debug)]
-pub struct LiveMcpServer {
-    pub name: String,
-    pub status: atomcode_capabilities::mcp::ServerStatus,
-    /// How many of its tools the model is offered right now.
-    pub published_tools: usize,
-}
-
 #[derive(Clone, Debug)]
 pub enum LiveViewEvent {
     InputAccepted {
@@ -122,14 +113,6 @@ struct BoundRuntime {
     control: Arc<dyn LiveRuntimeControl>,
 }
 
-/// A request the runtime is waiting on, as the runtime raised it. The payload is
-/// kept so an answer can act on what was actually asked (e.g. which tool an
-/// approval is for) rather than on what a client claims alongside its answer.
-struct PendingRequest {
-    kind: String,
-    payload: serde_json::Value,
-}
-
 #[derive(Default)]
 struct HubState {
     next_binding_id: u64,
@@ -139,7 +122,7 @@ struct HubState {
     snapshot_error: Option<String>,
     replay: Vec<LiveObservation>,
     goal_progress: Option<atomcode_coding::GoalProgress>,
-    pending_requests: HashMap<RequestId, PendingRequest>,
+    pending_requests: HashMap<RequestId, String>,
     turn_active: bool,
     last_runtime_sequence: Option<u64>,
     pending_web_steers: VecDeque<PendingWebSteer>,
@@ -352,37 +335,6 @@ impl LiveViewHub {
         Ok(())
     }
 
-    /// Unbind a runtime **that has already been shut down**, turn or no turn.
-    ///
-    /// [`unbind`](Self::unbind) refuses while `turn_active`, to protect a turn
-    /// that is running. Once the runtime is shut down there is no turn left to
-    /// protect, and a flag still set then only means the terminal event never
-    /// reached the hub (forwarding stopped first) — refusing would leave the
-    /// dead runtime bound and every later bind rejected. It is scoped to
-    /// `binding`, never an unconditional reset: a successor that is already
-    /// bound is left alone (`StaleBinding`).
-    pub fn unbind_retired(&self, binding: &LiveBinding) -> Result<(), HubError> {
-        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-        let current_binding_id = state
-            .binding
-            .as_ref()
-            .map(|current| current.identity.id)
-            .ok_or(HubError::Unbound)?;
-        if current_binding_id != binding.id {
-            return Err(HubError::StaleBinding);
-        }
-        state.binding = None;
-        state.snapshot = None;
-        state.snapshot_error = None;
-        state.replay.clear();
-        state.goal_progress = None;
-        state.pending_requests.clear();
-        state.pending_web_steers.clear();
-        state.last_runtime_sequence = None;
-        state.turn_active = false;
-        Ok(())
-    }
-
     pub fn replace_snapshot(
         &self,
         binding: &LiveBinding,
@@ -515,8 +467,7 @@ impl LiveViewHub {
         })?;
         let receipt_generation = match receipt {
             SubmitReceipt::Started { generation, .. }
-            | SubmitReceipt::Steered { generation, .. }
-            | SubmitReceipt::NotSent { generation, .. } => generation,
+            | SubmitReceipt::Steered { generation, .. } => generation,
         };
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         let (current_binding_id, current_generation) = state
@@ -545,25 +496,16 @@ impl LiveViewHub {
             if correlation_registered {
                 remove_pending_web_steer_locked(&mut state, client_input_id.as_deref());
             }
-        } else if matches!(receipt, SubmitReceipt::NotSent { .. }) && correlation_registered {
-            // 这一句没进 agent:等着 fold 来认领它的人(网页端)不该再等下去。
-            remove_pending_web_steer_locked(&mut state, client_input_id.as_deref());
         }
         state.turn_active = true;
-        // 没送达的那句不进任何人的对话视图:`InputAccepted` 的意思是"别人的话被收下
-        // 了",而回执的另一边(HTTP 的 `accepted:false`)已经说了实话 —— 别的驱动器
-        // (CLI 适配器)也不回显。照发就是让每个视图都以为这句话送达了,而且它进
-        // replay,连重连的标签页也会这样看。
-        if !matches!(receipt, SubmitReceipt::NotSent { .. }) {
-            self.publish_view_locked(
-                &mut state,
-                LiveViewEvent::InputAccepted {
-                    input: echo_input,
-                    client_input_id,
-                },
-                true,
-            );
-        }
+        self.publish_view_locked(
+            &mut state,
+            LiveViewEvent::InputAccepted {
+                input: echo_input,
+                client_input_id,
+            },
+            true,
+        );
         Ok(receipt)
     }
 
@@ -685,15 +627,8 @@ impl LiveViewHub {
             .resume_session_with_lease(session_id, working_dir, lease)
             .await
             .map_err(map_session_transition_error)?;
-        // Commit FIRST, then wait for MCP: the runtime has already moved to the new
-        // generation, and until the hub commits it still holds the old identity. A
-        // submit in that window ran on the runtime while its caller was told
-        // `RuntimeGenerationChanged`, and the commit then cleared an approval that
-        // turn had raised. The caller still gets its answer only once the tools are
-        // published (`wait_mcp_ready_after_transition`).
         self.commit_changed_snapshot(&binding, &handle, &changed)
             .await?;
-        wait_mcp_ready_after_transition(&handle).await;
         Ok(changed)
     }
 
@@ -709,12 +644,10 @@ impl LiveViewHub {
             .fresh_session()
             .await
             .map_err(map_session_transition_error)?;
-        // Commit before waiting for MCP — see `resume_session_with_lease`.
         let projection_error = self
             .commit_changed_snapshot(expected, &handle, &changed)
             .await
             .err();
-        wait_mcp_ready_after_transition(&handle).await;
         Ok(FreshSessionOutcome {
             changed,
             projection_error,
@@ -733,10 +666,8 @@ impl LiveViewHub {
         if session_change_is_noop(&binding, &changed) {
             return Ok(changed);
         }
-        // Commit before waiting for MCP — see `resume_session_with_lease`.
         self.commit_changed_snapshot(&binding, &handle, &changed)
             .await?;
-        wait_mcp_ready_after_transition(&handle).await;
         Ok(changed)
     }
 
@@ -748,56 +679,9 @@ impl LiveViewHub {
             )))
             .await
             .map_err(|error| HubError::RuntimeRejected(error.to_string()))?;
-        // A reload reconnects every server: returning before their tools are
-        // published hands the next prompt a model with no MCP tools, which is what
-        // `/mcp/reload` followed by an immediate question used to get. Commit
-        // before waiting — see `resume_session_with_lease`.
         self.commit_changed_snapshot(&binding, &handle, &changed)
             .await?;
-        wait_mcp_ready_after_transition(&handle).await;
         Ok(changed)
-    }
-
-    /// "Always allow" an MCP tool through the bound runtime, whose registry is the
-    /// one the model's MCP calls go through.
-    pub async fn approve_mcp_tool(
-        &self,
-        alias: String,
-    ) -> Result<Option<atomcode_coding::McpToolApproval>, HubError> {
-        let (_, handle) = self.bound_handle()?;
-        handle
-            .approve_mcp_tool(alias)
-            .await
-            .map_err(|error| HubError::RuntimeRejected(error.to_string()))
-    }
-
-    /// The live runtime's MCP servers — the registry the model's tools come from,
-    /// not the daemon's own — each with how many of its tools the model is offered
-    /// right now, and the directory the runtime runs in.
-    ///
-    /// "Connected" alone cannot tell a server whose tools are in front of the model
-    /// from one whose tools are not published yet (a session switch or reload
-    /// rebuilds the tree and reconnects); the published count can.
-    pub async fn mcp_servers(&self) -> Result<(PathBuf, Vec<LiveMcpServer>), HubError> {
-        let (binding, handle) = self.bound_handle()?;
-        let rejected =
-            |error: atomcode_coding::RuntimeError| HubError::RuntimeRejected(error.to_string());
-        let snapshot = handle.mcp_status().await.map_err(rejected)?;
-        let mut servers = Vec::with_capacity(snapshot.servers.len());
-        for (name, status) in snapshot.servers {
-            let published_tools = handle
-                .mcp_tools(name.clone())
-                .await
-                .map_err(rejected)?
-                .tools
-                .len();
-            servers.push(LiveMcpServer {
-                name,
-                status,
-                published_tools,
-            });
-        }
-        Ok((binding.working_dir, servers))
     }
 
     pub fn publish_command_output(&self, text: String) -> Result<(), HubError> {
@@ -862,22 +746,28 @@ impl LiveViewHub {
         let id = state
             .pending_requests
             .iter()
-            .find_map(|(id, pending)| (pending.kind == kind).then_some(*id))
+            .find_map(|(id, pending_kind)| (pending_kind == kind).then_some(*id))
             .ok_or(HubError::UnknownRequest(0))?;
         Self::dispatch_locked(&state, DriverCommand::Respond { id, value })?;
         self.resolve_request_locked(&mut state, id)?;
         Ok(id)
     }
 
-    /// The pending request of `kind`, as the runtime raised it: its id and
-    /// payload. `None` when nothing of that kind is waiting.
-    pub fn pending_of_kind(&self, kind: &str) -> Option<(RequestId, serde_json::Value)> {
-        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-        state
-            .pending_requests
-            .iter()
-            .find(|(_, pending)| pending.kind == kind)
-            .map(|(id, pending)| (*id, pending.payload.clone()))
+    pub async fn respond_pending_kind_confirmed(
+        &self,
+        kind: &str,
+        value: serde_json::Value,
+    ) -> Result<RequestId, HubError> {
+        let id = {
+            let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+            state
+                .pending_requests
+                .iter()
+                .find_map(|(id, pending_kind)| (pending_kind == kind).then_some(*id))
+                .ok_or(HubError::UnknownRequest(0))?
+        };
+        self.respond_confirmed(id, value).await?;
+        Ok(id)
     }
 
     pub fn cancel(&self) -> Result<(), HubError> {
@@ -969,7 +859,7 @@ impl LiveViewHub {
         };
         let mut replay = state.turn_active;
         match &event {
-            CodingRuntimeEvent::Agent(AgentEvent::TurnStarted { .. }) => {
+            CodingRuntimeEvent::Agent(AgentEvent::TurnStarted) => {
                 // A new turn closes the prior driver-owned recovery window. A turn
                 // started outside `submit`/`submit_confirmed` (embedded TUI / sync
                 // mode drives the runtime handle directly, so those replay-clearing
@@ -990,13 +880,9 @@ impl LiveViewHub {
             }
             CodingRuntimeEvent::Request(request) => {
                 state.turn_active = true;
-                state.pending_requests.insert(
-                    request.id,
-                    PendingRequest {
-                        kind: request.kind.clone(),
-                        payload: request.payload.clone(),
-                    },
-                );
+                state
+                    .pending_requests
+                    .insert(request.id, request.kind.clone());
                 replay = true;
             }
             CodingRuntimeEvent::TurnFinished(TurnCompletion::Completed { snapshot, .. }) => {
@@ -1310,8 +1196,7 @@ impl LiveViewHub {
         let kind = state
             .pending_requests
             .remove(&id)
-            .ok_or(HubError::UnknownRequest(id))?
-            .kind;
+            .ok_or(HubError::UnknownRequest(id))?;
         state.replay.retain(|observation| {
             !matches!(
                 &observation.event,
@@ -1329,29 +1214,6 @@ impl LiveViewHub {
         );
         Ok(())
     }
-}
-
-/// After a session transition (resume / cd / fresh) rebuilds the capability
-/// graph at a new generation, wait for that generation's MCP tools to publish
-/// into the kernel catalog before returning — the same wait the initial bind
-/// does (`native_live::bind_after_mcp_ready`).
-///
-/// Without it, a `/live/switch_session` (or `/cd`, or a fresh session) hands the
-/// caller a runtime whose MCP tools the model cannot see yet, while
-/// `/mcp/status` still reports the servers connected — the model then flails in
-/// bash with no tools and no way for a front end to observe why.
-///
-/// Best-effort by design: [`wait_mcp_ready`] caps at `CONNECT_TIMEOUT` and
-/// returns `Ok` on timeout (a stalled server must not fail the switch), and it
-/// returns immediately when the tools are already published (the common
-/// same-directory reuse). A generation/busy race is a non-fatal miss — the tools
-/// still appear when ready; we simply did not get to block for them this once.
-///
-/// [`wait_mcp_ready`]: atomcode_coding::CodingRuntimeHandle::wait_mcp_ready
-async fn wait_mcp_ready_after_transition(handle: &CodingRuntimeHandle) {
-    let _ = handle
-        .wait_mcp_ready(atomcode_capabilities::mcp::CONNECT_TIMEOUT)
-        .await;
 }
 
 fn map_session_transition_error(error: atomcode_coding::RuntimeError) -> HubError {
@@ -1565,110 +1427,6 @@ mod tests {
         )
     }
 
-    /// A control whose handle is a *real* runtime (the coding testkit's fake
-    /// agent behind it), for the hub paths that need the runtime's own answers
-    /// rather than a recorded command.
-    struct RealControl {
-        handle: atomcode_coding::CodingRuntimeHandle,
-    }
-
-    impl LiveRuntimeControl for RealControl {
-        fn status(&self) -> RuntimeStatus {
-            // The runtime's own reading, not a constant: the hub checks the
-            // receipt's generation against this one, and a fresh owner is 0.
-            atomcode_coding::CodingRuntimeHandle::status(&self.handle)
-        }
-
-        fn dispatch(&self, command: DriverCommand) -> Result<(), RuntimeUnavailable> {
-            self.handle.dispatch(command)
-        }
-
-        fn handle(&self) -> Option<atomcode_coding::CodingRuntimeHandle> {
-            Some(self.handle.clone())
-        }
-    }
-
-    /// A submit the stop caught before anything was sent reaches no view as an
-    /// accepted message.
-    ///
-    /// The hub is the one driver that could still say otherwise: its HTTP reply
-    /// for such a submit is `accepted: false` (`live_api`), and every other
-    /// driver — the CLI adapter — answers its receipt `NotRunning` without
-    /// echoing. The view projection used to be published regardless, which put
-    /// the words into every open conversation *and* into the replay a
-    /// reconnecting tab reads.
-    #[tokio::test]
-    async fn a_submit_stopped_before_anything_was_sent_is_not_echoed_to_the_view() {
-        let project = tempfile::tempdir().unwrap();
-        let reading = Arc::new(atomcode_coding::runtime::testkit::ReadingThatNeverEnds::new());
-        let runtime = atomcode_coding::runtime::testkit::runtime_with_a_fake_agent(
-            project.path(),
-            Some(reading.clone()),
-        )
-        .await;
-        let hub = Arc::new(LiveViewHub::new());
-        hub.bind(
-            "session-1",
-            project.path().to_path_buf(),
-            snapshot("one"),
-            Arc::new(RealControl {
-                handle: runtime.handle.clone(),
-            }),
-        )
-        .unwrap();
-        let mut watch = hub.join().unwrap();
-
-        // A turn is already running: that is the shape this reaches. The web's
-        // own stop is gated on `turn_active`, so only a message that joins a
-        // running turn can be stopped while its picture is being read.
-        hub.accept_local_input(UserInput::from("already running"))
-            .unwrap();
-        while watch.receiver.try_recv().is_ok() {}
-
-        let submitting = tokio::spawn({
-            let hub = hub.clone();
-            async move {
-                let picture = UserInput {
-                    text: "what is this".into(),
-                    images: vec![atomcode_kernel::message::ImageContent {
-                        media_type: "image/png".into(),
-                        data: "x".into(),
-                    }],
-                };
-                hub.submit_confirmed_with_echo(picture.clone(), picture, Some("web-1".into()))
-                    .await
-            }
-        });
-        // The picture is being read now — the window a stop has to land in.
-        for _ in 0..200 {
-            if reading.entered() > 0 {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        assert_eq!(reading.entered(), 1, "the picture is being read");
-
-        hub.cancel_confirmed().await.expect("the stop is taken");
-        let receipt = submitting
-            .await
-            .expect("the submit task")
-            .expect("the submit was taken");
-        assert!(
-            matches!(receipt, atomcode_coding::SubmitReceipt::NotSent { .. }),
-            "nothing reached the agent, and the receipt has to say so: {receipt:?}"
-        );
-
-        let said: Vec<_> = std::iter::from_fn(|| watch.receiver.try_recv().ok())
-            .map(|observation| observation.event)
-            .collect();
-        assert!(
-            !said
-                .iter()
-                .any(|event| matches!(event, LiveViewEvent::InputAccepted { .. })),
-            "a message that never went was echoed as accepted: {said:#?}"
-        );
-    }
-
     fn snapshot(text: &str) -> SessionSnapshot {
         SessionSnapshot::new(vec![Message::user(text)])
     }
@@ -1754,7 +1512,7 @@ mod tests {
                 SequencedRuntimeEvent {
                     generation: 1,
                     sequence: 1,
-                    event: CodingRuntimeEvent::Agent(AgentEvent::TurnStarted { turn: None }),
+                    event: CodingRuntimeEvent::Agent(AgentEvent::TurnStarted),
                 },
             )
             .unwrap_err();
@@ -1765,7 +1523,7 @@ mod tests {
             SequencedRuntimeEvent {
                 generation: 1,
                 sequence: 2,
-                event: CodingRuntimeEvent::Agent(AgentEvent::TurnStarted { turn: None }),
+                event: CodingRuntimeEvent::Agent(AgentEvent::TurnStarted),
             },
         )
         .unwrap();
@@ -1780,42 +1538,6 @@ mod tests {
             )
             .unwrap_err();
         assert_eq!(duplicate, HubError::StaleEvent);
-    }
-
-    #[test]
-    fn a_pending_request_is_read_back_as_the_runtime_raised_it() {
-        let hub = LiveViewHub::new();
-        let (control, _commands) = control();
-        let binding = hub
-            .bind("session-1", PathBuf::from("/one"), snapshot("one"), control)
-            .unwrap();
-        assert_eq!(hub.pending_of_kind("approval"), None);
-        hub.publish(
-            &binding,
-            SequencedRuntimeEvent {
-                generation: 1,
-                sequence: 1,
-                event: CodingRuntimeEvent::Request(atomcode_coding::RuntimeRequest {
-                    id: 42,
-                    kind: "approval".into(),
-                    payload: serde_json::json!({ "tool": "mcp__fs__read" }),
-                    snapshot: None,
-                }),
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            hub.pending_of_kind("approval"),
-            Some((42, serde_json::json!({ "tool": "mcp__fs__read" })))
-        );
-        assert_eq!(hub.pending_of_kind("request_user_input"), None);
-        hub.respond(42, serde_json::json!({ "decision": "allow" }))
-            .unwrap();
-        assert_eq!(
-            hub.pending_of_kind("approval"),
-            None,
-            "an answered request is no longer something an answer can act on"
-        );
     }
 
     #[test]
@@ -1895,7 +1617,7 @@ mod tests {
             SequencedRuntimeEvent {
                 generation: 1,
                 sequence: 1,
-                event: CodingRuntimeEvent::Agent(AgentEvent::TurnStarted { turn: None }),
+                event: CodingRuntimeEvent::Agent(AgentEvent::TurnStarted),
             },
         )
         .unwrap();
@@ -1932,7 +1654,7 @@ mod tests {
         assert!(after.replay.is_empty());
         assert!(matches!(
             during.replay[0].event,
-            LiveViewEvent::Runtime(CodingRuntimeEvent::Agent(AgentEvent::TurnStarted { .. }))
+            LiveViewEvent::Runtime(CodingRuntimeEvent::Agent(AgentEvent::TurnStarted))
         ));
     }
 
@@ -1947,10 +1669,7 @@ mod tests {
             atomcode_kernel::event::PolicyIntervention::credential_shell_blocked();
         intervention.id = 42;
         for (sequence, event) in [
-            (
-                1,
-                CodingRuntimeEvent::Agent(AgentEvent::TurnStarted { turn: None }),
-            ),
+            (1, CodingRuntimeEvent::Agent(AgentEvent::TurnStarted)),
             (
                 2,
                 CodingRuntimeEvent::Agent(AgentEvent::PolicyIntervention { intervention }),
@@ -2019,10 +1738,7 @@ mod tests {
             atomcode_kernel::event::PolicyIntervention::credential_shell_blocked();
         intervention.id = 42;
         for (sequence, event) in [
-            (
-                1,
-                CodingRuntimeEvent::Agent(AgentEvent::TurnStarted { turn: None }),
-            ),
+            (1, CodingRuntimeEvent::Agent(AgentEvent::TurnStarted)),
             (
                 2,
                 CodingRuntimeEvent::Agent(AgentEvent::PolicyIntervention { intervention }),
@@ -2101,10 +1817,7 @@ mod tests {
             .bind("session-1", PathBuf::from("/one"), snapshot("old"), control)
             .unwrap();
         for (sequence, event) in [
-            (
-                1,
-                CodingRuntimeEvent::Agent(AgentEvent::TurnStarted { turn: None }),
-            ),
+            (1, CodingRuntimeEvent::Agent(AgentEvent::TurnStarted)),
             (
                 2,
                 CodingRuntimeEvent::Agent(AgentEvent::PolicyIntervention {
@@ -2140,7 +1853,7 @@ mod tests {
             SequencedRuntimeEvent {
                 generation: 1,
                 sequence: 4,
-                event: CodingRuntimeEvent::Agent(AgentEvent::TurnStarted { turn: None }),
+                event: CodingRuntimeEvent::Agent(AgentEvent::TurnStarted),
             },
         )
         .unwrap();
@@ -2207,59 +1920,6 @@ mod tests {
             )
             .unwrap_err(),
             HubError::StaleEvent
-        );
-    }
-
-    /// A runtime that has been shut down is unbound even when the hub still
-    /// believes its turn is running — the flag outlived the runtime, e.g. the
-    /// event forwarding stopped before the terminal event arrived.
-    ///
-    /// Replacing a runtime used `unbind` and ignored its refusal: the old
-    /// runtime was already dead, the binding stayed, and every later bind hit
-    /// `ActiveTurn` — a `/live?session_id=` that 404s until someone knows to
-    /// call `/live/release`.
-    #[test]
-    fn a_retired_runtime_is_unbound_even_with_a_turn_flag_left_behind() {
-        let hub = LiveViewHub::new();
-        let (first, _) = control();
-        let old = hub
-            .bind("session-1", PathBuf::from("/one"), snapshot("old"), first)
-            .unwrap();
-        hub.submit(UserInput {
-            text: "hello".into(),
-            images: Vec::new(),
-        })
-        .unwrap();
-        assert_eq!(hub.unbind(&old).unwrap_err(), HubError::ActiveTurn);
-
-        hub.unbind_retired(&old).unwrap();
-        let (second, _) = control();
-        hub.bind("session-2", PathBuf::from("/two"), snapshot("new"), second)
-            .expect("the replacement binds once the retired runtime is gone");
-    }
-
-    /// Retiring is scoped to the binding named: it never clears a successor.
-    #[test]
-    fn retiring_a_runtime_does_not_unbind_its_successor() {
-        let hub = LiveViewHub::new();
-        let (first, _) = control();
-        let old = hub
-            .bind("session-1", PathBuf::from("/one"), snapshot("old"), first)
-            .unwrap();
-        hub.unbind_retired(&old).unwrap();
-        let (second, _) = control();
-        let new = hub
-            .bind("session-2", PathBuf::from("/two"), snapshot("new"), second)
-            .unwrap();
-
-        assert_eq!(
-            hub.unbind_retired(&old).unwrap_err(),
-            HubError::StaleBinding
-        );
-        assert_eq!(
-            hub.join().unwrap().binding,
-            new,
-            "the successor stays bound"
         );
     }
 

@@ -3,14 +3,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-mod support;
-
-use atomcode_coding::{prepare, CodingAgentConfig, PrepareOptions, SessionMode};
+use atomcode_coding::{assemble, prepare, CodingAgentConfig, PrepareOptions, SessionMode};
 use atomcode_kernel::event::{AgentCommand, AgentEvent};
 use atomcode_kernel::stream::StreamEvent;
 use atomcode_kernel::testkit::RecordingProvider;
 use atomcode_kernel::tool::ToolCall;
-use support::mount_parts;
 
 #[ctor::ctor]
 fn _isolate_atomcode_home() {
@@ -27,17 +24,7 @@ async fn always_allow_grants_survive_reassembly() {
     let outside_dir = tempfile::tempdir_in(workspace_target).unwrap();
     std::env::set_var("ATOMCODE_HOME", home.path());
 
-    let mut cfg = CodingAgentConfig::new(
-        "k",
-        "http://unused",
-        "test-model",
-        project.path(),
-        atomcode_coding::config::product_dirs_from_env(),
-    );
-    // A person is at the screen: a write next door is a question they can answer
-    // with "always", which is what this is about. With nobody there the world is
-    // fenced instead and the write never gets as far as asking.
-    cfg.interactive = true;
+    let mut cfg = CodingAgentConfig::new("k", "http://unused", "test-model", project.path());
     cfg.stream_timeout = Duration::from_secs(5);
     cfg.request_timeout = Some(Duration::from_secs(5));
     let opts = PrepareOptions {
@@ -54,10 +41,8 @@ async fn always_allow_grants_survive_reassembly() {
         subagents: atomcode_coding::SubagentPolicy::Disabled,
         request_user_input: true,
         rate_limit_source: None,
-        front_end: None,
-        review_delegate: None,
     };
-    let parts = prepare(&cfg, opts.clone()).await.unwrap();
+    let mut parts = prepare(&cfg, opts).await.unwrap();
 
     // Out-of-workspace write path
     let out_file = outside_dir.path().join("out.txt");
@@ -80,8 +65,7 @@ async fn always_allow_grants_survive_reassembly() {
         ],
     ]));
 
-    let mut mounted_h1 = mount_parts(&parts, &cfg, &opts, provider1).await;
-    let h1 = &mut mounted_h1.handle;
+    let mut h1 = assemble(&mut parts, &cfg, provider1).unwrap().spawn();
 
     h1.commands
         .send(AgentCommand::SendMessage {
@@ -111,6 +95,7 @@ async fn always_allow_grants_survive_reassembly() {
         }
     }
     h1.commands.send(AgentCommand::Shutdown).unwrap();
+    let _ = h1.task.await;
 
     assert!(
         seen_approval,
@@ -141,8 +126,7 @@ async fn always_allow_grants_survive_reassembly() {
         ],
     ]));
 
-    let mut mounted_h2 = mount_parts(&parts, &cfg, &opts, provider2).await;
-    let h2 = &mut mounted_h2.handle;
+    let mut h2 = assemble(&mut parts, &cfg, provider2).unwrap().spawn();
     h2.commands
         .send(AgentCommand::SendMessage {
             text: "write outside file again".into(),
@@ -161,6 +145,7 @@ async fn always_allow_grants_survive_reassembly() {
         }
     }
     h2.commands.send(AgentCommand::Shutdown).unwrap();
+    let _ = h2.task.await;
 
     assert!(
         !seen_approval_run2,

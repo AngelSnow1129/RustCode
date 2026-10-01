@@ -10,14 +10,12 @@ use super::{RequestSigner, RequestSigningError, SignedAuth};
 
 struct AtomGitRequestSigner {
     path: String,
-    /// The user tree whose `auth.toml` holds the login.
-    user_dir: std::path::PathBuf,
 }
 
 #[async_trait::async_trait]
 impl RequestSigner for AtomGitRequestSigner {
     fn sign(&self, body: &[u8]) -> Result<SignedAuth, RequestSigningError> {
-        let auth = get_valid_auth_session(&self.user_dir)
+        let auth = get_valid_auth_session()
             .map_err(|error| RequestSigningError::CredentialsUnavailable(error.to_string()))?;
         let mut nonce = [0u8; 16];
         getrandom::getrandom(&mut nonce).map_err(|error| {
@@ -63,9 +61,8 @@ impl RequestSigner for AtomGitRequestSigner {
                 "AtomGit gateway auth identity is unavailable".to_string(),
             )
         })?;
-        let user_dir = self.user_dir.clone();
         tokio::task::spawn_blocking(move || {
-            recover_auth_after_unauthorized(&user_dir, &rejected_token, &expected_user_id)
+            recover_auth_after_unauthorized(&rejected_token, &expected_user_id)
         })
         .await
         .map_err(|error| {
@@ -86,19 +83,14 @@ impl RequestSigner for AtomGitRequestSigner {
     }
 }
 
-/// `user_dir` is the user tree whose `auth.toml` holds the login.
-pub fn atomgit_request_signer(
-    base_url: &str,
-    user_dir: &std::path::Path,
-) -> Result<Arc<dyn RequestSigner>, String> {
-    let auth = get_stored_auth(user_dir)
+pub fn atomgit_request_signer(base_url: &str) -> Result<Arc<dyn RequestSigner>, String> {
+    let auth = get_stored_auth()
         .ok_or_else(|| "AtomGit gateway requires login — run `/login` first".to_string())?;
     if auth.user.id.is_empty() || auth.access_token.is_empty() {
         return Err("AtomGit gateway requires login — run `/login` first".to_string());
     }
     Ok(Arc::new(AtomGitRequestSigner {
         path: gateway_crypto::canonical_chat_completions_path(base_url),
-        user_dir: user_dir.to_path_buf(),
     }))
 }
 
@@ -127,13 +119,13 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn signer_does_not_reuse_cached_credentials_after_logout() {
-        let tree = tempfile::tempdir().unwrap();
-        let tree = tree.path();
-        save_auth(tree, &auth("user-1", "token-1")).unwrap();
-        let signer = atomgit_request_signer("https://api.atomgit.com/v1", tree).unwrap();
+        logout().unwrap();
+        save_auth(&auth("user-1", "token-1")).unwrap();
+        let signer = atomgit_request_signer("https://api.atomgit.com/v1").unwrap();
 
-        logout(tree).unwrap();
+        logout().unwrap();
 
         let error = signer.sign(b"{}").unwrap_err();
         assert!(matches!(
@@ -143,18 +135,19 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn existing_signer_uses_replacement_auth_snapshot() {
-        let tree = tempfile::tempdir().unwrap();
-        let tree = tree.path();
-        save_auth(tree, &auth("user-1", "token-1")).unwrap();
-        let signer = atomgit_request_signer("https://api.atomgit.com/v1", tree).unwrap();
+        logout().unwrap();
+        save_auth(&auth("user-1", "token-1")).unwrap();
+        let signer = atomgit_request_signer("https://api.atomgit.com/v1").unwrap();
 
-        save_auth(tree, &auth("user-2", "token-2")).unwrap();
+        save_auth(&auth("user-2", "token-2")).unwrap();
 
         match signer.sign(b"{}") {
             Ok(signed) => assert_eq!(signed.bearer.as_deref(), Some("token-2")),
             Err(RequestSigningError::SigningFailed(_)) if !signer_available() => {}
             Err(error) => panic!("replacement credentials were not accepted: {error}"),
         }
+        logout().unwrap();
     }
 }

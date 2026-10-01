@@ -59,11 +59,6 @@ async fn live_smoke_streams_text_and_done() {
             StreamEvent::ToolCallDelta { .. } => {}
             StreamEvent::ReasoningSignature { .. } => {}
             StreamEvent::ResponseId(id) => eprintln!("[live] provider response_id={id}"),
-            StreamEvent::ResponseModel(m) => eprintln!("[live] provider model={m}"),
-            // Carries no content — a dropped unparseable chunk. Said rather
-            // than ignored so a gateway answering with garbage is visible in
-            // the `--nocapture` log instead of looking like a quiet stream.
-            StreamEvent::Malformed => eprintln!("[live] malformed chunk dropped by adapter"),
             StreamEvent::Error(e) => panic!("[live] stream error: {}", e.message),
         }
     }

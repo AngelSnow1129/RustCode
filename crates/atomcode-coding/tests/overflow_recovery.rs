@@ -1,55 +1,38 @@
-//! e2e: a turn whose own tool output no longer fits recovers instead of failing.
-//!
-//! The provider says the history is too long; the assembly must shrink what it
-//! shows and try again, rather than handing the person a failed turn. What it
-//! shrinks is the tool output — that is what filled the window, and it is the
-//! one part of the history the model can do without in full.
+//! e2e: a coding agent assembled via `build_coding_agent_with` recovers from a hard
+//! context overflow (compact-and-retry) instead of failing the turn. Verifies the loop +
+//! assembly wiring end-to-end; tier-specific behavior is covered by capabilities unit tests.
 
 use async_trait::async_trait;
-mod support;
-
-use atomcode_coding::CodingAgentConfig;
-use atomcode_kernel::message::{Message, Role};
+use atomcode_coding::{build_coding_agent_with, CodingAgentConfig};
+use atomcode_kernel::agent::AutoRespond;
+use atomcode_kernel::message::Message;
 use atomcode_kernel::provider::{ChatOptions, LlmProvider};
 use atomcode_kernel::stream::{ProviderError, StreamEvent};
-use atomcode_kernel::tool::{ToolCall, ToolDef};
+use atomcode_kernel::tool::ToolDef;
 use futures::stream::BoxStream;
 use std::sync::{Arc, Mutex};
 
-/// Round 1 reads a big file; the request carrying that result overflows once;
-/// whatever comes next is answered.
-struct OverflowAfterATool {
-    file: String,
-    seen: Arc<Mutex<Vec<Vec<Message>>>>,
-    overflowed: Mutex<bool>,
+/// Fails the FIRST open with a context-overflow error, then succeeds — regardless of size.
+struct OverflowOnce {
+    failed: Mutex<bool>,
+    calls: Arc<Mutex<usize>>,
 }
 
 #[async_trait]
-impl LlmProvider for OverflowAfterATool {
+impl LlmProvider for OverflowOnce {
     fn model_name(&self) -> &str {
-        "overflow-after-a-tool"
+        "overflow-once"
     }
     async fn chat_stream(
         &self,
-        messages: &[Message],
+        _: &[Message],
         _: &[ToolDef],
         _: &ChatOptions,
     ) -> Result<BoxStream<'static, StreamEvent>, ProviderError> {
-        self.seen.lock().unwrap().push(messages.to_vec());
-        let carries_a_result = messages.iter().any(|m| m.role == Role::Tool);
-        if !carries_a_result {
-            return Ok(Box::pin(futures::stream::iter(vec![
-                StreamEvent::ToolCall(ToolCall {
-                    id: "r1".into(),
-                    name: "read_file".into(),
-                    arguments: serde_json::json!({ "file_path": &self.file }).to_string(),
-                }),
-                StreamEvent::Done { truncated: false },
-            ])));
-        }
-        let mut overflowed = self.overflowed.lock().unwrap();
-        if !*overflowed {
-            *overflowed = true;
+        *self.calls.lock().unwrap() += 1;
+        let mut failed = self.failed.lock().unwrap();
+        if !*failed {
+            *failed = true;
             return Err(ProviderError {
                 retryable: false,
                 message: "maximum context length exceeded".into(),
@@ -66,60 +49,26 @@ impl LlmProvider for OverflowAfterATool {
 }
 
 #[tokio::test]
-async fn a_turn_that_overflows_on_its_own_tool_output_recovers() {
-    let project = tempfile::tempdir().unwrap();
-    let big = project.path().join("big.txt");
-    std::fs::write(&big, "a line that says something\n".repeat(200)).unwrap();
-
-    let seen = Arc::new(Mutex::new(Vec::new()));
-    let provider = Arc::new(OverflowAfterATool {
-        file: big.to_string_lossy().into_owned(),
-        seen: seen.clone(),
-        overflowed: Mutex::new(false),
+async fn coding_agent_recovers_from_overflow() {
+    let calls = Arc::new(Mutex::new(0usize));
+    let provider = Arc::new(OverflowOnce {
+        failed: Mutex::new(false),
+        calls: calls.clone(),
     });
-    let cfg = CodingAgentConfig::new(
-        "k",
-        "http://localhost",
-        "test-model",
-        project.path(),
-        atomcode_coding::config::product_dirs_from_env(),
+    let cfg = CodingAgentConfig::new("k", "http://localhost", "test-model", std::env::temp_dir());
+    let agent = build_coding_agent_with(&cfg, provider);
+    let outcome = agent
+        .run_to_completion("do a thing", AutoRespond::AllowAll)
+        .await;
+    assert!(
+        *calls.lock().unwrap() >= 2,
+        "overflow → compact → retry (calls: {})",
+        *calls.lock().unwrap()
     );
-    let mut mounted = support::mount(&cfg, support::quiet_options(), provider).await;
-    let outcome = support::turn(&mut mounted.handle, "read big.txt", support::allow()).await;
-
-    assert_eq!(outcome.error, None, "the turn must recover");
+    assert_eq!(outcome.error, None, "recovered: {:?}", outcome.error);
     assert!(
         outcome.text.contains("done after recovery"),
-        "got: {:?}",
+        "got: {}",
         outcome.text
-    );
-
-    let requests = seen.lock().unwrap();
-    assert_eq!(
-        requests.len(),
-        3,
-        "ask, overflow on the result, retry — got {} requests",
-        requests.len()
-    );
-    let result_of = |request: &Vec<Message>| {
-        request
-            .iter()
-            .find(|m| m.role == Role::Tool)
-            .map(|m| m.text.clone())
-            .unwrap_or_default()
-    };
-    let overflowed = result_of(&requests[1]);
-    let retried = result_of(&requests[2]);
-    assert!(
-        overflowed.len() > 1_000,
-        "the request that overflowed carried the whole file"
-    );
-    assert!(
-        retried.len() < overflowed.len(),
-        "the retry must show less than the request that did not fit: {retried:?}"
-    );
-    assert!(
-        retried.contains("read_file") && retried.contains("lines"),
-        "and what it shows is a summary of the output, not a truncation: {retried:?}"
     );
 }

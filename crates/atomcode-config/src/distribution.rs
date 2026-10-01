@@ -41,30 +41,16 @@ use std::path::PathBuf;
 // Config tree
 // ---------------------------------------------------------------------------
 
-/// The env var the host reads to relocate the user-level tree.
+/// The env var every config-dir resolver in the workspace reads.
 ///
-/// Only hosts read it (`Config::config_dir`). Libraries are handed their
-/// directories as `atomcode_capabilities::ProductDirs` and never look at the
-/// environment, so a program that imports them picks its own tree by passing
-/// it, not by exporting this variable before every entry point.
+/// There are eight of them — `Config::config_dir`, `proxy`, `telemetry`,
+/// `capabilities::paths`, `cc_hooks`, the CLI's stderr log, and both of
+/// `atomcodex`'s — because the crates sit at layers that cannot share code.
+/// They agree only on this variable and on [`HOME_DIR_NAME`].
 pub const HOME_ENV: &str = "ATOMCODE_HOME";
 
 /// The config/data dir, relative to the user's home, when [`HOME_ENV`] is unset.
-///
-/// The ONLY place the product directory is spelled (`gates/product-dir.sh`
-/// holds everyone else to that). A distribution renames its tree here.
 pub const HOME_DIR_NAME: &str = ".atomcode";
-
-/// The per-project dir under a working directory: `<project>/.atomcode` holds
-/// its skills, commands, plugins, memory, setup state and session pin.
-///
-/// The same name as [`HOME_DIR_NAME`] because a distribution has so far always
-/// wanted the two to move together; they are separate constants so one that
-/// does not can say so.
-///
-/// A host hands both to the libraries once:
-/// `ProductDirs::new(Config::config_dir(), PROJECT_DIR_NAME)`.
-pub const PROJECT_DIR_NAME: &str = HOME_DIR_NAME;
 
 // ---------------------------------------------------------------------------
 // Ports
@@ -135,14 +121,13 @@ pub fn update_probe_name() -> String {
 
 /// Materialise the default config dir into [`HOME_ENV`] when it is unset.
 ///
-/// Call once, first thing in `main`, before anything reads config. The host's
-/// own resolver (`Config::config_dir`, from which it builds the
-/// `ProductDirs` it hands the libraries) then agrees with what child
-/// processes — hooks, MCP servers, a spawned `atomcodex` — inherit, rather
-/// than each re-deriving it from its own environment. Libraries do not read
-/// the variable at all.
+/// Call once, first thing in `main`, before anything reads config. Every
+/// resolver listed on [`HOME_ENV`] then agrees by construction instead of by
+/// eight copies of the same fallback, and child processes — hooks, MCP
+/// servers, a spawned `atomcodex` — inherit the same answer rather than
+/// re-deriving it from their own environment.
 ///
-/// This is a no-op in effect: it writes precisely the value the resolver
+/// This is a no-op in effect: it writes precisely the value those resolvers
 /// already fall back to, which [`tests::bootstrapping_matches_the_resolver_fallback`]
 /// pins against `Config::config_dir` itself. What it buys is a single place for
 /// a distribution to answer the question differently.

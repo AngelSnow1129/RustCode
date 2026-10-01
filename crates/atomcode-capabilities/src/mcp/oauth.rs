@@ -2,11 +2,9 @@
 
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::net::TcpListener;
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -15,37 +13,11 @@ use sha2::{Digest, Sha256};
 use url::Url;
 use uuid::Uuid;
 
-use super::config::{
-    McpConfigSource, McpHttpAuthConfig, McpOAuthConfig, McpServerConfig, McpTransportConfig,
-};
+use super::config::{McpHttpAuthConfig, McpOAuthConfig, McpServerConfig, McpTransportConfig};
 
 const GITHUB_AUTHORIZE_URL: &str = "https://github.com/login/oauth/authorize";
 const GITHUB_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
 const GITHUB_MCP_RESOURCE: &str = "https://api.githubcopilot.com/mcp/";
-
-/// How long one OAuth request may spend *connecting*.
-///
-/// Spelled out because reqwest's default is `None` (its `connect_timeout` and
-/// `timeout` both start unset), which leaves a host that swallows packets to
-/// the kernel: ~75s of SYN retries on macOS, and that is one candidate URL.
-const OAUTH_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// How long one OAuth request may take end to end — discovery, dynamic client
-/// registration, the token exchange. The wait for the browser is a different
-/// thing and is bounded by [`McpOAuthLoginStop::timeout`].
-const OAUTH_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// The client every request in this module goes through: the process proxy
-/// policy, then the timeouts above.
-fn oauth_client() -> Result<reqwest::blocking::Client> {
-    crate::proxy::apply_blocking_proxy_policy(reqwest::blocking::Client::builder())
-        .connect_timeout(OAUTH_CONNECT_TIMEOUT)
-        .timeout(OAUTH_REQUEST_TIMEOUT)
-        .build()
-        // No `Client::new()` fallback — it panics on TLS/resolver init
-        // failure and `panic = "abort"` turns that into a process kill.
-        .context("failed to build MCP OAuth HTTP client")
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpOAuthToken {
@@ -78,50 +50,6 @@ pub struct McpOAuthLoginOptions {
     pub client_secret_env: Option<String>,
     pub scopes: Vec<String>,
 }
-
-impl McpOAuthLoginOptions {
-    /// The options a login started with nothing but the server's name should use.
-    ///
-    /// A GitHub-provider server has no dynamic client registration to fall back
-    /// on, so its client id comes from `ATOMCODE_GITHUB_MCP_CLIENT_ID` — the same
-    /// rule `atomcode mcp login` applies when no `--client-id` is given. Everything
-    /// else is left to the server's own `auth` block.
-    pub fn for_server(server: &McpServerConfig) -> Self {
-        let is_github = matches!(
-            &server.config,
-            McpTransportConfig::Http {
-                auth: Some(McpHttpAuthConfig::OAuth(auth)),
-                ..
-            } if auth.provider.as_deref() == Some("github")
-        );
-        Self {
-            client_id: if is_github {
-                std::env::var("ATOMCODE_GITHUB_MCP_CLIENT_ID").ok()
-            } else {
-                None
-            },
-            client_secret_env: None,
-            scopes: Vec::new(),
-        }
-    }
-}
-
-/// How a login that is not the only thing running gives up.
-///
-/// The browser half of a login is open-ended: a person can close the tab and
-/// never come back, and the callback listener would wait on them forever. A
-/// terminal command can afford that (Ctrl-C ends the process); a runtime that
-/// has other work to answer cannot, so it hands over a flag to raise when it
-/// shuts down and a bound on how long the browser gets.
-#[derive(Debug, Clone)]
-pub struct McpOAuthLoginStop {
-    pub cancel: Arc<AtomicBool>,
-    pub timeout: Duration,
-}
-
-/// How often a stoppable wait looks at its flag. Short enough that a shutdown
-/// is not held up noticeably, long enough not to spin.
-const CALLBACK_POLL: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct McpAuthFile {
@@ -171,15 +99,19 @@ struct AuthorizationServerMetadata {
     _scopes_supported: Vec<String>,
 }
 
-#[derive(Clone, Debug)]
 pub struct McpTokenStore {
     path: PathBuf,
 }
 
+impl Default for McpTokenStore {
+    fn default() -> Self {
+        Self::new(Self::default_path())
+    }
+}
+
 impl McpTokenStore {
-    /// The store in a user tree: `<user tree>/mcp_auth.toml`.
-    pub fn in_tree(user_dir: &Path) -> Self {
-        Self::new(user_dir.join("mcp_auth.toml"))
+    pub fn default_path() -> PathBuf {
+        crate::mcp::util::config_dir().join("mcp_auth.toml")
     }
 
     pub fn new(path: PathBuf) -> Self {
@@ -227,12 +159,7 @@ pub fn token_is_expired(token: &McpOAuthToken) -> bool {
 }
 
 /// Refresh an expired MCP OAuth token when refresh metadata is available.
-/// The refreshed token is saved back into `store`.
-pub fn refresh_mcp_oauth_token(
-    server_name: &str,
-    token: &McpOAuthToken,
-    store: &McpTokenStore,
-) -> Result<McpOAuthToken> {
+pub fn refresh_mcp_oauth_token(server_name: &str, token: &McpOAuthToken) -> Result<McpOAuthToken> {
     let Some(refresh_token) = token.refresh_token.as_deref() else {
         bail!(
             "MCP server {} OAuth token is expired and has no refresh token",
@@ -268,7 +195,11 @@ pub fn refresh_mcp_oauth_token(
         form.push(("resource", resource.clone()));
     }
 
-    let client = oauth_client()?;
+    let client = crate::proxy::apply_blocking_proxy_policy(reqwest::blocking::Client::builder())
+        .build()
+        // No `Client::new()` fallback — it panics on TLS/resolver init
+        // failure and `panic = "abort"` turns that into a process kill.
+        .context("failed to build MCP OAuth HTTP client")?;
     let resp = client
         .post(token_endpoint)
         .header("Accept", "application/json")
@@ -293,69 +224,13 @@ pub fn refresh_mcp_oauth_token(
     if new_token.refresh_token.is_none() {
         new_token.refresh_token = token.refresh_token.clone();
     }
-    store.save_token(server_name, new_token.clone())?;
+    McpTokenStore::default().save_token(server_name, new_token.clone())?;
     Ok(new_token)
 }
 
-/// What a sign-in is doing, told to the caller as it happens.
-///
-/// The authorization URL is one of these because it is the thing a person may
-/// have to copy by hand (a remote shell has no browser to open). The other is
-/// here because these steps have a network and a browser in them, and each can
-/// last as long as a connect timeout or a second factor: a panel that reads
-/// 「认证」 for the whole of one cannot be told apart from a panel that has hung,
-/// which is what a sign-in on a dead network used to look like.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum McpOAuthStep<'a> {
-    /// About to talk to `host` — asking it where its OAuth lives (RFC 9728 /
-    /// RFC 8414), or trading the code for a token on it.
-    Asking { host: &'a str },
-    /// The browser is open on `url` and the loopback listener is waiting for
-    /// the redirect. Said just *before* it is opened, so it can still be copied
-    /// by someone whose browser never came up.
-    WaitingForBrowser { url: &'a str },
-}
-
-/// Sign in to an OAuth MCP server: open the browser, wait for it to come back,
-/// save the token.
-///
-/// `announce` is handed each [`McpOAuthStep`] as it starts. What it does with
-/// them is the caller's business: a terminal command prints them, a runtime
-/// behind a full-screen UI must not, because this process's stdout is that UI.
-/// Nothing in this module writes to stdout or stderr itself.
-///
-/// The token is saved in `user_dir`'s `mcp_auth.toml`.
 pub fn login_mcp_oauth(
     server: &McpServerConfig,
     opts: McpOAuthLoginOptions,
-    user_dir: &Path,
-    announce: &dyn Fn(McpOAuthStep<'_>),
-) -> Result<McpOAuthToken> {
-    login_mcp_oauth_with(server, opts, user_dir, None, announce)
-}
-
-/// [`login_mcp_oauth`], but giving up when `stop` says so: when its flag is
-/// raised, or when the browser has not come back within its timeout.
-///
-/// Only the wait for the browser is stoppable. The requests around it are
-/// bounded by [`OAUTH_CONNECT_TIMEOUT`] / [`OAUTH_REQUEST_TIMEOUT`], and a host
-/// that cannot be reached ends the walk right there ([`walk_candidates`]).
-pub fn login_mcp_oauth_until(
-    server: &McpServerConfig,
-    opts: McpOAuthLoginOptions,
-    user_dir: &Path,
-    stop: &McpOAuthLoginStop,
-    announce: &dyn Fn(McpOAuthStep<'_>),
-) -> Result<McpOAuthToken> {
-    login_mcp_oauth_with(server, opts, user_dir, Some(stop), announce)
-}
-
-fn login_mcp_oauth_with(
-    server: &McpServerConfig,
-    opts: McpOAuthLoginOptions,
-    user_dir: &Path,
-    stop: Option<&McpOAuthLoginStop>,
-    announce: &dyn Fn(McpOAuthStep<'_>),
 ) -> Result<McpOAuthToken> {
     let (url, auth) = match &server.config {
         McpTransportConfig::Http {
@@ -383,7 +258,7 @@ fn login_mcp_oauth_with(
         && opts.client_id.is_some()
     {
         let client_secret_env = opts.client_secret_env.or(auth.client_secret_env.clone());
-        return login_github_oauth_with(
+        return login_github_oauth(
             &server.name,
             opts.client_id.as_deref().unwrap_or_default(),
             client_secret_env.as_deref(),
@@ -392,16 +267,14 @@ fn login_mcp_oauth_with(
             } else {
                 &opts.scopes
             },
-            user_dir,
-            stop,
-            announce,
         );
     }
 
-    let client = oauth_client()?;
-    announce(McpOAuthStep::Asking {
-        host: &host_of(url),
-    });
+    let client = crate::proxy::apply_blocking_proxy_policy(reqwest::blocking::Client::builder())
+        .build()
+        // No `Client::new()` fallback — it panics on TLS/resolver init
+        // failure and `panic = "abort"` turns that into a process kill.
+        .context("failed to build MCP OAuth HTTP client")?;
     let discovered = discover_oauth_metadata(&client, url, &auth)?;
     let (redirect_uri, listener) = bind_callback_listener()?;
     let state = Uuid::new_v4().to_string();
@@ -414,16 +287,7 @@ fn login_mcp_oauth_with(
         .and_then(|name| std::env::var(name).ok());
     let client_id = match opts.client_id.or(auth.client_id.clone()) {
         Some(id) => id,
-        None => {
-            register_oauth_client(
-                &client,
-                &discovered.metadata,
-                &redirect_uri,
-                server,
-                user_dir,
-            )?
-            .client_id
-        }
+        None => register_oauth_client(&client, &discovered.metadata, &redirect_uri)?.client_id,
     };
     let scopes = if !opts.scopes.is_empty() {
         opts.scopes
@@ -454,12 +318,14 @@ fn login_mcp_oauth_with(
             .append_pair("resource", resource);
     }
 
-    announce(McpOAuthStep::WaitingForBrowser {
-        url: authorize_url.as_str(),
-    });
+    println!(
+        "  Browser didn't open? Open the URL below to authorize MCP server '{}':",
+        server.name
+    );
+    println!("  {}", authorize_url);
     let _ = open_browser(authorize_url.as_str());
 
-    let (code, returned_state) = await_oauth_callback(listener, stop)?;
+    let (code, returned_state) = await_oauth_callback(listener)?;
     if returned_state != state {
         bail!("OAuth state mismatch");
     }
@@ -478,9 +344,6 @@ fn login_mcp_oauth_with(
         form.push(("resource", resource.clone()));
     }
 
-    announce(McpOAuthStep::Asking {
-        host: &host_of(&discovered.metadata.token_endpoint),
-    });
     let resp = client
         .post(&discovered.metadata.token_endpoint)
         .header("Accept", "application/json")
@@ -502,39 +365,15 @@ fn login_mcp_oauth_with(
         client_secret_env,
         Some(discovered.metadata.token_endpoint),
     );
-    McpTokenStore::in_tree(user_dir).save_token(&server.name, token.clone())?;
+    McpTokenStore::default().save_token(&server.name, token.clone())?;
     Ok(token)
 }
 
-/// The bring-your-own GitHub OAuth App flow. `announce` gets the steps, as in
-/// [`login_mcp_oauth`].
 pub fn login_github_oauth(
     server_name: &str,
     client_id: &str,
     client_secret_env: Option<&str>,
     scopes: &[String],
-    user_dir: &Path,
-    announce: &dyn Fn(McpOAuthStep<'_>),
-) -> Result<McpOAuthToken> {
-    login_github_oauth_with(
-        server_name,
-        client_id,
-        client_secret_env,
-        scopes,
-        user_dir,
-        None,
-        announce,
-    )
-}
-
-fn login_github_oauth_with(
-    server_name: &str,
-    client_id: &str,
-    client_secret_env: Option<&str>,
-    scopes: &[String],
-    user_dir: &Path,
-    stop: Option<&McpOAuthLoginStop>,
-    announce: &dyn Fn(McpOAuthStep<'_>),
 ) -> Result<McpOAuthToken> {
     if client_id.trim().is_empty() {
         bail!("GitHub OAuth client id is required");
@@ -572,18 +411,20 @@ fn login_github_oauth_with(
         .append_pair("scope", &scope)
         .append_pair("state", &state);
 
-    announce(McpOAuthStep::WaitingForBrowser { url: url.as_str() });
+    println!("  Browser didn't open? Open the URL below to authorize GitHub MCP:");
+    println!("  {}", url);
     let _ = open_browser(url.as_str());
 
-    let (code, returned_state) = await_oauth_callback(listener, stop)?;
+    let (code, returned_state) = await_oauth_callback(listener)?;
     if returned_state != state {
         bail!("OAuth state mismatch");
     }
 
-    announce(McpOAuthStep::Asking {
-        host: &host_of(GITHUB_TOKEN_URL),
-    });
-    let client = oauth_client()?;
+    let client = crate::proxy::apply_blocking_proxy_policy(reqwest::blocking::Client::builder())
+        .build()
+        // No `Client::new()` fallback — it panics on TLS/resolver init
+        // failure and `panic = "abort"` turns that into a process kill.
+        .context("failed to build MCP OAuth HTTP client")?;
     let resp = client
         .post(GITHUB_TOKEN_URL)
         .header("Accept", "application/json")
@@ -610,99 +451,13 @@ fn login_github_oauth_with(
         Some(client_secret_env.to_string()),
         Some(GITHUB_TOKEN_URL.to_string()),
     );
-    McpTokenStore::in_tree(user_dir).save_token(server_name, token.clone())?;
+    McpTokenStore::default().save_token(server_name, token.clone())?;
     Ok(token)
 }
 
 struct DiscoveredOAuth {
     metadata: AuthorizationServerMetadata,
     resource: Option<String>,
-}
-
-/// What one candidate URL came to.
-enum Unreached {
-    /// The host answered — just not with the document we asked for: a 404, a
-    /// status we will not follow, a body that does not parse. The next path
-    /// shape is worth a try.
-    Missing(anyhow::Error),
-    /// The host never answered: the connection failed, or the request ran out
-    /// of time. Every remaining candidate is that same host on that same
-    /// network, so walking them changes nothing and costs the person the wait.
-    Unreachable(anyhow::Error),
-}
-
-impl Unreached {
-    /// Sort a failed request by whether the host was reached at all.
-    ///
-    /// Only a failure to *reach* it ends the walk early; an HTTP status or an
-    /// unparsable body means we did reach it, and one path shape out of several
-    /// serving the `.well-known` document is exactly what the list is for.
-    fn of(error: reqwest::Error, what: &str, url: &str) -> Self {
-        let reached = !is_unreachable(&error);
-        let error =
-            anyhow::Error::new(error).context(format!("MCP OAuth {what} request failed for {url}"));
-        if reached {
-            Self::Missing(error)
-        } else {
-            Self::Unreachable(error.context(unreachable_advice(url)))
-        }
-    }
-
-    /// The verdict as a plain error, for a caller that has no list to walk.
-    fn into_error(self) -> anyhow::Error {
-        match self {
-            Self::Missing(error) | Self::Unreachable(error) => error,
-        }
-    }
-}
-
-/// Whether a request failed to reach the host at all, as opposed to reaching it
-/// and being told no.
-fn is_unreachable(error: &reqwest::Error) -> bool {
-    error.is_connect() || error.is_timeout()
-}
-
-/// The host of `url`, for naming which one a step is talking to. Falls back to
-/// the whole string: a URL that will not parse is still worth showing.
-fn host_of(url: &str) -> String {
-    Url::parse(url)
-        .ok()
-        .and_then(|parsed| parsed.host_str().map(str::to_string))
-        .unwrap_or_else(|| url.to_string())
-}
-
-/// Said when a host could not be reached. Named for what a person can act on:
-/// their connection, or the proxy this process is told to use.
-fn unreachable_advice(url: &str) -> String {
-    let host = host_of(url);
-    format!(
-        "Could not reach {host}: the network looks unreachable from here, or this host \
-         needs a proxy (set HTTPS_PROXY, or ATOMCODE_PROXY_MODE=no_proxy to stop using one)"
-    )
-}
-
-/// Try candidate URLs in order until one produces the document.
-///
-/// The reason [`Unreached::Unreachable`] returns instead of being recorded: the
-/// discovery has up to ten candidates, and with no explicit timeout each of
-/// them can hang for as long as the kernel takes to give up. A person whose
-/// network is simply down should be told that after the first one, not after
-/// all of them.
-fn walk_candidates<T>(
-    what: &str,
-    candidates: &[String],
-    mut fetch: impl FnMut(&str) -> std::result::Result<T, Unreached>,
-) -> Result<T> {
-    let mut last_missing: Option<anyhow::Error> = None;
-    for url in candidates {
-        match fetch(url) {
-            Ok(document) => return Ok(document),
-            Err(Unreached::Missing(error)) => last_missing = Some(error),
-            Err(Unreached::Unreachable(error)) => return Err(error),
-        }
-    }
-    Err(last_missing
-        .unwrap_or_else(|| anyhow::anyhow!("MCP OAuth: no {what} URL candidate to try")))
 }
 
 fn discover_oauth_metadata(
@@ -719,16 +474,29 @@ fn discover_oauth_metadata(
     }
 
     let resource_metadata_urls = discover_resource_metadata_urls(client, mcp_url, auth)?;
-    let prm: ProtectedResourceMetadata =
-        walk_candidates("resource metadata", &resource_metadata_urls, |url| {
-            client
-                .get(url)
-                .header("Accept", "application/json")
-                .send()
-                .and_then(|r| r.error_for_status())
-                .and_then(|r| r.json::<ProtectedResourceMetadata>())
-                .map_err(|error| Unreached::of(error, "resource metadata", url))
-        })?;
+    let mut prm: Option<ProtectedResourceMetadata> = None;
+    let mut last_err = None;
+    for url in &resource_metadata_urls {
+        match client
+            .get(url)
+            .header("Accept", "application/json")
+            .send()
+            .and_then(|r| r.error_for_status())
+            .and_then(|r| r.json::<ProtectedResourceMetadata>())
+        {
+            Ok(metadata) => {
+                prm = Some(metadata);
+                break;
+            }
+            Err(e) => last_err = Some((url.clone(), e)),
+        }
+    }
+    let prm: ProtectedResourceMetadata = prm.ok_or_else(|| match last_err {
+        Some((url, e)) => {
+            anyhow::anyhow!("MCP OAuth resource metadata request failed for {url}: {e}")
+        }
+        None => anyhow::anyhow!("MCP OAuth resource metadata: no candidate URL to try"),
+    })?;
     let auth_server = prm.authorization_servers.first().ok_or_else(|| {
         anyhow::anyhow!("MCP OAuth resource metadata has no authorization_servers")
     })?;
@@ -765,36 +533,25 @@ fn discover_resource_metadata_urls(
         "method": "initialize",
         "params": super::types::initialize_params()
     });
-    match client
+    if let Ok(resp) = client
         .post(mcp_url)
         .header("Accept", "application/json, text/event-stream")
         .json(&probe)
         .send()
     {
-        Ok(resp) => {
-            if resp.status() == reqwest::StatusCode::UNAUTHORIZED
-                || resp.status() == reqwest::StatusCode::FORBIDDEN
+        if resp.status() == reqwest::StatusCode::UNAUTHORIZED
+            || resp.status() == reqwest::StatusCode::FORBIDDEN
+        {
+            if let Some(header) = resp
+                .headers()
+                .get(reqwest::header::WWW_AUTHENTICATE)
+                .and_then(|v| v.to_str().ok())
             {
-                if let Some(header) = resp
-                    .headers()
-                    .get(reqwest::header::WWW_AUTHENTICATE)
-                    .and_then(|v| v.to_str().ok())
-                {
-                    if let Some(url) = parse_www_authenticate_resource_metadata(header) {
-                        return Ok(vec![url]);
-                    }
+                if let Some(url) = parse_www_authenticate_resource_metadata(header) {
+                    return Ok(vec![url]);
                 }
             }
         }
-        // This probe is the first request a sign-in makes, and the candidates
-        // below live on this same host — so "cannot reach it" is the answer,
-        // rather than the first of a dozen waits that each end the same way.
-        Err(error) if is_unreachable(&error) => {
-            return Err(Unreached::of(error, "server probe", mcp_url).into_error())
-        }
-        // Reached it and got something else: the status tells us nothing about
-        // where the metadata is, so fall back to the well-known shapes.
-        Err(_) => {}
     }
 
     let candidates = well_known_metadata_urls(mcp_url, "oauth-protected-resource");
@@ -854,74 +611,46 @@ fn fetch_authorization_server_metadata(
     issuer: &str,
 ) -> Result<AuthorizationServerMetadata> {
     if issuer.contains("/.well-known/") {
-        return fetch_metadata_url(client, issuer).map_err(Unreached::into_error);
+        return fetch_metadata_url(client, issuer);
     }
     // Try the RFC 8414 form AND the OIDC form, each across all path shapes.
-    let candidates: Vec<String> = ["oauth-authorization-server", "openid-configuration"]
-        .iter()
-        .flat_map(|suffix| well_known_metadata_urls(issuer, suffix))
-        .collect();
-    walk_candidates("authorization server metadata", &candidates, |url| {
-        fetch_metadata_url(client, url)
-    })
+    let mut last_err = None;
+    for suffix in ["oauth-authorization-server", "openid-configuration"] {
+        for candidate in well_known_metadata_urls(issuer, suffix) {
+            match fetch_metadata_url(client, &candidate) {
+                Ok(metadata) => return Ok(metadata),
+                Err(e) => last_err = Some(e),
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("No OAuth metadata URL candidates")))
 }
 
-/// Read one `.well-known` metadata document, sorted for the walk.
 fn fetch_metadata_url(
     client: &reqwest::blocking::Client,
     url: &str,
-) -> std::result::Result<AuthorizationServerMetadata, Unreached> {
+) -> Result<AuthorizationServerMetadata> {
     client
         .get(url)
         .header("Accept", "application/json")
         .send()
-        .and_then(|r| r.error_for_status())
-        .and_then(|r| r.json())
-        .map_err(|error| Unreached::of(error, "authorization server metadata", url))
-}
-
-/// What to do when a server needs a client registered by hand: where *this*
-/// server is configured, and the lines to put there.
-///
-/// Said where it is needed, not as "your .mcp.json": a server in the user file
-/// has no `.mcp.json` at all, and one a client injected has no file. The
-/// secret is named by the variable that holds it, never written into the file.
-fn client_id_advice(server: &McpServerConfig, user_dir: &Path) -> String {
-    let name = &server.name;
-    let entry = format!(
-        "\"auth\": {{ \"type\": \"oauth\", \"client_id\": \"<client id>\", \
-         \"client_secret_env\": \"<variable holding the client secret, if one was issued>\" }}"
-    );
-    let register = "Register an OAuth app with the provider first, with the callback URL \
-                    http://127.0.0.1/callback (any port is used on the loopback address).";
-    match server.source {
-        McpConfigSource::User => format!(
-            "{register}\nThen add its client id to \"{name}\" in {}:\n{entry}",
-            user_dir.join("mcp.json").display()
-        ),
-        McpConfigSource::Project => format!(
-            "{register}\nThen add its client id to \"{name}\" in .mcp.json at the project root:\n{entry}"
-        ),
-        McpConfigSource::Driver => format!(
-            "\"{name}\" was supplied by the client that started this session, not read from \
-             a file: that client has to include a pre-registered auth.client_id for it."
-        ),
-    }
+        .with_context(|| format!("Failed to fetch OAuth authorization server metadata from {url}"))?
+        .error_for_status()
+        .with_context(|| format!("OAuth authorization server metadata request failed for {url}"))?
+        .json()
+        .with_context(|| format!("Failed to parse OAuth authorization server metadata from {url}"))
 }
 
 fn register_oauth_client(
     client: &reqwest::blocking::Client,
     metadata: &AuthorizationServerMetadata,
     redirect_uri: &str,
-    server: &McpServerConfig,
-    user_dir: &Path,
 ) -> Result<ClientRegistrationResponse> {
     let Some(registration_endpoint) = metadata.registration_endpoint.as_deref() else {
         bail!(
-            "MCP OAuth for \"{}\" needs a pre-registered client_id: its authorization server \
-             does not support dynamic client registration (RFC 7591).\n{}",
-            server.name,
-            client_id_advice(server, user_dir)
+            "MCP OAuth requires a pre-registered client_id because the authorization server \
+             does not support dynamic client registration (RFC 7591). \
+             Add a pre-registered client_id to auth.client_id in your .mcp.json and try again."
         );
     };
     let resp = client
@@ -941,10 +670,11 @@ fn register_oauth_client(
         let body = resp.text().unwrap_or_default();
         if status == reqwest::StatusCode::FORBIDDEN || status == reqwest::StatusCode::UNAUTHORIZED {
             bail!(
-                "MCP OAuth dynamic client registration for \"{}\" failed: HTTP {status} — \
-                 the authorization server rejected the request.\n{}\nResponse: {body}",
-                server.name,
-                client_id_advice(server, user_dir)
+                "MCP OAuth dynamic client registration failed: HTTP {status} — \
+                 the authorization server rejected the request. \
+                 Add a pre-registered client_id to auth.client_id \
+                 in your .mcp.json and try again.\n\
+                 Response: {body}"
             );
         }
         bail!("MCP OAuth dynamic client registration failed: HTTP {status}\nResponse: {body}");
@@ -984,59 +714,10 @@ fn bind_callback_listener() -> Result<(String, TcpListener)> {
     Ok((format!("http://127.0.0.1:{}/callback", port), listener))
 }
 
-/// Wait for the browser to come back to the callback listener.
-///
-/// Without `stop` this is a plain blocking `accept`, which is what a terminal
-/// command wants. With one, the listener is polled so the wait can end when the
-/// flag is raised or the timeout runs out — and the connection that does arrive
-/// gets a read timeout, because a client that connects and never sends would
-/// otherwise hold the same wait open one step later.
-fn accept_callback(listener: &TcpListener, stop: Option<&McpOAuthLoginStop>) -> Result<TcpStream> {
-    let Some(stop) = stop else {
-        let (stream, _) = listener
-            .accept()
-            .context("Failed to accept OAuth callback")?;
-        return Ok(stream);
-    };
-    listener
-        .set_nonblocking(true)
-        .context("Failed to poll the OAuth callback listener")?;
-    let deadline = Instant::now() + stop.timeout;
-    loop {
-        match listener.accept() {
-            Ok((stream, _)) => {
-                // An accepted socket inherits non-blocking mode on some
-                // platforms; the read below wants to block, with a bound.
-                stream
-                    .set_nonblocking(false)
-                    .context("Failed to read OAuth callback")?;
-                stream
-                    .set_read_timeout(Some(stop.timeout.min(Duration::from_secs(30))))
-                    .context("Failed to read OAuth callback")?;
-                return Ok(stream);
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                if stop.cancel.load(Ordering::Acquire) {
-                    bail!("MCP OAuth login was cancelled before the browser came back");
-                }
-                if Instant::now() >= deadline {
-                    bail!(
-                        "MCP OAuth login timed out after {}s waiting for the browser",
-                        stop.timeout.as_secs()
-                    );
-                }
-                std::thread::sleep(CALLBACK_POLL);
-            }
-            Err(error) => return Err(error).context("Failed to accept OAuth callback"),
-        }
-    }
-}
-
-fn await_oauth_callback(
-    listener: TcpListener,
-    stop: Option<&McpOAuthLoginStop>,
-) -> Result<(String, String)> {
-    let mut stream = accept_callback(&listener, stop)?;
+fn await_oauth_callback(listener: TcpListener) -> Result<(String, String)> {
+    let (mut stream, _) = listener
+        .accept()
+        .context("Failed to accept OAuth callback")?;
     let mut buf = [0_u8; 4096];
     let n = stream
         .read(&mut buf)
@@ -1146,7 +827,7 @@ fn open_browser(url: &str) -> Result<()> {
 mod tests {
     use super::{
         base64_url_no_pad, login_github_oauth, parse_www_authenticate_resource_metadata,
-        walk_candidates, well_known_metadata_urls, McpOAuthToken, McpTokenStore, Unreached,
+        well_known_metadata_urls, McpOAuthToken, McpTokenStore,
     };
 
     #[test]
@@ -1155,16 +836,9 @@ mod tests {
         // when it's missing the error must POINT the user at the plain discovery
         // login (which needs no secret) instead of dead-ending. Bails before any
         // network/browser work, so this is a pure error-shape check.
-        let err = login_github_oauth(
-            "espressif-documentation",
-            "cid",
-            None,
-            &[],
-            std::path::Path::new("/nonexistent/tree"),
-            &|_| {},
-        )
-        .unwrap_err()
-        .to_string();
+        let err = login_github_oauth("espressif-documentation", "cid", None, &[])
+            .unwrap_err()
+            .to_string();
         assert!(
             err.contains("mcp login espressif-documentation"),
             "should signpost the discovery login: {err}"
@@ -1173,53 +847,6 @@ mod tests {
             err.contains("RFC 7591") || err.contains("dynamically"),
             "should mention dynamic registration: {err}"
         );
-    }
-
-    /// A host that never answers ends the walk. The remaining candidates are
-    /// that same host on that same network, so walking them decides nothing and
-    /// costs a connect timeout each — which, before the client had any timeout
-    /// at all, is what made a sign-in with no network sit on 「认证」 for minutes
-    /// with nothing to read.
-    #[test]
-    fn a_host_that_never_answers_ends_the_walk_at_once() {
-        let candidates: Vec<String> = ["a", "b", "c"].iter().map(|s| s.to_string()).collect();
-        let mut tried: Vec<String> = Vec::new();
-        let walked = walk_candidates("resource metadata", &candidates, |url| {
-            tried.push(url.to_string());
-            Err::<(), _>(Unreached::Unreachable(anyhow::anyhow!("no route to {url}")))
-        });
-        assert!(walked.is_err(), "连不上就该带着原因回去");
-        assert_eq!(tried.len(), 1, "只试第一个,不是把三个都试完");
-        assert_eq!(tried[0], "a");
-    }
-
-    /// Reaching the host and being told "not here" is the case the candidate
-    /// list exists for: the document is served at one path shape out of several.
-    #[test]
-    fn a_host_that_answers_is_walked_past_to_the_next_shape() {
-        let candidates: Vec<String> = ["a", "b", "c"].iter().map(|s| s.to_string()).collect();
-        let mut tried: Vec<String> = Vec::new();
-        let walked = walk_candidates("resource metadata", &candidates, |url| {
-            tried.push(url.to_string());
-            match url {
-                "c" => Ok(7),
-                _ => Err(Unreached::Missing(anyhow::anyhow!("HTTP 404 at {url}"))),
-            }
-        });
-        assert_eq!(walked.unwrap(), 7);
-        assert_eq!(tried.len(), 3, "有应答就接着试下一个形状");
-    }
-
-    /// When no shape has it, the failure names the shape tried last — the one a
-    /// person can compare against what their server actually serves.
-    #[test]
-    fn a_walk_that_matches_nothing_reports_the_last_candidate() {
-        let candidates: Vec<String> = ["a", "b"].iter().map(|s| s.to_string()).collect();
-        let walked = walk_candidates("resource metadata", &candidates, |url| {
-            Err::<(), _>(Unreached::Missing(anyhow::anyhow!("HTTP 404 at {url}")))
-        });
-        let error = format!("{:#}", walked.unwrap_err());
-        assert!(error.contains("HTTP 404 at b"), "{error}");
     }
 
     #[test]
@@ -1346,230 +973,5 @@ mod tests {
                 "rewriting an existing OAuth token store must tighten its permissions"
             );
         }
-    }
-
-    /// A login waiting on a browser gives up when its owner says to.
-    ///
-    /// The wait for the callback is the one step of a login with no natural end:
-    /// a person who closes the tab never comes back. Whoever runs a login beside
-    /// other work has to be able to end it, or a shutdown waits on that tab.
-    #[test]
-    fn a_login_waiting_on_the_browser_ends_when_it_is_cancelled() {
-        use super::{accept_callback, McpOAuthLoginStop};
-        use std::sync::atomic::{AtomicBool, Ordering};
-        use std::sync::Arc;
-        use std::time::{Duration, Instant};
-
-        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let stop = McpOAuthLoginStop {
-            cancel: Arc::new(AtomicBool::new(false)),
-            timeout: Duration::from_secs(60),
-        };
-        let flag = Arc::clone(&stop.cancel);
-        let raiser = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(200));
-            flag.store(true, Ordering::Release);
-        });
-        let started = Instant::now();
-        let error = accept_callback(&listener, Some(&stop))
-            .expect_err("nobody came back, and the wait was cancelled");
-        raiser.join().unwrap();
-        assert!(
-            error.to_string().contains("cancelled"),
-            "the reason says it was cancelled: {error}"
-        );
-        assert!(
-            started.elapsed() < Duration::from_secs(10),
-            "it ended soon after the flag, not at the timeout: {:?}",
-            started.elapsed()
-        );
-    }
-
-    /// And when nobody cancels it, the browser gets a bounded time.
-    #[test]
-    fn a_login_waiting_on_the_browser_times_out() {
-        use super::{accept_callback, McpOAuthLoginStop};
-        use std::sync::atomic::AtomicBool;
-        use std::sync::Arc;
-        use std::time::Duration;
-
-        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let stop = McpOAuthLoginStop {
-            cancel: Arc::new(AtomicBool::new(false)),
-            timeout: Duration::from_millis(300),
-        };
-        let error = accept_callback(&listener, Some(&stop))
-            .expect_err("nobody came back within the timeout");
-        assert!(
-            error.to_string().contains("timed out"),
-            "the reason says it timed out: {error}"
-        );
-    }
-
-    /// A browser that does come back is still accepted while the wait is
-    /// stoppable — the poll must not turn a real callback away.
-    #[test]
-    fn a_stoppable_wait_still_takes_the_callback() {
-        use super::{await_oauth_callback, McpOAuthLoginStop};
-        use std::io::Write;
-        use std::sync::atomic::AtomicBool;
-        use std::sync::Arc;
-        use std::time::Duration;
-
-        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let browser = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(250));
-            let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
-            stream
-                .write_all(b"GET /callback?code=c0de&state=s7 HTTP/1.1\r\nHost: x\r\n\r\n")
-                .unwrap();
-        });
-        let stop = McpOAuthLoginStop {
-            cancel: Arc::new(AtomicBool::new(false)),
-            timeout: Duration::from_secs(10),
-        };
-        let (code, state) = await_oauth_callback(listener, Some(&stop)).unwrap();
-        browser.join().unwrap();
-        assert_eq!((code.as_str(), state.as_str()), ("c0de", "s7"));
-    }
-
-    /// A GitHub-provider server takes its client id from the environment, the way
-    /// `atomcode mcp login` does when none is given; any other server leaves it to
-    /// discovery.
-    #[test]
-    #[serial_test::serial(github_mcp_client_id)]
-    fn the_github_client_id_comes_from_the_environment_for_a_github_server_only() {
-        use super::McpOAuthLoginOptions;
-        use crate::mcp::config::{
-            McpConfigSource, McpHttpAuthConfig, McpOAuthConfig, McpServerConfig, McpTransportConfig,
-        };
-
-        let server = |provider: Option<&str>| McpServerConfig {
-            name: "gh".into(),
-            config: McpTransportConfig::Http {
-                url: "https://example.invalid/mcp".into(),
-                headers: Default::default(),
-                auth: Some(McpHttpAuthConfig::OAuth(McpOAuthConfig {
-                    provider: provider.map(str::to_string),
-                    ..Default::default()
-                })),
-                timeout_ms: None,
-            },
-            disabled: false,
-            trust: false,
-            auto_approve: Vec::new(),
-            source: McpConfigSource::User,
-        };
-        std::env::set_var("ATOMCODE_GITHUB_MCP_CLIENT_ID", "gh-client");
-        let github = McpOAuthLoginOptions::for_server(&server(Some("github")));
-        let other = McpOAuthLoginOptions::for_server(&server(None));
-        std::env::remove_var("ATOMCODE_GITHUB_MCP_CLIENT_ID");
-        assert_eq!(github.client_id.as_deref(), Some("gh-client"));
-        assert_eq!(other.client_id, None);
-    }
-
-    /// This module never writes to the terminal itself.
-    ///
-    /// A login runs inside `atomcode --tui` too, where this process's stdout is
-    /// the full-screen UI: a `println!` of the authorization URL landed on top
-    /// of whatever was drawn there, staggered by raw mode and left behind by a
-    /// renderer that only repaints what it changed — at exactly the moment the
-    /// person needed to copy that URL. Where the URL goes is the caller's
-    /// (`announce`). Read off the source rather than by capturing output: the
-    /// print sits after network discovery, which a test cannot reach offline.
-    #[test]
-    fn a_login_leaves_the_terminal_to_its_caller() {
-        let source = include_str!("oauth.rs");
-        let body = source
-            .split("#[cfg(test)]")
-            .next()
-            .expect("the module has a body before its tests");
-        for forbidden in [
-            "println!",
-            "print!(",
-            "eprintln!",
-            "eprint!(",
-            "stdout()",
-            "stderr()",
-        ] {
-            assert!(
-                !body.contains(forbidden),
-                "oauth.rs writes to the terminal itself (`{forbidden}`); hand the text to `announce`"
-            );
-        }
-    }
-
-    /// A server with no dynamic registration is told where *it* is configured.
-    ///
-    /// The message used to say "your .mcp.json" for every server — including one
-    /// in the user file, which has no `.mcp.json`, and one a client injected,
-    /// which has no file at all. A person followed it to the wrong place.
-    #[test]
-    fn a_server_without_dynamic_registration_is_told_where_it_is_configured() {
-        use super::{register_oauth_client, AuthorizationServerMetadata};
-        use crate::mcp::config::{
-            McpConfigSource, McpHttpAuthConfig, McpOAuthConfig, McpServerConfig, McpTransportConfig,
-        };
-
-        let server = |source| McpServerConfig {
-            name: "github".into(),
-            config: McpTransportConfig::Http {
-                url: "https://api.githubcopilot.com/mcp/".into(),
-                headers: Default::default(),
-                auth: Some(McpHttpAuthConfig::OAuth(McpOAuthConfig::default())),
-                timeout_ms: None,
-            },
-            disabled: false,
-            trust: false,
-            auto_approve: Vec::new(),
-            source,
-        };
-        let metadata: AuthorizationServerMetadata = serde_json::from_value(serde_json::json!({
-            "authorization_endpoint": "https://github.com/login/oauth/authorize",
-            "token_endpoint": "https://github.com/login/oauth/access_token"
-        }))
-        .unwrap();
-        let client = reqwest::blocking::Client::new();
-        let said = |source| {
-            register_oauth_client(
-                &client,
-                &metadata,
-                "http://127.0.0.1:1/callback",
-                &server(source),
-                std::path::Path::new("/the/user/tree"),
-            )
-            .map(|_| ())
-            .expect_err("no registration endpoint")
-            .to_string()
-        };
-
-        let user = said(McpConfigSource::User);
-        let user_file = std::path::Path::new("/the/user/tree").join("mcp.json");
-        assert!(
-            user.contains(&user_file.display().to_string()),
-            "a user-level server is pointed at the user file: {user}"
-        );
-        assert!(
-            user.contains("\"client_id\"") && user.contains("\"client_secret_env\""),
-            "with the lines to add: {user}"
-        );
-        assert!(user.contains("\"github\""), "for this server: {user}");
-
-        let project = said(McpConfigSource::Project);
-        assert!(
-            project.contains(".mcp.json at the project root"),
-            "a project server is pointed at the project file: {project}"
-        );
-        assert!(
-            !project.contains(&user_file.display().to_string()),
-            "and not at the user one: {project}"
-        );
-
-        let driver = said(McpConfigSource::Driver);
-        assert!(
-            !driver.contains("mcp.json"),
-            "a server a client supplied has no file to point at: {driver}"
-        );
     }
 }

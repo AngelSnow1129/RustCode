@@ -1,23 +1,10 @@
-//! `open_file` — show a local file **or URL** to the person, in their default GUI
-//! application (browser for HTML/URL, viewer for PDF / image / SVG, …).
-//!
-//! # This is not the execution world
-//!
-//! Every other tool in this crate acts on the machine the *agent* runs on, through
-//! [`crate::world`]. This one acts on the machine the *person* is at — the two are the
-//! same only in a co-located deployment (a terminal UI on a laptop), and a daemon, a
-//! web front end or a remote sandbox breaks the coincidence: a window opened on the
-//! server never reaches anyone. So the opening goes through its own seam, [`Opener`],
-//! which is the **front end's** to provide — the thing that knows where the person is.
-//! A front end with nobody at a display provides none, and an assembly wires the tool
-//! only where an opener exists, so "cannot open here" is structural rather than a
-//! refusal at call time. (deepseek-harness keeps the same line: path opening is a
-//! host-side capability the client invokes, never a `ctx.fs` method.)
-//!
-//! [`LocalOpener`] is this machine's desktop: it picks the launcher by OS + environment
-//! (`open` / `xdg-open` / `explorer.exe` / `wslview`), and a headless / SSH / CI session
-//! REFUSES with a human-readable reason (and the path) instead of pretending a window
-//! opened. Launching a GUI is a user-visible side effect ⇒ the tool is always `Risky`.
+//! `open_file` — launch a local file **or URL** in the user's default GUI application
+//! (browser for HTML/URL, viewer for PDF / image / SVG, …). A thin cross-platform wrapper
+//! that picks the right opener by OS + environment (`open` / `xdg-open` / `cmd start` /
+//! `wslview`). Headless / SSH / CI sessions can't show a window, so it REFUSES with a
+//! human-readable reason (and the file path) instead of pretending a window opened.
+//! Launching a GUI is a user-visible side effect ⇒ always `Risky`. Neutral port of the
+//! production tool.
 
 use super::{err, ok, resolve_path};
 use async_trait::async_trait;
@@ -30,64 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, RwLock};
 
-/// What the person is being shown.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum OpenTarget {
-    /// An existing local path, already resolved against the working directory.
-    Path(PathBuf),
-    /// An `http://` / `https://` URL.
-    Url(String),
-}
-
-/// Where a file or URL is presented to the person. Provided by the front end.
-#[async_trait]
-pub trait Opener: Send + Sync {
-    /// Human-readable identity, for diagnostics and the audit.
-    fn describe(&self) -> String;
-    /// Show `target`; `Ok` carries a one-line account of how, `Err` a reason the
-    /// model can relay (it always includes the path or URL for manual viewing).
-    async fn open(&self, target: &OpenTarget) -> Result<String, String>;
-}
-
-/// This machine's desktop — the right answer exactly when the person is sitting
-/// at the machine the agent runs on.
-#[derive(Default)]
-pub struct LocalOpener;
-
-#[async_trait]
-impl Opener for LocalOpener {
-    fn describe(&self) -> String {
-        format!(
-            "this machine's desktop via `{}`",
-            strategy_command_name(&pick_open_strategy())
-        )
-    }
-    async fn open(&self, target: &OpenTarget) -> Result<String, String> {
-        match target {
-            OpenTarget::Path(path) => open_local_path(path).await,
-            OpenTarget::Url(url) => open_local_url(url).await,
-        }
-    }
-}
-
-pub struct OpenFileTool {
-    opener: Arc<dyn Opener>,
-}
-
-impl Default for OpenFileTool {
-    fn default() -> Self {
-        Self {
-            opener: Arc::new(LocalOpener),
-        }
-    }
-}
-
-impl OpenFileTool {
-    /// Present through `opener` — whatever front end has the person.
-    pub fn with_opener(opener: Arc<dyn Opener>) -> Self {
-        Self { opener }
-    }
-}
+pub struct OpenFileTool;
 
 #[derive(Deserialize)]
 struct Args {
@@ -244,15 +174,15 @@ impl Tool for OpenFileTool {
         // Scheme is case-insensitive per RFC 3986, so we check the lowercased form.
         let fp = a.file_path.trim();
         let lower = fp.to_ascii_lowercase();
-        let target = if lower.starts_with("http://") || lower.starts_with("https://") {
-            OpenTarget::Url(fp.to_string())
-        } else {
-            let path = resolve_path(fp, &ctx.working_dir);
-            // Strip the Windows `\\?\` verbatim prefix: Explorer doesn't
-            // accept extended-length paths, and it would leak into the messages below.
-            OpenTarget::Path(crate::pathnorm::canonicalize(&path).unwrap_or(path))
-        };
-        match self.opener.open(&target).await {
+        if lower.starts_with("http://") || lower.starts_with("https://") {
+            return open_url(fp).await;
+        }
+
+        let target = resolve_path(fp, &ctx.working_dir);
+        // Strip the Windows `\\?\` verbatim prefix: Explorer doesn't
+        // accept extended-length paths, and it would leak into the messages below.
+        let target = crate::pathnorm::canonicalize(&target).unwrap_or(target);
+        match open_local_path(&target).await {
             Ok(message) => ok(message),
             Err(message) => err(message),
         }
@@ -327,8 +257,8 @@ pub async fn open_local_path(target: &Path) -> Result<String, String> {
     }
 }
 
-/// Open a URL in this machine's default browser. Skips file-path resolution entirely.
-pub async fn open_local_url(url: &str) -> Result<String, String> {
+/// Open a URL in the default browser. Skips file-path resolution entirely.
+async fn open_url(url: &str) -> ToolResult {
     let strategy = pick_open_strategy();
     let mut cmd = match &strategy {
         OpenStrategy::MacOpen => {
@@ -356,7 +286,7 @@ pub async fn open_local_url(url: &str) -> Result<String, String> {
             c
         }
         OpenStrategy::Headless(reason) => {
-            return Err(format!(
+            return err(format!(
                 "open_file: cannot open URL in GUI: {reason}.\n\nURL for manual access:\n  {url}",
             ));
         }
@@ -366,11 +296,11 @@ pub async fn open_local_url(url: &str) -> Result<String, String> {
         .stderr(std::process::Stdio::null());
     crate::process_utils::suppress_console_window_sync(&mut cmd);
     match cmd.spawn() {
-        Ok(_child) => Ok(format!(
+        Ok(_child) => ok(format!(
             "Opened URL `{url}` via `{}`.",
             strategy_command_name(&strategy)
         )),
-        Err(e) => Err(format!(
+        Err(e) => err(format!(
             "open_file: failed to launch `{}` to open URL: {e}.\n\nURL for manual access:\n  {url}",
             strategy_command_name(&strategy),
         )),
@@ -446,41 +376,6 @@ impl OpenFileWorkspaceGate {
     }
 }
 
-impl OpenFileWorkspaceGate {
-    /// The decision, with no opinion about how it is delivered.
-    ///
-    /// Extracted so the SAME judgement can wear two shells: the kernel
-    /// [`ToolMiddleware`] below, and a harness `tools/execute` listener that sets
-    /// `pre_approved`. Both mean "this one is already authorized, do not ask" —
-    /// only the vocabulary for saying so differs. Keeping the judgement here, and
-    /// not in either shell, is what stops the two from drifting apart.
-    ///
-    /// `true` = the target is inside the workspace, so the call needs no approval.
-    /// Every uncertainty (unparseable args, poisoned lock, a canonicalize that
-    /// times out) returns `false`: "cannot decide" defers to approval, never
-    /// auto-approves.
-    pub async fn authorizes(&self, tool_name: &str, arguments: &str) -> bool {
-        if tool_name != "open_file" {
-            return false;
-        }
-        // Snapshot the live cwd. A poisoned lock means we can't tell where we are — defer to
-        // approval rather than risk a wrong auto-approve (and never panic: kernel is panic=abort).
-        let cwd = match self.cwd.read() {
-            Ok(g) => g.clone(),
-            Err(_) => return false,
-        };
-        // `target_in_workspace` CANONICALIZES paths (filesystem syscalls). Run it OFF the async
-        // worker, bounded: a stalled mount as the cwd would otherwise block `canonicalize()` for
-        // minutes inline and freeze the kernel turn loop (Esc/Ctrl-C dead). On timeout → `false`,
-        // the same conservative "can't decide → defer to approval" default the check already uses.
-        let args = arguments.to_string();
-        super::run_bounded(super::GATE_FS_TIMEOUT, false, move || {
-            Self::target_in_workspace(&args, &cwd)
-        })
-        .await
-    }
-}
-
 #[async_trait]
 impl ToolMiddleware for OpenFileWorkspaceGate {
     async fn before(
@@ -489,7 +384,28 @@ impl ToolMiddleware for OpenFileWorkspaceGate {
         tool: &Arc<dyn Tool>,
         _rt: &RequestCtx,
     ) -> BeforeOutcome {
-        if self.authorizes(tool.name(), &call.arguments).await {
+        if tool.name() != "open_file" {
+            return BeforeOutcome::Proceed;
+        }
+        // Snapshot the live cwd. A poisoned lock means we can't tell where we are — defer to
+        // approval rather than risk a wrong auto-approve (and never panic: kernel is panic=abort).
+        let cwd = match self.cwd.read() {
+            Ok(g) => g.clone(),
+            Err(_) => return BeforeOutcome::Proceed,
+        };
+        // `target_in_workspace` CANONICALIZES paths (filesystem syscalls). Run it OFF the async
+        // worker, bounded: a stalled mount as the cwd would otherwise block `canonicalize()` for
+        // minutes inline and freeze the kernel turn loop (Esc/Ctrl-C dead). On timeout → `false`,
+        // the same conservative "can't decide → defer to approval" default the check already uses.
+        let in_workspace = {
+            let args = call.arguments.clone();
+            let cwd = cwd.clone();
+            super::run_bounded(super::GATE_FS_TIMEOUT, false, move || {
+                Self::target_in_workspace(&args, &cwd)
+            })
+            .await
+        };
+        if in_workspace {
             BeforeOutcome::Allow {
                 reason: Some("open_file target is inside the workspace".into()),
             }
@@ -557,63 +473,13 @@ mod tests {
 
     #[test]
     fn risk_is_risky() {
-        assert_eq!(OpenFileTool::default().risk("{}"), RiskLevel::Risky);
-    }
-
-    /// An opener that is somewhere else entirely — a browser tab, another
-    /// machine — and only records what it was asked to show.
-    struct Elsewhere(std::sync::Mutex<Vec<OpenTarget>>);
-
-    #[async_trait]
-    impl Opener for Elsewhere {
-        fn describe(&self) -> String {
-            "elsewhere".into()
-        }
-        async fn open(&self, target: &OpenTarget) -> Result<String, String> {
-            self.0.lock().unwrap().push(target.clone());
-            Ok("shown elsewhere".into())
-        }
-    }
-
-    #[tokio::test]
-    async fn the_tool_presents_through_its_opener_and_launches_nothing_here() {
-        // The claim behind the seam: where the person is, is the front end's
-        // answer. Under SSH/CI this machine's opener would refuse; an opener
-        // that is elsewhere does not care, because the window is not here.
-        let d = tempfile::tempdir().unwrap();
-        std::fs::write(d.path().join("x.html"), "<h1>hi</h1>").unwrap();
-        let elsewhere = Arc::new(Elsewhere(std::sync::Mutex::new(Vec::new())));
-        let tool = OpenFileTool::with_opener(elsewhere.clone());
-
-        let r = tool
-            .execute(r#"{"file_path":"x.html"}"#, &ctx(d.path()))
-            .await;
-        assert!(!r.is_error, "{}", r.content);
-        let r = tool
-            .execute(
-                r#"{"file_path":"https://example.com/a?b=1"}"#,
-                &ctx(d.path()),
-            )
-            .await;
-        assert!(!r.is_error, "{}", r.content);
-
-        let seen = elsewhere.0.lock().unwrap().clone();
-        assert_eq!(seen.len(), 2);
-        assert!(
-            matches!(&seen[0], OpenTarget::Path(p) if p.ends_with("x.html")),
-            "{seen:?}"
-        );
-        assert_eq!(
-            seen[1],
-            OpenTarget::Url("https://example.com/a?b=1".into()),
-            "a URL is handed over untouched, not resolved as a path"
-        );
+        assert_eq!(OpenFileTool.risk("{}"), RiskLevel::Risky);
     }
 
     #[tokio::test]
     async fn missing_file_errors() {
         let d = tempfile::tempdir().unwrap();
-        let r = OpenFileTool::default()
+        let r = OpenFileTool
             .execute(r#"{"file_path":"nope.html"}"#, &ctx(d.path()))
             .await;
         assert!(r.is_error);
@@ -623,9 +489,7 @@ mod tests {
     #[tokio::test]
     async fn invalid_args_error() {
         let d = tempfile::tempdir().unwrap();
-        let r = OpenFileTool::default()
-            .execute(r#"{"wrong":1}"#, &ctx(d.path()))
-            .await;
+        let r = OpenFileTool.execute(r#"{"wrong":1}"#, &ctx(d.path())).await;
         assert!(r.is_error);
         assert!(r.content.contains("invalid arguments"), "{}", r.content);
     }
@@ -643,7 +507,7 @@ mod tests {
         }
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("x.html"), "<h1>hi</h1>").unwrap();
-        let r = OpenFileTool::default()
+        let r = OpenFileTool
             .execute(r#"{"file_path":"x.html"}"#, &ctx(d.path()))
             .await;
         assert!(r.is_error);
@@ -688,7 +552,7 @@ mod gate_tests {
         let cwd = std::fs::canonicalize(d.path()).unwrap();
         std::fs::write(cwd.join("page.html"), "<h1>hi</h1>").unwrap();
         let gate = OpenFileWorkspaceGate::new(cwd_handle(&cwd));
-        let tool: Arc<dyn Tool> = Arc::new(OpenFileTool::default());
+        let tool: Arc<dyn Tool> = Arc::new(OpenFileTool);
         let mut call = open_call("page.html"); // relative → resolves inside the workspace
         let outcome = gate.before(&mut call, &tool, &silent_rt()).await;
         assert!(
@@ -704,7 +568,7 @@ mod gate_tests {
         let abs = cwd.join("p.html");
         std::fs::write(&abs, "x").unwrap();
         let gate = OpenFileWorkspaceGate::new(cwd_handle(&cwd));
-        let tool: Arc<dyn Tool> = Arc::new(OpenFileTool::default());
+        let tool: Arc<dyn Tool> = Arc::new(OpenFileTool);
         let mut call = open_call(abs.to_str().unwrap()); // absolute, but still under cwd
         let outcome = gate.before(&mut call, &tool, &silent_rt()).await;
         assert!(
@@ -721,7 +585,7 @@ mod gate_tests {
         std::fs::write(other.join("x.html"), "x").unwrap();
         let gate =
             OpenFileWorkspaceGate::new(cwd_handle(&std::fs::canonicalize(ws.path()).unwrap()));
-        let tool: Arc<dyn Tool> = Arc::new(OpenFileTool::default());
+        let tool: Arc<dyn Tool> = Arc::new(OpenFileTool);
         let mut call = open_call(other.join("x.html").to_str().unwrap());
         let outcome = gate.before(&mut call, &tool, &silent_rt()).await;
         assert_eq!(
@@ -740,7 +604,7 @@ mod gate_tests {
         std::fs::create_dir(ws.join("sub")).unwrap();
         std::fs::write(ws.join("secret.html"), "x").unwrap();
         let gate = OpenFileWorkspaceGate::new(cwd_handle(&ws.join("sub")));
-        let tool: Arc<dyn Tool> = Arc::new(OpenFileTool::default());
+        let tool: Arc<dyn Tool> = Arc::new(OpenFileTool);
         let mut call = open_call("../secret.html");
         let outcome = gate.before(&mut call, &tool, &silent_rt()).await;
         assert_eq!(
@@ -756,7 +620,7 @@ mod gate_tests {
         let cwd = std::fs::canonicalize(d.path()).unwrap();
         std::fs::write(cwd.join("a.txt"), "x").unwrap();
         let gate = OpenFileWorkspaceGate::new(cwd_handle(&cwd));
-        let tool: Arc<dyn Tool> = Arc::new(crate::tools::write::WriteFileTool::default());
+        let tool: Arc<dyn Tool> = Arc::new(crate::tools::write::WriteFileTool);
         let mut call = ToolCall {
             id: "1".into(),
             name: "write_file".into(),
@@ -775,7 +639,7 @@ mod gate_tests {
         let d = tempfile::tempdir().unwrap();
         let cwd = std::fs::canonicalize(d.path()).unwrap();
         let gate = OpenFileWorkspaceGate::new(cwd_handle(&cwd));
-        let tool: Arc<dyn Tool> = Arc::new(OpenFileTool::default());
+        let tool: Arc<dyn Tool> = Arc::new(OpenFileTool);
         let mut call = ToolCall {
             id: "1".into(),
             name: "open_file".into(),
@@ -795,7 +659,7 @@ mod gate_tests {
         let cwd = std::fs::canonicalize(d.path()).unwrap();
         std::fs::write(cwd.join("p.html"), "x").unwrap();
         let gate = OpenFileWorkspaceGate::new(cwd_handle(&cwd));
-        let tool: Arc<dyn Tool> = Arc::new(OpenFileTool::default());
+        let tool: Arc<dyn Tool> = Arc::new(OpenFileTool);
         let mut call = ToolCall {
             id: "1".into(),
             name: "open_file".into(),

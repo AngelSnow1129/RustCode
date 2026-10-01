@@ -1,7 +1,7 @@
 //! Daemon entry points for the unified native [`atomcode_coding::CodingRuntime`].
 
 use atomcode_coding::config::CodingAgentConfig;
-use atomcode_coding::parts::SessionMode;
+use atomcode_coding::parts::{PrepareOptions, SessionMode};
 use atomcode_coding::runtime::CodingRuntimeEvent;
 use atomcode_coding::CodingRuntimeConfig;
 use tokio::sync::{mpsc, watch};
@@ -95,7 +95,6 @@ async fn start_native_runtime_with_session_bootstrap(
         SessionMode::Resume(id) => {
             let manager = atomcode_capabilities::session::SessionManager::for_project(
                 &coding_cfg.working_dir,
-                &atomcode_coding::config::product_dirs_from_env(),
             );
             let lease = manager.acquire_lease(&id).map_err(|error| {
                 atomcode_coding::RuntimeStartError::Prepare(std::io::Error::from(error))
@@ -108,7 +107,6 @@ async fn start_native_runtime_with_session_bootstrap(
         SessionMode::ExternalSnapshot { id, snapshot } => {
             let manager = atomcode_capabilities::session::SessionManager::for_project(
                 &coding_cfg.working_dir,
-                &atomcode_coding::config::product_dirs_from_env(),
             );
             let lease = manager.acquire_lease(&id).map_err(|error| {
                 atomcode_coding::RuntimeStartError::Prepare(std::io::Error::from(error))
@@ -158,22 +156,21 @@ async fn start_native_runtime_with_session_bootstrap(
         }
         other => (other, None),
     };
-    // Driver-neutral half from the runtime config — external-agent subagents
-    // resolved from `[subagent]` (the `claude`/`codex` switches and
-    // `[[subagent.external]]`), MCP per config, full-capability defaults.
-    // Overriding only driver differences after this is the contract (see
-    // `prepare_from_config`): this path previously hardcoded
-    // `external_subagents: Vec::new()`, and the TUI's in-session respawns —
-    // which borrow this constructor — silently lost `subagent_claude-code`.
-    let mut prepare = atomcode_coding::prepare_from_config(&cfg);
-    prepare.subagents = atomcode_coding::SubagentPolicy::Enabled;
-    prepare.request_user_input = true;
-    prepare.session = session;
-    prepare.tools = true;
-    prepare.skill_dirs = None;
-    prepare.plugin_skill_dirs = crate::gather_plugin_skill_dirs_for(&cfg.working_dir);
-    prepare.rate_limit_source = Some(crate::coding_plan_rate_limit_source());
-    prepare.front_end = None;
+    let prepare = PrepareOptions {
+        subagents: atomcode_coding::SubagentPolicy::Enabled,
+        request_user_input: true,
+        session,
+        tools: true,
+        skill_dirs: None,
+        plugin_skill_dirs: crate::gather_plugin_skill_dirs_for(&cfg.working_dir),
+        mcp: cfg.mcp,
+        extra_mcp_servers: Vec::new(),
+        external_subagents: Vec::new(),
+        memory: true,
+        web: true,
+        review: true,
+        rate_limit_source: Some(crate::coding_plan_rate_limit_source()),
+    };
     let start = atomcode_coding::CodingRuntimeStart {
         agent: coding_cfg.clone(),
         prepare,
@@ -271,7 +268,6 @@ pub fn spawn_native_runtime_for_session_deferred_with_preprocessor(
                         http_status: None,
                         code: None,
                         retryable: None,
-                        ends_turn: false,
                     }),
                 );
                 while let Some(control) = control_rx.recv().await {
@@ -287,7 +283,6 @@ pub fn spawn_native_runtime_for_session_deferred_with_preprocessor(
                             http_status: None,
                             code: None,
                             retryable: None,
-                            ends_turn: false,
                         }),
                     );
                 }
@@ -350,7 +345,6 @@ pub fn spawn_native_runtime_for_session_deferred_with_preprocessor(
                                         http_status: None,
                                         code: None,
                                         retryable: None,
-                    ends_turn: false,
                                     }),
                                 );
                             }
@@ -465,7 +459,6 @@ mod tests {
         let cfg = CodingRuntimeConfig::from_config(
             &config,
             home._dir.path(),
-            atomcode_coding::config::product_dirs_from_env(),
             None,
             Some(telemetry),
             false,
@@ -480,15 +473,8 @@ mod tests {
         let _home = ScopedHome::new();
         let working_dir = tempfile::tempdir().unwrap();
         let config = atomcode_config::config::Config::default();
-        let cfg = CodingRuntimeConfig::from_config(
-            &config,
-            working_dir.path(),
-            atomcode_coding::config::product_dirs_from_env(),
-            None,
-            None,
-            false,
-            true,
-        );
+        let cfg =
+            CodingRuntimeConfig::from_config(&config, working_dir.path(), None, None, false, true);
         let (control_tx, mut event_rx, mut state_rx) = spawn_native_runtime_for_session_deferred(
             cfg,
             "deferred-test".into(),
@@ -522,15 +508,8 @@ mod tests {
         let _home = ScopedHome::new();
         let working_dir = tempfile::tempdir().unwrap();
         let config = atomcode_config::config::Config::default();
-        let mut cfg = CodingRuntimeConfig::from_config(
-            &config,
-            working_dir.path(),
-            atomcode_coding::config::product_dirs_from_env(),
-            None,
-            None,
-            false,
-            true,
-        );
+        let mut cfg =
+            CodingRuntimeConfig::from_config(&config, working_dir.path(), None, None, false, true);
         cfg.provider_name = "main".into();
         cfg.api_key = "test".into();
         cfg.base_url = "http://127.0.0.1:9/v1".into();
@@ -590,15 +569,7 @@ mod tests {
         let working_dir = tempfile::tempdir().unwrap();
         let config = atomcode_config::config::Config::default();
         let cfg = || {
-            CodingRuntimeConfig::from_config(
-                &config,
-                working_dir.path(),
-                atomcode_coding::config::product_dirs_from_env(),
-                None,
-                None,
-                false,
-                true,
-            )
+            CodingRuntimeConfig::from_config(&config, working_dir.path(), None, None, false, true)
         };
         let snapshot = || atomcode_kernel::message::SessionSnapshot::new(Vec::new());
         let (first_tx, _first_events, mut first_state) = spawn_native_runtime_for_session_deferred(

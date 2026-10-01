@@ -82,10 +82,7 @@ pub fn build_replay_entries(
     native_id: &str,
     working_dir: &Path,
 ) -> Result<Vec<ReplayEntry>, String> {
-    let manager = SessionManager::for_project(
-        working_dir,
-        &atomcode_coding::config::product_dirs_from_env(),
-    );
+    let manager = SessionManager::for_project(working_dir);
     let loaded = manager
         .load_native_session(native_id)
         .map_err(|e| format!("acp: replay failed to load session history: {e}"))?;

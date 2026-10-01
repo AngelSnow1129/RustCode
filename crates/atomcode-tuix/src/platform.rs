@@ -177,10 +177,7 @@ pub struct ProjectHistoryPaths {
 /// The legacy global files remain separate and read-only.
 pub fn project_history_paths(working_dir: &std::path::Path) -> ProjectHistoryPaths {
     let config_dir = atomcode_config::config::Config::config_dir();
-    let bucket = atomcode_capabilities::session::SessionManager::project_hash(
-        working_dir,
-        &atomcode_coding::config::product_dirs_from_env(),
-    );
+    let bucket = atomcode_capabilities::session::SessionManager::project_hash(working_dir);
     let root = config_dir.join("history-v2").join(bucket);
     ProjectHistoryPaths {
         entries: root.join("entries.jsonl"),

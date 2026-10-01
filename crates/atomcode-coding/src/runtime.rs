@@ -8,8 +8,7 @@ use std::error::Error;
 use std::fmt;
 use std::io;
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
-use tokio_util::sync::CancellationToken;
+use std::sync::Arc;
 
 use atomcode_capabilities::session::snapshot::SnapshotPersistenceStatus;
 use atomcode_capabilities::session::{
@@ -36,14 +35,14 @@ use atomcode_kernel::provider::LlmProvider;
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::controllers::{
-    evaluate_goal, goal_cap_stop_note, goal_continuation_message, summarize_for_goal, EvalOutcome,
-    GoalPhase, GoalProgress, GoalResult, GoalState, GoalTerminal, LoopProgress, LoopState,
-    ScheduleWakeupTool, WakeupRequest, MAX_UNPRODUCTIVE,
+    classify_followup, evaluate_goal, goal_cap_stop_note, goal_continuation_message,
+    summarize_for_goal, EvalOutcome, FollowupClass, GoalPhase, GoalProgress, GoalResult, GoalState,
+    GoalTerminal, LoopProgress, LoopState, ScheduleWakeupTool, WakeupRequest, MAX_UNPRODUCTIVE,
 };
 use crate::parts::prepare_with_plugin_hook_source_reusing_lease;
 #[cfg(test)]
 use crate::prepare_with_plugin_hook_source;
-use crate::{CodingAgentConfig, CodingProviderFactory, PluginHookSource, PrepareOptions};
+use crate::{assemble, CodingAgentConfig, CodingProviderFactory, PluginHookSource, PrepareOptions};
 
 /// Runtime facts emitted by the coding engine without depending on the legacy
 /// `atomcode-core` driver protocol.
@@ -181,17 +180,6 @@ pub struct McpStatusSnapshot {
     pub servers: Vec<(String, atomcode_capabilities::mcp::ServerStatus)>,
 }
 
-/// An MCP tool made "always allowed" by [`CodingRuntimeHandle::approve_mcp_tool`].
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct McpToolApproval {
-    pub server: String,
-    /// The tool's own name on its server — what `autoApprove` lists.
-    pub tool: String,
-    /// Why the project file was not written, when it was not. The session
-    /// grant holds either way; only the next session would ask again.
-    pub persist_error: Option<String>,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct McpToolsSnapshot {
     pub generation: RuntimeGeneration,
@@ -202,20 +190,6 @@ pub struct McpToolsSnapshot {
     /// (`status == None`) apart from a configured-but-empty one and suggest the
     /// real names — shell-style "not found → here's what exists".
     pub available: Vec<String>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct McpRowsSnapshot {
-    pub generation: RuntimeGeneration,
-    pub rows: Vec<crate::parts::McpRowFacts>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct McpDetailSnapshot {
-    pub generation: RuntimeGeneration,
-    /// `None` when no configured server has that key. Not an error: a screen
-    /// says "no such server" and lists what there is.
-    pub detail: Option<crate::parts::McpRowFacts>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -258,161 +232,12 @@ impl RewindScope {
     }
 }
 
-/// Which two things `/diff` compares.
-///
-/// The runtime's own word for it; [`atomcode_host_api::ChangeScope`] is the
-/// wire's, and the mapping between them is the host adapter's — a runtime that
-/// imported the contract would be a runtime that could only serve one.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum WorkspaceScope {
-    /// Before this session's first prompt, against now.
-    #[default]
-    Session,
-    /// The checkout, against `HEAD`.
-    Git,
-}
-
-/// Whether this session is driving itself, and how far it has got.
-///
-/// Read rather than pushed: the runtime already publishes `GoalChanged` /
-/// `LoopChanged` every round, but that stream is the runtime's own and the
-/// screen is not on it.
-///
-/// Answered through host control, the way `McpStatus` is. `docs/adr/0021` §3
-/// puts goal and loop with the capability rows and that is where their
-/// *commands* are — `GoalCommand` is a shim over `RuntimeCommands`. The state
-/// is not theirs: these controllers are runtime-owned (`controllers.rs`: "
-/// Runtime-owned autonomous controllers"), they live as locals of the driver
-/// loop, and reporting what the runtime owns is the host's job. MCP is the same
-/// shape: rows mount the servers, host control reports their state.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Autonomy {
-    pub goal: Option<GoalProgress>,
-    pub looping: Option<LoopProgress>,
-}
-
-/// What a session has done to the workspace, for a front end to show.
-///
-/// One shape for both levels of the answer: the list of files, or one file's
-/// diff. Two messages that differed only in which field was filled would be two
-/// round trips to keep in step.
-#[derive(Debug, Clone, Default)]
-pub struct WorkspaceChanges {
-    /// Every file this session changed, with how much.
-    pub files: Vec<atomcode_capabilities::session::FileChangeSummary>,
-    /// What each of them is, when the scope knows — the `git` scope reads an
-    /// index and so can say `staged`/`modified`; the session's own diff is two
-    /// trees compared and has no index to ask.
-    ///
-    /// Parallel to `files` rather than folded into `FileChangeSummary` because
-    /// that type is the checkpoint store's, and the checkpoint store has no
-    /// opinion about anybody's index.
-    pub states: Vec<Option<(atomcode_capabilities::worktree_status::Status, bool)>>,
-    /// The unified diff of the one file that was asked for.
-    pub diff: Option<String>,
-    /// Why there is no answer, when there is none. Not an error: a session with
-    /// no workspace checkpointing is an ordinary session, and the screen has to
-    /// say which of "nothing changed" and "cannot tell" it is.
-    pub unavailable: Option<String>,
-}
-
-/// The checkout's own changes, as [`WorkspaceScope::Git`] asks for them.
-///
-/// Every failure is an answer rather than an error: `/diff git` outside a
-/// repository has to **say** so, because an empty list reads as "nothing
-/// changed" and that is a different thing to be told.
-fn git_workspace_changes(at: &std::path::Path, file: Option<&str>) -> WorkspaceChanges {
-    use atomcode_capabilities::worktree_status as git;
-    if let Some(path) = file {
-        return match git::file_diff(at, path) {
-            Ok(diff) => WorkspaceChanges {
-                diff: Some(diff),
-                ..Default::default()
-            },
-            Err(why) => WorkspaceChanges {
-                unavailable: Some(why),
-                ..Default::default()
-            },
-        };
-    }
-    match git::read(at) {
-        Ok(found) => {
-            let mut files = Vec::with_capacity(found.len());
-            let mut states = Vec::with_capacity(found.len());
-            for (file, added, removed, binary) in found {
-                states.push(
-                    file.unstaged
-                        .or(file.staged)
-                        .map(|status| (status, file.is_staged())),
-                );
-                files.push(atomcode_capabilities::session::FileChangeSummary {
-                    path: file.path,
-                    additions: added,
-                    deletions: removed,
-                    binary,
-                });
-            }
-            WorkspaceChanges {
-                files,
-                states,
-                ..Default::default()
-            }
-        }
-        Err(why) => WorkspaceChanges {
-            unavailable: Some(why),
-            ..Default::default()
-        },
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RewindCatalog {
     pub generation: RuntimeGeneration,
     pub revision: u64,
     pub points: Vec<RewindPoint>,
-    pub code_unavailable: Option<CodeUnavailable>,
-}
-
-/// Why the workspace half of a rewind is not on offer.
-///
-/// **A kind, not a sentence** — the words belong to whoever is talking to the
-/// person, and a front end that was handed a sentence could only pass it
-/// through in whatever language this crate happened to write it in.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CodeUnavailable {
-    /// Off by default, to protect disk space. The person can opt in.
-    NotEnabled,
-    /// This session is not written down, so there is nothing to checkpoint
-    /// against.
-    NoSession,
-    /// Opted in, but the checkpoint could not be set up — with the cause.
-    SetupFailed(String),
-}
-
-impl CodeUnavailable {
-    /// A reason string, for a caller that has nowhere to put the kind.
-    pub fn say(&self) -> String {
-        match self {
-            Self::NotEnabled => {
-                atomcode_capabilities::session::CodeRewindUnavailable::NotEnabled.to_string()
-            }
-            Self::NoSession => "rewind requires a persistent session".to_string(),
-            Self::SetupFailed(why) => {
-                atomcode_capabilities::session::CodeRewindUnavailable::SetupFailed(why.clone())
-                    .to_string()
-            }
-        }
-    }
-}
-
-impl From<atomcode_capabilities::session::CodeRewindUnavailable> for CodeUnavailable {
-    fn from(why: atomcode_capabilities::session::CodeRewindUnavailable) -> Self {
-        use atomcode_capabilities::session::CodeRewindUnavailable as Why;
-        match why {
-            Why::NotEnabled => Self::NotEnabled,
-            Why::SetupFailed(message) => Self::SetupFailed(message),
-        }
-    }
+    pub code_unavailable: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -569,12 +394,6 @@ pub struct RuntimeContextStats {
     pub utilization: f32,
     pub model: String,
     pub working_dir: std::path::PathBuf,
-    /// 这个会话跑在哪份系统提示词上 —— 只有问了才带。
-    ///
-    /// **只有问了才带**,因为它长:装了技能与项目说明的会话上是几千字,而
-    /// 每个别的调用方要的都是一个数。人想看它的那一刻很具体:agent 表现得
-    /// 像是被告知了一件谁也不记得告诉过它的事。
-    pub system_prompt: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -704,52 +523,6 @@ fn forwarded_steer_for_acknowledgement(
     }
 }
 
-/// 账户还剩多少 —— 以及「问不到」这件事本身。
-///
-/// **`windows` 空有两个意思,而它们必须分得开。** 一个是「这个宿主根本不计
-/// 额度」(没有账户服务),另一个是「问了,没答上来」(超时、网络断、服务在
-/// 抽风)。把后者画成前者,屏幕上写的就是事实的反面——一个正被额度挡住的人
-/// 会读到「不计额度」,然后去别处找原因。所以问不到的时候 `unavailable`
-/// 说为什么,而那时 `windows` 的空不代表任何事。
-#[derive(Clone, Debug, Default)]
-pub struct Allowance {
-    /// 一个窗口一行。空且 `unavailable` 也空 = 真的不计额度。
-    pub windows: Vec<crate::rate_limit::RateLimitWindow>,
-    /// 窗口背后的套餐,服务说得出的话。
-    pub plan: Option<crate::rate_limit::Entitlement>,
-    /// 已经花掉的,服务记得的话。
-    pub spent: Option<crate::rate_limit::AccountUsage>,
-    /// 问不到的时候,为什么。
-    pub unavailable: Option<String>,
-}
-
-/// 问到了就是那些窗口;没问到是空的,而空由 [`why_not`] 解释。
-fn windows_or_nothing(
-    asked: &Result<
-        Result<Vec<crate::rate_limit::RateLimitWindow>, String>,
-        tokio::time::error::Elapsed,
-    >,
-) -> Vec<crate::rate_limit::RateLimitWindow> {
-    match asked {
-        Ok(Ok(windows)) => windows.clone(),
-        _ => Vec::new(),
-    }
-}
-
-/// 为什么没有答案。`None` = 有答案(哪怕答案是「一个窗口都没有」)。
-fn why_not(
-    asked: &Result<
-        Result<Vec<crate::rate_limit::RateLimitWindow>, String>,
-        tokio::time::error::Elapsed,
-    >,
-) -> Option<String> {
-    match asked {
-        Ok(Ok(_)) => None,
-        Ok(Err(error)) => Some(error.clone()),
-        Err(elapsed) => Some(elapsed.to_string()),
-    }
-}
-
 /// Ordered, fire-and-forget driver requests. This is the native replacement for
 /// the core AgentCommand channel during asynchronous runtime startup.
 #[derive(Clone, Debug)]
@@ -782,12 +555,7 @@ pub enum DriverCommand {
         snapshot: SessionSnapshot,
         correlation_id: u64,
     },
-    /// Work towards this on its own until it holds.
-    ///
-    /// The text is the condition **and** the first round's prompt — the
-    /// runtime opens that round itself. Images ride along because a goal is
-    /// often given as "make it look like this".
-    StartGoal(UserInput),
+    StartGoal(String),
     StopGoal,
     StartLoop(String),
     StopLoop,
@@ -809,71 +577,10 @@ impl From<&str> for UserInput {
     }
 }
 
-/// What a capability row asks the runtime to do on a person's word
-/// (`docs/adr/0021` §3, §10).
-///
-/// Narrow on purpose: the row is mounted in the agent's tree and must not grow
-/// a dependency on the whole driver protocol, which is an implementation of the
-/// transition and not a contract (§5). Everything here is something a person
-/// runs from a front end — never a tool the model can reach.
-#[async_trait::async_trait]
-pub trait RuntimeCommands: Send + Sync {
-    /// Work towards `condition` on its own until it holds.
-    async fn start_goal(&self, condition: String) -> Result<(), String>;
-    /// Stop the goal that is running.
-    async fn stop_goal(&self) -> Result<(), String>;
-    /// Leave the goal where it is; it can be taken up again.
-    async fn pause_goal(&self) -> Result<(), String>;
-    /// Run `prompt` again and again until it is stopped.
-    ///
-    /// `every` is the person's own cadence, in seconds. `None` leaves the
-    /// pacing to the model — it asks for the next round with `schedule_wakeup`,
-    /// and a round it does not ask after is the end of the loop. With a cadence
-    /// the rounds keep coming whether the model asks or not, which is what
-    /// "every five minutes" means and the reason the two are one command rather
-    /// than two.
-    async fn start_loop(&self, prompt: String, every: Option<u32>) -> Result<(), String>;
-    async fn stop_loop(&self) -> Result<(), String>;
-    /// Put `text` in front of the next turn, as the person's own context.
-    async fn queue_local_context(&self, text: String) -> Result<(), String>;
-    /// The policy intervention waiting for a person to say how to go on, if one
-    /// is. The row asks before it resolves: whether there is one, and whether
-    /// what a person typed is among its choices, are the row's two judgements
-    /// to make (`docs/adr/0021` §8) — the host contract has no say in them.
-    async fn pending_policy(&self) -> Option<PolicyIntervention>;
-    /// Go on from the intervention `id` the way `action` says.
-    async fn resolve_policy(&self, id: u64, action: PolicyRecoveryAction) -> Result<(), String>;
-    /// Point the runtime at `directory` — a new session in the same place, with
-    /// everything that belonged to where it ran rebuilt for there.
-    ///
-    /// The runtime's own transition (`docs/adr/0001`), awaited rather than
-    /// raced: a row that had to *make* the directory first (`/worktree`) cannot
-    /// answer a person honestly without knowing whether they got there, and a
-    /// driver-side optimistic `cd` is the thing that ADR refuses.
-    async fn change_directory(&self, directory: std::path::PathBuf) -> Result<(), String>;
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SubmitReceipt {
-    Started {
-        generation: u64,
-        turn_id: u64,
-    },
-    Steered {
-        generation: u64,
-        turn_id: u64,
-    },
-    /// The submit was taken — it opened a turn, or was aimed at the running one —
-    /// and then was stopped before anything reached the agent (a picture still
-    /// being read when the person pressed stop). The stop that overtook it is
-    /// still what ends the turn it opened; what this says is that the message
-    /// itself never went anywhere, so whoever holds a receipt for it must be
-    /// answered "not delivered" instead of waiting for a turn that will never
-    /// claim it.
-    NotSent {
-        generation: u64,
-        turn_id: u64,
-    },
+    Started { generation: u64, turn_id: u64 },
+    Steered { generation: u64, turn_id: u64 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -984,16 +691,6 @@ struct RuntimeEventEmitter {
     raw: mpsc::UnboundedSender<CodingRuntimeEvent>,
     tagged: Option<mpsc::UnboundedSender<GenerationTaggedRuntimeEvent>>,
     generation: Arc<AtomicU64>,
-    /// Driver receipts handed to the agent and not yet answered.
-    ///
-    /// The agent answers a message's receipt when a turn claims it
-    /// (`Accepted`) or a stop withdraws it (`Rejected`), and both answers leave
-    /// through [`Self::send`], which is where they are crossed off. What is
-    /// left when the agent itself goes — a rebuild, a replacement, a failure —
-    /// sat in an inbox nobody will read again, and
-    /// [`Self::withdraw_unclaimed`] answers it: without that, the driver holding
-    /// the receipt waits for an answer that is never coming.
-    unclaimed: Mutex<Vec<atomcode_kernel::event::CommandId>>,
 }
 
 fn project_team_event(
@@ -1014,56 +711,7 @@ fn project_team_event(
 }
 
 impl RuntimeEventEmitter {
-    fn new(
-        raw: mpsc::UnboundedSender<CodingRuntimeEvent>,
-        tagged: Option<mpsc::UnboundedSender<GenerationTaggedRuntimeEvent>>,
-        generation: Arc<AtomicU64>,
-    ) -> Self {
-        Self {
-            raw,
-            tagged,
-            generation,
-            unclaimed: Mutex::new(Vec::new()),
-        }
-    }
-
-    /// A message went to the agent under the driver's `receipt`: it is owed an
-    /// answer from here on.
-    fn receipt_sent(&self, receipt: atomcode_kernel::event::CommandId) {
-        self.unclaimed
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .push(receipt);
-    }
-
-    /// The agent that held the unanswered receipts is gone, and so is its
-    /// inbox: none of those messages reached a turn, so each is answered the
-    /// way a stop answers what it withdrew.
-    fn withdraw_unclaimed(&self) {
-        let withdrawn = std::mem::take(
-            &mut *self
-                .unclaimed
-                .lock()
-                .unwrap_or_else(|error| error.into_inner()),
-        );
-        for command in withdrawn {
-            let _ = self.send(CodingRuntimeEvent::Agent(AgentEvent::Rejected {
-                command,
-                error: atomcode_kernel::event::CommandError::NotRunning,
-            }));
-        }
-    }
-
     fn send(&self, event: CodingRuntimeEvent) -> Result<(), ()> {
-        if let CodingRuntimeEvent::Agent(
-            AgentEvent::Accepted { command, .. } | AgentEvent::Rejected { command, .. },
-        ) = &event
-        {
-            self.unclaimed
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .retain(|owed| owed != command);
-        }
         let raw_sent = self.raw.send(event.clone()).is_ok();
         let tagged_sent = self
             .tagged
@@ -1153,163 +801,9 @@ struct RuntimeResources {
     provider_factory: Arc<dyn CodingProviderFactory>,
     plugin_hooks: Arc<dyn PluginHookSource>,
     parts: crate::CodingParts,
-    /// The mounted tree, on the harness engine. `None` on the chain.
-    ///
-    /// Held, never read: unloading it would tear down every row under a live
-    /// handle. When the harness carries the reassembly paths too, this is what
-    /// `ControlSvc::patch` will be reached through.
-    ///
-    /// Never read ON PURPOSE — it is held for its `Drop`, not its value.
-    harness_app: Option<atomcode_plexus::App>,
-    /// The provider table the `llm` row reads by id. Holding it is what makes a
-    /// `/model` switch a patch rather than a rebuild — see
-    /// `on_harness::ProviderSlots`.
-    harness_providers: Option<Arc<crate::on_harness::ProviderSlots>>,
     wakeup_tx: mpsc::UnboundedSender<WakeupRequest>,
     loop_active: Arc<std::sync::atomic::AtomicBool>,
     image_preprocessor: Option<Arc<dyn ImagePreprocessor>>,
-}
-
-/// The `/mcp` panel's rows for the tree mounted right now: every configured server
-/// (disabled ones included) joined with the live statuses and this session's tool
-/// counts.
-///
-/// One helper for the list and the detail arm, so the two cannot disagree about
-/// the same server. `None` registry — no tree, MCP off — is no rows, not an error;
-/// a config file that does not parse is one, carried verbatim.
-async fn mcp_rows_of(runtime: &RuntimeResources) -> Result<Vec<crate::parts::McpRowFacts>, String> {
-    let counts: Vec<(String, usize)> = runtime
-        .parts
-        .mcp_statuses()
-        .await
-        .into_iter()
-        .map(|(name, _)| {
-            let n = runtime.parts.mcp_tools_for_server(&name).len();
-            (name, n)
-        })
-        .collect();
-    match &runtime.parts.mcp_registry {
-        Some(registry) => {
-            crate::parts::mcp_row_facts(
-                &runtime.config.working_dir,
-                runtime.config.dirs.user(),
-                registry,
-                &counts,
-            )
-            .await
-        }
-        None => Ok(Vec::new()),
-    }
-}
-
-/// Run one panel action against the live tree: the six things a person can do to
-/// a configured MCP server (`docs/mcp-panel-design.md` §5.2), bar signing in.
-///
-/// Signing in is not here: it opens a browser and writes a token, and touches
-/// nothing the runtime owns, so it is the front end's to run beside the screen
-/// (`cli/tui_mcp.rs`) — the way `/openrouter` authorises — followed by the same
-/// `/mcp reload` any config change takes.
-///
-/// The failure is a `String` because it is carried to the front end verbatim: a
-/// refused config write must arrive with the guard's own words rather than a
-/// generic failure (§6). The caller wraps it in `RuntimeError::ReconfigureFailed`.
-///
-/// This writes the state; it does not reconnect. Every action but `Disable` is
-/// followed by a capability reload from [`CodingRuntimeHandle::mcp_act`], which is
-/// what makes a trust or an enabled entry reach the session.
-///
-/// Order is the point where trust or auth change: the tools come off the session
-/// BEFORE the state they were authorised under is changed — the fail-closed order
-/// `CodingParts::withdraw_mcp_tools` documents for `/mcp reload`, `/mcp untrust`
-/// and `/mcp logout`.
-///
-/// `holds` is what each `Disable` in this session held back, by server, so the
-/// matching `Enable` gives back exactly that (`parts::hold_for_disable`).
-async fn apply_mcp_action(
-    runtime: &mut RuntimeResources,
-    server: String,
-    action: crate::parts::McpAction,
-    holds: &mut BTreeMap<String, Vec<String>>,
-) -> Result<(), String> {
-    use crate::parts::McpAction;
-
-    match action {
-        McpAction::Trust => atomcode_capabilities::mcp::trust::trust_project(
-            &runtime.config.working_dir,
-            runtime.config.dirs.user(),
-        )
-        .map_err(|e| format!("{e:#}")),
-        McpAction::Untrust => {
-            // Nothing to withdraw from a project that was never trusted: said so,
-            // before the tools come off and every server is reconnected for
-            // nothing.
-            if !atomcode_capabilities::mcp::trust::is_project_trusted(
-                &runtime.config.working_dir,
-                runtime.config.dirs.user(),
-            ) {
-                return Err(atomcode_capabilities::mcp::trust::PROJECT_NOT_TRUSTED.to_string());
-            }
-            // Fail-closed, in this order: the tools come off
-            // BEFORE the trust that lets them connect is
-            // withdrawn (`parts.rs:1312-1321`).
-            runtime.parts.withdraw_mcp_tools().await;
-            atomcode_capabilities::mcp::trust::untrust_project(
-                &runtime.config.working_dir,
-                runtime.config.dirs.user(),
-            )
-            .map(|_| ())
-            .map_err(|e| format!("{e:#}"))
-        }
-        McpAction::Logout => {
-            runtime.parts.withdraw_mcp_tools().await;
-            atomcode_capabilities::mcp::McpTokenStore::in_tree(runtime.config.dirs.user())
-                .delete_token(&server)
-                .map(|_| ())
-                .map_err(|e| format!("{e:#}"))
-        }
-        McpAction::Disable => {
-            crate::parts::mcp_set_enabled(
-                &runtime.config.working_dir,
-                runtime.config.dirs.user(),
-                &server,
-                false,
-            )
-            .await?;
-            // Take THIS server's tools off the session — by their published
-            // names, not by a glob (sanitised names can carry a hash suffix) —
-            // and remember which ones, so enabling it again can give them back.
-            if let Some(catalog) = runtime.parts.tool_catalog() {
-                let names = runtime.parts.mcp_tools_for_server(&server);
-                let held = crate::parts::hold_for_disable(&catalog, &names);
-                holds.entry(server).or_default().extend(held);
-            }
-            Ok(())
-        }
-        McpAction::Enable => {
-            crate::parts::mcp_set_enabled(
-                &runtime.config.working_dir,
-                runtime.config.dirs.user(),
-                &server,
-                true,
-            )
-            .await?;
-            if let Some(held) = holds.remove(&server) {
-                match runtime.parts.tool_catalog() {
-                    Some(catalog) => crate::parts::release_after_enable(&catalog, &held),
-                    // No mounted catalog to go through: drop the switches
-                    // directly, so the tools are not born hidden when the
-                    // rebuild brings them back.
-                    None => {
-                        let switches = runtime.parts.tool_switches();
-                        for name in &held {
-                            switches.turn_on(name, &[]);
-                        }
-                    }
-                }
-            }
-            Ok(())
-        }
-    }
 }
 
 struct NextPromptSuggestionOutcome {
@@ -1608,17 +1102,6 @@ pub struct CodingRuntimeHandle {
     state: Arc<AtomicU64>,
     provider_unavailable_reason: Arc<AtomicU8>,
     terminal: watch::Receiver<Option<RuntimeExit>>,
-    /// Fired by [`cancel`](Self::cancel) *before* the command goes on the
-    /// channel, so work the owner is awaiting inside its own loop can see the
-    /// stop it cannot yet read.
-    ///
-    /// The owner reads commands one at a time; anything it awaits in a command's
-    /// arm blocks every command behind it, this one included. Image recognition
-    /// is such an await — a model call with no overall cap — and `esc` under it
-    /// used to sit in the channel for the whole call. The owner puts a fresh
-    /// token here when it handles the cancel, so a stop is only ever held
-    /// against the work it was meant for.
-    stop: Arc<Mutex<CancellationToken>>,
 }
 
 #[derive(Clone, Debug)]
@@ -1717,8 +1200,6 @@ impl CodingRuntimeHandle {
                 CodingRuntimeControl::Submit {
                     generation,
                     input,
-                    receipt: None,
-                    from: None,
                     done,
                 }
             }
@@ -1813,12 +1294,11 @@ impl CodingRuntimeHandle {
                     done,
                 }
             }
-            DriverCommand::StartGoal(input) => {
+            DriverCommand::StartGoal(condition) => {
                 let (done, _result) = oneshot::channel();
                 CodingRuntimeControl::StartGoal {
                     generation,
-                    condition: input.text,
-                    images: input.images,
+                    condition,
                     done,
                     recovery_tx: self.tx.clone(),
                 }
@@ -1832,12 +1312,7 @@ impl CodingRuntimeHandle {
                 CodingRuntimeControl::StartLoop {
                     generation,
                     prompt,
-                    // The driver protocol carries no cadence, so this is the
-                    // model-paced form. A driver that wants the other one asks
-                    // through `RuntimeCommands`, where the cadence lives.
-                    every: None,
                     done,
-                    recovery_tx: self.tx.clone(),
                 }
             }
             DriverCommand::StopLoop => {
@@ -1850,57 +1325,12 @@ impl CodingRuntimeHandle {
     }
 
     pub async fn submit(&self, input: UserInput) -> Result<SubmitReceipt, RuntimeError> {
-        self.deliver(None, input).await
-    }
-
-    /// As [`Self::submit`], carrying the driver's own id for this message.
-    ///
-    /// The harness answers a claimed message under the id its command arrived
-    /// with, so a front end that named its send is told which turn took it — and
-    /// which of its sends a stop withdrew — without comparing the words it sent
-    /// against the words the model saw.
-    pub async fn submit_tagged(
-        &self,
-        receipt: atomcode_kernel::event::CommandId,
-        input: UserInput,
-    ) -> Result<SubmitReceipt, RuntimeError> {
-        self.deliver(Some(receipt), input).await
-    }
-
-    async fn deliver(
-        &self,
-        receipt: Option<atomcode_kernel::event::CommandId>,
-        input: UserInput,
-    ) -> Result<SubmitReceipt, RuntimeError> {
         let state = self.state.load(Ordering::Acquire);
         let (done, result) = oneshot::channel();
         self.tx
             .send(CodingRuntimeControl::Submit {
                 generation: runtime_state_generation(state),
                 input,
-                receipt,
-                from: None,
-                done,
-            })
-            .map_err(|_| RuntimeError::Unavailable)?;
-        result.await.map_err(|_| RuntimeError::Unavailable)?
-    }
-
-    /// Tell this runtime something a session it does not hold said: a job this
-    /// conversation started elsewhere, reporting back (`deliver_home`).
-    ///
-    /// Its own road rather than a parameter on `deliver`: a receipt (which send
-    /// this is) and a sender (whose words these are) are two different
-    /// questions, and only a note has an answer to the second.
-    pub async fn note(&self, from: String, text: String) -> Result<SubmitReceipt, RuntimeError> {
-        let state = self.state.load(Ordering::Acquire);
-        let (done, result) = oneshot::channel();
-        self.tx
-            .send(CodingRuntimeControl::Submit {
-                generation: runtime_state_generation(state),
-                input: UserInput::from(text),
-                receipt: None,
-                from: Some(from),
                 done,
             })
             .map_err(|_| RuntimeError::Unavailable)?;
@@ -1943,15 +1373,6 @@ impl CodingRuntimeHandle {
         result.await.map_err(|_| RuntimeError::Unavailable)?
     }
 
-    /// The policy intervention waiting for a person, if one is.
-    pub async fn pending_policy_intervention(&self) -> Option<PolicyIntervention> {
-        let (done, result) = oneshot::channel();
-        self.tx
-            .send(CodingRuntimeControl::PendingPolicyIntervention { done })
-            .ok()?;
-        result.await.ok().flatten()
-    }
-
     pub async fn snapshot(&self) -> Result<Arc<SessionSnapshot>, RuntimeError> {
         Ok(self.snapshot_with_revision().await?.snapshot)
     }
@@ -1970,10 +1391,6 @@ impl CodingRuntimeHandle {
 
     pub async fn cancel(&self) -> Result<(), RuntimeError> {
         let state = self.state.load(Ordering::Acquire);
-        // Before the command, not after: what this stops may be something the
-        // owner is awaiting in its own loop, which is exactly the case where the
-        // command itself cannot be read yet.
-        self.stop.lock().expect("stop poisoned").cancel();
         let (done, result) = oneshot::channel();
         self.tx
             .send(CodingRuntimeControl::Cancel {
@@ -2010,37 +1427,10 @@ impl CodingRuntimeHandle {
     }
 
     pub async fn context_stats(&self) -> Result<RuntimeContextStats, RuntimeError> {
-        self.context_stats_with(false).await
-    }
-
-    /// The same, and with `prompt` the system prompt this session runs on.
-    pub async fn context_stats_with(
-        &self,
-        prompt: bool,
-    ) -> Result<RuntimeContextStats, RuntimeError> {
         let state = self.state.load(Ordering::Acquire);
         let (done, result) = oneshot::channel();
         self.tx
             .send(CodingRuntimeControl::ContextStats {
-                generation: runtime_state_generation(state),
-                prompt,
-                done,
-            })
-            .map_err(|_| RuntimeError::Unavailable)?;
-        result.await.map_err(|_| RuntimeError::Unavailable)?
-    }
-
-    /// The execution mode in force, as the flags that govern a tool call have it.
-    ///
-    /// `Err` is "this runtime cannot answer" — a stopped or unavailable one. It
-    /// is not "no mode": a coding runtime always has one, and the caller's
-    /// `None` for "a host that does not govern modes at all" is a different
-    /// fact, kept by the host that knows it (`atomcode_host_api::HostReply`).
-    pub async fn mode(&self) -> Result<RuntimeMode, RuntimeError> {
-        let state = self.state.load(Ordering::Acquire);
-        let (done, result) = oneshot::channel();
-        self.tx
-            .send(CodingRuntimeControl::Mode {
                 generation: runtime_state_generation(state),
                 done,
             })
@@ -2088,150 +1478,15 @@ impl CodingRuntimeHandle {
         result.await.map_err(|_| RuntimeError::Unavailable)?
     }
 
-    /// "Always allow" the MCP tool the model calls `alias` (`mcp__<server>__<tool>`):
-    /// auto-approve it for the rest of this session and add it to the project's
-    /// `autoApprove`, both through THIS runtime's registry — the one whose tools the
-    /// model calls, and the only one that can map a sanitised alias back to the
-    /// server's own tool name. `None` when no connected server offers `alias`.
-    pub async fn approve_mcp_tool(
-        &self,
-        alias: String,
-    ) -> Result<Option<McpToolApproval>, RuntimeError> {
-        let state = self.state.load(Ordering::Acquire);
-        let (done, result) = oneshot::channel();
-        self.tx
-            .send(CodingRuntimeControl::ApproveMcpTool {
-                generation: runtime_state_generation(state),
-                alias,
-                done,
-            })
-            .map_err(|_| RuntimeError::Unavailable)?;
-        result.await.map_err(|_| RuntimeError::Unavailable)?
-    }
-
-    /// The management list: every configured server — disabled ones included —
-    /// with the live status, source, config path, transport, auth and tool count.
-    pub async fn mcp_rows(&self) -> Result<McpRowsSnapshot, RuntimeError> {
-        let state = self.state.load(Ordering::Acquire);
-        let (done, result) = oneshot::channel();
-        self.tx
-            .send(CodingRuntimeControl::McpRows {
-                generation: runtime_state_generation(state),
-                done,
-            })
-            .map_err(|_| RuntimeError::Unavailable)?;
-        result.await.map_err(|_| RuntimeError::Unavailable)?
-    }
-
-    /// One configured server in full. An unknown key answers `detail == None`,
-    /// not an error.
-    pub async fn mcp_detail(&self, server: String) -> Result<McpDetailSnapshot, RuntimeError> {
-        let state = self.state.load(Ordering::Acquire);
-        let (done, result) = oneshot::channel();
-        self.tx
-            .send(CodingRuntimeControl::McpDetail {
-                generation: runtime_state_generation(state),
-                server,
-                done,
-            })
-            .map_err(|_| RuntimeError::Unavailable)?;
-        result.await.map_err(|_| RuntimeError::Unavailable)?
-    }
-
-    /// Do one thing to one configured MCP server, and make it reach the session.
-    /// Answers when it is done — call [`mcp_rows`](Self::mcp_rows) for the state it
-    /// left behind.
-    ///
-    /// Trust and an enabled entry are read when the graph is prepared, and
-    /// untrust and sign-out take every MCP tool off; so every action but `Disable`
-    /// is followed by the same capability reload `/mcp reload` runs. Without it the
-    /// panel would show the server exactly as it was — untrusted after 信任,
-    /// disconnected after 启用 — and the person would take the action for a no-op.
-    ///
-    /// Those four answer [`RuntimeError::Busy`] while a turn is running (both the
-    /// withdrawal and the rebuild wait for an idle session); `Disable` runs mid-turn.
-    pub async fn mcp_act(
-        &self,
-        server: String,
-        action: crate::parts::McpAction,
-    ) -> Result<(), RuntimeError> {
-        let state = self.state.load(Ordering::Acquire);
-        let (done, result) = oneshot::channel();
-        self.tx
-            .send(CodingRuntimeControl::McpAct {
-                generation: runtime_state_generation(state),
-                server: server.clone(),
-                action,
-                done,
-            })
-            .map_err(|_| RuntimeError::Unavailable)?;
-        result.await.map_err(|_| RuntimeError::Unavailable)??;
-        if !action.rebuilds() {
-            return Ok(());
-        }
-        match self.reload_capabilities().await {
-            Ok(_) => Ok(()),
-            Err(RuntimeError::Busy) => Err(RuntimeError::ReconfigureFailed(format!(
-                "the change to MCP server '{server}' is saved, but a turn started before it \
-                 could be applied; run /mcp reload when the turn ends"
-            ))),
-            Err(error) => Err(error),
-        }
-    }
-
-    /// What the model can call right now, what the person turned off, and what
-    /// the tree was configured without (`docs/tool-catalog-policy.md`).
-    pub async fn tool_catalog(
-        &self,
-    ) -> Result<Vec<atomcode_harness::seams::ToolListing>, RuntimeError> {
-        let state = self.state.load(Ordering::Acquire);
-        let (done, result) = oneshot::channel();
-        self.tx
-            .send(CodingRuntimeControl::ToolCatalog {
-                generation: runtime_state_generation(state),
-                done,
-            })
-            .map_err(|_| RuntimeError::Unavailable)?;
-        result.await.map_err(|_| RuntimeError::Unavailable)?
-    }
-
-    /// Turn `pattern` off or back on for this session, and answer with the
-    /// catalog as it now is — one round trip, so a screen never renders a
-    /// switch it only assumes was thrown.
-    pub async fn switch_tool(
-        &self,
-        pattern: String,
-        on: bool,
-    ) -> Result<Vec<atomcode_harness::seams::ToolListing>, RuntimeError> {
-        let state = self.state.load(Ordering::Acquire);
-        let (done, result) = oneshot::channel();
-        self.tx
-            .send(CodingRuntimeControl::SwitchTool {
-                generation: runtime_state_generation(state),
-                pattern,
-                on,
-                done,
-            })
-            .map_err(|_| RuntimeError::Unavailable)?;
-        result.await.map_err(|_| RuntimeError::Unavailable)?
-    }
-
     /// Remove every MCP tool from the model-facing catalog without reading
     /// mutable config, trust, or auth state. Security-reducing mutations must
     /// await this terminal before changing those inputs.
     pub async fn withdraw_mcp_tools(&self) -> Result<(), RuntimeError> {
-        self.send_withdraw_mcp_tools(true).await
-    }
-
-    /// `tell`: whether the model is told the person withdrew them. A reload
-    /// withdraws on its way to putting them back, and says so itself.
-    async fn send_withdraw_mcp_tools(&self, tell: bool) -> Result<(), RuntimeError> {
         let state = self.state.load(Ordering::Acquire);
         let (done, result) = oneshot::channel();
         self.tx
             .send(CodingRuntimeControl::WithdrawMcpTools {
                 generation: runtime_state_generation(state),
-                tell,
                 done,
             })
             .map_err(|_| RuntimeError::Unavailable)?;
@@ -2283,6 +1538,10 @@ impl CodingRuntimeHandle {
         result.await.map_err(|_| RuntimeError::Unavailable)?
     }
 
+    pub async fn reprepare(&self, input: ReprepareInput) -> Result<SessionChanged, RuntimeError> {
+        self.reprepare_target(ReprepareTarget::Exact(input)).await
+    }
+
     pub async fn fresh_session(&self) -> Result<SessionChanged, RuntimeError> {
         self.reprepare_target(ReprepareTarget::Fresh).await
     }
@@ -2309,7 +1568,7 @@ impl CodingRuntimeHandle {
         &self,
         plugin_skill_dirs: Option<Vec<(std::path::PathBuf, String)>>,
     ) -> Result<SessionChanged, RuntimeError> {
-        self.send_withdraw_mcp_tools(false).await?;
+        self.withdraw_mcp_tools().await?;
         self.reprepare_target(ReprepareTarget::Reload { plugin_skill_dirs })
             .await
     }
@@ -2372,55 +1631,8 @@ impl CodingRuntimeHandle {
         let generation = self.status().generation;
         let original = self.snapshot_with_revision().await?;
         let undo = undo_snapshot_to_prompt(&original.undo_snapshot, nth)?;
-        self.apply_undo(
-            generation,
-            original.revision,
-            original.undo_snapshot,
-            undo,
-            None,
-        )
-        .await
-    }
-
-    /// Undo back to before the log's `turn` — a rewind point's turn — rather
-    /// than to a prompt ordinal in the conversation as it now stands.
-    ///
-    /// What a point names is a turn, and the turn is still in the log however
-    /// much of the conversation a compaction has folded since; an ordinal is
-    /// not (see [`undo_to_turn_in_log`]).
-    pub async fn undo_to_turn(&self, turn: u64) -> Result<UndoResult, RuntimeError> {
-        let generation = self.status().generation;
-        let original = self.snapshot_with_revision().await?;
-        let undo = self
-            .undo_target(generation, original.revision, turn)
-            .await?;
-        self.apply_undo(
-            generation,
-            original.revision,
-            original.undo_snapshot,
-            undo,
-            None,
-        )
-        .await
-    }
-
-    /// The conversation before `turn`, as the control loop reads it off the log.
-    async fn undo_target(
-        &self,
-        generation: u64,
-        expected_revision: u64,
-        turn: u64,
-    ) -> Result<SnapshotUndoResult, RuntimeError> {
-        let (done, result) = oneshot::channel();
-        self.tx
-            .send(CodingRuntimeControl::UndoTarget {
-                generation,
-                expected_revision,
-                turn,
-                done,
-            })
-            .map_err(|_| RuntimeError::Unavailable)?;
-        result.await.map_err(|_| RuntimeError::Unavailable)?
+        self.apply_undo(generation, original.revision, original.undo_snapshot, undo)
+            .await
     }
 
     async fn apply_undo(
@@ -2429,14 +1641,12 @@ impl CodingRuntimeHandle {
         expected_revision: u64,
         original: Arc<SessionSnapshot>,
         undo: SnapshotUndoResult,
-        code_rewound_to: Option<u64>,
     ) -> Result<UndoResult, RuntimeError> {
         let (done, result) = oneshot::channel();
         self.tx
             .send(CodingRuntimeControl::ApplyUndo {
                 generation,
                 expected_revision,
-                code_rewound_to,
                 original,
                 truncated: undo.snapshot,
                 restored_prompt: undo.restored_prompt,
@@ -2454,64 +1664,6 @@ impl CodingRuntimeHandle {
         self.tx
             .send(CodingRuntimeControl::RewindCatalog {
                 generation: runtime_state_generation(state),
-                done,
-            })
-            .map_err(|_| RuntimeError::Unavailable)?;
-        result.await.map_err(|_| RuntimeError::Unavailable)?
-    }
-
-    /// Whether this session is driving itself, and how far it has got.
-    pub async fn autonomy(&self) -> Result<Autonomy, RuntimeError> {
-        let state = self.state.load(Ordering::Acquire);
-        let (done, result) = oneshot::channel();
-        self.tx
-            .send(CodingRuntimeControl::Autonomy {
-                generation: runtime_state_generation(state),
-                done,
-            })
-            .map_err(|_| RuntimeError::Unavailable)?;
-        result.await.map_err(|_| RuntimeError::Unavailable)?
-    }
-
-    /// What the account has left to spend, window by window.
-    ///
-    /// Best-effort and bounded: the source is a network call, and a person
-    /// asking "how much have I got left" must not be made to wait on it. No
-    /// source, a slow one or a failing one all answer with an empty list, which
-    /// says "this host does not meter" in the only way a front end can act on.
-    /// The account's windows **and** what it has spent, in one round trip.
-    ///
-    /// Together because a screen that shows them shows them on one page, and
-    /// two trips would be two chances for one of them to be a moment stale
-    /// against the other.
-    #[allow(clippy::type_complexity)]
-    pub async fn usage(&self, windows_only: bool) -> Result<Allowance, RuntimeError> {
-        let state = self.state.load(Ordering::Acquire);
-        let (done, result) = oneshot::channel();
-        self.tx
-            .send(CodingRuntimeControl::Usage {
-                generation: runtime_state_generation(state),
-                windows_only,
-                done,
-            })
-            .map_err(|_| RuntimeError::Unavailable)?;
-        result.await.map_err(|_| RuntimeError::Unavailable)?
-    }
-
-    /// What this session has changed in the workspace — every file, or one
-    /// file's diff.
-    pub async fn workspace_changes(
-        &self,
-        file: Option<String>,
-        scope: WorkspaceScope,
-    ) -> Result<WorkspaceChanges, RuntimeError> {
-        let state = self.state.load(Ordering::Acquire);
-        let (done, result) = oneshot::channel();
-        self.tx
-            .send(CodingRuntimeControl::WorkspaceChanges {
-                generation: runtime_state_generation(state),
-                file,
-                scope,
                 done,
             })
             .map_err(|_| RuntimeError::Unavailable)?;
@@ -2546,10 +1698,7 @@ impl CodingRuntimeHandle {
             .ok_or(RuntimeError::RewindPointUnavailable { turn_id })?;
         if scope.restores_code() {
             if let Some(reason) = catalog.code_unavailable {
-                // The error carries a sentence because that is what a
-                // `RuntimeError` is; the *kind* reached the front end on the
-                // catalog, which is where a screen looks.
-                return Err(RuntimeError::CodeRewindUnavailable(reason.say()));
+                return Err(RuntimeError::CodeRewindUnavailable(reason));
             }
         }
         let original = self.snapshot_with_revision().await?;
@@ -2557,10 +1706,10 @@ impl CodingRuntimeHandle {
             return Err(RuntimeError::Busy);
         }
         let undo = if scope.restores_conversation() {
-            Some(
-                self.undo_target(catalog.generation.0, catalog.revision, point.turn_id)
-                    .await?,
-            )
+            Some(undo_snapshot_to_prompt(
+                &original.undo_snapshot,
+                Some(point.prompt_number),
+            )?)
         } else {
             None
         };
@@ -2600,7 +1749,6 @@ impl CodingRuntimeHandle {
                 catalog.revision,
                 original.undo_snapshot,
                 undo,
-                scope.restores_code().then_some(point.turn_id),
             )
             .await
         {
@@ -2671,15 +1819,13 @@ impl CodingRuntimeHandle {
         result.await.map_err(|_| RuntimeError::Unavailable)?
     }
 
-    pub async fn start_goal(&self, condition: impl Into<UserInput>) -> Result<(), RuntimeError> {
+    pub async fn start_goal(&self, condition: impl Into<String>) -> Result<(), RuntimeError> {
         let state = self.state.load(Ordering::Acquire);
         let (done, result) = oneshot::channel();
-        let condition = condition.into();
         self.tx
             .send(CodingRuntimeControl::StartGoal {
                 generation: runtime_state_generation(state),
-                condition: condition.text,
-                images: condition.images,
+                condition: condition.into(),
                 done,
                 recovery_tx: self.tx.clone(),
             })
@@ -2699,20 +1845,14 @@ impl CodingRuntimeHandle {
         result.await.map_err(|_| RuntimeError::Unavailable)?
     }
 
-    pub async fn start_loop(
-        &self,
-        prompt: impl Into<String>,
-        every: Option<u32>,
-    ) -> Result<(), RuntimeError> {
+    pub async fn start_loop(&self, prompt: impl Into<String>) -> Result<(), RuntimeError> {
         let state = self.state.load(Ordering::Acquire);
         let (done, result) = oneshot::channel();
         self.tx
             .send(CodingRuntimeControl::StartLoop {
                 generation: runtime_state_generation(state),
                 prompt: prompt.into(),
-                every,
                 done,
-                recovery_tx: self.tx.clone(),
             })
             .map_err(|_| RuntimeError::Unavailable)?;
         result.await.map_err(|_| RuntimeError::Unavailable)?
@@ -2841,70 +1981,45 @@ impl CodingRuntime {
             wakeup_tx.clone(),
             Arc::clone(&loop_active),
         )));
-        // Before the mount, because a row mounted in it offers the runtime's own
-        // capabilities as commands (`docs/adr/0021` §3) and needs somewhere to
-        // send them. The channel is usable the moment it exists; the loop that
-        // reads it starts below, and a command that arrives before then waits in
-        // it like any other.
-        let (handle, controls) = coding_runtime_control_channel();
-        parts.set_runtime_commands(Arc::new(handle.clone()));
-        // Said once, first, before anything the runtime does: what the
-        // configuration asked for that was left out (see
-        // `CodingParts::startup_warnings`).
-        let startup_warnings = parts.take_startup_warnings();
         let session_id = parts.session.as_ref().map(|binding| binding.id.as_str());
         let session = parts.session.as_ref().map(|binding| RuntimeSessionInfo {
             id: binding.id.clone(),
             resumed: binding.resume.is_some(),
         });
-        // Mounted only on the harness engine, and kept for exactly one reason:
-        // dropping the `App` unloads every row, and the next command would
-        // reach a conversation whose services are gone. It rides in
-        // `RuntimeResources` with `parts` because it is the same kind of thing —
-        // what a respawn must not lose.
-        let mut harness_app: Option<atomcode_plexus::App> = None;
-        let mut harness_providers: Option<Arc<crate::on_harness::ProviderSlots>> = None;
-        let (kernel_agent, unavailable_reason) =
-            match bootstrap {
-                ProviderBootstrap::Unavailable(reason) => (None, Some(reason)),
-                ProviderBootstrap::Required | ProviderBootstrap::RecoverAuthentication => {
-                    match provider_factory.build(&agent, session_id) {
-                        Ok(provider) => (
-                            Some({
-                                let mounted =
-                                    mount(&parts, &agent, &prepare, provider).await.map_err(
-                                        |e| RuntimeStartError::Assemble(std::io::Error::other(e)),
-                                    )?;
-                                harness_app = Some(mounted.app);
-                                harness_providers = Some(mounted.providers);
-                                mounted.handle
-                            }),
-                            None,
+        let (kernel_agent, unavailable_reason) = match bootstrap {
+            ProviderBootstrap::Unavailable(reason) => (None, Some(reason)),
+            ProviderBootstrap::Required | ProviderBootstrap::RecoverAuthentication => {
+                match provider_factory.build(&agent, session_id) {
+                    Ok(provider) => (
+                        Some(
+                            assemble(&mut parts, &agent, provider)
+                                .map_err(RuntimeStartError::Assemble)?
+                                .spawn(),
                         ),
-                        Err(crate::ProviderBuildError::Authentication(_))
-                            if bootstrap == ProviderBootstrap::RecoverAuthentication =>
-                        {
-                            (
-                                None,
-                                Some(ProviderUnavailableReason::AuthenticationRequired),
-                            )
-                        }
-                        Err(crate::ProviderBuildError::SourceBuildGatewayUnsupported {
-                            ..
-                        }) if bootstrap == ProviderBootstrap::RecoverAuthentication => {
-                            (None, Some(ProviderUnavailableReason::UnsupportedBuild))
-                        }
-                        Err(error) => return Err(RuntimeStartError::Provider(error)),
+                        None,
+                    ),
+                    Err(crate::ProviderBuildError::Authentication(_))
+                        if bootstrap == ProviderBootstrap::RecoverAuthentication =>
+                    {
+                        (
+                            None,
+                            Some(ProviderUnavailableReason::AuthenticationRequired),
+                        )
                     }
+                    Err(crate::ProviderBuildError::SourceBuildGatewayUnsupported { .. })
+                        if bootstrap == ProviderBootstrap::RecoverAuthentication =>
+                    {
+                        (None, Some(ProviderUnavailableReason::UnsupportedBuild))
+                    }
+                    Err(error) => return Err(RuntimeStartError::Provider(error)),
                 }
-            };
+            }
+        };
         parts
             .publish_staged_session()
             .map_err(runtime_start_prepare_error)?;
-        if matches!(prepare.session, crate::SessionMode::Resume(_)) {
-            parts.take_up_resumed_session();
-        }
 
+        let (handle, controls) = coding_runtime_control_channel();
         let (raw_event_tx, _raw_events) = mpsc::unbounded_channel();
         let (tagged_event_tx, mut tagged_events) = mpsc::unbounded_channel();
         let adapter = spawn_runtime_owner_with_optional_agent(
@@ -2925,8 +2040,6 @@ impl CodingRuntime {
                 provider_factory,
                 plugin_hooks,
                 parts,
-                harness_app,
-                harness_providers,
                 wakeup_tx,
                 loop_active,
                 image_preprocessor,
@@ -2947,14 +2060,6 @@ impl CodingRuntime {
             let mut raw_open = true;
             let mut kernel_open = true;
             let mut receiver_dropped = false;
-            for warning in startup_warnings {
-                let _ = event_tx.send(SequencedRuntimeEvent {
-                    generation: task_handle.status().generation,
-                    sequence,
-                    event: CodingRuntimeEvent::ControllerWarning(warning),
-                });
-                sequence = sequence.wrapping_add(1);
-            }
 
             while raw_open || kernel_open {
                 tokio::select! {
@@ -2979,24 +2084,6 @@ impl CodingRuntime {
                     },
                     event = kernel_events.recv(), if kernel_open => match event {
                         Some(event) => {
-                            // The screen shows a retry and moves on; the log is
-                            // where the provider's error is still there to be read
-                            // when someone asks why their requests kept failing.
-                            if let AgentEvent::ProviderRetry {
-                                attempt,
-                                max_attempts,
-                                backoff_secs,
-                                reason,
-                            } = &event
-                            {
-                                tracing::warn!(
-                                    attempt,
-                                    max_attempts,
-                                    backoff_secs,
-                                    error = %reason,
-                                    "provider request failed; retrying"
-                                );
-                            }
                             let envelope = SequencedRuntimeEvent {
                                 generation: task_handle.status().generation,
                                 sequence,
@@ -3091,22 +2178,6 @@ pub struct CodingRuntimeControlReceiver {
     state: Arc<AtomicU64>,
     provider_unavailable_reason: Arc<AtomicU8>,
     terminal_tx: watch::Sender<Option<RuntimeExit>>,
-    /// The other end of [`CodingRuntimeHandle::stop`].
-    stop: Arc<Mutex<CancellationToken>>,
-}
-
-impl CodingRuntimeControlReceiver {
-    /// The stop as it stands: cloned before a long await, so firing it later
-    /// reaches that await.
-    fn stop_now(&self) -> CancellationToken {
-        self.stop.lock().expect("stop poisoned").clone()
-    }
-
-    /// Put a fresh one in place — the stop that was asked for has been handled,
-    /// and the next piece of work is not the one it was aimed at.
-    fn stop_handled(&self) {
-        *self.stop.lock().expect("stop poisoned") = CancellationToken::new();
-    }
 }
 
 impl CodingRuntimeControlReceiver {
@@ -3130,18 +2201,6 @@ pub enum CodingRuntimeControl {
     Submit {
         generation: u64,
         input: UserInput,
-        /// The driver's own id for this submit, when it has one. Carried into the
-        /// harness so the turn can name the same message back: the fold
-        /// (`AgentEvent::Accepted`) and what a stop withdrew
-        /// (`AgentEvent::Rejected`, `docs/adr/0021` §7). `None` for a driver that
-        /// does not correlate its sends.
-        receipt: Option<atomcode_kernel::event::CommandId>,
-        /// Who is talking, when it is not the person: the session id of a job
-        /// this conversation started elsewhere, reporting back. It rides the
-        /// submit because a note is a submit in every other respect — the same
-        /// execution policy, receipt and turn accounting — and differs in the one
-        /// thing `input` cannot carry: whose words these are.
-        from: Option<String>,
         done: oneshot::Sender<Result<SubmitReceipt, RuntimeError>>,
     },
     Respond {
@@ -3175,21 +2234,7 @@ pub enum CodingRuntimeControl {
     },
     ContextStats {
         generation: u64,
-        /// 连系统提示词一起答。见 [`RuntimeContextStats::system_prompt`]。
-        prompt: bool,
         done: oneshot::Sender<Result<RuntimeContextStats, RuntimeError>>,
-    },
-    /// The execution mode in force, decoded from the same three flags the
-    /// approval and plan middlewares read.
-    ///
-    /// Read here rather than mirrored onto the handle, deliberately: a second
-    /// copy of "which mode is on" could disagree with the flags that actually
-    /// govern a tool call, and the one a person reads on screen would be the
-    /// copy. Answering through the owner also orders it against `SetMode` on
-    /// the same queue, so a read that follows a set sees it.
-    Mode {
-        generation: u64,
-        done: oneshot::Sender<Result<RuntimeMode, RuntimeError>>,
     },
     WaitMcpReady {
         generation: u64,
@@ -3205,53 +2250,9 @@ pub enum CodingRuntimeControl {
         server: String,
         done: oneshot::Sender<Result<McpToolsSnapshot, RuntimeError>>,
     },
-    /// "Always allow" one MCP tool: auto-approve it in this session and write it
-    /// into the project's `autoApprove`. Runs mid-turn — it is answered while an
-    /// approval for that very tool is pending — and needs no rebuild.
-    ApproveMcpTool {
-        generation: u64,
-        alias: String,
-        done: oneshot::Sender<Result<Option<McpToolApproval>, RuntimeError>>,
-    },
-    /// The panel's list: every configured server — disabled ones included — with
-    /// the live status, source, config path, transport, auth and tool count.
-    McpRows {
-        generation: u64,
-        done: oneshot::Sender<Result<McpRowsSnapshot, RuntimeError>>,
-    },
-    /// One configured server in full. An unknown key answers `detail == None`,
-    /// which is not an error.
-    McpDetail {
-        generation: u64,
-        server: String,
-        done: oneshot::Sender<Result<McpDetailSnapshot, RuntimeError>>,
-    },
-    /// Do one thing to one configured server:
-    /// `docs/mcp-panel-design.md` §5.2's six actions. A refusal (unknown server,
-    /// uneditable config, OAuth failure) answers `ReconfigureFailed` carrying the
-    /// reason verbatim; `Untrust` and `Logout` answer `Busy` while a turn is
-    /// running, because they withdraw the tools before changing trust or auth.
-    McpAct {
-        generation: u64,
-        server: String,
-        action: crate::parts::McpAction,
-        done: oneshot::Sender<Result<(), RuntimeError>>,
-    },
     WithdrawMcpTools {
         generation: u64,
-        /// Whether the model is told (see [`crate::told`]).
-        tell: bool,
         done: oneshot::Sender<Result<(), RuntimeError>>,
-    },
-    ToolCatalog {
-        generation: u64,
-        done: oneshot::Sender<Result<Vec<atomcode_harness::seams::ToolListing>, RuntimeError>>,
-    },
-    SwitchTool {
-        generation: u64,
-        pattern: String,
-        on: bool,
-        done: oneshot::Sender<Result<Vec<atomcode_harness::seams::ToolListing>, RuntimeError>>,
     },
     QueueLocalContext {
         generation: u64,
@@ -3273,18 +2274,9 @@ pub enum CodingRuntimeControl {
         target: ReprepareTarget,
         done: oneshot::Sender<Result<SessionChanged, RuntimeError>>,
     },
-    /// What a capability row asks before it resolves one: the intervention
-    /// waiting now, or nothing.
-    PendingPolicyIntervention {
-        done: oneshot::Sender<Option<PolicyIntervention>>,
-    },
     ApplyUndo {
         generation: u64,
         expected_revision: u64,
-        /// The turn whose checkpoint the workspace was restored from, when the
-        /// same rewind took the workspace back too: recorded beside the
-        /// conversation's own fact (`docs/adr/0024` §17).
-        code_rewound_to: Option<u64>,
         original: Arc<SessionSnapshot>,
         truncated: SessionSnapshot,
         restored_prompt: String,
@@ -3295,36 +2287,6 @@ pub enum CodingRuntimeControl {
     RewindCatalog {
         generation: u64,
         done: oneshot::Sender<Result<RewindCatalog, RuntimeError>>,
-    },
-    /// The conversation as it stood before `turn`, read off the session log
-    /// (see [`undo_to_turn_in_log`]).
-    UndoTarget {
-        generation: u64,
-        expected_revision: u64,
-        turn: u64,
-        done: oneshot::Sender<Result<SnapshotUndoResult, RuntimeError>>,
-    },
-    /// Whether a goal or a loop is running, and how far it has got.
-    Autonomy {
-        generation: u64,
-        done: oneshot::Sender<Result<Autonomy, RuntimeError>>,
-    },
-    /// The account's remaining allowance, as rolling windows.
-    Usage {
-        generation: u64,
-        /// Fetch the windows alone, as the host contract's field of the same
-        /// name asks: one call on the account instead of three.
-        windows_only: bool,
-        done: oneshot::Sender<Result<Allowance, RuntimeError>>,
-    },
-    /// What this session has changed in the workspace. `file` asks for one
-    /// file's diff text instead of the summary of all of them.
-    WorkspaceChanges {
-        /// Which two things to compare.
-        scope: WorkspaceScope,
-        generation: u64,
-        file: Option<String>,
-        done: oneshot::Sender<Result<WorkspaceChanges, RuntimeError>>,
     },
     BeginRewind {
         generation: u64,
@@ -3349,14 +2311,9 @@ pub enum CodingRuntimeControl {
     StartGoal {
         generation: u64,
         condition: String,
-        /// What the person attached to the condition. The first round carries
-        /// them; later rounds are the evaluator's own words and carry none.
-        images: Vec<ImageContent>,
         done: oneshot::Sender<Result<(), RuntimeError>>,
-        /// Self-send channel. The owner loop posts the goal's own first round
-        /// on it as a [`Submit`](CodingRuntimeControl::Submit), and an
-        /// [`AdjustGoalRounds`] once the live per-plan round budget has been
-        /// resolved off the loop.
+        /// Self-send channel so the owner loop can post an [`AdjustGoalRounds`] once
+        /// the live per-plan round budget has been resolved off the loop.
         recovery_tx: mpsc::UnboundedSender<CodingRuntimeControl>,
     },
     /// Self-sent from a background task after goal start: applies the live per-plan
@@ -3373,13 +2330,9 @@ pub enum CodingRuntimeControl {
         done: oneshot::Sender<Result<(), RuntimeError>>,
     },
     StartLoop {
-        /// The person's own cadence, in seconds; `None` leaves it to the model.
-        every: Option<u32>,
         generation: u64,
         prompt: String,
         done: oneshot::Sender<Result<(), RuntimeError>>,
-        /// Self-send channel, for the loop's own first round.
-        recovery_tx: mpsc::UnboundedSender<CodingRuntimeControl>,
     },
     StopLoop {
         generation: u64,
@@ -3398,6 +2351,7 @@ pub enum RewindFinalization {
 #[doc(hidden)]
 #[derive(Clone)]
 pub enum ReprepareTarget {
+    Exact(ReprepareInput),
     Reload {
         plugin_skill_dirs: Option<Vec<(std::path::PathBuf, String)>>,
     },
@@ -3422,21 +2376,18 @@ pub fn coding_runtime_control_channel() -> (CodingRuntimeHandle, CodingRuntimeCo
     // this flag at spawn time when startup produced only a degraded placeholder.
     let state = Arc::new(AtomicU64::new(runtime_state(0, true)));
     let provider_unavailable_reason = Arc::new(AtomicU8::new(0));
-    let stop = Arc::new(Mutex::new(CancellationToken::new()));
     (
         CodingRuntimeHandle {
             tx,
             state: Arc::clone(&state),
             provider_unavailable_reason: Arc::clone(&provider_unavailable_reason),
             terminal,
-            stop: Arc::clone(&stop),
         },
         CodingRuntimeControlReceiver {
             rx,
             state,
             provider_unavailable_reason,
             terminal_tx,
-            stop,
         },
     )
 }
@@ -3754,6 +2705,7 @@ fn spawn_runtime_owner_with_optional_agent(
     let mut wakeup_rx = wakeup_rx.unwrap_or(closed_wakeup_rx);
     let (goal_eval_tx, mut goal_eval_rx) = mpsc::unbounded_channel::<EvalOutcome>();
     let (loop_fire_tx, mut loop_fire_rx) = mpsc::unbounded_channel::<(u64, u64, WakeupRequest)>();
+    let (session_name_tx, mut session_name_rx) = mpsc::unbounded_channel::<(u64, String)>();
     let (next_prompt_tx, mut next_prompt_rx) =
         mpsc::unbounded_channel::<NextPromptSuggestionOutcome>();
     let (team_event_tx, mut team_event_rx) = mpsc::unbounded_channel();
@@ -3765,11 +2717,11 @@ fn spawn_runtime_owner_with_optional_agent(
     }
     let mut generation = 0;
     let event_generation = Arc::new(AtomicU64::new(generation));
-    let runtime_event_tx = RuntimeEventEmitter::new(
-        runtime_event_tx,
-        tagged_event_tx,
-        Arc::clone(&event_generation),
-    );
+    let runtime_event_tx = RuntimeEventEmitter {
+        raw: runtime_event_tx,
+        tagged: tagged_event_tx,
+        generation: Arc::clone(&event_generation),
+    };
     controls.state.store(
         runtime_phase_state(generation, initial_phase),
         Ordering::Release,
@@ -3822,16 +2774,8 @@ fn spawn_runtime_owner_with_optional_agent(
         let mut loop_state: Option<LoopState> = None;
         let mut pending_wakeup: Option<WakeupRequest> = None;
         let mut held_turn: Option<(u64, StopReason, Arc<SessionSnapshot>, RuntimeTurnStats)> = None;
-        // Whether the agent itself has work: a turn open, or a message handed
-        // to it that it will open one for. Not the same as `active_turn`: a held
-        // turn is one this owner keeps open after the agent finished it, and the
-        // agent can open another under it (a message typed while `/loop` waits).
-        let mut kernel_turn_open = false;
+        let mut ai_name_attempted = false;
         let mut persistence_failure = None;
-        // What each panel `Disable` held back, by server, for the matching
-        // `Enable` to give back. Owned here rather than by the parts because a
-        // rebuild replaces the parts and the person's switches outlive it.
-        let mut mcp_disable_holds: BTreeMap<String, Vec<String>> = BTreeMap::new();
         if agent_available {
             replay_pending_resume_prompt(
                 &agent,
@@ -3851,12 +2795,6 @@ fn spawn_runtime_owner_with_optional_agent(
             });
         }
         loop {
-            // No agent, no inbox: whatever was still waiting in the one that
-            // went is answered now (a stop-and-rebuild answers it itself, in
-            // `stop_current_agent`; this is every other way an agent is lost).
-            if agent.is_none() {
-                runtime_event_tx.withdraw_unclaimed();
-            }
             tokio::select! {
                 biased;
                 team_event = team_event_rx.recv() => {
@@ -4140,6 +3078,14 @@ fn spawn_runtime_owner_with_optional_agent(
                         }
                     }
                 }
+                suggestion = session_name_rx.recv(), if native_protocol => {
+                    let Some((name_generation, name)) = suggestion else { continue };
+                    if name_generation == generation {
+                        let _ = runtime_event_tx.send(
+                            CodingRuntimeEvent::SessionNameSuggested { name },
+                        );
+                    }
+                }
                 suggestion = next_prompt_rx.recv(), if native_protocol => {
                     let Some(suggestion) = suggestion else { continue };
                     if suggestion.generation == generation
@@ -4171,20 +3117,17 @@ fn spawn_runtime_owner_with_optional_agent(
                     }
                     let mut finish_reason = None;
                     let mut continuation = None;
+                    // GoalResult::Met keeps the goal registered after the turn ends.
+                    // All other finish_reason paths (e.g. evaluator Error) must still clear it.
+                    let mut keep_goal_on_eval = false;
                     match outcome.result {
                         GoalResult::Met(verdict) => {
-                            // Met says it once — phase Satisfied, terminal Met, which is
-                            // what a screen draws as "已达成" — and then the goal is
-                            // CLOSED like every other terminal below. It does not linger
-                            // registered waiting to be re-engaged by the next thing a
-                            // person types: the badge is gone, so a loop that came back
-                            // on its own would be one nobody was told about. `/goal`
-                            // starts another.
                             if let Some(state) = goal.as_mut() {
                                 state.mark_satisfied(verdict);
                                 let _ = runtime_event_tx.send(CodingRuntimeEvent::GoalChanged(state.progress()));
                             }
                             finish_reason = Some(StopReason::Stopped);
+                            keep_goal_on_eval = true;
                         }
                         GoalResult::NotMet(verdict) => {
                             // A round that made ZERO tool calls did nothing but talk. When the
@@ -4257,9 +3200,12 @@ fn spawn_runtime_owner_with_optional_agent(
                     if let Some(reason) = finish_reason {
                         if let Some((turn_id, _held_reason, snapshot, stats)) = held_turn.take() {
                             active_turn = None;
-                            // Every verdict that ends the goal closes it — Met included.
-                            // The GoalChanged above already said which terminal it was.
-                            goal = None;
+                            // GoalResult::Met keeps the goal registered (phase=Satisfied);
+                            // other finish_reason paths (e.g. evaluator Error) still clear
+                            // via keep_goal_on_eval=false.
+                            if !keep_goal_on_eval {
+                                goal = None;
+                            }
                             let _ = runtime_event_tx.send(CodingRuntimeEvent::TurnFinished(TurnCompletion::Completed { turn_id, reason, snapshot, stats }));
                             controls.state.store(runtime_phase_state(generation, RuntimePhase::Ready), Ordering::Release);
                         }
@@ -4413,8 +3359,6 @@ fn spawn_runtime_owner_with_optional_agent(
                     Some(CodingRuntimeControl::Submit {
                         generation: request_generation,
                         mut input,
-                        receipt: driver_receipt,
-                        from,
                         done,
                     }) => {
                         if !native_protocol || request_generation != generation {
@@ -4436,41 +3380,91 @@ fn spawn_runtime_owner_with_optional_agent(
                             let _ = done.send(Err(RuntimeError::Busy));
                             continue;
                         }
-                        // A goal that is NOT done takes the next message as the nudge
-                        // to go on: user-paused (`/goal` with no argument) or paused at
-                        // its round / time cap. It resumes into Pursuing, so the badge
-                        // shows `◎ <cond> · round 1` again, and the message it resumed
-                        // on is that round's prompt.
+                        // A persistent goal (paused at its round cap, OR already
+                        // satisfied) re-engages on the next user message: resume it
+                        // into Pursuing so the follow-up advances the goal and the
+                        // badge shows `◎ <cond> · round 1` again rather than a stale
+                        // "已达成". Only `/goal clear` (or a superseding `/goal`, or an
+                        // error) removes it. Ended/Pursuing are untouched.
                         //
-                        // A goal that IS done does NOT come back. It was closed when the
-                        // evaluator said so (see the Met arm of the eval outcome) and the
-                        // badge went with it; starting an autonomous loop again is
-                        // `/goal`, which is one word and cannot be guessed wrong.
-                        //
-                        // Nothing here may wait on a model. This is the keypress path:
-                        // what a person typed reaches the agent now, not after a network
-                        // round-trip — the budget is the one derived at goal-START time
-                        // (`state.max_rounds`), and deciding "does this follow-up
-                        // continue the goal?" by asking a classifier here is what used to
-                        // sit on this loop for up to 4s with nothing on screen to say so.
+                        // Reuse the budget already derived at goal-START time (stored
+                        // in state.max_rounds): the 5h rolling window can't meaningfully
+                        // change between keypresses, and the extra network round-trip
+                        // (~3 s) blocked the event loop.
+                        // Decide whether/how to re-engage a persistent goal on this
+                        // user message. PausedAtCap (not yet done) always continues its
+                        // original condition. For a Satisfied (done) goal, ask the model
+                        // whether the follow-up CONTINUES it, is a NEW goal, or is just
+                        // chit-chat (NotAGoal → don't re-engage). `decision`: None = leave
+                        // the goal as-is; Some(None) = resume keeping the condition;
+                        // Some(Some(text)) = resume RE-TASKED to the new message.
                         let mut recovery_context = None;
-                        // PausedAtCap and Paused resume even on an empty submit: neither
-                        // is done, so any nudge should let it keep going.
-                        //
-                        // A note is not a nudge. Nobody asked this conversation to carry
-                        // on — a job it started elsewhere is reporting back — and
-                        // re-engaging here would both restart a goal the person paused and
-                        // spend the recovery recap that exists for their next real turn
-                        // (`resume_paused` clears it, and this is the only copy).
-                        let reengage = from.is_none()
-                            && matches!(
-                                goal.as_ref().map(|state| state.phase),
-                                Some(GoalPhase::Paused | GoalPhase::PausedAtCap)
-                            );
-                        if reengage {
+                        let reengage_decision: Option<Option<String>> = match goal
+                            .as_ref()
+                            .map(|state| state.phase)
+                        {
+                            // PausedAtCap intentionally resumes even on an empty submit:
+                            // it isn't done, so any nudge should let it keep going. The
+                            // Satisfied arm below deliberately does NOT — a done goal must
+                            // not be re-tasked by an empty message.
+                            Some(GoalPhase::Paused | GoalPhase::PausedAtCap) => Some(None),
+                            Some(GoalPhase::Satisfied) if input.text.trim().is_empty() => {
+                                // Fast-path: an empty / whitespace-only submit obviously
+                                // isn't a new goal — don't spend a classifier call (or
+                                // block the loop) on it; leave the goal Satisfied.
+                                None
+                            }
+                            Some(GoalPhase::Satisfied) => {
+                                let condition =
+                                    goal.as_ref().map(|s| s.condition.clone()).unwrap_or_default();
+                                let cancel = goal.as_ref().map(|s| s.cancel.clone());
+                                let provider = resources.as_ref().and_then(|runtime| {
+                                    let session_id = runtime
+                                        .parts
+                                        .session
+                                        .as_ref()
+                                        .map(|binding| binding.id.as_str());
+                                    build_goal_evaluator_provider(
+                                        &runtime.provider_factory,
+                                        &runtime.config,
+                                        session_id,
+                                    )
+                                    .ok()
+                                });
+                                match (provider, cancel) {
+                                    (Some(p), Some(c)) => {
+                                        // Awaited inline, so bound it tightly (the classify
+                                        // is a short reply); any timeout/failure resolves to
+                                        // Continuation so a hiccup never drops the goal.
+                                        let classified = tokio::time::timeout(
+                                            std::time::Duration::from_secs(4),
+                                            classify_followup(p, condition, input.text.clone(), c),
+                                        )
+                                        .await
+                                        .unwrap_or(FollowupClass::Continuation);
+                                        match classified {
+                                            FollowupClass::Continuation => Some(None),
+                                            FollowupClass::NewGoal => Some(Some(input.text.clone())),
+                                            FollowupClass::NotAGoal => None,
+                                        }
+                                    }
+                                    _ => Some(None),
+                                }
+                            }
+                            _ => None,
+                        };
+                        if let Some(new_condition) = reengage_decision {
                             if let Some(state) = goal.as_mut() {
                                 let was_user_paused = state.phase == GoalPhase::Paused;
-                                recovery_context = state.recovery_context();
+                                // Recovery context belongs only to continuing the same
+                                // goal. A substantive new condition is a retask and must
+                                // not inherit progress/tool output from the old goal.
+                                if new_condition.is_none() {
+                                    recovery_context = state.recovery_context();
+                                }
+                                if let Some(condition) = new_condition {
+                                    state.retask(condition);
+                                }
                                 if was_user_paused {
                                     state.resume_paused();
                                 } else {
@@ -4491,58 +3485,13 @@ fn spawn_runtime_owner_with_optional_agent(
                         // Skip an empty-text submit (e.g. an image-only steer): it carries no
                         // new intent and must not clear a restriction the user set earlier in
                         // this turn.
-                        // A note reads as intent only if somebody said it: its text is a
-                        // report, and a phrase inside it ("别跑命令") would otherwise set
-                        // this conversation's policy for a turn the person never asked
-                        // for.
-                        if from.is_none() {
-                            if let Some(runtime) = resources.as_ref() {
-                                if !input.text.trim().is_empty() {
-                                    runtime
-                                        .parts
-                                        .turn_execution_policy
-                                        .update_from_user_text(&input.text);
-                                }
+                        if let Some(runtime) = resources.as_ref() {
+                            if !input.text.trim().is_empty() {
+                                runtime
+                                    .parts
+                                    .turn_execution_policy
+                                    .update_from_user_text(&input.text);
                             }
-                        }
-                        // A HELD turn is one the agent has already finished — the runtime
-                        // is keeping it open while a controller decides what comes next
-                        // (a goal round's evaluator). A person who types now is not
-                        // steering anything: there is no live turn at the agent to fold
-                        // into, so the message would open one of its own while this
-                        // runtime still claimed the old turn was live. Two things went
-                        // wrong from that: the driver was told `Steered` and then never
-                        // got the `Steered` event that closes a steering panel, and a
-                        // verdict arriving later finished the HELD turn while the agent
-                        // was busy with the person's new one — the screen went idle in
-                        // the middle of work.
-                        //
-                        // So a GOAL's hold ends here: the round is over, its terminal is
-                        // reported, and the message starts a fresh turn. The goal itself
-                        // is untouched and still Pursuing, so the END of that turn
-                        // evaluates and continues it exactly as any other round's would —
-                        // no round is lost. The evaluation now in flight resolves against
-                        // `held_turn.is_none()` and is dropped.
-                        //
-                        // A `/loop`'s hold is NOT ended: what resolves it is a timer, and
-                        // the loop's next round exists only as that pending wakeup —
-                        // dropping it would stop the loop rather than interrupt a round.
-                        // Its own receipt is handled below (no steer acknowledgement is
-                        // registered while a turn is held, because no `Steered` is coming).
-                        let goal_holds_the_turn = goal.as_ref().is_some_and(|state| state.active);
-                        if let Some((turn_id, held_reason, snapshot, stats)) =
-                            goal_holds_the_turn.then(|| held_turn.take()).flatten()
-                        {
-                            active_turn = None;
-                            terminal_reason = None;
-                            let _ = runtime_event_tx.send(CodingRuntimeEvent::TurnFinished(
-                                TurnCompletion::Completed {
-                                    turn_id,
-                                    reason: held_reason,
-                                    snapshot,
-                                    stats,
-                                },
-                            ));
                         }
                         let receipt = if let Some(turn_id) = active_turn {
                             SubmitReceipt::Steered { generation, turn_id }
@@ -4559,18 +3508,9 @@ fn spawn_runtime_owner_with_optional_agent(
                                 turn_id: next_turn_id,
                             }
                         };
-                        // A steer acknowledgement is only owed when the kernel will fold
-                        // this input into a live turn. With the turn HELD the agent has no
-                        // turn to fold into, so no `Steered` will ever arrive — and an
-                        // entry that can never match sits at the head of this FIFO and
-                        // blocks the acknowledgement of every later input behind it.
-                        let original_steer_input = (matches!(receipt, SubmitReceipt::Steered { .. })
-                            && held_turn.is_none())
+                        let original_steer_input = matches!(receipt, SubmitReceipt::Steered { .. })
                             .then(|| input.clone());
-                        // Local context is what the driver queued to ride the person's
-                        // next turn. A note is not that turn: spending the queue on a
-                        // message nobody typed would hand it to the wrong request.
-                        if from.is_none() && !pending_local_context.is_empty() {
+                        if !pending_local_context.is_empty() {
                             let prefix = pending_local_context.drain(..).collect::<Vec<_>>().join("\n\n");
                             input.text = if input.text.is_empty() {
                                 prefix
@@ -4600,50 +3540,14 @@ fn spawn_runtime_owner_with_optional_agent(
                                     .as_ref()
                                     .and_then(|r| r.parts.session.as_ref())
                                     .map(|b| b.id.clone());
-                                // Raced against the stop, because this await is
-                                // inside the owner's own loop: a `Cancel` sent
-                                // now sits behind it on the channel, unread, and
-                                // recognition has no overall time cap (only a
-                                // 30s gap-between-chunks one). That is how esc
-                                // under a pasted image did nothing for as long
-                                // as the VL model took.
-                                let stop = controls.stop_now();
-                                let recognised = tokio::select! {
-                                    biased;
-                                    _ = stop.cancelled() => None,
-                                    done = pp.preprocess(
+                                let (new_input, notice) = pp
+                                    .preprocess(
                                         std::mem::take(&mut input.text),
                                         std::mem::take(&mut input.images),
                                         supports_vision,
                                         session_id,
-                                    ) => Some(done),
-                                };
-                                let Some((new_input, notice)) = recognised else {
-                                    // Nothing is sent to the agent: the turn the
-                                    // person stopped never reaches it, and the
-                                    // `Cancel` right behind this on the channel
-                                    // ends the turn this arm opened.
-                                    let _ = runtime_event_tx.send(
-                                        CodingRuntimeEvent::VisionPreprocessFailed {
-                                            reason: "stopped before the picture was read".into(),
-                                        },
-                                    );
-                                    // 提交到此为止、什么都没进 agent。这件事只说一趟:
-                                    // 回执在调用方那趟换成 `NotSent`,由拿着回执的人去答
-                                    // 它背后的驱动器 —— 这里再发一条事件,同一张回执就会
-                                    // 得到两个互相矛盾的答复(调用方说"开了回合",驱动器说
-                                    // "没送达"),而开着共享时调用方那趟还会把这条消息回显
-                                    // 成"已接受"。
-                                    let not_sent = match receipt {
-                                        SubmitReceipt::Started { generation, turn_id }
-                                        | SubmitReceipt::Steered { generation, turn_id } => {
-                                            SubmitReceipt::NotSent { generation, turn_id }
-                                        }
-                                        other => other,
-                                    };
-                                    let _ = done.send(Ok(not_sent));
-                                    continue;
-                                };
+                                    )
+                                    .await;
                                 input = new_input;
                                 // Surface the outcome as a status line, emitted
                                 // BEFORE SendMessage so it renders right under the
@@ -4666,23 +3570,13 @@ fn spawn_runtime_owner_with_optional_agent(
                                 }
                             }
                         }
-                        // A note from another session is not a prompt anybody typed:
-                        // it enters the kernel as that session's report, so the log
-                        // — and everything that replays it — never reads it as the
-                        // person's word. Everything else about it is a plain submit,
-                        // which is why it arrives on this path rather than one of
-                        // its own.
-                        let command = match (from, recovery_context) {
-                            (Some(from), _) => AgentCommand::PeerNote {
-                                from,
-                                text: input.text,
-                            },
-                            (None, Some(context)) => AgentCommand::SendMessageWithContext {
+                        let command = match recovery_context {
+                            Some(context) => AgentCommand::SendMessageWithContext {
                                 text: input.text,
                                 images: input.images,
                                 context,
                             },
-                            (None, None) => AgentCommand::SendMessage {
+                            None => AgentCommand::SendMessage {
                                 text: input.text,
                                 images: input.images,
                             },
@@ -4697,29 +3591,7 @@ fn spawn_runtime_owner_with_optional_agent(
                             original_steer_input.as_ref(),
                             &command,
                         );
-                        // The driver's own id for this submit rides along when it
-                        // has one: it is what the harness answers a claimed message
-                        // by (`InputClaimed` → `AgentEvent::Accepted`) and what a
-                        // stop's withdrawal names (→ `Rejected`), so a front end
-                        // that named its send never has to compare words. Wrapped
-                        // last, because the registration above is about the message
-                        // — the inner command — and not about the envelope.
-                        let command = match driver_receipt.clone() {
-                            Some(id) => AgentCommand::Tagged {
-                                id,
-                                command: Box::new(command),
-                            },
-                            None => command,
-                        };
                         if send_agent_command(&agent, command) {
-                            if let Some(id) = driver_receipt {
-                                runtime_event_tx.receipt_sent(id);
-                            }
-                            // The agent opens a turn for it (or folds it into
-                            // the one it has): as far as a stop is concerned it
-                            // has work from here, not from its `TurnStarted`,
-                            // which can arrive after the stop does.
-                            kernel_turn_open = true;
                             if let (Some(original), Some(forwarded)) =
                                 (original_steer_input, forwarded_steer_input)
                             {
@@ -4780,9 +3652,6 @@ fn spawn_runtime_owner_with_optional_agent(
                                 let _ = done.send(Ok(()));
                             }
                         }
-                    }
-                    Some(CodingRuntimeControl::PendingPolicyIntervention { done }) => {
-                        let _ = done.send(pending_policy_intervention.clone());
                     }
                     Some(CodingRuntimeControl::ResolvePolicyIntervention {
                         generation: request_generation,
@@ -4865,7 +3734,9 @@ fn spawn_runtime_owner_with_optional_agent(
                                 generation: RuntimeGeneration(generation),
                                 revision: conversation_revision,
                                 points: Vec::new(),
-                                code_unavailable: Some(CodeUnavailable::NoSession),
+                                code_unavailable: Some(
+                                    "rewind requires a persistent session".into(),
+                                ),
                             }));
                             continue;
                         };
@@ -4876,163 +3747,9 @@ fn spawn_runtime_owner_with_optional_agent(
                         let _ = done.send(Ok(RewindCatalog {
                             generation: RuntimeGeneration(generation),
                             revision: conversation_revision,
-                            points: reachable_points(runtime, hook.rewind_points()),
-                            code_unavailable: hook.code_rewind_unavailable().map(Into::into),
+                            points: hook.rewind_points(),
+                            code_unavailable: hook.code_rewind_unavailable(),
                         }));
-                    }
-                    Some(CodingRuntimeControl::UndoTarget {
-                        generation: request_generation,
-                        expected_revision,
-                        turn,
-                        done,
-                    }) => {
-                        if request_generation != generation
-                            || expected_revision != conversation_revision
-                            || active_turn.is_some()
-                            || compaction_suspended
-                            || compactions.is_active()
-                        {
-                            let _ = done.send(Err(RuntimeError::Busy));
-                            continue;
-                        }
-                        let Some(runtime) = resources.as_ref() else {
-                            let _ = done.send(Err(RuntimeError::Unavailable));
-                            continue;
-                        };
-                        let events = session_events(runtime);
-                        let _ = done.send(events.and_then(|events| undo_to_turn_in_log(&events, turn)));
-                    }
-                    // The two controllers live as locals of this loop, which is
-                    // why this is a message rather than a field somebody reads:
-                    // a second copy of "is a goal running" is a second answer.
-                    Some(CodingRuntimeControl::Autonomy {
-                        generation: request_generation,
-                        done,
-                    }) => {
-                        if request_generation != generation {
-                            let _ = done.send(Err(RuntimeError::Busy));
-                            continue;
-                        }
-                        let _ = done.send(Ok(Autonomy {
-                            goal: goal.as_ref().map(|state| state.progress()),
-                            looping: loop_state.as_ref().map(|state| state.progress()),
-                        }));
-                    }
-                    // Bounded, and off the loop: the source is an HTTP call,
-                    // and this loop is what every turn goes through. Three
-                    // seconds is the same budget `resolve_goal_round_cap` gives
-                    // it — a person asking what is left waits no longer than a
-                    // goal starting does.
-                    Some(CodingRuntimeControl::Usage {
-                        generation: request_generation,
-                        windows_only,
-                        done,
-                    }) => {
-                        if request_generation != generation {
-                            let _ = done.send(Err(RuntimeError::Busy));
-                            continue;
-                        }
-                        let source = resources
-                            .as_ref()
-                            .and_then(|runtime| runtime.parts.rate_limit_source().cloned());
-                        tokio::spawn(async move {
-                            // No source at all: this really is a host that
-                            // counts nothing, and an empty answer says so.
-                            let Some(source) = source else {
-                                let _ = done.send(Ok(Allowance::default()));
-                                return;
-                            };
-                            // Asked for together, not one after another: these
-                            // are three separate calls on the same account, and
-                            // a page that waited three times as long to show
-                            // one screen is a page that feels broken. One
-                            // budget each, but they run at once, so the page is
-                            // late by the slowest rather than by the sum.
-                            let budget = std::time::Duration::from_secs(3);
-                            // The cheap form asks for the windows and stops
-                            // there. It exists for the periodic check, which
-                            // wants "how much is left" and nothing else —
-                            // asking the other two on a timer would triple the
-                            // traffic to say the same thing.
-                            if windows_only {
-                                let asked =
-                                    tokio::time::timeout(budget, source.fetch_windows()).await;
-                                let _ = done.send(Ok(Allowance {
-                                    windows: windows_or_nothing(&asked),
-                                    unavailable: why_not(&asked),
-                                    ..Allowance::default()
-                                }));
-                                return;
-                            }
-                            let (windows, plan, spent) = tokio::join!(
-                                tokio::time::timeout(budget, source.fetch_windows()),
-                                tokio::time::timeout(budget, source.fetch_plan()),
-                                tokio::time::timeout(budget, source.fetch_usage()),
-                            );
-                            // Each answer stands or falls on its own: a plan
-                            // the service would not say is not a reason to draw
-                            // no windows.
-                            let plan = plan.ok().and_then(|fetched| fetched.ok()).flatten();
-                            let spent = spent.ok().and_then(|fetched| fetched.ok()).flatten();
-                            let _ = done.send(Ok(Allowance {
-                                windows: windows_or_nothing(&windows),
-                                plan,
-                                spent,
-                                // The windows are the answer this question is
-                                // about. A plan or a spend that did not come
-                                // back leaves its own field empty and says
-                                // nothing more — those two are extra.
-                                unavailable: why_not(&windows),
-                            }));
-                        });
-                    }
-                    // Reading only: unlike the rewind catalog this does not
-                    // refuse while a turn is running. Looking at what has
-                    // changed so far is exactly what a person does *while* the
-                    // model works, and nothing here writes.
-                    Some(CodingRuntimeControl::WorkspaceChanges {
-                        generation: request_generation,
-                        file,
-                        scope,
-                        done,
-                    }) => {
-                        if request_generation != generation {
-                            let _ = done.send(Err(RuntimeError::Busy));
-                            continue;
-                        }
-                        let Some(runtime) = resources.as_ref() else {
-                            let _ = done.send(Err(RuntimeError::Unavailable));
-                            continue;
-                        };
-                        // The checkout's own answer needs no session history —
-                        // only git — which is why "this session does not keep
-                        // snapshots" is never its reason for having none.
-                        if scope == WorkspaceScope::Git {
-                            let at = runtime.config.working_dir.clone();
-                            let _ = done.send(Ok(git_workspace_changes(&at, file.as_deref())));
-                            continue;
-                        }
-                        let Some(hook) = runtime.parts.snapshot_hook() else {
-                            let _ = done.send(Ok(WorkspaceChanges {
-                                unavailable: Some("这个会话不做工作区快照".into()),
-                                ..Default::default()
-                            }));
-                            continue;
-                        };
-                        let answer = match file {
-                            Some(path) => hook.file_diff(&path).map(|diff| WorkspaceChanges {
-                                diff: Some(diff),
-                                ..Default::default()
-                            }),
-                            None => hook.changes().map(|files| WorkspaceChanges {
-                                files,
-                                ..Default::default()
-                            }),
-                        };
-                        let _ = done.send(Ok(answer.unwrap_or_else(|why| WorkspaceChanges {
-                            unavailable: Some(why),
-                            ..Default::default()
-                        })));
                     }
                     Some(CodingRuntimeControl::BeginRewind {
                         generation: request_generation,
@@ -5170,12 +3887,6 @@ fn spawn_runtime_owner_with_optional_agent(
                             )));
                             continue;
                         };
-                        // Only the files went back: the conversation above still
-                        // describes edits that are no longer on disk.
-                        let code_only = (outcome == RewindFinalization::Commit
-                            && !receipt.takes_back_conversation()
-                            && !receipt.restored_files().is_empty())
-                        .then(|| receipt.restored_files().to_vec());
                         let result = tokio::task::spawn_blocking(move || match outcome {
                             RewindFinalization::Commit => hook.commit_rewind(receipt),
                             RewindFinalization::Compensate => hook.compensate_rewind(receipt),
@@ -5217,12 +3928,6 @@ fn spawn_runtime_owner_with_optional_agent(
                             let _ = done.send(Err(RuntimeError::ReconfigureFailed(message)));
                             continue;
                         }
-                        if let Some(files) = code_only {
-                            tell(
-                                runtime,
-                                Some(crate::told::code_restored_conversation_kept(&files)),
-                            );
-                        }
                         if controls.state.load(Ordering::Acquire)
                             == runtime_phase_state(generation, RuntimePhase::Reconfiguring)
                         {
@@ -5237,9 +3942,6 @@ fn spawn_runtime_owner_with_optional_agent(
                         generation: request_generation,
                         done,
                     }) => {
-                        // Whatever the stop reached (or did not), it is answered
-                        // from here on; a fresh one waits for the next.
-                        controls.stop_handled();
                         if native_protocol
                             && request_generation == generation
                             && agent_available
@@ -5249,28 +3951,8 @@ fn spawn_runtime_owner_with_optional_agent(
                             }
                         }
                         if !native_protocol || request_generation != generation || !agent_available {
-                            // Which of the three refused is the whole answer to
-                            // "esc did not stop the turn": a stale generation
-                            // means the runtime was rebuilt under the driver, and
-                            // `agent_available == false` means there is no agent
-                            // left to stop. Neither is a bug in the cancel path,
-                            // and without this line a report of the symptom
-                            // cannot be told apart from one that is.
-                            tracing::warn!(
-                                protocol = native_protocol,
-                                requested_generation = request_generation,
-                                current_generation = generation,
-                                agent_available,
-                                "a cancel was refused before it reached the agent"
-                            );
                             let _ = done.send(Err(RuntimeError::Unavailable));
-                        } else if let Some((turn_id, _, snapshot, stats)) =
-                            // A hold with the agent idle under it is closed here
-                            // and now. One the agent has opened a turn under is
-                            // not: that turn is what the person is stopping, so
-                            // it takes the branch that tells the agent (below).
-                            held_turn.take_if(|_| !kernel_turn_open)
-                        {
+                        } else if let Some((turn_id, _, snapshot, stats)) = held_turn.take() {
                             if let Some(mut state) = goal.take() {
                                 state.cancel.cancel();
                                 state.finish(GoalTerminal::Cancelled, "cancelled by user");
@@ -5337,10 +4019,6 @@ fn spawn_runtime_owner_with_optional_agent(
                                 runtime.loop_active.store(false, Ordering::Release);
                             }
                             pending_wakeup = None;
-                            // The hold, if there was one, ends with the turn
-                            // the agent opened under it: one terminal, for the
-                            // turn the person was looking at.
-                            held_turn = None;
                             for id in pending_requests.keys().copied() {
                                 let _ = send_agent_command(&agent, AgentCommand::Respond {
                                     id,
@@ -5387,9 +4065,7 @@ fn spawn_runtime_owner_with_optional_agent(
                             .send(CodingRuntimeEvent::GoalChanged(state.progress()));
                         pending_wakeup = None;
 
-                        if let Some((turn_id, _, snapshot, stats)) =
-                            held_turn.take_if(|_| !kernel_turn_open)
-                        {
+                        if let Some((turn_id, _, snapshot, stats)) = held_turn.take() {
                             active_turn = None;
                             cancel_pending = false;
                             let _ = runtime_event_tx.send(CodingRuntimeEvent::TurnFinished(
@@ -5404,14 +4080,6 @@ fn spawn_runtime_owner_with_optional_agent(
                                 runtime_phase_state(generation, RuntimePhase::Ready),
                                 Ordering::Release,
                             );
-                            let _ = done.send(Ok(()));
-                        } else if held_turn.is_some() {
-                        // A turn the agent opened under the hold is not what
-                        // this stops: the person asked for the controller to
-                        // stop, not for their own message to. The hold goes, so
-                        // the turn now running is the one this owner accounts
-                        // for, and its own end reports it.
-                            held_turn = None;
                             let _ = done.send(Ok(()));
                         } else if active_turn.is_none() {
                             cancel_pending = false;
@@ -5464,7 +4132,6 @@ fn spawn_runtime_owner_with_optional_agent(
                             let _ = done.send(Err(RuntimeError::Busy));
                             continue;
                         }
-                        let before = current_mode(&runtime.parts);
                         runtime.parts.plan_mode.store(
                             matches!(mode, RuntimeMode::Plan),
                             Ordering::Release,
@@ -5477,27 +4144,11 @@ fn spawn_runtime_owner_with_optional_agent(
                             matches!(mode, RuntimeMode::AcceptEdits),
                             Ordering::Release,
                         );
-                        tell(runtime, crate::told::mode_changed(before, mode));
                         let _ = runtime_event_tx.send(CodingRuntimeEvent::ModeChanged { mode });
                         let _ = done.send(Ok(()));
                     }
-                    Some(CodingRuntimeControl::Mode {
-                        generation: request_generation,
-                        done,
-                    }) => {
-                        let Some(runtime) = resources.as_ref() else {
-                            let _ = done.send(Err(RuntimeError::Unavailable));
-                            continue;
-                        };
-                        if request_generation != generation {
-                            let _ = done.send(Err(RuntimeError::Busy));
-                            continue;
-                        }
-                        let _ = done.send(Ok(current_mode(&runtime.parts)));
-                    }
                     Some(CodingRuntimeControl::ContextStats {
                         generation: request_generation,
-                        prompt,
                         done,
                     }) => {
                         let Some(runtime) = resources.as_ref() else {
@@ -5517,24 +4168,12 @@ fn spawn_runtime_owner_with_optional_agent(
                         } else {
                             used_tokens as f32 / context_window as f32
                         };
-                        // 每一段都是挂着的某一行写的,所以这里渲染的就是模型
-                        // 真正收到的那一份 —— 不是这一层照着记忆重拼一份。
-                        let system_prompt = prompt
-                            .then(|| {
-                                let app = runtime.harness_app.as_ref()?;
-                                let prompts = app
-                                    .context()
-                                    .service::<atomcode_harness::seams::SystemPromptSvc>()?;
-                                Some(prompts.render())
-                            })
-                            .flatten();
                         let _ = done.send(Ok(RuntimeContextStats {
                             context_window,
                             used_tokens,
                             utilization,
                             model: runtime.config.model.clone(),
                             working_dir: runtime.config.working_dir.clone(),
-                            system_prompt,
                         }));
                     }
                     Some(CodingRuntimeControl::WaitMcpReady {
@@ -5588,50 +4227,6 @@ fn spawn_runtime_owner_with_optional_agent(
                             servers,
                         }));
                     }
-                    Some(CodingRuntimeControl::ToolCatalog {
-                        generation: request_generation,
-                        done,
-                    }) => {
-                        if request_generation != generation {
-                            let _ = done.send(Err(RuntimeError::Busy));
-                            continue;
-                        }
-                        let listing = resources
-                            .as_ref()
-                            .and_then(|runtime| runtime.parts.tool_catalog())
-                            .map(|catalog| catalog.listing());
-                        // No catalog means no tree is mounted, which is not an
-                        // empty catalog: saying "no tools" would be a lie a
-                        // screen would render.
-                        let _ = done.send(listing.ok_or(RuntimeError::Unavailable));
-                    }
-                    Some(CodingRuntimeControl::SwitchTool {
-                        generation: request_generation,
-                        pattern,
-                        on,
-                        done,
-                    }) => {
-                        if request_generation != generation {
-                            let _ = done.send(Err(RuntimeError::Busy));
-                            continue;
-                        }
-                        let catalog = resources
-                            .as_ref()
-                            .and_then(|runtime| runtime.parts.tool_catalog());
-                        let Some(catalog) = catalog else {
-                            let _ = done.send(Err(RuntimeError::Unavailable));
-                            continue;
-                        };
-                        if on {
-                            catalog.turn_on(&pattern);
-                        } else {
-                            catalog.turn_off(&pattern);
-                        }
-                        if let Some(runtime) = resources.as_ref() {
-                            tell(runtime, Some(crate::told::tool_switched(&pattern, on)));
-                        }
-                        let _ = done.send(Ok(catalog.listing()));
-                    }
                     Some(CodingRuntimeControl::McpTools {
                         generation: request_generation,
                         server,
@@ -5661,127 +4256,8 @@ fn spawn_runtime_owner_with_optional_agent(
                             available,
                         }));
                     }
-                    Some(CodingRuntimeControl::ApproveMcpTool {
-                        generation: request_generation,
-                        alias,
-                        done,
-                    }) => {
-                        // Generation only: this answers an approval the running
-                        // turn is waiting on, so an active turn is the normal case.
-                        if request_generation != generation {
-                            let _ = done.send(Err(RuntimeError::Busy));
-                            continue;
-                        }
-                        let Some(runtime) = resources.as_ref() else {
-                            let _ = done.send(Err(RuntimeError::Unavailable));
-                            continue;
-                        };
-                        let Some(registry) = runtime.parts.mcp_registry.as_ref() else {
-                            let _ = done.send(Ok(None));
-                            continue;
-                        };
-                        let Some((server, tool)) = registry.split_tool_name(&alias).await else {
-                            let _ = done.send(Ok(None));
-                            continue;
-                        };
-                        // The session grant first: a project file that cannot be
-                        // rewritten (a commented `.mcp.json` is refused) must not
-                        // cost the person the answer they just gave.
-                        registry.mark_tool_auto_approved(&alias);
-                        let persist_error = atomcode_capabilities::mcp::config::add_auto_approved_tool(
-                            &runtime.config.working_dir,
-                            runtime.config.dirs.user(),
-                            &server,
-                            &tool,
-                        )
-                        .err()
-                        .map(|error| format!("{error:#}"));
-                        let _ = done.send(Ok(Some(McpToolApproval {
-                            server,
-                            tool,
-                            persist_error,
-                        })));
-                    }
-                    Some(CodingRuntimeControl::McpRows {
-                        generation: request_generation,
-                        done,
-                    }) => {
-                        if request_generation != generation {
-                            let _ = done.send(Err(RuntimeError::Busy));
-                            continue;
-                        }
-                        let Some(runtime) = resources.as_ref() else {
-                            let _ = done.send(Err(RuntimeError::Unavailable));
-                            continue;
-                        };
-                        let _ = done.send(match mcp_rows_of(runtime).await {
-                            Ok(rows) => Ok(McpRowsSnapshot {
-                                generation: RuntimeGeneration(generation),
-                                rows,
-                            }),
-                            Err(message) => Err(RuntimeError::ReconfigureFailed(message)),
-                        });
-                    }
-                    Some(CodingRuntimeControl::McpDetail {
-                        generation: request_generation,
-                        server,
-                        done,
-                    }) => {
-                        if request_generation != generation {
-                            let _ = done.send(Err(RuntimeError::Busy));
-                            continue;
-                        }
-                        let Some(runtime) = resources.as_ref() else {
-                            let _ = done.send(Err(RuntimeError::Unavailable));
-                            continue;
-                        };
-                        let _ = done.send(match mcp_rows_of(runtime).await {
-                            Ok(rows) => Ok(McpDetailSnapshot {
-                                generation: RuntimeGeneration(generation),
-                                detail: rows.into_iter().find(|row| row.name == server),
-                            }),
-                            Err(message) => Err(RuntimeError::ReconfigureFailed(message)),
-                        });
-                    }
-                    Some(CodingRuntimeControl::McpAct {
-                        generation: request_generation,
-                        server,
-                        action,
-                        done,
-                    }) => {
-                        // Every action but `Disable` either withdraws the tools
-                        // (untrust, sign out) — the security-reducing mutation
-                        // `withdraw_mcp_tools` awaits an idle terminal for — or only
-                        // reaches the session through the rebuild that follows it
-                        // (trust, enable), which a running turn refuses. So
-                        // they take the same refusal up front, rather than writing
-                        // the change and then failing to apply it. `Disable` holds
-                        // tools back in place and runs mid-turn (design §5.4).
-                        if request_generation != generation
-                            || (action.rebuilds()
-                                && (compaction_suspended || active_turn.is_some()))
-                        {
-                            let _ = done.send(Err(RuntimeError::Busy));
-                            continue;
-                        }
-                        let Some(runtime) = resources.as_mut() else {
-                            let _ = done.send(Err(RuntimeError::Unavailable));
-                            continue;
-                        };
-                        let said = crate::told::mcp_acted(&server, action);
-                        let outcome =
-                            apply_mcp_action(runtime, server, action, &mut mcp_disable_holds).await;
-                        if outcome.is_ok() {
-                            tell(runtime, Some(said));
-                        }
-                        let _ = done.send(match outcome {
-                            Ok(()) => Ok(()),
-                            Err(message) => Err(RuntimeError::ReconfigureFailed(message)),
-                        });
-                    }
                     Some(CodingRuntimeControl::WithdrawMcpTools {
                         generation: request_generation,
-                        tell: told,
                         done,
                     }) => {
                         if request_generation != generation
@@ -5796,7 +4272,6 @@ fn spawn_runtime_owner_with_optional_agent(
                             continue;
                         };
                         runtime.parts.withdraw_mcp_tools().await;
-                        tell(runtime, told.then(crate::told::mcp_withdrawn));
                         let _ = done.send(Ok(()));
                     }
                     Some(CodingRuntimeControl::QueueLocalContext {
@@ -5871,163 +4346,6 @@ fn spawn_runtime_owner_with_optional_agent(
                                 continue;
                             }
                         };
-
-                        // On the harness, a `/model` switch is a patch, not a
-                        // rebuild.
-                        //
-                        // Everything below this branch — stop the agent, verify
-                        // its terminal, fail-close pending requests, reassemble,
-                        // restore the snapshot — exists because the CHAIN has to
-                        // replace one `AgentHandle` with another. Here the handle
-                        // does not change: the provider lives behind the `llm`
-                        // seam, `agent-loop` resolves that seam per turn, and
-                        // `App::patch` remounts only the row whose config moved.
-                        // Rows are sibling fibers under `ROOT_FIBER` and
-                        // `Fibers::unload` cascades to children rather than to
-                        // consumers, so `agent-loop` and `ui-handle` keep running
-                        // across it.
-                        //
-                        // What is NOT skipped is the contract with whoever asked.
-                        // A first attempt at this branch dropped all of it on the
-                        // theory that it belonged to the rebuild; the runtime's
-                        // own tests named every piece, one failure at a time:
-                        // the generation is the RECEIPT `reassemble_provider`
-                        // returns, `controls.state` is what `status()` reads, the
-                        // driver renders four events in order, and a sessionless
-                        // run still has a snapshot to keep.
-                        // `agent.is_some()` is load-bearing. A patch replaces
-                        // what is behind a seam; it cannot bring back an agent
-                        // that was torn down, and `ui-handle` hands its handle
-                        // out exactly once — so after a `DeactivateProvider`
-                        // (what `/logout` does) there is nothing to patch
-                        // underneath. Recovery from that has to rebuild, which
-                        // is the chain path below.
-                        //
-                        // Without this guard the runtime reported Ready after a
-                        // `/logout` → `/login` and then refused every turn with
-                        // `ProviderUnavailable`: the provider had been swapped
-                        // behind a seam nobody was reading.
-                        if agent.is_some() {
-                            if let (Some(app), Some(slots)) = (
-                                runtime.harness_app.as_mut(),
-                                runtime.harness_providers.clone(),
-                            ) {
-                                // What the patch interrupts is put back when it
-                                // is done, under whichever generation is current
-                                // then. A patch does not end a running turn, and
-                                // a phase left at `Reconfiguring` carries the old
-                                // generation: every cancel read from it was
-                                // refused as stale while the turn ran on (`/model`
-                                // mid-turn, then esc → "unavailable").
-                                let resumed = if active_turn.is_none() {
-                                    RuntimePhase::Ready
-                                } else if pending_requests.is_empty() {
-                                    RuntimePhase::InTurn
-                                } else {
-                                    RuntimePhase::WaitingApproval
-                                };
-                                controls.state.store(
-                                    runtime_phase_state(
-                                        generation,
-                                        RuntimePhase::Reconfiguring,
-                                    ),
-                                    Ordering::Release,
-                                );
-                                let _ = runtime_event_tx.send(
-                                    CodingRuntimeEvent::Reconfiguring {
-                                        operation: ReconfigureKind::Provider,
-                                    },
-                                );
-                                let side_provider = candidate_provider.clone();
-                                if let Err(error) = crate::on_harness::swap_provider_for(
-                                    app,
-                                    slots.as_ref(),
-                                    candidate_provider,
-                                    &next.model,
-                                    Some(&next),
-                                )
-                                .await
-                                {
-                                    // The tree is unchanged on a failed patch, so
-                                    // the old provider is still behind the seam and
-                                    // the session carries on with the model it had.
-                                    controls.state.store(
-                                        runtime_phase_state(generation, resumed),
-                                        Ordering::Release,
-                                    );
-                                    resources = Some(runtime);
-                                    let _ = done
-                                        .send(Err(RuntimeError::ReconfigureFailed(error)));
-                                    continue;
-                                }
-                                if let Some(config) = refresh_routing {
-                                    crate::provider_factory::refresh_subagent_tiers(
-                                        runtime.provider_factory.clone(),
-                                        &next,
-                                        config.as_ref(),
-                                    );
-                                }
-                                // The reviewer and the subagents follow the model.
-                                let _ = crate::parts::wire_side_providers(
-                                    &runtime.parts,
-                                    &next,
-                                    &side_provider,
-                                );
-                                // Turns from here on are billed to the new model.
-                                // The chain says the same thing from `assemble`,
-                                // which only runs once the swap has succeeded.
-                                if let Some(snapshot) = runtime.parts.snapshot_hook() {
-                                    snapshot.set_model_attribution(&next.provider_name, &next.model);
-                                }
-                                tell(&runtime, crate::told::reconfigured(&runtime.config, &next));
-                                runtime.config = next;
-                                let provider = runtime.config.provider_name.clone();
-                                let model = runtime.config.model.clone();
-                                let reasoning_effort =
-                                    runtime.config.chat_options.reasoning_effort;
-                                let reasoning_effort_applicable =
-                                    runtime.config.supports_reasoning_effort;
-                                resources = Some(runtime);
-                                // A provider is available again. Needed for the
-                                // LOGIN half of `/logout` → `/login`: a plain
-                                // `/model` never leaves these unset, so the first
-                                // version of this branch did not touch them — and
-                                // a recovered runtime then reported Ready while
-                                // refusing every turn as `ProviderUnavailable`.
-                                agent_available = true;
-                                provider_unavailable_reason = None;
-                                controls
-                                    .provider_unavailable_reason
-                                    .store(0, Ordering::Release);
-                                generation = generation.wrapping_add(1);
-                                event_generation.store(generation, Ordering::Release);
-                                pending_steer_acknowledgements.clear();
-                                controls.state.store(
-                                    runtime_phase_state(generation, resumed),
-                                    Ordering::Release,
-                                );
-                                let _ = runtime_event_tx.send(
-                                    CodingRuntimeEvent::ProviderChanged {
-                                        provider: provider.clone(),
-                                        model,
-                                    },
-                                );
-                                let _ = runtime_event_tx.send(
-                                    CodingRuntimeEvent::ReasoningEffortChanged {
-                                        provider,
-                                        effort: reasoning_effort,
-                                        applicable: reasoning_effort_applicable,
-                                    },
-                                );
-                                let _ = runtime_event_tx.send(
-                                    CodingRuntimeEvent::Reconfigured {
-                                        operation: ReconfigureKind::Provider,
-                                    },
-                                );
-                                let _ = done.send(Ok(RuntimeGeneration(generation)));
-                                continue;
-                            }
-                        }
 
                         if let Some(task) = next_prompt_task.take() {
                             task.abort();
@@ -6120,7 +4438,7 @@ fn spawn_runtime_owner_with_optional_agent(
                         preserve_sessionless_snapshot(&mut runtime, &stop_report);
 
                         let old_config = runtime.config.clone();
-                        match build_agent(&mut runtime, &next, candidate_provider).await {
+                        match assemble(&mut runtime.parts, &next, candidate_provider) {
                             Ok(candidate) => {
                                 if let Some(config) = refresh_routing {
                                     crate::provider_factory::refresh_subagent_tiers(
@@ -6130,10 +4448,7 @@ fn spawn_runtime_owner_with_optional_agent(
                                     );
                                 }
                                 runtime.config = next;
-                                agent = Some(candidate);
-                                // Before the pending prompt is replayed, so the
-                                // note precedes the first message on the new model.
-                                tell(&runtime, crate::told::reconfigured(&old_config, &runtime.config));
+                                agent = Some(candidate.spawn());
                                 generation = generation.wrapping_add(1);
                                 event_generation.store(generation, Ordering::Release);
                                 pending_steer_acknowledgements.clear();
@@ -6194,12 +4509,10 @@ fn spawn_runtime_owner_with_optional_agent(
                             }
                             Err(candidate_error) => {
                                 runtime.config = old_config;
-                                let rollback = if had_active_agent {
-                                    Some(assemble_runtime_resources(&mut runtime).await)
-                                } else {
-                                    None
-                                };
-                                match rollback.transpose() {
+                                match had_active_agent
+                                    .then(|| assemble_runtime_resources(&mut runtime))
+                                    .transpose()
+                                {
                                     Ok(None) => {
                                         agent = None;
                                         agent_available = false;
@@ -6243,7 +4556,6 @@ fn spawn_runtime_owner_with_optional_agent(
                                                 http_status: None,
                                                 code: None,
                                                 retryable: None,
-                    ends_turn: false,
                                             }),
                                         );
                                     }
@@ -6308,156 +4620,6 @@ fn spawn_runtime_owner_with_optional_agent(
                             &mut pending_requests,
                             active_turn.is_some(),
                         );
-                        // On the harness, a logout takes the CREDENTIALS out of
-                        // the tree and leaves the agent where it is.
-                        //
-                        // The chain has to stop the agent because the provider is
-                        // baked into the assembled chain; here it lives behind a
-                        // seam, so revoking it is swapping what is behind that
-                        // seam for something holding nothing. The session, its
-                        // conversation and its handle all survive, which is what
-                        // lets the LOGIN afterwards be another swap rather than a
-                        // rebuild — and therefore what keeps a `/logout` →
-                        // `/login` from quietly moving the session back onto the
-                        // chain for the rest of its life.
-                        let harness_logout = agent.is_some()
-                            && resources
-                                .as_ref()
-                                .is_some_and(|r| r.harness_providers.is_some());
-                        if harness_logout {
-                            let stop_report = {
-                                let live = agent.as_mut().expect("checked above");
-                                quiesce_current_agent(
-                                    live,
-                                    &mut compactions,
-                                    &mut observed_tokens,
-                                    &runtime_event_tx,
-                                    CompactionInterruption::RuntimeReconfigured,
-                                    resources
-                                        .as_ref()
-                                        .map(|runtime| &runtime.parts.team_manager),
-                                    resources.as_ref().and_then(|runtime| {
-                                        runtime.parts.snapshot_persistence_status()
-                                    }),
-                                )
-                                .await
-                            };
-                            if let Some(runtime) = resources.as_mut() {
-                                if let (Some(app), Some(slots)) = (
-                                    runtime.harness_app.as_mut(),
-                                    runtime.harness_providers.clone(),
-                                ) {
-                                    if let Err(error) =
-                                        crate::on_harness::deactivate_provider(app, slots.as_ref())
-                                            .await
-                                    {
-                                        // The tree is unchanged on a failed patch,
-                                        // so the credentials are still in it. Say
-                                        // so rather than reporting a logout that
-                                        // did not happen.
-                                        //
-                                        // The TURN, though, is already over: the
-                                        // quiesce above cancelled it and consumed
-                                        // its `TurnComplete` into `stop_report`,
-                                        // so nothing else will ever end it. Ending
-                                        // it here is not bookkeeping — leaving
-                                        // `active_turn` set while announcing
-                                        // `Ready` makes the next `Submit` a STEER
-                                        // (see the `SubmitReceipt::Steered` branch)
-                                        // into a turn that no longer exists, and
-                                        // the person's message goes nowhere with a
-                                        // spinner that never stops.
-                                        finish_stopped_native_turn(
-                                            &stop_report,
-                                            resources.as_ref(),
-                                            &mut active_turn,
-                                            &mut terminal_reason,
-                                            &mut turn_stats,
-                                            &mut conversation_revision,
-                                            &mut snapshot_waiters,
-                                            &runtime_event_tx,
-                                        );
-                                        controls.state.store(
-                                            runtime_phase_state(
-                                                generation,
-                                                RuntimePhase::Ready,
-                                            ),
-                                            Ordering::Release,
-                                        );
-                                        let _ = done
-                                            .send(Err(RuntimeError::ReconfigureFailed(error)));
-                                        continue;
-                                    }
-                                }
-                                // The reviewer's and the subagents' slots held the
-                                // same credentials; they leave with the seam's.
-                                let _ = crate::parts::wire_side_providers(
-                                    &runtime.parts,
-                                    &runtime.config,
-                                    &crate::on_harness::signed_out_provider(),
-                                );
-                                preserve_sessionless_snapshot(runtime, &stop_report);
-                                if let Some(provider) =
-                                    runtime.config.subagent_fast_provider.as_ref()
-                                {
-                                    provider.reset(Arc::new(|| None));
-                                }
-                                if let Some(provider) =
-                                    runtime.config.subagent_capable_provider.as_ref()
-                                {
-                                    provider.reset(Arc::new(|| None));
-                                }
-                            }
-                            finish_stopped_native_turn(
-                                &stop_report,
-                                resources.as_ref(),
-                                &mut active_turn,
-                                &mut terminal_reason,
-                                &mut turn_stats,
-                                &mut conversation_revision,
-                                &mut snapshot_waiters,
-                                &runtime_event_tx,
-                            );
-                            generation = generation.wrapping_add(1);
-                            event_generation.store(generation, Ordering::Release);
-                            pending_steer_acknowledgements.clear();
-                            agent_available = false;
-                            provider_unavailable_reason = Some(reason);
-                            controls.provider_unavailable_reason.store(
-                                encode_provider_unavailable_reason(Some(reason)),
-                                Ordering::Release,
-                            );
-                            observed_tokens = None;
-                            snapshot_in_flight = false;
-                            controls.state.store(
-                                runtime_phase_state(
-                                    generation,
-                                    RuntimePhase::AwaitingProvider,
-                                ),
-                                Ordering::Release,
-                            );
-                            if let Some(intervention) = pending_policy_intervention.take() {
-                                let _ = runtime_event_tx.send(
-                                    CodingRuntimeEvent::PolicyInterventionCleared {
-                                        intervention_id: intervention.id,
-                                    },
-                                );
-                            }
-                            // `ProviderUnavailable`, not `Reconfigured`: a logout
-                            // is not a reconfiguration that landed, it is a
-                            // capability going away, and the driver renders the
-                            // two differently. `forced` is false because nothing
-                            // was forced — the agent was asked to stop its turn
-                            // and it is still there.
-                            let _ = runtime_event_tx.send(
-                                CodingRuntimeEvent::ProviderUnavailable {
-                                    reason,
-                                    forced: stop_report.forced,
-                                },
-                            );
-                            let _ = done.send(Ok(RuntimeGeneration(generation)));
-                            continue;
-                        }
                         let stop_report = stop_current_agent(
                             &mut agent,
                             &mut compactions,
@@ -6503,33 +4665,6 @@ fn spawn_runtime_owner_with_optional_agent(
                         }
                         if let Some(runtime) = resources.as_mut() {
                             preserve_sessionless_snapshot(runtime, &stop_report);
-                            // The reviewer's and the subagents' slots live on
-                            // `parts` and survive a rebuild on purpose, so losing
-                            // the agent does NOT empty them. A logout taken here
-                            // — which is the state expired credentials leave a
-                            // person in, and therefore the common one — has to
-                            // take the credentials out of them by hand, exactly
-                            // as the branch with a live agent does.
-                            let _ = crate::parts::wire_side_providers(
-                                &runtime.parts,
-                                &runtime.config,
-                                &crate::on_harness::signed_out_provider(),
-                            );
-                            // A tree can outlive the agent: an assemble that fails
-                            // after `mount` leaves the old one in `harness_app`,
-                            // and its `llm` row is still holding the provider it
-                            // captured. Nothing will drive it again, but "nothing
-                            // drives it" is not "the credentials are gone".
-                            if let (Some(app), Some(slots)) = (
-                                runtime.harness_app.as_mut(),
-                                runtime.harness_providers.clone(),
-                            ) {
-                                let _ = crate::on_harness::deactivate_provider(
-                                    app,
-                                    slots.as_ref(),
-                                )
-                                .await;
-                            }
                             if let Some(provider) = runtime.config.subagent_fast_provider.as_ref() {
                                 provider.reset(Arc::new(|| None));
                             }
@@ -6580,50 +4715,6 @@ fn spawn_runtime_owner_with_optional_agent(
                             let _ = done.send(Err(RuntimeError::Unavailable));
                             continue;
                         };
-                        // What the model is told once this lands: a reload, or
-                        // what a reloaded config changed. A new session is not
-                        // told anything — it has no conversation above it.
-                        let reloaded_from = match &target {
-                            ReprepareTarget::Reload { .. } => Some(None),
-                            ReprepareTarget::ReloadConfig(_) => Some(Some(runtime.config.clone())),
-                            _ => None,
-                        };
-                        // A reload with nothing to reconnect is a re-read, not
-                        // a rebuild (`docs/adr/0022` §2): the skills on disk go
-                        // into the registry the live tree already serves, and
-                        // the catalog the model is told about is re-contributed
-                        // under the same id. Reconnecting is what a rebuild is
-                        // for, so a session with MCP servers still takes that
-                        // route — and so does one mid-turn, which has a request
-                        // in flight against the prompt this would change.
-                        if matches!(
-                            &target,
-                            ReprepareTarget::Reload {
-                                plugin_skill_dirs: None
-                            }
-                        ) && active_turn.is_none()
-                            && !compactions.is_active()
-                            && live_root_agent(&runtime).is_some()
-                            && runtime.parts.mcp_statuses().await.is_empty()
-                        {
-                            if reload_skills_live(&runtime).is_ok() {
-                                tell(&runtime, Some(crate::told::reloaded()));
-                                let _ = runtime_event_tx.send(
-                                    CodingRuntimeEvent::Reconfiguring {
-                                        operation: ReconfigureKind::Reprepare,
-                                    },
-                                );
-                                let unchanged = session_changed(generation, &runtime);
-                                resources = Some(runtime);
-                                let _ = runtime_event_tx.send(
-                                    CodingRuntimeEvent::Reconfigured {
-                                        operation: ReconfigureKind::Reprepare,
-                                    },
-                                );
-                                let _ = done.send(Ok(unchanged));
-                                continue;
-                            }
-                        }
                         let withdraws_mcp = matches!(
                             &target,
                             ReprepareTarget::Reload { .. } | ReprepareTarget::ReloadConfig(_)
@@ -6720,28 +4811,18 @@ fn spawn_runtime_owner_with_optional_agent(
                             None => prepare_candidate.await.map_err(runtime_prepare_error),
                         };
                         let mut candidate = match candidate_parts {
-                            Ok(mut parts) => {
-                                // The person's tool switches are theirs, not this
-                                // tree's: a reprepare must not put back what they
-                                // turned off (`CodingParts::tool_switches`).
-                                parts.adopt_tool_switches(runtime.parts.tool_switches());
-                                RuntimeResources {
+                            Ok(parts) => RuntimeResources {
                                 config: input.config,
                                 prepare: input.prepare,
                                 provider_factory: runtime.provider_factory.clone(),
                                 plugin_hooks: runtime.plugin_hooks.clone(),
                                 parts,
-                                // Filled by `assemble_runtime_resources` below,
-                                // on whichever engine this runtime runs.
-                                harness_providers: None,
-                                harness_app: None,
                                 wakeup_tx: runtime.wakeup_tx.clone(),
                                 loop_active: Arc::clone(&runtime.loop_active),
                                 // Preserve the injected VL hook across reprepare
                                 // (/model swap, reconfigure).
                                 image_preprocessor: runtime.image_preprocessor.clone(),
-                                }
-                            }
+                            },
                             Err(error) => {
                                 controls.state.store(
                                     runtime_phase_state(generation, previous_phase),
@@ -6774,7 +4855,7 @@ fn spawn_runtime_owner_with_optional_agent(
                         // current agent. A failed fresh/resume/cd transition must leave the
                         // previous runtime executable; rebuilding it as a rollback can fail for
                         // reasons (notably authentication) unrelated to the accepted operation.
-                        let replacement = match assemble_runtime_resources(&mut candidate).await {
+                        let replacement = match assemble_runtime_resources(&mut candidate) {
                             Ok(replacement) => replacement,
                             Err(candidate_error) => {
                                 let cleanup_error =
@@ -6898,11 +4979,6 @@ fn spawn_runtime_owner_with_optional_agent(
                         }
                         preserve_sessionless_snapshot(&mut runtime, &stop_report);
                         runtime = candidate;
-                        if matches!(operation, ReconfigureKind::ResumeSession)
-                            && !reuses_current_session
-                        {
-                            runtime.parts.take_up_resumed_session();
-                        }
                         agent = Some(replacement);
                         generation = generation.wrapping_add(1);
                         event_generation.store(generation, Ordering::Release);
@@ -6913,24 +4989,14 @@ fn spawn_runtime_owner_with_optional_agent(
                             .set_event_sender(team_event_tx.clone());
                         runtime.parts.team_manager.begin_generation(generation);
                         agent_available = true;
-                        // The rebuild is what a reason stands for: whatever made
-                        // the provider unavailable (NotConfigured included — an
-                        // onboarding login reloads with a configuration that now
-                        // names one) was addressed by building this one, so a
-                        // readiness read after the reprepare must say so.
-                        provider_unavailable_reason = None;
-                        controls
-                            .provider_unavailable_reason
-                            .store(0, Ordering::Release);
                         observed_tokens = None;
                         snapshot_in_flight = false;
                         compaction_suspended = false;
-                        match reloaded_from {
-                            Some(None) => tell(&runtime, Some(crate::told::reloaded())),
-                            Some(Some(before)) => {
-                                tell(&runtime, crate::told::reconfigured(&before, &runtime.config))
-                            }
-                            None => {}
+                        if matches!(
+                            operation,
+                            ReconfigureKind::FreshSession | ReconfigureKind::ChangeDirectory
+                        ) {
+                            ai_name_attempted = false;
                         }
                         let changed = session_changed(generation, &runtime);
                         let cwd = runtime.config.working_dir.clone();
@@ -6961,7 +5027,6 @@ fn spawn_runtime_owner_with_optional_agent(
                     Some(CodingRuntimeControl::ApplyUndo {
                         generation: request_generation,
                         expected_revision,
-                        code_rewound_to,
                         original,
                         truncated,
                         restored_prompt,
@@ -6985,16 +5050,10 @@ fn spawn_runtime_owner_with_optional_agent(
                         if let Some(task) = next_prompt_task.take() {
                             task.abort();
                         }
-                        // With the agent live, the undo is facts in its log and
-                        // nothing is rebuilt (`docs/adr/0022` §2) — as long as
-                        // the log can say the change; see `live_can_say`.
-                        let live = live_root_agent(&runtime)
-                            .filter(|live| live_can_say(live, &truncated.messages));
                         let undo_sidecars = match persist_runtime_undo(
                             &mut runtime,
                             Some(original.as_ref()),
                             &truncated,
-                            live.as_ref(),
                         ) {
                             Ok(sidecars) => sidecars,
                             Err(error) => {
@@ -7029,7 +5088,6 @@ fn spawn_runtime_owner_with_optional_agent(
                                             http_status: None,
                                             code: None,
                                             retryable: None,
-                    ends_turn: false,
                                         },
                                     ));
                                 }
@@ -7047,44 +5105,6 @@ fn spawn_runtime_owner_with_optional_agent(
                         let _ = runtime_event_tx.send(CodingRuntimeEvent::Reconfiguring {
                             operation: ReconfigureKind::Undo,
                         });
-                        if let Some(agent) = live.as_ref() {
-                            let _ = undo_sidecars;
-                            if let Some(turn) = code_rewound_to {
-                                record_code_rewind(agent, turn);
-                            } else {
-                                // Rides with the next message rather than being
-                                // committed now: the snapshot handed back below is
-                                // the conversation as it now stands, and a note
-                                // committed after it would make it stale at once.
-                                agent.inject(
-                                    crate::told::conversation_rewound_code_kept(),
-                                    atomcode_harness::session::InjectionOrigin::Reminder,
-                                );
-                            }
-                            generation = generation.wrapping_add(1);
-                            event_generation.store(generation, Ordering::Release);
-                            pending_steer_acknowledgements.clear();
-                            runtime.parts.team_manager.begin_generation(generation);
-                            observed_tokens = None;
-                            conversation_revision = conversation_revision.wrapping_add(1);
-                            let snapshot = Arc::new(truncated);
-                            resources = Some(runtime);
-                            controls.state.store(
-                                runtime_phase_state(generation, RuntimePhase::Ready),
-                                Ordering::Release,
-                            );
-                            let _ = runtime_event_tx.send(CodingRuntimeEvent::Reconfigured {
-                                operation: ReconfigureKind::Undo,
-                            });
-                            let _ = done.send(Ok(UndoResult {
-                                generation: RuntimeGeneration(generation),
-                                snapshot,
-                                restored_prompt,
-                                target_n,
-                                prompts_before,
-                            }));
-                            continue;
-                        }
                         let stop_report = stop_current_agent(
                             &mut agent,
                             &mut compactions,
@@ -7117,7 +5137,7 @@ fn spawn_runtime_owner_with_optional_agent(
                             let _ = done.send(Err(error));
                             continue;
                         }
-                        match assemble_runtime_resources(&mut runtime).await {
+                        match assemble_runtime_resources(&mut runtime) {
                             Ok(replacement) => {
                                 agent = Some(replacement);
                                 generation = generation.wrapping_add(1);
@@ -7128,17 +5148,6 @@ fn spawn_runtime_owner_with_optional_agent(
                                 observed_tokens = None;
                                 snapshot_in_flight = false;
                                 let snapshot = Arc::new(truncated);
-                                // With the next message, as on the live branch.
-                                if let Some(agent) = code_rewound_to
-                                    .is_none()
-                                    .then(|| live_root_agent(&runtime))
-                                    .flatten()
-                                {
-                                    agent.inject(
-                                        crate::told::conversation_rewound_code_kept(),
-                                        atomcode_harness::session::InjectionOrigin::Reminder,
-                                    );
-                                }
                                 resources = Some(runtime);
                                 controls.state.store(
                                     runtime_phase_state(generation, RuntimePhase::Ready),
@@ -7183,11 +5192,10 @@ fn spawn_runtime_owner_with_optional_agent(
                                             http_status: None,
                                             code: None,
                                             retryable: None,
-                    ends_turn: false,
                                         },
                                     ));
                                 } else {
-                                    match assemble_runtime_resources(&mut runtime).await {
+                                    match assemble_runtime_resources(&mut runtime) {
                                         Ok(rollback) => {
                                             agent = Some(rollback);
                                             agent_available = true;
@@ -7217,7 +5225,6 @@ fn spawn_runtime_owner_with_optional_agent(
                                                     http_status: None,
                                                     code: None,
                                                     retryable: None,
-                    ends_turn: false,
                                                 }),
                                             );
                                         }
@@ -7256,76 +5263,6 @@ fn spawn_runtime_owner_with_optional_agent(
                         let _ = runtime_event_tx.send(CodingRuntimeEvent::Reconfiguring {
                             operation: ReconfigureKind::RestoreSession,
                         });
-                        // Between turns, with the agent live, a restore is facts
-                        // in its log like an undo, and nothing is rebuilt.
-                        let live = (active_turn.is_none() && !compactions.is_active())
-                            .then(|| live_root_agent(&runtime))
-                            .flatten()
-                            .filter(|live| live_can_say(live, &snapshot.messages));
-                        if let Some(live) = live {
-                            let original = current_runtime_snapshot(&runtime)
-                                .or_else(|| runtime.parts.runtime_resume_snapshot());
-                            match persist_runtime_undo(
-                                &mut runtime,
-                                original.as_ref(),
-                                &snapshot,
-                                Some(&live),
-                            ) {
-                                Ok(_) => {
-                                    generation = generation.wrapping_add(1);
-                                    event_generation.store(generation, Ordering::Release);
-                                    pending_steer_acknowledgements.clear();
-                                    runtime.parts.team_manager.begin_generation(generation);
-                                    observed_tokens = None;
-                                    conversation_revision = conversation_revision.wrapping_add(1);
-                                    let changed = session_changed(generation, &runtime);
-                                    resources = Some(runtime);
-                                    controls.state.store(
-                                        runtime_phase_state(generation, RuntimePhase::Ready),
-                                        Ordering::Release,
-                                    );
-                                    let _ = runtime_event_tx.send(
-                                        CodingRuntimeEvent::SessionChanged(changed.clone()),
-                                    );
-                                    if let Some(intervention) = pending_policy_intervention.take()
-                                    {
-                                        let _ = runtime_event_tx.send(
-                                            CodingRuntimeEvent::PolicyInterventionCleared {
-                                                intervention_id: intervention.id,
-                                            },
-                                        );
-                                    }
-                                    let _ = runtime_event_tx.send(
-                                        CodingRuntimeEvent::Reconfigured {
-                                            operation: ReconfigureKind::RestoreSession,
-                                        },
-                                    );
-                                    let _ = done.send(Ok(changed));
-                                }
-                                Err(error) => {
-                                    if error.requires_fail_close() {
-                                        persistence_failure = Some(error.to_string());
-                                        let _ = send_agent_command(&agent, AgentCommand::Shutdown);
-                                        agent = None;
-                                        agent_available = false;
-                                        controls.state.store(
-                                            runtime_phase_state(generation, RuntimePhase::Failed),
-                                            Ordering::Release,
-                                        );
-                                    } else {
-                                        controls.state.store(
-                                            runtime_phase_state(generation, RuntimePhase::Ready),
-                                            Ordering::Release,
-                                        );
-                                    }
-                                    resources = Some(runtime);
-                                    let _ = done.send(Err(RuntimeError::ReconfigureFailed(
-                                        error.to_string(),
-                                    )));
-                                }
-                            }
-                            continue;
-                        }
                         fail_close_pending_requests(
                             &agent,
                             &mut pending_requests,
@@ -7381,11 +5318,9 @@ fn spawn_runtime_owner_with_optional_agent(
                             &mut runtime,
                             original.as_ref(),
                             &snapshot,
-                            None,
                         );
                         let candidate = match persisted.as_ref() {
                             Ok(_) => assemble_runtime_resources(&mut runtime)
-                                .await
                                 .map_err(NativePersistenceError::certain),
                             Err(error) => Err(error.clone()),
                         };
@@ -7457,11 +5392,10 @@ fn spawn_runtime_owner_with_optional_agent(
                                             http_status: None,
                                             code: None,
                                             retryable: None,
-                    ends_turn: false,
                                         },
                                     ));
                                 } else {
-                                    match assemble_runtime_resources(&mut runtime).await {
+                                    match assemble_runtime_resources(&mut runtime) {
                                         Ok(rollback) => {
                                             agent = Some(rollback);
                                             agent_available = true;
@@ -7491,7 +5425,6 @@ fn spawn_runtime_owner_with_optional_agent(
                                                     http_status: None,
                                                     code: None,
                                                     retryable: None,
-                    ends_turn: false,
                                                 }),
                                             );
                                         }
@@ -7507,23 +5440,13 @@ fn spawn_runtime_owner_with_optional_agent(
                             }
                         }
                     }
-                    Some(CodingRuntimeControl::StartGoal { generation: request_generation, condition, images, done, recovery_tx }) => {
+                    Some(CodingRuntimeControl::StartGoal { generation: request_generation, condition, done, recovery_tx }) => {
                         if !native_protocol || request_generation != generation || compaction_suspended {
                             let _ = done.send(Err(RuntimeError::Busy));
                             continue;
                         }
                         if resources.is_none() {
                             let _ = done.send(Err(RuntimeError::Unavailable));
-                            continue;
-                        }
-                        // Starting a goal now means opening its first round, so
-                        // an agent that cannot take one means the goal cannot
-                        // start. Registering it anyway would put the badge on
-                        // screen over a session that is never going to move.
-                        if !agent_available {
-                            let _ = done.send(Err(provider_unavailable_reason
-                                .map(RuntimeError::ProviderUnavailable)
-                                .unwrap_or(RuntimeError::Unavailable)));
                             continue;
                         }
                         if active_turn.is_some() && held_turn.is_none() {
@@ -7554,35 +5477,13 @@ fn spawn_runtime_owner_with_optional_agent(
                             // AdjustGoalRounds; env override wins and any miss keeps the default.
                             let next = GoalState::new(
                                 controller_id,
-                                condition.clone(),
+                                condition,
                                 runtime.config.goal_max_rounds,
                                 runtime.config.goal_max_duration_secs,
                             );
                             let _ = runtime_event_tx.send(CodingRuntimeEvent::GoalChanged(next.progress()));
                             goal = Some(next);
                             let _ = done.send(Ok(()));
-                            // The first round is this one. Every later round
-                            // comes from a turn's END — the evaluator reads the
-                            // round that just finished and writes the next
-                            // prompt — so a goal that only registered itself
-                            // would sit there with nothing to end, until the
-                            // person typed something of their own, and THAT
-                            // would become round one's prompt. Which is not
-                            // what they asked for.
-                            //
-                            // Self-sent rather than opened here: `Submit` is
-                            // where a turn begins, with the execution policy,
-                            // the receipt and the turn accounting that belong
-                            // to it. A second way in would be a second answer
-                            // to "what is a turn".
-                            let (started, _) = oneshot::channel();
-                            let _ = recovery_tx.send(CodingRuntimeControl::Submit {
-                                generation: request_generation,
-                                input: UserInput { text: condition, images },
-                                receipt: None,
-                                from: None,
-                                done: started,
-                            });
                             // Only spawn the quota fetch when it could actually change the cap:
                             // an env override short-circuits to the default, and with no live
                             // rate-limit source there is nothing to derive from.
@@ -7628,22 +5529,13 @@ fn spawn_runtime_owner_with_optional_agent(
                             current.finish(GoalTerminal::Cancelled, "cleared by user");
                             let _ = runtime_event_tx.send(CodingRuntimeEvent::GoalChanged(current.progress()));
                         }
-                        if let Some((turn_id, _, snapshot, stats)) =
-                            held_turn.take_if(|_| !kernel_turn_open)
-                        {
+                        if let Some((turn_id, _, snapshot, stats)) = held_turn.take() {
                             active_turn = None;
                             cancel_pending = false;
                             let _ = runtime_event_tx.send(CodingRuntimeEvent::TurnFinished(TurnCompletion::Completed {
                                 turn_id, reason: StopReason::Cancelled, snapshot, stats,
                             }));
                             controls.state.store(runtime_phase_state(generation, RuntimePhase::Ready), Ordering::Release);
-                        } else if held_turn.is_some() {
-                        // A turn the agent opened under the hold is not what
-                        // this stops: the person asked for the controller to
-                        // stop, not for their own message to. The hold goes, so
-                        // the turn now running is the one this owner accounts
-                        // for, and its own end reports it.
-                            held_turn = None;
                         } else if active_turn.is_some() {
                             if request_cancel_snapshot(&agent) {
                                 cancel_pending = true;
@@ -7657,21 +5549,13 @@ fn spawn_runtime_owner_with_optional_agent(
                         }
                         let _ = done.send(Ok(()));
                     }
-                    Some(CodingRuntimeControl::StartLoop { generation: request_generation, prompt, every, done, recovery_tx }) => {
+                    Some(CodingRuntimeControl::StartLoop { generation: request_generation, prompt, done }) => {
                         if !native_protocol || request_generation != generation || compaction_suspended {
                             let _ = done.send(Err(RuntimeError::Busy));
                             continue;
                         }
                         if resources.is_none() {
                             let _ = done.send(Err(RuntimeError::Unavailable));
-                            continue;
-                        }
-                        // Same as `/goal`: the first round is opened here, so
-                        // no agent to open it means no loop.
-                        if !agent_available {
-                            let _ = done.send(Err(provider_unavailable_reason
-                                .map(RuntimeError::ProviderUnavailable)
-                                .unwrap_or(RuntimeError::Unavailable)));
                             continue;
                         }
                         if active_turn.is_some() && held_turn.is_none() {
@@ -7696,26 +5580,11 @@ fn spawn_runtime_owner_with_optional_agent(
                         while wakeup_rx.try_recv().is_ok() {}
                         if let Some(runtime) = resources.as_ref() {
                             next_controller_id = next_controller_id.wrapping_add(1);
-                            let next = LoopState::new(next_controller_id, prompt.clone(), runtime.config.loop_max_rounds).every(every);
+                            let next = LoopState::new(next_controller_id, prompt, runtime.config.loop_max_rounds);
                             runtime.loop_active.store(true, Ordering::Release);
                             let _ = runtime_event_tx.send(CodingRuntimeEvent::LoopChanged(next.progress()));
                             loop_state = Some(next);
                             let _ = done.send(Ok(()));
-                            // The first pass, for the same reason as `/goal`'s:
-                            // the next one is scheduled by the END of this one,
-                            // whether the model asks (`schedule_wakeup`) or the
-                            // person set a cadence. With no first pass there is
-                            // nothing to schedule from — "every five minutes"
-                            // would start five minutes late at best, and never
-                            // at all in the model-paced form.
-                            let (started, _) = oneshot::channel();
-                            let _ = recovery_tx.send(CodingRuntimeControl::Submit {
-                                generation: request_generation,
-                                input: UserInput::from(prompt),
-                                receipt: None,
-                                from: None,
-                                done: started,
-                            });
                         }
                     }
                     Some(CodingRuntimeControl::StopLoop { generation: request_generation, done }) => {
@@ -7731,22 +5600,13 @@ fn spawn_runtime_owner_with_optional_agent(
                         }
                         if let Some(runtime) = resources.as_ref() { runtime.loop_active.store(false, Ordering::Release); }
                         pending_wakeup = None;
-                        if let Some((turn_id, _, snapshot, stats)) =
-                            held_turn.take_if(|_| !kernel_turn_open)
-                        {
+                        if let Some((turn_id, _, snapshot, stats)) = held_turn.take() {
                             active_turn = None;
                             cancel_pending = false;
                             let _ = runtime_event_tx.send(CodingRuntimeEvent::TurnFinished(TurnCompletion::Completed {
                                 turn_id, reason: StopReason::Cancelled, snapshot, stats,
                             }));
                             controls.state.store(runtime_phase_state(generation, RuntimePhase::Ready), Ordering::Release);
-                        } else if held_turn.is_some() {
-                        // A turn the agent opened under the hold is not what
-                        // this stops: the person asked for the controller to
-                        // stop, not for their own message to. The hold goes, so
-                        // the turn now running is the one this owner accounts
-                        // for, and its own end reports it.
-                            held_turn = None;
                         } else if active_turn.is_some() {
                             if request_cancel_snapshot(&agent) {
                                 cancel_pending = true;
@@ -7927,7 +5787,6 @@ fn spawn_runtime_owner_with_optional_agent(
                                     http_status: None,
                                     code: None,
                                     retryable: None,
-                    ends_turn: false,
                                 },
                             ));
                             if let Some(turn_id) = active_turn.take() {
@@ -8013,11 +5872,7 @@ fn spawn_runtime_owner_with_optional_agent(
                                     },
                                 ));
                             }
-                            AgentEvent::TurnComplete { reason, .. } => {
-                                kernel_turn_open = false;
-                                // The tree carries the real cause; this protocol's
-                                // drivers match on the folded set.
-                                let reason = reason.folded_for_runtime_drivers();
+                            AgentEvent::TurnComplete { reason } => {
                                 pending_steer_acknowledgements.clear();
                                 let persistence_status = resources.as_ref().and_then(|runtime| {
                                     runtime.parts.snapshot_persistence_status()
@@ -8075,7 +5930,6 @@ fn spawn_runtime_owner_with_optional_agent(
                                             http_status: None,
                                             code: None,
                                             retryable: None,
-                    ends_turn: false,
                                         },
                                     ));
                                     let _ = runtime_event_tx.send(
@@ -8196,6 +6050,56 @@ fn spawn_runtime_owner_with_optional_agent(
                                     let stats = std::mem::take(&mut turn_stats);
                                     let turn_id = active_turn.unwrap_or_default();
                                     let mut completion_reason = reason;
+                                    if reason != StopReason::Cancelled && !ai_name_attempted {
+                                        if let Some(conversation) =
+                                            crate::session_title::first_exchange_text(&snapshot.messages)
+                                        {
+                                            let enabled = resources
+                                                .as_ref()
+                                                .and_then(|runtime| {
+                                                    runtime.config.subagent_config.as_deref()
+                                                })
+                                                .map(
+                                                    atomcode_config::config::ai_session_naming_enabled,
+                                                )
+                                                .unwrap_or_else(|| {
+                                                    atomcode_config::config::Config::load(
+                                                        &atomcode_config::config::Config::default_path(),
+                                                    )
+                                                    .map(|config| {
+                                                        atomcode_config::config::ai_session_naming_enabled(
+                                                            &config,
+                                                        )
+                                                    })
+                                                    .unwrap_or(false)
+                                                });
+                                            if enabled {
+                                                ai_name_attempted = true;
+                                                let provider = resources.as_ref().and_then(|runtime| {
+                                                    let session_id = runtime.parts.session.as_ref()
+                                                        .map(|binding| binding.id.as_str());
+                                                    runtime.provider_factory
+                                                        .build(&runtime.config, session_id)
+                                                        .ok()
+                                                });
+                                                if let Some(provider) = provider {
+                                                    let tx = session_name_tx.clone();
+                                                    let name_generation = generation;
+                                                    tokio::spawn(async move {
+                                                        if let Some(name) =
+                                                            crate::session_title::generate_session_title(
+                                                                provider,
+                                                                conversation,
+                                                            )
+                                                            .await
+                                                        {
+                                                            let _ = tx.send((name_generation, name));
+                                                        }
+                                                    });
+                                                }
+                                            }
+                                        }
+                                    }
                                     if let Some(state) = goal.as_mut().filter(|state| state.active) {
                                         if let Some(meta) = stats.last_usage.as_ref() {
                                             state.tokens_used = state.tokens_used.saturating_add(
@@ -8357,12 +6261,7 @@ fn spawn_runtime_owner_with_optional_agent(
                                         }
                                     } else if let Some(state) = loop_state.as_mut().filter(|state| state.active) {
                                         if reason == StopReason::Stopped {
-                                            // The person's cadence, or failing
-                                            // that whatever the model asked for
-                                            // — `LoopState::next_round` owns
-                                            // that choice so there is one
-                                            // answer to "when is the next one".
-                                            if let Some(wakeup) = state.next_round(pending_wakeup.take()) {
+                                            if let Some(wakeup) = pending_wakeup.take() {
                                                 let cancel = state.cancel.clone();
                                                 let controller_id = state.id;
                                                 let tx = loop_fire_tx.clone();
@@ -8451,7 +6350,7 @@ fn spawn_runtime_owner_with_optional_agent(
                                     );
                                 }
                             }
-                            AgentEvent::TurnStarted { .. } => {
+                            AgentEvent::TurnStarted => {
                                 if let Some(intervention) = pending_policy_intervention.take() {
                                     let _ = runtime_event_tx.send(
                                         CodingRuntimeEvent::PolicyInterventionCleared {
@@ -8460,25 +6359,12 @@ fn spawn_runtime_owner_with_optional_agent(
                                     );
                                 }
                                 turn_started_at = Some(std::time::Instant::now());
-                                kernel_turn_open = true;
-                                // A turn nobody submitted: a catalog command
-                                // (`/init`, `/worklog`, a skill like `/setup`)
-                                // put its prompt in the agent's inbox and the
-                                // agent woke on it. It is still this owner's
-                                // turn to account for — without an
-                                // `active_turn`, a cancel reads it as idle,
-                                // answers `Ok` and never reaches the kernel.
-                                if active_turn.is_none() {
-                                    next_turn_id = next_turn_id.wrapping_add(1);
-                                    active_turn = Some(next_turn_id);
-                                    turn_stats = RuntimeTurnStats::default();
-                                }
                                 controls.state.store(
                                     runtime_phase_state(generation, RuntimePhase::InTurn),
                                     Ordering::Release,
                                 );
                                 let _ = runtime_event_tx.send(CodingRuntimeEvent::Agent(
-                                    AgentEvent::TurnStarted { turn: None },
+                                    AgentEvent::TurnStarted,
                                 ));
                             }
                             event @ AgentEvent::ToolStarted { .. } => {
@@ -8486,14 +6372,14 @@ fn spawn_runtime_owner_with_optional_agent(
                                     turn_stats.tool_call_count.saturating_add(1);
                                 let _ = runtime_event_tx.send(CodingRuntimeEvent::Agent(event));
                             }
-                            AgentEvent::Steered { count, inputs, .. } => {
+                            AgentEvent::Steered { count, inputs } => {
                                 let acknowledged = acknowledge_steered_inputs(
                                     &mut pending_steer_acknowledgements,
                                     generation,
                                     &inputs,
                                 );
                                 let _ = runtime_event_tx.send(CodingRuntimeEvent::Agent(
-                                    AgentEvent::Steered { turn: None, count, inputs },
+                                    AgentEvent::Steered { count, inputs },
                                 ));
                                 if !acknowledged.is_empty() {
                                     let _ = runtime_event_tx.send(
@@ -8573,9 +6459,6 @@ fn spawn_runtime_owner_with_optional_agent(
                 },
             }
         }
-        // However the owner ends, nothing is left to claim what the agent had
-        // not yet taken.
-        runtime_event_tx.withdraw_unclaimed();
         if let Some(task) = next_prompt_task.take() {
             task.abort();
         }
@@ -8682,18 +6565,7 @@ fn reject_runtime_control(
         CodingRuntimeControl::Shutdown { .. } => {}
         // Fire-and-forget self-send with no waiter: nothing to fail-close.
         CodingRuntimeControl::AdjustGoalRounds { .. } => {}
-        // A question, not a change: a stopping runtime has nothing pending, and
-        // dropping the sender says so to a caller that is asking anyway.
-        CodingRuntimeControl::PendingPolicyIntervention { done } => {
-            let _ = done.send(None);
-        }
         CodingRuntimeControl::Submit { done, .. } => {
-            let _ = done.send(Err(RuntimeError::Unavailable));
-        }
-        // A stopping runtime has no catalog to describe or switch. Fail-closed
-        // like every other awaited control.
-        CodingRuntimeControl::ToolCatalog { done, .. }
-        | CodingRuntimeControl::SwitchTool { done, .. } => {
             let _ = done.send(Err(RuntimeError::Unavailable));
         }
         CodingRuntimeControl::Respond { done, .. }
@@ -8711,27 +6583,10 @@ fn reject_runtime_control(
         CodingRuntimeControl::ContextStats { done, .. } => {
             let _ = done.send(Err(RuntimeError::Unavailable));
         }
-        // A stopping runtime cannot say which mode it is in either — the flags
-        // belong to a tree that is being torn down.
-        CodingRuntimeControl::Mode { done, .. } => {
-            let _ = done.send(Err(RuntimeError::Unavailable));
-        }
         CodingRuntimeControl::McpStatus { done, .. } => {
             let _ = done.send(Err(RuntimeError::Unavailable));
         }
         CodingRuntimeControl::McpTools { done, .. } => {
-            let _ = done.send(Err(RuntimeError::Unavailable));
-        }
-        CodingRuntimeControl::ApproveMcpTool { done, .. } => {
-            let _ = done.send(Err(RuntimeError::Unavailable));
-        }
-        CodingRuntimeControl::McpRows { done, .. } => {
-            let _ = done.send(Err(RuntimeError::Unavailable));
-        }
-        CodingRuntimeControl::McpDetail { done, .. } => {
-            let _ = done.send(Err(RuntimeError::Unavailable));
-        }
-        CodingRuntimeControl::McpAct { done, .. } => {
             let _ = done.send(Err(RuntimeError::Unavailable));
         }
         CodingRuntimeControl::WithdrawMcpTools { done, .. } => {
@@ -8748,18 +6603,6 @@ fn reject_runtime_control(
             let _ = done.send(Err(RuntimeError::Unavailable));
         }
         CodingRuntimeControl::RewindCatalog { done, .. } => {
-            let _ = done.send(Err(RuntimeError::Unavailable));
-        }
-        CodingRuntimeControl::UndoTarget { done, .. } => {
-            let _ = done.send(Err(RuntimeError::Unavailable));
-        }
-        CodingRuntimeControl::WorkspaceChanges { done, .. } => {
-            let _ = done.send(Err(RuntimeError::Unavailable));
-        }
-        CodingRuntimeControl::Autonomy { done, .. } => {
-            let _ = done.send(Err(RuntimeError::Unavailable));
-        }
-        CodingRuntimeControl::Usage { done, .. } => {
             let _ = done.send(Err(RuntimeError::Unavailable));
         }
         CodingRuntimeControl::BeginRewind { done, .. } => {
@@ -8972,6 +6815,7 @@ fn resolve_reprepare_input(
     RuntimeError,
 > {
     match target {
+        ReprepareTarget::Exact(input) => Ok(Some((input, None, None))),
         ReprepareTarget::Reload { plugin_skill_dirs } => {
             let mut prepare = runtime.prepare.clone();
             if let Some(plugin_skill_dirs) = plugin_skill_dirs {
@@ -9221,479 +7065,7 @@ fn build_goal_evaluator_provider(
     factory.build(host, session_id)
 }
 
-/// What a tree needs from the runtime's own state to continue this session.
-///
-/// The same two sources the chain's `assemble` reads: a session-bound runtime
-/// reloads the canonical native aggregate (absent only for a fresh session not
-/// yet published), and a sessionless one continues from the snapshot the
-/// runtime kept in memory.
-fn harness_host_state(
-    parts: &crate::CodingParts,
-    config: &CodingAgentConfig,
-    prepare: &PrepareOptions,
-) -> Result<crate::on_harness::HostState, std::io::Error> {
-    // The system prompt's context block as the session started with it.
-    let (session, stored_prompt) = match &parts.session {
-        Some(binding) => {
-            // A fresh session that has not been published yet has nothing on
-            // disk, and that is the ONE reason its log may be missing here. Any
-            // other absence is half a session, and continuing on half a session
-            // hands the model a conversation the store cannot explain — the
-            // person's history, silently gone.
-            let (resume, context) = match binding.staged_header() {
-                Some(header) => (false, header.context.clone()),
-                None => (
-                    true,
-                    binding
-                        .manager
-                        .read_event_header(&binding.id)
-                        .map_err(std::io::Error::from)?
-                        .context,
-                ),
-            };
-            (
-                crate::host_rows::SessionSeed {
-                    id: Some(binding.id.clone()),
-                    snapshot: None,
-                    stored: Some(crate::session_store::StoredSession {
-                        store: binding.manager.clone(),
-                        lease: binding.lease.clone(),
-                        status: parts.snapshot_persistence_status(),
-                    }),
-                    resume,
-                },
-                context,
-            )
-        }
-        None => {
-            let snapshot = parts.runtime_resume_snapshot();
-            let prompt = snapshot
-                .as_ref()
-                .and_then(atomcode_capabilities::session::events::stored_prompt);
-            (
-                crate::host_rows::SessionSeed {
-                    id: None,
-                    snapshot,
-                    stored: None,
-                    resume: false,
-                },
-                prompt,
-            )
-        }
-    };
-    let session_id = parts.session.as_ref().map(|binding| binding.id.as_str());
-
-    // Everything the chain's `prepare` + `assemble` hang on the kernel agent that
-    // the rows do not already carry, as the same objects.
-    let hooks = crate::host_rows::HostHooks::new();
-    // The current-date tail: a per-turn `<system-reminder>` carrying today's date, appended
-    // AFTER the cached prefix. It is the SOLE date source — the persona no longer bakes a
-    // wall-clock date into the system prompt, because a date at the FRONT of the request
-    // re-prefills the whole cached prefix once per day (the `project_system_prompt_date`
-    // cache-poison bug). Unconditional: every session needs the model to know the date.
-    hooks.insert(
-        "status-reminder",
-        Arc::new(atomcode_capabilities::session::StatusReminderHook::new()),
-    );
-    if let Some(snapshot) = parts.snapshot_hook() {
-        hooks.insert("native-snapshot", snapshot);
-    }
-    let mcp = parts.mcp_publication();
-    let middleware = crate::host_rows::HostMiddleware::new();
-    if let Some(telemetry) = &config.telemetry {
-        // One per mounted tree, shared by the two adapters: the hook is the only
-        // one the kernel tells where it is, and the tool middleware reads it
-        // from here (`telemetry::Position`).
-        let position = Arc::new(crate::telemetry::Position::default());
-        hooks.insert(
-            "telemetry",
-            Arc::new(crate::telemetry::TelemetryHook::new(
-                telemetry.clone(),
-                config.provider_type.as_str(),
-                &config.base_url,
-                &config.model,
-                session_id,
-                Arc::clone(&position),
-            )),
-        );
-        middleware.insert(
-            "tool-telemetry",
-            Arc::new(crate::telemetry::ToolTelemetryMiddleware::new(
-                telemetry.clone(),
-                config.provider_type.as_str(),
-                &config.base_url,
-                &config.model,
-                session_id,
-                position,
-            )),
-        );
-    }
-    if parts.todo_enabled() {
-        hooks.insert(
-            "todo-eager",
-            Arc::new(
-                crate::todo::TodoEagerHook::new(
-                    &config.model,
-                    &config.provider_type,
-                    config.todo.eager,
-                )
-                .with_working_dir(config.working_dir.clone(), config.dirs.clone()),
-            ),
-        );
-        // Everything the model is told about its list: the list and where it
-        // stands on EVERY request, one note when it has gone quiet for a few
-        // steps, the one-shot nudge when the model stops with items still open,
-        // and the `<id>.todos.json` sidecar that lets a compacted session still
-        // show its plan (issue #1503 — the transcript's `todowrite` calls are
-        // gone by then, and vscode's fallback derives from exactly those).
-        //
-        // The harness's `todo-reminder` row says the quiet-list note too, so
-        // `CODING_ROWS` keeps it off: one voice, and none of it in the log.
-        hooks.insert(
-            "todo",
-            Arc::new(crate::todo::TodoHook::new(
-                config.working_dir.clone(),
-                config.dirs.clone(),
-            )),
-        );
-    }
-    // The person's `[permissions]` rules decide among the gates, and WHERE they
-    // decide is the whole contract: after every hard boundary, before the
-    // convenience gates and the approval prompt. The `permissions` row states
-    // that position (`CODING_ROWS`), so this only fills it in — no `prepend`,
-    // which would hoist the gate ahead of the boundaries, and
-    // `insert_mounted_by_row` so the middleware table does not ALSO append an
-    // innermost copy. Criteria: `a_permission_allow_rule_cannot_unlock_the_credential_boundary`
-    // and `a_permission_allow_rule_still_skips_the_prompt_it_covers` fail in
-    // opposite directions if this moves either way.
-    let permission_rows = if config.permission_rules.is_empty() {
-        atomcode_plexus::Layer::new()
-    } else {
-        middleware.insert_mounted_by_row(
-            "permission-rules",
-            Arc::new(atomcode_capabilities::tools::PermissionRuleGate::new(
-                config.permission_rules.clone(),
-                parts.shared_cwd.clone(),
-                atomcode_capabilities::tools::SensitivePaths::of(&config.dirs),
-            )),
-        );
-        atomcode_plexus::Layer::new()
-            .swap("permissions", "kernel-middleware")
-            .patch(
-                "permissions",
-                KernelMiddlewarePatch {
-                    middleware: "permission-rules",
-                    prepend: true,
-                },
-            )
-            .map_err(|e| std::io::Error::other(e.to_string()))?
-    };
-    #[cfg(feature = "atomgit")]
-    middleware.insert(
-        "git-push-label",
-        Arc::new(atomcode_capabilities::tools::GitPushLabelMiddleware::new(
-            config.working_dir.clone(),
-            config.dirs.user().to_path_buf(),
-        )),
-    );
-    Ok(crate::on_harness::HostState {
-        // None: this runtime mounts the product's own rows and nothing else.
-        // The field is for a host outside this workspace that brings its own.
-        plugins: Vec::new(),
-        session_context: Some(crate::on_harness::HostContext {
-            hook: Arc::new(atomcode_capabilities::session::SessionContextHook::new(
-                &config.working_dir,
-                config.dirs.user(),
-            )),
-            stored: stored_prompt,
-        }),
-        session,
-        hooks: Some(hooks),
-        middleware: Some(middleware),
-        cc_hooks: parts.cc_external_hooks.clone(),
-        tools: parts
-            .extra_tools()
-            .into_iter()
-            .chain(parts.host_only_tools())
-            .collect(),
-        skills: parts.skill_registry(),
-        runtime_commands: parts.runtime_commands.clone(),
-        tool_switches: Some(parts.tool_switches()),
-        tool_catalog_slot: parts.tool_catalog_slot(),
-        mcp,
-        // Both halves or neither: the events only exist when this assembly has
-        // MCP, and `prepare` only started the fan-out when there was a sink.
-        mcp_telemetry: parts.mcp_connect_meter().zip(config.telemetry.clone()).map(
-            |(events, telemetry)| crate::host_rows::McpConnectMeter {
-                events,
-                meter: crate::telemetry::McpTelemetry::new(telemetry, config.working_dir.clone()),
-            },
-        ),
-        rate_limit_source: parts.rate_limit_source().cloned(),
-        front_end: prepare.front_end.clone(),
-        delegated_llm: parts.delegated_provider(),
-        team_events: parts.subagent_knobs().map(|_| {
-            let manager = parts.team_manager.clone();
-            Arc::new(move |event| manager.publish_external(event)) as crate::team_progress::TeamSink
-        }),
-        compaction_checkpoint: parts.snapshot_hook(),
-        summary_provider: Some(parts.side_provider_slot()),
-        model: Some(config.model.clone()),
-        // `from_config` is the one constructor that carries the parsed file along;
-        // a runtime built from a hand-made config was configured by no file.
-        config_file: config
-            .subagent_config
-            .is_some()
-            .then(|| config.dirs.user().join("config.toml")),
-        // The UI language, for the rows that write words of their own (the
-        // `/worklog` and `/init` templates). The persona does not read it: what
-        // the model answers and commits in follows the conversation.
-        language: config.preferred_language,
-        web_search_api_key: config.web_search_api_key.clone(),
-        rows: harness_option_rows(parts, config, prepare)
-            .map_err(std::io::Error::other)?
-            .then(permission_rows),
-        datalog: config.datalog.enabled.then(|| config.datalog.clone()),
-        modes: Some(crate::on_harness::HostModes {
-            modes: atomcode_harness::seams::Modes {
-                plan: Arc::clone(&parts.plan_mode),
-                accept_edits: Arc::clone(&parts.accept_edits),
-            },
-            plan_mcp_grants: Arc::clone(&parts.mcp_plan_grants),
-            approval_grants: parts.approval.store(),
-        }),
-    })
-}
-
-/// A mounted product tree: the handle a driver speaks to, the tree behind it,
-/// and the table its provider lives in.
-///
-/// The tree must outlive the handle. Dropping the `App` unloads every row, and
-/// the next command would reach a conversation whose services are gone.
-pub struct Mounted {
-    pub handle: AgentHandle,
-    pub app: atomcode_plexus::App,
-    pub providers: Arc<crate::on_harness::ProviderSlots>,
-}
-
-/// Mount the product as a tree, continuing `parts`' session.
-///
-/// The one place a tree is built from prepared parts — the runtime does it at
-/// start and on every rebuild (undo, restore, reprepare, a provider coming
-/// back), so the session, the hooks and the rows cannot differ between the first
-/// agent and the next. Public because that assembly IS the product: a test or an
-/// embedder that wants what ships asks for it here rather than rebuilding a
-/// second version of it.
-pub async fn mount(
-    parts: &crate::CodingParts,
-    config: &CodingAgentConfig,
-    prepare: &PrepareOptions,
-    provider: Arc<dyn atomcode_kernel::provider::LlmProvider>,
-) -> Result<Mounted, String> {
-    // Presence follows the same rule the overlay uses: a person who can answer
-    // means asking, nobody means fencing.
-    let presence = if config.is_attended() {
-        crate::on_harness::Presence::Attended
-    } else {
-        crate::on_harness::Presence::Headless
-    };
-    // What the person wrote in `config.toml`, as a layer of its own.
-    let extra = vec![crate::on_harness::config_rows(config)?];
-    // The model catalog, when this host has one. Both halves come from what
-    // `install_subagent_tiers` already put on the config, so the tree and the
-    // chain resolve a selection through the same resolver — including its reset
-    // on `/model`.
-    let models = config
-        .subagent_config
-        .clone()
-        .zip(config.subagent_model_providers.clone())
-        .map(|(model_config, providers)| crate::on_harness::HostModels {
-            config: model_config,
-            providers,
-            current: config.provider_name.clone(),
-        });
-    // The capability graph's own sub-agents — the reviewer, `task`, `team` — run on
-    // this model, billed to the session and metered the way the chain's
-    // `assemble` wires them.
-    let _ = crate::parts::wire_side_providers(parts, config, &provider);
-    let host = harness_host_state(parts, config, prepare).map_err(|error| error.to_string())?;
-    // Turns on this tree are billed to the model it was built for. The chain
-    // stamps the same attribution inside `assemble`.
-    if let Some(snapshot) = parts.snapshot_hook() {
-        snapshot.set_model_attribution(&config.provider_name, &config.model);
-    }
-    let (handle, app, providers) = crate::on_harness::mount_hosted(
-        &config.working_dir,
-        &config.dirs,
-        presence,
-        provider,
-        models,
-        host,
-        &extra,
-    )
-    .await?;
-    Ok(Mounted {
-        handle,
-        app,
-        providers,
-    })
-}
-
-/// Build the agent for `config`, replacing whatever tree the runtime held.
-///
-/// Replacing is the point: a rebuilt agent that left the previous tree in
-/// `harness_app` would have a later `/model` patch a tree whose driver loop had
-/// already exited, and a later `/logout` leave the credentials in the agent that
-/// is actually running.
-async fn build_agent(
-    runtime: &mut RuntimeResources,
-    config: &CodingAgentConfig,
-    provider: Arc<dyn atomcode_kernel::provider::LlmProvider>,
-) -> Result<AgentHandle, String> {
-    let mounted = mount(&runtime.parts, config, &runtime.prepare, provider).await?;
-    runtime.harness_app = Some(mounted.app);
-    runtime.harness_providers = Some(mounted.providers);
-    Ok(mounted.handle)
-}
-
-/// Row edits for what this runtime's options switched off, and for the
-/// directory rows resolve against.
-///
-/// Read off what prepare DECIDED (a review provider exists or not, the todo
-/// switch after its environment override) rather than re-deriving it from the
-/// options, so the tree and the capability graph cannot disagree about whether a
-/// capability is on.
-#[derive(serde::Serialize)]
-struct KernelMiddlewarePatch<'a> {
-    middleware: &'a str,
-    prepend: bool,
-}
-
-#[derive(serde::Serialize)]
-struct MemoryPatch<'a> {
-    project_root: &'a std::path::Path,
-    inject: bool,
-}
-
-#[derive(serde::Serialize)]
-struct OutputArtifactPatch {
-    dir: std::path::PathBuf,
-    threshold_bytes: usize,
-}
-
-#[derive(serde::Serialize)]
-struct SubagentRowPatch {
-    max_rounds: u32,
-}
-
-#[derive(serde::Serialize)]
-struct TeamRowPatch<'a> {
-    project_root: &'a std::path::Path,
-    max_members: usize,
-    max_rounds: u32,
-}
-
-#[derive(serde::Serialize)]
-struct AgentLoopOptionsPatch<'a> {
-    working_dir: &'a std::path::Path,
-    undo_cancelled: bool,
-    stream_idle_ms: u128,
-    /// Carried, not left to the row's default: this patch is the last word on
-    /// `agent-loop` in this host, so omitting it would *be* the fuse value — the
-    /// serde default in `harness/plugins/agent_loop.rs`. See
-    /// [`crate::on_harness::RUNAWAY_FUSE_ROUNDS`].
-    max_rounds: u32,
-}
-
-fn harness_option_rows(
-    parts: &crate::CodingParts,
-    config: &CodingAgentConfig,
-    prepare: &PrepareOptions,
-) -> Result<atomcode_plexus::Layer, String> {
-    let wd = config.working_dir.as_path();
-    let mut rows = atomcode_plexus::Layer::new()
-        .when(!prepare.tools, |layer| layer.disable("memory"))
-        .when(!prepare.tools || !prepare.web, |layer| {
-            layer.disable("tool-web")
-        })
-        // The runtime mounts its own `code_review` and `recall` (see
-        // `CodingParts::host_only_tools`) whenever prepare built them; the rows'
-        // versions are different contracts under the same names. Delegation is
-        // the tree's own rows, off when the driver turned it off.
-        .disable("tool-code-review")
-        .when(parts.subagent_knobs().is_none(), |layer| {
-            layer
-                .disable("subagent-in-process")
-                .disable("team-in-process")
-        })
-        .disable("recall")
-        .when(!parts.todo_enabled(), |layer| layer.disable("tool-todo"))
-        // The runtime's own `request_user_input` asks the person, when it is on;
-        // the tree's `ask_user` is a narrower contract for the same capability,
-        // and two question tools is one too many either way.
-        .disable("tool-ask");
-
-    // Rows whose directory defaults to the process's cwd, pointed at this
-    // session's working directory instead. A `[[patch]]` replaces a row's whole
-    // config, so each carries every field the row is given elsewhere.
-    //
-    // The chain's `memory` switch is the injection alone; the `memory` tool is
-    // one of the core tools and stays either way.
-    if prepare.tools {
-        rows = rows
-            .patch(
-                "memory",
-                MemoryPatch {
-                    project_root: wd,
-                    inject: prepare.memory,
-                },
-            )
-            .map_err(|e| e.to_string())?;
-    }
-    // `[tools.output] threshold_bytes`: where an oversized tool result is cut.
-    // Patched only when set, so an unconfigured tree mounts the row as written.
-    if let Some(threshold_bytes) = config.tool_output_threshold_bytes {
-        rows = rows
-            .patch(
-                "tool-output-artifact",
-                OutputArtifactPatch {
-                    dir: crate::on_harness::artifacts_dir(wd, &config.dirs),
-                    threshold_bytes,
-                },
-            )
-            .map_err(|e| e.to_string())?;
-    }
-    // `[subagent]`: how long a delegated agent may run, and how many members a
-    // team may hold; roles come from this project and the person's home.
-    if let Some((max_concurrent, max_rounds)) = parts.subagent_knobs() {
-        rows = rows
-            .patch("subagent-in-process", SubagentRowPatch { max_rounds })
-            .map_err(|e| e.to_string())?
-            .patch(
-                "team-in-process",
-                TeamRowPatch {
-                    project_root: wd,
-                    max_members: max_concurrent,
-                    max_rounds,
-                },
-            )
-            .map_err(|e| e.to_string())?;
-    }
-    // Ctrl-C semantics: by default a cancelled turn is undone — its prompt and
-    // partial work leave what the model sees next, as the chain rolls them back.
-    rows.patch(
-        "agent-loop",
-        AgentLoopOptionsPatch {
-            working_dir: wd,
-            undo_cancelled: !config.keep_interrupted_context,
-            stream_idle_ms: config.stream_timeout.as_millis(),
-            max_rounds: crate::on_harness::RUNAWAY_FUSE_ROUNDS,
-        },
-    )
-    .map_err(|e| e.to_string())
-}
-
-async fn assemble_runtime_resources(runtime: &mut RuntimeResources) -> Result<AgentHandle, String> {
+fn assemble_runtime_resources(runtime: &mut RuntimeResources) -> Result<AgentHandle, String> {
     runtime
         .parts
         .register_extra_tool(Arc::new(ScheduleWakeupTool::new(
@@ -9709,8 +7081,9 @@ async fn assemble_runtime_resources(runtime: &mut RuntimeResources) -> Result<Ag
         .provider_factory
         .build(&runtime.config, session_id)
         .map_err(|error| error.to_string())?;
-    let config = runtime.config.clone();
-    build_agent(runtime, &config, provider).await
+    assemble(&mut runtime.parts, &runtime.config, provider)
+        .map(|agent| agent.spawn())
+        .map_err(|error| error.to_string())
 }
 
 fn preserve_sessionless_snapshot(runtime: &mut RuntimeResources, report: &StopReport) {
@@ -9739,9 +7112,6 @@ struct NativeUndoSidecars {
     turn_stats: Vec<TurnStat>,
     archived_turn_stats: Vec<TurnStat>,
     removed_presentation: Vec<(usize, PresentationEntry)>,
-    /// Where the session's log stood before the change was appended: what a
-    /// rollback cuts it back to.
-    events_mark: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -9765,14 +7135,6 @@ impl NativePersistenceError {
             message: message.into(),
             uncertain_commit: false,
             snapshot_conflict: true,
-        }
-    }
-
-    fn uncertain(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            uncertain_commit: true,
-            snapshot_conflict: false,
         }
     }
 
@@ -9813,254 +7175,26 @@ fn persistence_fail_close_reason(
     }
 }
 
-/// Record that the workspace went back to before `turn` (`docs/adr/0024` §17).
-///
-/// The conversation's own `Rewound` says what the model no longer sees; this one
-/// says what the working tree no longer holds, and the projection leaves the
-/// conversation alone.
-fn record_code_rewind(live: &atomcode_harness::agent::Agent, turn: u64) {
-    use atomcode_harness::session::SessionEvent;
-    let log = live.session();
-    let Some(to) = log.events().iter().find_map(|logged| {
-        matches!(logged.event, SessionEvent::TurnStart { turn: t } if t == turn)
-            .then_some(logged.seq)
-    }) else {
-        return;
-    };
-    atomcode_harness::session::commit(
-        live.ctx(),
-        &log,
-        SessionEvent::Rewound {
-            turn: log.current_turn(),
-            to,
-            scope: atomcode_harness::session::RewindScope::Code,
-        },
-    );
-}
-
-/// Read the skills on disk again, into the registry the live tree is already
-/// serving, and re-render the catalog the model is told about
-/// (`docs/adr/0022` §2).
-///
-/// This is a reload *without* a rebuild: every holder of the registry — the
-/// `use_skill` and `list_skills` tools, the `skills` seam, the slash menu — has
-/// an `Arc` to the one this replaces the contents of, and the prompt fragment is
-/// re-contributed under the same id, which replaces it. A remount would have
-/// taken the whole tree with it, MCP connections and all.
-///
-/// `Err` when the tree has no skills row: there is nothing to re-read into, and
-/// the caller falls back to the rebuild rather than reporting a reload that
-/// reached nothing.
-fn reload_skills_live(runtime: &RuntimeResources) -> Result<usize, ()> {
-    let app = runtime.harness_app.as_ref().ok_or(())?;
-    let ctx = app.context();
-    let registry = ctx
-        .service::<atomcode_harness::seams::SkillsSvc>()
-        .ok_or(())?;
-    // The directories prepare decided on, the same way it decided them: a
-    // driver that named its own is not second-guessed here.
-    let dirs = match runtime.prepare.skill_dirs.clone() {
-        Some(dirs) => dirs,
-        None => {
-            let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-            atomcode_capabilities::skills::standard_skill_dirs(
-                atomcode_capabilities::skills::SkillRoots {
-                    home: &home,
-                    project: &runtime.config.working_dir,
-                    dirs: &runtime.config.dirs,
-                },
-            )
-        }
-    };
-    registry.reload_dirs(&dirs, &runtime.prepare.plugin_skill_dirs);
-    // The catalog is ranked against the project's own instruction files, as at
-    // mount — a reload that dropped the ranking would quietly reorder the
-    // prompt prefix.
-    let instructions = atomcode_capabilities::session::SessionContextHook::new(
-        &runtime.config.working_dir,
-        runtime.config.dirs.user(),
-    )
-    .instruction_text();
-    if let Some(prompts) = ctx.service::<atomcode_harness::seams::SystemPromptSvc>() {
-        let (id, rank) = crate::on_harness::SKILLS_FRAGMENT;
-        match registry.render_catalog_prioritizing(&instructions) {
-            Some(catalog) if !catalog.trim().is_empty() => prompts.contribute(id, rank, catalog),
-            // Every skill is gone: so is what said they were there.
-            _ => prompts.remove(id),
-        }
-    }
-    Ok(registry.len())
-}
-
-#[async_trait::async_trait]
-impl RuntimeCommands for CodingRuntimeHandle {
-    async fn start_goal(&self, condition: String) -> Result<(), String> {
-        CodingRuntimeHandle::start_goal(self, condition)
-            .await
-            .map_err(|error| error.to_string())
-    }
-    async fn stop_goal(&self) -> Result<(), String> {
-        CodingRuntimeHandle::stop_goal(self)
-            .await
-            .map_err(|error| error.to_string())
-    }
-    async fn pause_goal(&self) -> Result<(), String> {
-        CodingRuntimeHandle::pause_goal(self)
-            .await
-            .map_err(|error| error.to_string())
-    }
-    async fn start_loop(&self, prompt: String, every: Option<u32>) -> Result<(), String> {
-        CodingRuntimeHandle::start_loop(self, prompt, every)
-            .await
-            .map_err(|error| error.to_string())
-    }
-    async fn stop_loop(&self) -> Result<(), String> {
-        CodingRuntimeHandle::stop_loop(self)
-            .await
-            .map_err(|error| error.to_string())
-    }
-    async fn queue_local_context(&self, text: String) -> Result<(), String> {
-        CodingRuntimeHandle::queue_local_context(self, LocalContextInput { content: text })
-            .await
-            .map_err(|error| error.to_string())
-    }
-    async fn pending_policy(&self) -> Option<PolicyIntervention> {
-        self.pending_policy_intervention().await
-    }
-    async fn resolve_policy(&self, id: u64, action: PolicyRecoveryAction) -> Result<(), String> {
-        self.resolve_policy_intervention(id, action)
-            .await
-            .map_err(|error| error.to_string())
-    }
-    async fn change_directory(&self, directory: std::path::PathBuf) -> Result<(), String> {
-        CodingRuntimeHandle::change_directory(self, directory)
-            .await
-            .map(|_| ())
-            .map_err(|error| error.to_string())
-    }
-}
-
-/// Whether the change from `live`'s log to `target` is one the log can *say* —
-/// an undo or a compaction — rather than a conversation reseeded from outside
-/// it.
-///
-/// A reseed appends the target's own messages as facts, and an unanswered
-/// prompt among them is a prompt the live agent answers: committing one would
-/// make a *restore* send something to the model. So a candidate the log cannot
-/// say goes the other way, through a rebuilt runtime, which is what a
-/// conversation that did not come out of this log always needed.
-fn live_can_say(live: &atomcode_harness::agent::Agent, target: &[Message]) -> bool {
-    use atomcode_harness::session::SessionEvent;
-    atomcode_capabilities::session::events::events_to_become(&live.session().events(), target)
-        .iter()
-        .all(|event| {
-            matches!(
-                event,
-                SessionEvent::Rewound { .. } | SessionEvent::Compacted { .. }
-            )
-        })
-}
-
-/// The conversation's own agent, live in the mounted tree — what a change to
-/// the same session is committed into rather than rebuilt around
-/// (`docs/adr/0022` §2).
-fn live_root_agent(runtime: &RuntimeResources) -> Option<Arc<atomcode_harness::agent::Agent>> {
-    runtime
-        .harness_app
-        .as_ref()?
-        .context()
-        .service::<atomcode_harness::seams::AgentsSvc>()?
-        .list()
-        .into_iter()
-        .find(|agent| agent.parent().is_none())
-}
-
-/// Tell the conversation's agent what the person just did (see [`crate::told`]).
-///
-/// `note` puts it where it happened — into the log at once when idle, ahead of
-/// the next turn when one is running — as a logged fact, so a resumed session
-/// still says it. `None` is a change that says nothing.
-fn tell(runtime: &RuntimeResources, said: Option<String>) {
-    let Some(said) = said else {
-        return;
-    };
-    if let Some(agent) = live_root_agent(runtime) {
-        agent.note(said, atomcode_harness::session::InjectionOrigin::Reminder);
-    }
-}
-
-/// The execution mode, decoded from the three flags `SetMode` writes — not a
-/// fourth field that would have to be kept in step with them. Plan wins when two
-/// are set, which cannot happen through `SetMode` (it writes all three) but is
-/// the safe reading of a tree where it did.
-fn current_mode(parts: &crate::CodingParts) -> RuntimeMode {
-    if parts.plan_mode.load(Ordering::Acquire) {
-        RuntimeMode::Plan
-    } else if parts.bypass_mode.load(Ordering::Acquire) {
-        RuntimeMode::Auto
-    } else if parts.accept_edits.load(Ordering::Acquire) {
-        RuntimeMode::AcceptEdits
-    } else {
-        RuntimeMode::Build
-    }
-}
-
-/// Commit `events` into `live`'s log, in order. The session store appends each
-/// as it is committed; one it could not keep is reported as an uncertain commit.
-fn commit_into_live_log(
-    runtime: &RuntimeResources,
-    live: &atomcode_harness::agent::Agent,
-    events: impl IntoIterator<Item = atomcode_harness::session::SessionEvent>,
-) -> Result<(), NativePersistenceError> {
-    let log = live.session();
-    for event in events {
-        atomcode_harness::session::commit(live.ctx(), &log, event);
-    }
-    match runtime.parts.take_snapshot_persistence_uncertain() {
-        Some(message) => Err(NativePersistenceError::uncertain(message)),
-        None => Ok(()),
-    }
-}
-
-/// Take the stored conversation to `snapshot`, with the facts that make its
-/// projection that (`docs/adr/0024` §17). With a `live` agent they are committed
-/// into its log — every subscriber hears them and nothing is rebuilt; without
-/// one they are appended to the store for a rebuilt tree to replay.
 fn persist_runtime_undo(
     runtime: &mut RuntimeResources,
     expected_snapshot: Option<&SessionSnapshot>,
     snapshot: &SessionSnapshot,
-    live: Option<&Arc<atomcode_harness::agent::Agent>>,
 ) -> Result<Option<NativeUndoSidecars>, NativePersistenceError> {
     let Some(binding) = runtime.parts.session.as_ref() else {
         runtime.parts.set_runtime_resume(snapshot.clone());
-        if let Some(live) = live {
-            let change = atomcode_capabilities::session::events::events_to_become(
-                &live.session().events(),
-                &snapshot.messages,
-            );
-            commit_into_live_log(runtime, live, change)?;
-        }
         return Ok(None);
     };
-    let mut live_change: Vec<atomcode_harness::session::SessionEvent> = Vec::new();
     let message_count = u32::try_from(snapshot.messages.len()).map_err(|_| {
         NativePersistenceError::certain("snapshot message count exceeds native metadata")
     })?;
     let mut snapshot_conflict = false;
-    let events = binding.manager.is_event_session(&binding.id);
     let sidecars = binding
         .manager
         .commit_native_runtime_mutation(
             &binding.lease,
             snapshot,
             |current_snapshot, meta, presentation| {
-                if expected_snapshot.is_some_and(|expected| {
-                    !atomcode_capabilities::session::events::same_conversation(
-                        &current_snapshot.messages,
-                        &expected.messages,
-                    )
-                }) {
+                if expected_snapshot.is_some_and(|expected| current_snapshot != expected) {
                     snapshot_conflict = true;
                     return Err(SessionStoreError::Corrupt {
                         kind: "session mutation conflict",
@@ -10073,30 +7207,10 @@ fn persist_runtime_undo(
                     turn_stats: meta.turn_stats.clone(),
                     archived_turn_stats: Vec::new(),
                     removed_presentation: Vec::new(),
-                    events_mark: None,
                 };
-                // A log session's change is planned first, so the turns it
-                // leaves standing decide which statistics go; it is appended
-                // last, so a failure before that leaves nothing to undo.
-                let plan = events
-                    .then(|| {
-                        binding.manager.plan_conversation_change(
-                            &binding.id,
-                            &snapshot.messages,
-                            u64::try_from(atomcode_capabilities::session::now_ms()).unwrap_or(0),
-                        )
-                    })
-                    .transpose()?;
-                let visible = plan.as_ref().map(|plan| plan.visible_turns());
-                sidecars.archived_turn_stats =
-                    meta.archive_turn_stats_where(|stat| match &visible {
-                        Some(visible) => {
-                            stat.position_valid
-                                && stat.turn_id != 0
-                                && !visible.contains(&stat.turn_id)
-                        }
-                        None => stat.position_valid && stat.after_message > snapshot.messages.len(),
-                    });
+                sidecars.archived_turn_stats = meta.archive_turn_stats_where(|stat| {
+                    stat.position_valid && stat.after_message > snapshot.messages.len()
+                });
                 let surviving_turn_ids: BTreeSet<_> = meta
                     .turn_stats
                     .iter()
@@ -10126,20 +7240,6 @@ fn persist_runtime_undo(
                     }
                 })?;
                 meta.updated_at = atomcode_capabilities::session::now_ms();
-                if let Some(plan) = plan {
-                    if live.is_some() {
-                        live_change = plan
-                            .change
-                            .iter()
-                            .map(|logged| logged.event.clone())
-                            .collect();
-                    } else {
-                        binding
-                            .manager
-                            .append_events(&binding.lease, &plan.change)?;
-                    }
-                    sidecars.events_mark = Some(plan.mark);
-                }
                 Ok(sidecars)
             },
         )
@@ -10150,9 +7250,6 @@ fn persist_runtime_undo(
                 NativePersistenceError::from(error)
             }
         })?;
-    if let Some(live) = live {
-        commit_into_live_log(runtime, live, live_change)?;
-    }
     Ok(Some(sidecars))
 }
 
@@ -10174,7 +7271,6 @@ fn restore_runtime_undo(
         turn_stats,
         archived_turn_stats,
         removed_presentation,
-        events_mark,
     } = sidecars;
     let mut snapshot_conflict = false;
     binding
@@ -10183,10 +7279,7 @@ fn restore_runtime_undo(
             &binding.lease,
             snapshot,
             |current_snapshot, meta, presentation| {
-                if !atomcode_capabilities::session::events::same_conversation(
-                    &current_snapshot.messages,
-                    &expected_current_snapshot.messages,
-                ) {
+                if current_snapshot != expected_current_snapshot {
                     snapshot_conflict = true;
                     return Err(SessionStoreError::Corrupt {
                         kind: "session mutation conflict",
@@ -10203,11 +7296,6 @@ fn restore_runtime_undo(
                         .insert(original_index.min(presentation.entries.len()), entry);
                 }
                 meta.updated_at = atomcode_capabilities::session::now_ms();
-                // Nothing has read the change since it was appended: no agent
-                // ran on it, so it is cut back rather than answered with more.
-                if let Some(mark) = events_mark {
-                    binding.manager.truncate_events(&binding.lease, mark)?;
-                }
                 Ok(())
             },
         )
@@ -10225,22 +7313,12 @@ fn persist_runtime_snapshot(
     snapshot: &SessionSnapshot,
 ) -> Result<(), NativePersistenceError> {
     if let Some(binding) = runtime.parts.session.as_ref() {
-        let events = binding.manager.is_event_session(&binding.id);
         binding
             .manager
             .commit_native_runtime_mutation(
                 &binding.lease,
                 snapshot,
-                |_current_snapshot, _meta, _presentation| {
-                    if events {
-                        binding.manager.append_conversation_change(
-                            &binding.lease,
-                            &snapshot.messages,
-                            u64::try_from(atomcode_capabilities::session::now_ms()).unwrap_or(0),
-                        )?;
-                    }
-                    Ok(())
-                },
+                |_current_snapshot, _meta, _presentation| Ok(()),
             )
             .map_err(NativePersistenceError::from)
     } else {
@@ -10299,128 +7377,6 @@ pub fn undo_snapshot_to_prompt(
         target_n: plan.target_n,
         prompts_before: plan.prompts_before,
     })
-}
-
-/// Going back to before `turn`, worked out on the session LOG.
-///
-/// A rewind point names a turn, and the log's `TurnStart { turn }` is where it
-/// began. The conversation before it is what the log projects to once a
-/// `Rewound { to: <that seq> }` is appended — the very fact the change is then
-/// committed as (`events_to_become` finds it), so what is planned here and what
-/// lands are one computation.
-///
-/// Nothing here counts prompts in the conversation as it now stands. That was
-/// the bug: a point was looked up by its prompt ordinal in the current
-/// projection, and a compaction folds turns out of the projection — not out of
-/// the log (`SessionEvent::Compacted`) — so every point before a fold asked for
-/// an ordinal the folded conversation no longer had (`UndoOutOfRange`). A
-/// `Rewound` to before a fold takes the fold back with it, and a fold before the
-/// point stays, so the target is the conversation as it really stood then.
-///
-/// A turn a rewind already took back is not a place to go back to: a `Rewound`
-/// to it would also leave out whatever the earlier rewind covered before it.
-///
-/// What comes back to the input box is the first thing the person said in that
-/// turn, and nothing when they said nothing: a turn the harness opened — a team
-/// member's report waking the lead, a `/goal` round — has a `TurnStart` and a
-/// point in the ledger like any other, but no person's words of its own (or
-/// only words that came in mid-turn). Its place in the log is all a rewind
-/// needs; refusing it for want of a prompt is what made 35 of the 710 points on
-/// one machine unreachable.
-pub fn undo_to_turn_in_log(
-    events: &[atomcode_harness::session::LoggedEvent],
-    turn: u64,
-) -> Result<SnapshotUndoResult, RuntimeError> {
-    use atomcode_harness::session::{LoggedEvent, RewindScope as LogScope, SessionEvent};
-    let unavailable = || RuntimeError::RewindPointUnavailable { turn_id: turn };
-    if atomcode_harness::session::rewound_turns(events).contains(&turn) {
-        return Err(unavailable());
-    }
-    let to = events
-        .iter()
-        .find_map(|logged| {
-            matches!(logged.event, SessionEvent::TurnStart { turn: t } if t == turn)
-                .then_some(logged.seq)
-        })
-        .ok_or_else(unavailable)?;
-    let restored_prompt = events
-        .iter()
-        .find_map(|logged| match &logged.event {
-            SessionEvent::UserMessage { turn: t, text, .. } if *t == turn => Some(text.clone()),
-            _ => None,
-        })
-        .unwrap_or_default();
-    let mut rewound = events.to_vec();
-    rewound.push(LoggedEvent {
-        seq: events.iter().map(|e| e.seq).max().unwrap_or(0) + 1,
-        at: 0,
-        event: SessionEvent::Rewound {
-            turn: events.iter().map(|e| e.event.turn()).max().unwrap_or(0),
-            to,
-            scope: LogScope::Conversation,
-        },
-    });
-    let prompts = |snapshot: &SessionSnapshot| {
-        snapshot
-            .messages
-            .iter()
-            .filter(|message| {
-                message.role == atomcode_kernel::message::Role::User && !message.synthetic
-            })
-            .count()
-    };
-    let snapshot = atomcode_capabilities::session::events::snapshot_of(&rewound);
-    Ok(SnapshotUndoResult {
-        target_n: prompts(&snapshot) + 1,
-        prompts_before: prompts(&atomcode_capabilities::session::events::snapshot_of(events)),
-        restored_prompt,
-        snapshot,
-    })
-}
-
-/// The session's log, as the undo snapshot is projected from it
-/// (`current_runtime_snapshot`), so what a rewind plans and the conversation it
-/// replaces are read off one history. A session not written down has only the
-/// live agent's.
-fn session_events(
-    runtime: &RuntimeResources,
-) -> Result<Vec<atomcode_harness::session::LoggedEvent>, RuntimeError> {
-    match runtime.parts.session.as_ref() {
-        Some(binding) if binding.manager.is_event_session(&binding.id) => {
-            binding.manager.load_events(&binding.id).map_err(|error| {
-                RuntimeError::ReconfigureFailed(format!("could not read the session log: {error}"))
-            })
-        }
-        _ => live_root_agent(runtime)
-            .map(|live| live.session().events())
-            .ok_or(RuntimeError::Unavailable),
-    }
-}
-
-/// The points a person can still go back to: the ledger's, less those whose
-/// turn a rewind or an undo has already taken back.
-///
-/// The ledger is pruned by a rewind (`SnapshotHook::begin_rewind`) but not by an
-/// undo, so after `/undo` it still listed the turns just undone — and picking
-/// one was refused (`RewindPointUnavailable`). Read against the log instead:
-/// what the log says was taken back is not on offer, whichever gesture took it.
-///
-/// Unless it carries a workspace checkpoint: `/undo` takes the conversation
-/// back and leaves the files, so restoring the code to before that turn is
-/// still a thing a person can ask for — and it still works, since a code-only
-/// rewind does not look for the turn in the conversation.
-///
-/// A log that cannot be read leaves the ledger as it is — the catalog is a menu,
-/// and the rewind itself checks again.
-fn reachable_points(runtime: &RuntimeResources, points: Vec<RewindPoint>) -> Vec<RewindPoint> {
-    let Ok(events) = session_events(runtime) else {
-        return points;
-    };
-    let gone = atomcode_harness::session::rewound_turns(&events);
-    points
-        .into_iter()
-        .filter(|point| point.before_tree.is_some() || !gone.contains(&point.turn_id))
-        .collect()
 }
 
 fn compute_runtime_undo(
@@ -10539,80 +7495,6 @@ fn record_stopped_conversation_event(report: &mut StopReport, event: &AgentEvent
     }
 }
 
-/// End whatever the agent is doing and read its conversation back, WITHOUT
-/// taking the handle.
-///
-/// [`stop_current_agent`] is the chain's shape: it `take()`s the handle, sends
-/// `Shutdown` and lets the agent die, because on that engine a provider change
-/// means rebuilding the agent anyway. On the harness the agent is the thing
-/// worth keeping — the provider lives behind a seam and can be swapped under it
-/// — so this cancels the turn instead of ending the agent, and asks for the
-/// snapshot the caller still needs.
-async fn quiesce_current_agent(
-    agent: &mut AgentHandle,
-    compactions: &mut CompactionTracker,
-    observed_tokens: &mut Option<usize>,
-    runtime_event_tx: &RuntimeEventEmitter,
-    reason: CompactionInterruption,
-    team_manager: Option<&crate::team::TeamRunManager>,
-    persistence_status: Option<SnapshotPersistenceStatus>,
-) -> StopReport {
-    // Detached team members are background work started under the credentials
-    // being revoked; a logout must end them for the same reason it ends the
-    // provider.
-    if let Some(manager) = team_manager {
-        manager.stop_all().await;
-    }
-    let mut report = StopReport::default();
-    let _ = agent.commands.send(AgentCommand::Cancel);
-    let _ = agent.commands.send(AgentCommand::Snapshot);
-    let timeout = tokio::time::sleep(std::time::Duration::from_secs(5));
-    tokio::pin!(timeout);
-    loop {
-        tokio::select! {
-            event = agent.events.recv() => match event {
-                Some(event) => {
-                    record_stopped_conversation_event(&mut report, &event);
-                    match handle_compaction_event(
-                        event,
-                        compactions,
-                        observed_tokens,
-                        runtime_event_tx,
-                    ) {
-                        Some(AgentEvent::Usage(meta)) => {
-                            *observed_tokens = Some(meta.used_tokens as usize);
-                        }
-                        Some(AgentEvent::TurnComplete { reason, .. }) => {
-                            report.reason = Some(reason.folded_for_runtime_drivers());
-                        }
-                        Some(AgentEvent::Snapshot { snapshot }) => {
-                            report.snapshot = Some(snapshot);
-                            report.snapshot_after_turn_terminal = report.reason.is_some();
-                            // The snapshot is the last thing asked for, so it is
-                            // also the signal that the agent is quiet again.
-                            break;
-                        }
-                        _ => {}
-                    }
-                }
-                // The agent ended on its own; nothing more will arrive.
-                None => break,
-            },
-            () = &mut timeout => {
-                // Not fatal and not `forced`: the agent is still alive and the
-                // caller keeps its handle. The snapshot is simply missing, which
-                // `preserve_sessionless_snapshot` already treats as "nothing to
-                // preserve".
-                break;
-            }
-        }
-    }
-    compactions.interrupt_all(reason, runtime_event_tx);
-    emit_terminal_persistence_warnings(persistence_status.as_ref(), runtime_event_tx);
-    report.persistence_failure = persistence_status.and_then(|s| s.take_uncertain_commit());
-    report
-}
-
 async fn stop_current_agent(
     agent: &mut Option<AgentHandle>,
     compactions: &mut CompactionTracker,
@@ -10663,15 +7545,12 @@ async fn stop_current_agent(
                         Some(AgentEvent::Usage(meta)) => {
                             *observed_tokens = Some(meta.used_tokens as usize);
                         }
-                        Some(AgentEvent::TurnComplete { reason, .. }) => {
-                            report.reason = Some(reason.folded_for_runtime_drivers());
+                        Some(AgentEvent::TurnComplete { reason }) => {
+                            report.reason = Some(reason);
                         }
                         Some(AgentEvent::Snapshot { snapshot }) => {
                             report.snapshot = Some(snapshot);
                             report.snapshot_after_turn_terminal = report.reason.is_some();
-                        }
-                        Some(answer @ (AgentEvent::Accepted { .. } | AgentEvent::Rejected { .. })) => {
-                            forward_receipt_answer(answer, runtime_event_tx);
                         }
                         _ => {}
                     }
@@ -10693,46 +7572,19 @@ async fn stop_current_agent(
             Some(AgentEvent::Usage(meta)) => {
                 *observed_tokens = Some(meta.used_tokens as usize);
             }
-            Some(AgentEvent::TurnComplete { reason, .. }) => {
-                report.reason = Some(reason.folded_for_runtime_drivers())
-            }
+            Some(AgentEvent::TurnComplete { reason }) => report.reason = Some(reason),
             Some(AgentEvent::Snapshot { snapshot }) => {
                 report.snapshot = Some(snapshot);
                 report.snapshot_after_turn_terminal = report.reason.is_some();
             }
-            Some(answer @ (AgentEvent::Accepted { .. } | AgentEvent::Rejected { .. })) => {
-                forward_receipt_answer(answer, runtime_event_tx);
-            }
             _ => {}
         }
     }
-    // The agent is gone with its inbox. A message it claimed on the way out
-    // was answered just above; the rest never reached a turn.
-    runtime_event_tx.withdraw_unclaimed();
     compactions.interrupt_all(reason, runtime_event_tx);
     emit_terminal_persistence_warnings(persistence_status.as_ref(), runtime_event_tx);
     report.persistence_failure =
         persistence_status.and_then(|status| status.take_uncertain_commit());
     report
-}
-
-/// An answer the stopping agent gave about one of the driver's messages — a
-/// turn claimed it on the way out, or the stop withdrew it. Only answers to a
-/// receipt the runtime delivered are passed on: the agent's reply to the
-/// runtime's own `Shutdown` names nothing a driver sent.
-fn forward_receipt_answer(answer: AgentEvent, runtime_event_tx: &RuntimeEventEmitter) {
-    let (AgentEvent::Accepted { command, .. } | AgentEvent::Rejected { command, .. }) = &answer
-    else {
-        return;
-    };
-    let owed = runtime_event_tx
-        .unclaimed
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .contains(command);
-    if owed {
-        let _ = runtime_event_tx.send(CodingRuntimeEvent::Agent(answer));
-    }
 }
 
 fn emit_terminal_persistence_warnings(
@@ -10750,21 +7602,6 @@ fn emit_terminal_persistence_warnings(
     }
 }
 
-/// End a turn the runtime stopped itself, and end it EXACTLY once.
-///
-/// Every path that quiesces the agent has to reach this, including the ones that
-/// then fail: `quiesce_current_agent` consumes the agent's own `TurnComplete`
-/// into the `StopReport`, so after it runs nothing else will ever finish the
-/// turn. A path that skips this leaves `active_turn` set, and the next `Submit`
-/// becomes a steer into a turn that is gone.
-///
-/// **No criterion covers the failing paths, and that is a known gap.** The only
-/// way to fail the logout patch is for a row to refuse to remount, and nothing a
-/// test can reach makes that happen — the layer is a fixed string and the one
-/// row it touches is `llm`. So these branches are held by construction and by
-/// this comment rather than by a red test; if a way to inject a patch failure
-/// ever appears, the criterion to write is "a failed logout still ends the turn
-/// it cancelled".
 fn finish_stopped_native_turn(
     report: &StopReport,
     resources: Option<&RuntimeResources>,
@@ -10913,7 +7750,6 @@ fn fail_close_after_stopped_persistence(
         http_status: None,
         code: None,
         retryable: None,
-        ends_turn: false,
     }));
     Some(RuntimeError::ReconfigureFailed(message))
 }
@@ -10984,7 +7820,6 @@ fn fail_close_after_forced_provider_stop(
         http_status: None,
         code: None,
         retryable: None,
-        ends_turn: false,
     }));
 }
 
@@ -11110,201 +7945,6 @@ async fn resolve_goal_round_cap(
     }
 }
 
-/// A runtime owner driven by a fake agent, for the crates that hold one instead
-/// of rebuilding the bed.
-///
-/// The kernel has had a door like this for its own seams
-/// ([`atomcode_kernel::testkit`](atomcode_kernel::testkit)); this is the coding
-/// runtime's. The daemon's live hub is its first user: it has to put a real
-/// [`CodingRuntimeHandle`] behind its `LiveRuntimeControl` to reach paths that
-/// exist only in here — a submit whose picture is still being read when the stop
-/// lands, say — and the bed for that has always lived in this file's
-/// `#[cfg(test)]` module, which another crate cannot see.
-///
-/// Deliberately bare: the fake agent answers nothing, so a caller drives the
-/// runtime's own side (submit, stop, snapshot) and reads what the runtime said
-/// ([`testkit::FakeRuntime::events`]) and what reached the agent
-/// ([`testkit::FakeRuntime::commands`]).
-pub mod testkit {
-    use super::*;
-
-    use atomcode_kernel::message::Message;
-    use atomcode_kernel::provider::ChatOptions;
-    use atomcode_kernel::stream::{ProviderError, StreamEvent};
-    use atomcode_kernel::tool::ToolDef;
-
-    /// A runtime owner, and the two ends a caller drives it through.
-    pub struct FakeRuntime {
-        /// The runtime, as a driver holds it.
-        pub handle: CodingRuntimeHandle,
-        /// What reached the (fake) agent.
-        pub commands: mpsc::UnboundedReceiver<AgentCommand>,
-        /// What the runtime said.
-        pub events: mpsc::UnboundedReceiver<CodingRuntimeEvent>,
-        /// The fake agent's own voice, for a caller that wants it to answer
-        /// something. Held either way: the runtime reads the far end.
-        pub agent_events: mpsc::UnboundedSender<AgentEvent>,
-        /// Kept for its `Drop`: the owner task this bed spawned.
-        _keeper: KernelRuntimeAdapter,
-    }
-
-    /// A picture that is never finished being read.
-    ///
-    /// The window a stop has to land in to catch a submit before anything
-    /// reaches the agent. Hand it to [`runtime_with_a_fake_agent`] as the vision
-    /// seam to hold a submit there, and watch [`Self::entered`] to know the
-    /// submit is in it rather than guessing with a sleep.
-    pub struct ReadingThatNeverEnds {
-        entered: std::sync::atomic::AtomicUsize,
-    }
-
-    impl ReadingThatNeverEnds {
-        pub fn new() -> Self {
-            Self {
-                entered: std::sync::atomic::AtomicUsize::new(0),
-            }
-        }
-
-        /// How many pictures have been handed to it and not read.
-        pub fn entered(&self) -> usize {
-            self.entered.load(Ordering::Acquire)
-        }
-    }
-
-    impl Default for ReadingThatNeverEnds {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl ImagePreprocessor for ReadingThatNeverEnds {
-        async fn preprocess(
-            &self,
-            _text: String,
-            _images: Vec<ImageContent>,
-            _supports_vision: bool,
-            _session_id: Option<String>,
-        ) -> (UserInput, Option<VisionNotice>) {
-            self.entered.fetch_add(1, Ordering::AcqRel);
-            std::future::pending().await
-        }
-    }
-
-    /// Build one: a runtime whose agent is a pair of channels, with `working_dir`
-    /// as its project and `image_preprocessor` as its vision seam (`None` leaves
-    /// pictures alone).
-    pub async fn runtime_with_a_fake_agent(
-        working_dir: &std::path::Path,
-        image_preprocessor: Option<Arc<dyn ImagePreprocessor>>,
-    ) -> FakeRuntime {
-        let (agent_commands, commands) = mpsc::unbounded_channel();
-        let (agent_events, events) = mpsc::unbounded_channel();
-        let agent = AgentHandle {
-            commands: agent_commands,
-            events,
-            task: tokio::spawn(async {}),
-        };
-        let (handle, controls) = coding_runtime_control_channel();
-        let (runtime_tx, runtime_events) = mpsc::unbounded_channel();
-        let (wakeup_tx, wakeup_rx) = mpsc::unbounded_channel();
-        let config = crate::config::CodingAgentConfig::new(
-            "testkit",
-            "https://example.test/v1",
-            "testkit",
-            working_dir,
-            crate::config::product_dirs_from_env(),
-        );
-        let prepare = crate::parts::PrepareOptions {
-            request_user_input: true,
-            session: crate::parts::SessionMode::Disabled,
-            tools: true,
-            skill_dirs: Some(Vec::new()),
-            plugin_skill_dirs: Vec::new(),
-            mcp: false,
-            extra_mcp_servers: Vec::new(),
-            external_subagents: Vec::new(),
-            memory: false,
-            web: false,
-            review: false,
-            subagents: crate::parts::SubagentPolicy::Disabled,
-            rate_limit_source: None,
-            front_end: None,
-            review_delegate: None,
-        };
-        let plugin_hooks = Arc::new(crate::plugin_hooks::StaticPluginHookSource::default());
-        let parts = crate::parts::prepare_with_plugin_hook_source(
-            &config,
-            prepare.clone(),
-            plugin_hooks.as_ref(),
-        )
-        .await
-        .expect("the testkit's parts prepare");
-        let resources = RuntimeResources {
-            config,
-            prepare,
-            provider_factory: Arc::new(SilentProviders),
-            plugin_hooks,
-            parts,
-            harness_app: None,
-            harness_providers: None,
-            wakeup_tx,
-            loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            image_preprocessor,
-        };
-        let keeper = spawn_runtime_owner_with_protocol(
-            agent,
-            controls,
-            runtime_tx,
-            true,
-            true,
-            None,
-            Some(resources),
-            Some(wakeup_rx),
-        );
-        FakeRuntime {
-            handle,
-            commands,
-            events: runtime_events,
-            agent_events,
-            _keeper: keeper,
-        }
-    }
-
-    /// The testkit's agent is fake, so nothing here is expected to reach a model.
-    struct SilentProviders;
-
-    struct Silent;
-
-    #[async_trait::async_trait]
-    impl LlmProvider for Silent {
-        fn model_name(&self) -> &str {
-            "testkit"
-        }
-
-        async fn chat_stream(
-            &self,
-            _messages: &[Message],
-            _tools: &[ToolDef],
-            _options: &ChatOptions,
-        ) -> Result<futures::stream::BoxStream<'static, StreamEvent>, ProviderError> {
-            Ok(Box::pin(futures::stream::iter(vec![StreamEvent::Done {
-                truncated: false,
-            }])))
-        }
-    }
-
-    impl crate::provider_factory::CodingProviderFactory for SilentProviders {
-        fn build(
-            &self,
-            _config: &crate::config::CodingAgentConfig,
-            _session_id: Option<&str>,
-        ) -> Result<Arc<dyn LlmProvider>, crate::provider_factory::ProviderBuildError> {
-            Ok(Arc::new(Silent))
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -11343,136 +7983,6 @@ mod tests {
 
         assert_eq!(acknowledged, vec![original]);
         assert!(pending.is_empty());
-    }
-
-    /// A rewind point is a turn, and the turn is found in the LOG: a point
-    /// before a compaction lands before it with the folded turns back, two
-    /// prompts that read the same are two turns, and what is planned is exactly
-    /// the one `Rewound` the change is committed as.
-    #[test]
-    fn a_rewind_to_a_turn_is_planned_on_the_log() {
-        use atomcode_harness::session::{LoggedEvent, RewindScope as LogScope, SessionEvent};
-
-        let fact = |seq: u64, event: SessionEvent| LoggedEvent { seq, at: 0, event };
-        let said = |turn: u64, text: &str| SessionEvent::UserMessage {
-            turn,
-            text: text.into(),
-            images: Vec::new(),
-        };
-        let reply = |turn: u64, text: &str| SessionEvent::AssistantMessage {
-            turn,
-            round: 1,
-            text: text.into(),
-            reasoning: String::new(),
-            tool_calls: Vec::new(),
-            reasoning_blocks: Vec::new(),
-            meta: None,
-        };
-        let mut events = vec![
-            fact(1, SessionEvent::TurnStart { turn: 1 }),
-            fact(2, said(1, "first")),
-            fact(3, reply(1, "ok")),
-            fact(4, SessionEvent::TurnStart { turn: 2 }),
-            fact(5, said(2, "继续")),
-            fact(6, reply(2, "again")),
-            fact(
-                7,
-                SessionEvent::Compacted {
-                    turn: 2,
-                    through: 6,
-                    summary: "SUMMARY".into(),
-                    from: 0,
-                },
-            ),
-            fact(8, SessionEvent::TurnStart { turn: 3 }),
-            fact(9, said(3, "继续")),
-            fact(10, reply(3, "once more")),
-        ];
-        let texts = |undo: &SnapshotUndoResult| -> Vec<String> {
-            undo.snapshot
-                .messages
-                .iter()
-                .map(|m| m.text.clone())
-                .collect()
-        };
-        let lands_as = |events: &[LoggedEvent], undo: &SnapshotUndoResult| {
-            atomcode_capabilities::session::events::events_to_become(
-                events,
-                &undo.snapshot.messages,
-            )
-        };
-
-        // Before the fold: the folded turn is back in the clear, no summary.
-        let before_the_fold = undo_to_turn_in_log(&events, 2).unwrap();
-        assert_eq!(texts(&before_the_fold), vec!["first", "ok"]);
-        assert_eq!(before_the_fold.restored_prompt, "继续");
-        assert_eq!(
-            lands_as(&events, &before_the_fold),
-            vec![SessionEvent::Rewound {
-                turn: 3,
-                to: 4,
-                scope: LogScope::Conversation,
-            }],
-            "one fact, to that turn's start"
-        );
-
-        // After the fold: the conversation then was the summary.
-        let after_the_fold = undo_to_turn_in_log(&events, 3).unwrap();
-        assert_eq!(texts(&after_the_fold), vec!["SUMMARY"]);
-        assert_eq!(after_the_fold.restored_prompt, "继续");
-        assert_eq!(
-            lands_as(&events, &after_the_fold),
-            vec![SessionEvent::Rewound {
-                turn: 3,
-                to: 8,
-                scope: LogScope::Conversation,
-            }]
-        );
-
-        // A turn the log never held, and one a rewind already took back.
-        assert!(matches!(
-            undo_to_turn_in_log(&events, 9),
-            Err(RuntimeError::RewindPointUnavailable { turn_id: 9 })
-        ));
-        events.push(fact(
-            11,
-            SessionEvent::Rewound {
-                turn: 3,
-                to: 8,
-                scope: LogScope::Conversation,
-            },
-        ));
-        assert!(matches!(
-            undo_to_turn_in_log(&events, 3),
-            Err(RuntimeError::RewindPointUnavailable { turn_id: 3 })
-        ));
-        // …while the turns before it still are.
-        assert_eq!(
-            texts(&undo_to_turn_in_log(&events, 2).unwrap()),
-            vec!["first", "ok"]
-        );
-
-        // A turn the harness opened — a member's report woke the lead — has a
-        // start and no words of the person's: still a place to go back to, with
-        // nothing to hand back.
-        let woken = vec![
-            fact(1, SessionEvent::TurnStart { turn: 1 }),
-            fact(2, said(1, "first")),
-            fact(3, reply(1, "ok")),
-            fact(4, SessionEvent::TurnStart { turn: 2 }),
-            fact(5, reply(2, "the member reported")),
-        ];
-        let before_the_report = undo_to_turn_in_log(&woken, 2).expect("a harness-opened turn");
-        assert_eq!(texts(&before_the_report), vec!["first", "ok"]);
-        assert_eq!(before_the_report.restored_prompt, "");
-        assert_eq!(
-            lands_as(&woken, &before_the_report),
-            vec![SessionEvent::Rewound {
-                turn: 2,
-                to: 4,
-                scope: LogScope::Conversation,
-            }]
-        );
     }
 
     #[test]
@@ -11662,8 +8172,6 @@ mod tests {
             seconds_until_reset: 7200,
             reset_label: "5h".into(),
             call_limit,
-            calls_used: 0,
-            usage_percent: 0.0,
         }
     }
 
@@ -11704,7 +8212,11 @@ mod tests {
         status.report_auxiliary_warning("transcript write failed");
         status.report_cost_warning("cost write failed");
         let (raw, mut events) = mpsc::unbounded_channel();
-        let event_tx = RuntimeEventEmitter::new(raw, None, Arc::new(AtomicU64::new(0)));
+        let event_tx = RuntimeEventEmitter {
+            raw,
+            tagged: None,
+            generation: Arc::new(AtomicU64::new(0)),
+        };
 
         emit_terminal_persistence_warnings(Some(&status), &event_tx);
         emit_terminal_persistence_warnings(Some(&status), &event_tx);
@@ -11851,11 +8363,9 @@ mod tests {
         release: Arc<std::sync::Barrier>,
     }
 
-    /// The second build removes the session's log, then fails: the rebuild
-    /// after a change fails, and so does taking the change back.
-    struct DeleteLogAndFailSecondBuildFactory {
+    struct DeletePresentationAndFailSecondBuildFactory {
         builds: std::sync::atomic::AtomicUsize,
-        log_path: std::path::PathBuf,
+        presentation_path: std::path::PathBuf,
     }
 
     impl CodingProviderFactory for RecoverableAuthFactory {
@@ -11958,7 +8468,7 @@ mod tests {
         }
     }
 
-    impl CodingProviderFactory for DeleteLogAndFailSecondBuildFactory {
+    impl CodingProviderFactory for DeletePresentationAndFailSecondBuildFactory {
         fn build(
             &self,
             _config: &CodingAgentConfig,
@@ -11969,13 +8479,13 @@ mod tests {
                     vec![],
                 )));
             }
-            std::fs::remove_file(&self.log_path).map_err(|error| {
+            std::fs::remove_file(&self.presentation_path).map_err(|error| {
                 crate::ProviderBuildError::Adapter(format!(
                     "could not arrange rollback persistence failure: {error}"
                 ))
             })?;
             Err(crate::ProviderBuildError::Adapter(
-                "candidate provider failed after the log was removed".into(),
+                "candidate provider failed after presentation removal".into(),
             ))
         }
     }
@@ -12121,6 +8631,54 @@ mod tests {
     /// Satisfied) but the follow-up CLASSIFIER with a configured `Class:` line —
     /// distinguished by the system prompt. Lets a test drive to Satisfied and then
     /// exercise a specific classifier verdict on the next submit.
+    struct ClassifierProvider {
+        class_line: &'static str,
+    }
+    #[async_trait::async_trait]
+    impl LlmProvider for ClassifierProvider {
+        fn model_name(&self) -> &str {
+            "classifier-test-provider"
+        }
+        async fn chat_stream(
+            &self,
+            messages: &[Message],
+            _tools: &[atomcode_kernel::tool::ToolDef],
+            _options: &atomcode_kernel::provider::ChatOptions,
+        ) -> Result<
+            futures::stream::BoxStream<'static, atomcode_kernel::stream::StreamEvent>,
+            atomcode_kernel::stream::ProviderError,
+        > {
+            use atomcode_kernel::stream::StreamEvent;
+            let is_classifier = messages
+                .first()
+                .map(|m| m.text.contains("classify"))
+                .unwrap_or(false);
+            let reply = if is_classifier {
+                self.class_line
+            } else {
+                "Verdict: yes goal met"
+            };
+            Ok(Box::pin(futures::stream::iter(vec![
+                StreamEvent::TextDelta(reply.into()),
+                StreamEvent::Done { truncated: false },
+            ])))
+        }
+    }
+    struct ClassifierProviderFactory {
+        class_line: &'static str,
+    }
+    impl CodingProviderFactory for ClassifierProviderFactory {
+        fn build(
+            &self,
+            _config: &CodingAgentConfig,
+            _session_id: Option<&str>,
+        ) -> Result<Arc<dyn LlmProvider>, crate::ProviderBuildError> {
+            Ok(Arc::new(ClassifierProvider {
+                class_line: self.class_line,
+            }))
+        }
+    }
+
     impl CodingProviderFactory for TierRecordingFactory {
         fn build(
             &self,
@@ -12321,13 +8879,7 @@ mod tests {
         assert!(fast_cell.get().is_some());
 
         *factory.fail_model.lock().unwrap() = Some("fast-model".into());
-        let mut next = CodingAgentConfig::new(
-            "key",
-            "https://example.test/v1",
-            "fast-model",
-            ".",
-            crate::config::product_dirs_from_env(),
-        );
+        let mut next = CodingAgentConfig::new("key", "https://example.test/v1", "fast-model", ".");
         next.subagent_config = Some(routing);
         assert!(runtime.handle.reassemble_provider(next).await.is_err());
 
@@ -12340,13 +8892,7 @@ mod tests {
 
     fn native_start(fail_provider: bool) -> CodingRuntimeStart {
         CodingRuntimeStart {
-            agent: CodingAgentConfig::new(
-                "key",
-                "https://example.test/v1",
-                "test",
-                ".",
-                crate::config::product_dirs_from_env(),
-            ),
+            agent: CodingAgentConfig::new("key", "https://example.test/v1", "test", "."),
             prepare: PrepareOptions {
                 request_user_input: true,
                 session: crate::SessionMode::Disabled,
@@ -12361,8 +8907,6 @@ mod tests {
                 review: false,
                 subagents: crate::SubagentPolicy::Disabled,
                 rate_limit_source: None,
-                front_end: None,
-                review_delegate: None,
             },
             provider_factory: Arc::new(TestProviderFactory {
                 fail: fail_provider,
@@ -12422,42 +8966,22 @@ mod tests {
                 if condition == "tests pass"
         ));
 
-        // Starting either one now also opens its first round, so the slot is
-        // not free until that round is over — the same rule as any other turn,
-        // and the reason this ends the round rather than asking twice in a row.
-        runtime.handle.cancel().await.ok();
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            loop {
-                match runtime.handle.start_loop("watch CI", None).await {
-                    Ok(()) => break,
-                    Err(_) => tokio::task::yield_now().await,
-                }
-            }
-        })
-        .await
-        .expect("the loop never took the slot from the goal");
-
-        let (mut goal_gone, mut loop_running) = (false, false);
-        while !(goal_gone && loop_running) {
-            match next_native_event(&mut runtime).await {
-                CodingRuntimeEvent::GoalChanged(progress) if !progress.active => goal_gone = true,
-                CodingRuntimeEvent::LoopChanged(progress) if progress.active => {
-                    assert_eq!(progress.label, "watch CI");
-                    loop_running = true;
-                }
-                _ => {}
-            }
-        }
+        runtime.handle.start_loop("watch CI").await.unwrap();
+        assert!(matches!(
+            next_native_event(&mut runtime).await,
+            CodingRuntimeEvent::GoalChanged(GoalProgress { active: false, .. })
+        ));
+        assert!(matches!(
+            next_native_event(&mut runtime).await,
+            CodingRuntimeEvent::LoopChanged(LoopProgress { active: true, label, .. })
+                if label == "watch CI"
+        ));
 
         runtime.handle.stop_loop().await.unwrap();
-        loop {
-            if let CodingRuntimeEvent::LoopChanged(progress) = next_native_event(&mut runtime).await
-            {
-                if !progress.active {
-                    break;
-                }
-            }
-        }
+        assert!(matches!(
+            next_native_event(&mut runtime).await,
+            CodingRuntimeEvent::LoopChanged(LoopProgress { active: false, .. })
+        ));
         runtime.handle.shutdown().await.unwrap();
     }
 
@@ -12527,8 +9051,6 @@ mod tests {
             provider_factory,
             plugin_hooks,
             parts,
-            harness_app: None,
-            harness_providers: None,
             wakeup_tx: wakeup_tx.clone(),
             loop_active: loop_active.clone(),
             image_preprocessor: None,
@@ -12574,7 +9096,6 @@ mod tests {
                     );
                     let event = match terminal {
                         ShutdownPersistenceTerminal::TurnComplete => AgentEvent::TurnComplete {
-                            turn: None,
                             reason: StopReason::Cancelled,
                         },
                         ShutdownPersistenceTerminal::CompactionFailed => {
@@ -12631,8 +9152,6 @@ mod tests {
             provider_factory: start.provider_factory,
             plugin_hooks: start.plugin_hooks,
             parts,
-            harness_app: None,
-            harness_providers: None,
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
@@ -12694,7 +9213,6 @@ mod tests {
             "https://example.test/v1",
             "next-model",
             project.path(),
-            crate::config::product_dirs_from_env(),
         );
 
         assert!(matches!(
@@ -12730,7 +9248,6 @@ mod tests {
             "https://example.test/v1",
             "next-model",
             project.path(),
-            crate::config::product_dirs_from_env(),
         );
 
         assert!(matches!(
@@ -12783,8 +9300,6 @@ mod tests {
             provider_factory: start.provider_factory,
             plugin_hooks: start.plugin_hooks,
             parts,
-            harness_app: None,
-            harness_providers: None,
             wakeup_tx,
             loop_active,
             image_preprocessor: None,
@@ -12807,7 +9322,6 @@ mod tests {
         ));
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::Stopped,
             })
             .unwrap();
@@ -12876,8 +9390,6 @@ mod tests {
             provider_factory: start.provider_factory,
             plugin_hooks: start.plugin_hooks,
             parts,
-            harness_app: None,
-            harness_providers: None,
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
@@ -12950,13 +9462,16 @@ mod tests {
 
         handle.start_goal("tests pass").await.unwrap();
         let _ = runtime_events.recv().await;
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         assert!(matches!(
             kernel_commands.recv().await,
             Some(AgentCommand::SendMessage { .. })
         ));
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::MaxRounds,
             })
             .unwrap();
@@ -13012,6 +9527,10 @@ mod tests {
                 ..
             }))
         ));
+        handle
+            .submit(UserInput::from("long running goal"))
+            .await
+            .unwrap();
         assert!(matches!(
             kernel_commands.recv().await,
             Some(AgentCommand::SendMessage { .. })
@@ -13075,137 +9594,6 @@ mod tests {
         handle.shutdown().await.unwrap();
     }
 
-    /// A job run elsewhere reports back through `note`: the agent is woken with
-    /// the words, and what reaches the kernel says whose they are.
-    ///
-    /// The negative half is the point. `SendMessage` is the shape the log — and
-    /// everything that replays it, the model included — reads as something a
-    /// person typed, and that is exactly what a driver delivering a background
-    /// result used to send.
-    #[tokio::test]
-    async fn a_note_reaches_the_agent_as_the_sending_sessions_words() {
-        let (
-            handle,
-            mut kernel_commands,
-            _kernel_events,
-            _runtime_events,
-            _wakeup_tx,
-            _loop_active,
-            _adapter,
-        ) = controller_test_runtime(Arc::new(TestProviderFactory { fail: false })).await;
-
-        handle
-            .note("bg-7".into(), "the review came back".into())
-            .await
-            .unwrap();
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::PeerNote { from, text })
-                if from == "bg-7" && text == "the review came back"
-        ));
-        handle.shutdown().await.unwrap();
-    }
-
-    /// A note is not a nudge: it must not re-engage a goal the person paused.
-    ///
-    /// Pausing is somebody saying "not now", and a job reporting back is not them
-    /// saying "go on". The positive half is the point of the last step: had the
-    /// note woken the goal, the person's own next message would have had nothing
-    /// left to resume — and the recovery recap that message exists for would
-    /// already be spent (`resume_paused` clears it).
-    #[tokio::test]
-    #[serial_test::serial(atomcode_home)]
-    async fn a_note_does_not_re_engage_a_paused_goal() {
-        let (
-            handle,
-            mut kernel_commands,
-            kernel_events,
-            mut runtime_events,
-            _wakeup_tx,
-            _loop_active,
-            _adapter,
-        ) = controller_test_runtime(Arc::new(TestProviderFactory { fail: false })).await;
-
-        handle.start_goal("finish the task").await.unwrap();
-        let _ = runtime_events.recv().await;
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::SendMessage { .. })
-        ));
-
-        handle.pause_goal().await.unwrap();
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::Cancel)
-        ));
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::Snapshot)
-        ));
-        assert!(matches!(
-            runtime_events.recv().await,
-            Some(CodingRuntimeEvent::GoalChanged(GoalProgress {
-                active: false,
-                phase: GoalPhase::Paused,
-                ..
-            }))
-        ));
-        // 停下来的那一趟要落地:在它落地之前,任何提交(包括下面这条注)都是 Busy。
-        kernel_events
-            .send(AgentEvent::Snapshot {
-                snapshot: SessionSnapshot::new(vec![Message::user("start work")]),
-            })
-            .unwrap();
-        loop {
-            if matches!(
-                runtime_events.recv().await,
-                Some(CodingRuntimeEvent::TurnFinished(_))
-            ) {
-                break;
-            }
-        }
-
-        // 后台那趟干完,结果投回家:它照旧开一趟(是一条注,不是没人理),但它不是人。
-        handle
-            .note("bg-7".into(), "the review came back".into())
-            .await
-            .unwrap();
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::PeerNote { from, .. }) if from == "bg-7"
-        ));
-
-        // 内核命令已经发出去,那一臂里该发的事件此刻都在队列上:唤醒的话它就在这里。
-        let mut woken = false;
-        while let Ok(event) = runtime_events.try_recv() {
-            woken |= matches!(
-                event,
-                CodingRuntimeEvent::GoalChanged(GoalProgress { active: true, .. })
-            );
-        }
-        assert!(!woken, "一条注把被人暂停的 goal 唤醒了");
-
-        // 而人的下一句话仍然唤得醒 —— 暂停还在,摘要也还留着。
-        handle.submit(UserInput::from("continue")).await.unwrap();
-        assert!(
-            matches!(
-                runtime_events.recv().await,
-                Some(CodingRuntimeEvent::GoalChanged(GoalProgress {
-                    active: true,
-                    phase: GoalPhase::Pursuing,
-                    ..
-                }))
-            ),
-            "the person's own message is what re-engages a paused goal"
-        );
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::SendMessage { text, .. }) if text == "continue"
-        ));
-
-        handle.shutdown().await.unwrap();
-    }
-
     #[tokio::test]
     async fn pause_goal_cancels_only_the_turn_and_next_submit_resumes_goal() {
         let (
@@ -13220,6 +9608,7 @@ mod tests {
 
         handle.start_goal("finish the task").await.unwrap();
         let _ = runtime_events.recv().await;
+        handle.submit(UserInput::from("start work")).await.unwrap();
         assert!(matches!(
             kernel_commands.recv().await,
             Some(AgentCommand::SendMessage { .. })
@@ -13327,6 +9716,10 @@ mod tests {
 
         handle.start_goal("tests pass").await.unwrap();
         let _ = runtime_events.recv().await;
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         assert!(matches!(
             kernel_commands.recv().await,
             Some(AgentCommand::SendMessage { .. })
@@ -13334,7 +9727,6 @@ mod tests {
 
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::Stopped,
             })
             .unwrap();
@@ -13401,6 +9793,10 @@ mod tests {
 
         handle.start_goal("tests pass").await.unwrap();
         let _ = runtime_events.recv().await;
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         assert!(matches!(
             kernel_commands.recv().await,
             Some(AgentCommand::SendMessage { .. })
@@ -13408,7 +9804,6 @@ mod tests {
 
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::Stopped,
             })
             .unwrap();
@@ -13493,6 +9888,10 @@ mod tests {
                 ..
             }))
         ));
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         assert!(matches!(
             kernel_commands.recv().await,
             Some(AgentCommand::SendMessage { .. })
@@ -13502,7 +9901,6 @@ mod tests {
         // synthetic prompt. The runtime stores one bounded copy for recovery compact.
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::ProviderError,
             })
             .unwrap();
@@ -13532,7 +9930,6 @@ mod tests {
         for round in 2..=MAX_UNPRODUCTIVE {
             kernel_events
                 .send(AgentEvent::TurnComplete {
-                    turn: None,
                     reason: StopReason::ProviderError,
                 })
                 .unwrap();
@@ -13670,12 +10067,15 @@ mod tests {
 
         handle.start_goal("tests pass").await.unwrap();
         let _ = runtime_events.recv().await;
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         let _ = kernel_commands.recv().await;
 
         for attempt in 0..2 {
             kernel_events
                 .send(AgentEvent::TurnComplete {
-                    turn: None,
                     reason: StopReason::Stopped,
                 })
                 .unwrap();
@@ -13738,8 +10138,12 @@ mod tests {
         )
         .await;
 
-        handle.start_loop("watch CI", None).await.unwrap();
+        handle.start_loop("watch CI").await.unwrap();
         let _ = runtime_events.recv().await;
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         let _ = kernel_commands.recv().await;
 
         for attempt in 0..2 {
@@ -13768,7 +10172,6 @@ mod tests {
             .expect("loop wakeup was not registered");
             kernel_events
                 .send(AgentEvent::TurnComplete {
-                    turn: None,
                     reason: StopReason::Stopped,
                 })
                 .unwrap();
@@ -13816,142 +10219,6 @@ mod tests {
         handle.shutdown().await.unwrap();
     }
 
-    /// A message typed while `/loop` waits, then esc: the turn it opened stops.
-    ///
-    /// While the loop waits for its next round this owner holds the finished
-    /// turn open, and a typed message opens a new agent turn under that hold.
-    /// The cancel used to close only the hold — a terminal for a turn that had
-    /// already finished — and never told the agent, so the turn actually running
-    /// carried on; a second esc then found nothing "active" and did nothing.
-    #[tokio::test]
-    async fn a_turn_opened_under_a_loop_hold_can_be_cancelled() {
-        let (
-            handle,
-            mut kernel_commands,
-            kernel_events,
-            mut runtime_events,
-            wakeup_tx,
-            _loop_active,
-            _adapter,
-        ) = controller_test_runtime(Arc::new(TestProviderFactory { fail: false })).await;
-
-        handle.start_loop("watch CI", None).await.unwrap();
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::SendMessage { .. })
-        ));
-        kernel_events
-            .send(AgentEvent::TurnStarted { turn: None })
-            .unwrap();
-        // The next round is an hour away: the hold stays up for this test.
-        wakeup_tx
-            .send(WakeupRequest {
-                delay_seconds: 3600,
-                reason: "later".into(),
-                prompt: "check CI".into(),
-            })
-            .unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            loop {
-                if matches!(
-                    runtime_events.recv().await,
-                    Some(CodingRuntimeEvent::LoopChanged(LoopProgress {
-                        last_reason: Some(reason),
-                        ..
-                    })) if reason.starts_with("scheduled in")
-                ) {
-                    break;
-                }
-            }
-        })
-        .await
-        .expect("the wakeup was not registered");
-        kernel_events
-            .send(AgentEvent::TurnComplete {
-                turn: None,
-                reason: StopReason::Stopped,
-            })
-            .unwrap();
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::Snapshot)
-        ));
-        kernel_events
-            .send(AgentEvent::Snapshot {
-                snapshot: SessionSnapshot::new(vec![Message::assistant("round one", vec![])]),
-            })
-            .unwrap();
-
-        // Held. The person types, and the agent opens a turn for it.
-        handle
-            .submit(UserInput::from("while it waits"))
-            .await
-            .unwrap();
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::SendMessage { text, .. }) if text == "while it waits"
-        ));
-        kernel_events
-            .send(AgentEvent::TurnStarted { turn: None })
-            .unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            loop {
-                if matches!(
-                    runtime_events.recv().await,
-                    Some(CodingRuntimeEvent::Agent(AgentEvent::TurnStarted { .. }))
-                ) {
-                    break;
-                }
-            }
-        })
-        .await
-        .expect("the typed turn's start was not forwarded");
-
-        handle.cancel().await.unwrap();
-        assert!(
-            matches!(
-                tokio::time::timeout(std::time::Duration::from_secs(2), kernel_commands.recv())
-                    .await,
-                Ok(Some(AgentCommand::Cancel))
-            ),
-            "the turn running under the hold was never told to stop"
-        );
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::Snapshot)
-        ));
-        kernel_events
-            .send(AgentEvent::TurnComplete {
-                turn: None,
-                reason: StopReason::Cancelled,
-            })
-            .unwrap();
-        kernel_events
-            .send(AgentEvent::Snapshot {
-                snapshot: SessionSnapshot::new(vec![Message::user("while it waits")]),
-            })
-            .unwrap();
-
-        let mut terminals = Vec::new();
-        while let Ok(Some(event)) =
-            tokio::time::timeout(std::time::Duration::from_millis(300), runtime_events.recv()).await
-        {
-            if let CodingRuntimeEvent::TurnFinished(completion) = event {
-                terminals.push(completion);
-            }
-        }
-        assert_eq!(terminals.len(), 1, "one stop, one terminal: {terminals:?}");
-        assert!(matches!(
-            terminals[0],
-            TurnCompletion::Completed {
-                reason: StopReason::Cancelled,
-                ..
-            }
-        ));
-        assert_eq!(handle.status().phase, RuntimePhase::Ready);
-        handle.shutdown().await.unwrap();
-    }
-
     #[tokio::test]
     async fn loop_continuation_send_failure_reports_provider_error() {
         let (
@@ -13964,8 +10231,12 @@ mod tests {
             _adapter,
         ) = controller_test_runtime(Arc::new(TestProviderFactory { fail: false })).await;
 
-        handle.start_loop("watch CI", None).await.unwrap();
+        handle.start_loop("watch CI").await.unwrap();
         let _ = runtime_events.recv().await;
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         let _ = kernel_commands.recv().await;
         wakeup_tx
             .send(WakeupRequest {
@@ -13977,7 +10248,6 @@ mod tests {
         let _ = runtime_events.recv().await;
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::Stopped,
             })
             .unwrap();
@@ -14028,11 +10298,14 @@ mod tests {
 
         handle.start_goal("tests pass").await.unwrap();
         let _ = runtime_events.recv().await;
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         let _ = kernel_commands.recv().await;
         drop(kernel_commands);
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::Stopped,
             })
             .unwrap();
@@ -14075,8 +10348,12 @@ mod tests {
             _adapter,
         ) = controller_test_runtime(Arc::new(TestProviderFactory { fail: false })).await;
 
-        handle.start_loop("watch CI", None).await.unwrap();
+        handle.start_loop("watch CI").await.unwrap();
         let _ = runtime_events.recv().await;
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         let _ = kernel_commands.recv().await;
         wakeup_tx
             .send(WakeupRequest {
@@ -14089,7 +10366,6 @@ mod tests {
         drop(kernel_commands);
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::Stopped,
             })
             .unwrap();
@@ -14142,13 +10418,16 @@ mod tests {
                 ..
             }))
         ));
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         assert!(matches!(
             kernel_commands.recv().await,
-            Some(AgentCommand::SendMessage { text, .. }) if text == "tests pass"
+            Some(AgentCommand::SendMessage { text, .. }) if text == "initial turn"
         ));
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::Stopped,
             })
             .unwrap();
@@ -14197,13 +10476,16 @@ mod tests {
                 ..
             }))
         ));
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         assert!(matches!(
             kernel_commands.recv().await,
-            Some(AgentCommand::SendMessage { text, .. }) if text == "tests pass"
+            Some(AgentCommand::SendMessage { text, .. }) if text == "initial turn"
         ));
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::MaxRounds,
             })
             .unwrap();
@@ -14256,13 +10538,16 @@ mod tests {
                 ..
             }))
         ));
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         assert!(matches!(
             kernel_commands.recv().await,
-            Some(AgentCommand::SendMessage { text, .. }) if text == "tests pass"
+            Some(AgentCommand::SendMessage { text, .. }) if text == "initial turn"
         ));
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::ToolLoopDetected,
             })
             .unwrap();
@@ -14355,6 +10640,10 @@ mod tests {
         ) = controller_test_runtime(Arc::new(PanicProviderFactory)).await;
 
         handle.start_goal("tests pass").await.unwrap();
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         assert!(matches!(
             kernel_commands.recv().await,
             Some(AgentCommand::SendMessage { .. })
@@ -14362,7 +10651,6 @@ mod tests {
 
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::Stopped,
             })
             .unwrap();
@@ -14418,7 +10706,7 @@ mod tests {
             _adapter,
         ) = controller_test_runtime(Arc::new(TestProviderFactory { fail: false })).await;
 
-        handle.start_loop("watch CI", None).await.unwrap();
+        handle.start_loop("watch CI").await.unwrap();
         assert!(matches!(
             runtime_events.recv().await,
             Some(CodingRuntimeEvent::LoopChanged(LoopProgress {
@@ -14427,9 +10715,13 @@ mod tests {
             }))
         ));
         assert!(loop_active.load(Ordering::Acquire));
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         assert!(matches!(
             kernel_commands.recv().await,
-            Some(AgentCommand::SendMessage { text, .. }) if text == "watch CI"
+            Some(AgentCommand::SendMessage { text, .. }) if text == "initial turn"
         ));
         wakeup_tx
             .send(WakeupRequest {
@@ -14691,7 +10983,6 @@ mod tests {
             "https://example.test/v1",
             "replacement",
             std::env::current_dir().unwrap(),
-            crate::config::product_dirs_from_env(),
         );
         assert_eq!(
             handle.reassemble_provider(unavailable_config).await,
@@ -14839,115 +11130,6 @@ mod tests {
         adapter.shutdown().await.unwrap();
     }
 
-    /// A message the agent had not yet taken when it was replaced is answered:
-    /// its inbox went with it, so the driver holding the receipt hears
-    /// `Rejected { NotRunning }` — the same answer a stop gives what it
-    /// withdrew — instead of waiting for a claim that is never coming.
-    ///
-    /// The one it *had* taken is not withdrawn: its turn already answered it.
-    #[tokio::test]
-    async fn a_message_still_in_a_replaced_agents_inbox_is_answered() {
-        let (first, mut first_commands, first_events) = fake_agent();
-        let (handle, controls) = coding_runtime_control_channel();
-        let (runtime_tx, mut runtime_rx) = mpsc::unbounded_channel();
-        let adapter = spawn_runtime_owner_with_protocol(
-            first, controls, runtime_tx, true, true, None, None, None,
-        );
-
-        handle
-            .submit_tagged("tui-1".into(), UserInput::from("taken"))
-            .await
-            .unwrap();
-        handle
-            .submit_tagged("tui-2".into(), UserInput::from("still waiting"))
-            .await
-            .unwrap();
-        for expected in ["tui-1", "tui-2"] {
-            assert!(matches!(
-                first_commands.recv().await,
-                Some(AgentCommand::Tagged { id, .. }) if id == expected
-            ));
-        }
-        // The turn claims the first; the answer reaches the driver.
-        first_events
-            .send(AgentEvent::Accepted {
-                command: "tui-1".into(),
-                turn: Some(1),
-                steered: false,
-            })
-            .unwrap();
-        loop {
-            match runtime_rx.recv().await {
-                Some(CodingRuntimeEvent::Agent(AgentEvent::Accepted { command, .. }))
-                    if command == "tui-1" =>
-                {
-                    break
-                }
-                Some(_) => {}
-                None => panic!("the runtime closed before the claim"),
-            }
-        }
-
-        let (second, _second_commands, _second_events) = fake_agent();
-        adapter.replace_agent(second).await.unwrap();
-
-        let mut answered = Vec::new();
-        while let Ok(Some(event)) =
-            tokio::time::timeout(std::time::Duration::from_millis(200), runtime_rx.recv()).await
-        {
-            if let CodingRuntimeEvent::Agent(AgentEvent::Rejected { command, error }) = event {
-                answered.push((command, error));
-            }
-        }
-        assert_eq!(
-            answered,
-            vec![(
-                "tui-2".to_string(),
-                atomcode_kernel::event::CommandError::NotRunning
-            )],
-            "only the message the old agent never took is withdrawn"
-        );
-        adapter.shutdown().await.unwrap();
-    }
-
-    /// The same when the agent is lost rather than replaced: its event stream
-    /// closes and the owner ends, and the receipt it held is still answered.
-    #[tokio::test]
-    async fn a_message_in_a_lost_agents_inbox_is_answered() {
-        let (first, mut first_commands, first_events) = fake_agent();
-        let (handle, controls) = coding_runtime_control_channel();
-        let (runtime_tx, mut runtime_rx) = mpsc::unbounded_channel();
-        let _adapter = spawn_runtime_owner_with_protocol(
-            first, controls, runtime_tx, true, true, None, None, None,
-        );
-
-        handle
-            .submit_tagged("tui-1".into(), UserInput::from("never taken"))
-            .await
-            .unwrap();
-        assert!(matches!(
-            first_commands.recv().await,
-            Some(AgentCommand::Tagged { .. })
-        ));
-        drop(first_events);
-
-        let mut withdrawn = false;
-        while let Ok(Some(event)) =
-            tokio::time::timeout(std::time::Duration::from_secs(2), runtime_rx.recv()).await
-        {
-            if matches!(
-                &event,
-                CodingRuntimeEvent::Agent(AgentEvent::Rejected { command, .. }) if command == "tui-1"
-            ) {
-                withdrawn = true;
-            }
-        }
-        assert!(
-            withdrawn,
-            "the receipt the lost agent held was never answered"
-        );
-    }
-
     #[tokio::test]
     async fn stable_handle_targets_replacement_agent() {
         let (first, mut first_commands, _first_events) = fake_agent();
@@ -15075,7 +11257,11 @@ mod tests {
         compactions.accepted_manual(trigger);
         let mut observed_tokens = None;
         let (raw, _events) = mpsc::unbounded_channel();
-        let emitter = RuntimeEventEmitter::new(raw, None, Arc::new(AtomicU64::new(0)));
+        let emitter = RuntimeEventEmitter {
+            raw,
+            tagged: None,
+            generation: Arc::new(AtomicU64::new(0)),
+        };
 
         let report = stop_current_agent(
             &mut agent,
@@ -15142,7 +11328,11 @@ mod tests {
         let mut compactions = CompactionTracker::default();
         let mut observed_tokens = None;
         let (raw, _events) = mpsc::unbounded_channel();
-        let emitter = RuntimeEventEmitter::new(raw, None, Arc::new(AtomicU64::new(4)));
+        let emitter = RuntimeEventEmitter {
+            raw,
+            tagged: None,
+            generation: Arc::new(AtomicU64::new(4)),
+        };
         stop_current_agent(
             &mut agent,
             &mut compactions,
@@ -15198,7 +11388,11 @@ mod tests {
         let mut compactions = CompactionTracker::default();
         let mut observed_tokens = None;
         let (raw, _events) = mpsc::unbounded_channel();
-        let emitter = RuntimeEventEmitter::new(raw, None, Arc::new(AtomicU64::new(4)));
+        let emitter = RuntimeEventEmitter {
+            raw,
+            tagged: None,
+            generation: Arc::new(AtomicU64::new(4)),
+        };
         // A `/model` reassemble passes `None` for the manager: the session
         // continues, so the detached member must NOT be terminated.
         stop_current_agent(
@@ -15258,7 +11452,6 @@ mod tests {
         handle
             .tx
             .send(CodingRuntimeControl::ApplyUndo {
-                code_rewound_to: None,
                 generation: handle.status().generation,
                 expected_revision: original.revision,
                 original: original.snapshot,
@@ -15430,7 +11623,6 @@ mod tests {
                 "https://example.test/v1",
                 "model",
                 ".",
-                crate::config::product_dirs_from_env()
             )))
         );
         assert!(handle.accepts(&DriverCommand::Shutdown));
@@ -15503,10 +11695,7 @@ mod tests {
         std::env::set_var("ATOMCODE_HOME", home.path());
         let dir = tempfile::tempdir().unwrap();
         let id = "resume-safe-prompt";
-        let manager = atomcode_capabilities::session::SessionManager::for_project(
-            dir.path(),
-            &crate::config::product_dirs_from_env(),
-        );
+        let manager = atomcode_capabilities::session::SessionManager::for_project(dir.path());
         let canonical = SessionSnapshot::new(vec![Message::user("completed")]);
         persist_native_session(&manager, id, dir.path(), &canonical);
         let inflight = SessionSnapshot::new(vec![
@@ -15586,13 +11775,7 @@ mod tests {
         ));
 
         factory.fail.store(false, Ordering::Release);
-        let next = CodingAgentConfig::new(
-            "key",
-            "https://example.test/v1",
-            "ready",
-            ".",
-            crate::config::product_dirs_from_env(),
-        );
+        let next = CodingAgentConfig::new("key", "https://example.test/v1", "ready", ".");
         assert_eq!(
             runtime.handle.reassemble_provider(next).await.unwrap(),
             RuntimeGeneration(1)
@@ -15628,13 +11811,7 @@ mod tests {
             ))
         ));
 
-        let next = CodingAgentConfig::new(
-            "key",
-            "https://example.test/v1",
-            "ready",
-            ".",
-            crate::config::product_dirs_from_env(),
-        );
+        let next = CodingAgentConfig::new("key", "https://example.test/v1", "ready", ".");
         assert_eq!(
             runtime.handle.reassemble_provider(next).await.unwrap(),
             RuntimeGeneration(1)
@@ -15695,51 +11872,12 @@ mod tests {
             ))
         ));
 
-        let next = CodingAgentConfig::new(
-            "key",
-            "https://example.test/v1",
-            "ready",
-            ".",
-            crate::config::product_dirs_from_env(),
-        );
+        let next = CodingAgentConfig::new("key", "https://example.test/v1", "ready", ".");
         assert_eq!(
             runtime.handle.reassemble_provider(next).await.unwrap(),
             RuntimeGeneration(2)
         );
         assert_eq!(runtime.handle.status().phase, RuntimePhase::Ready);
-        runtime.handle.shutdown().await.unwrap();
-    }
-
-    /// Recovery has to hand back a runtime that can actually run a turn.
-    ///
-    /// The scenario above stops at `phase == Ready`, and that is not the same
-    /// claim: a deactivate STOPS the agent, so a recovery path that only put a
-    /// new provider in place would report Ready with nothing behind it. On the
-    /// harness engine that is a live hazard — a model swap there is a patch,
-    /// and a patch cannot bring back an agent that was torn down — so this
-    /// submits after recovering and insists the turn starts.
-    #[tokio::test]
-    async fn a_recovered_runtime_can_actually_run_a_turn() {
-        let runtime = CodingRuntime::start(native_start(false)).await.unwrap();
-        runtime
-            .handle
-            .deactivate_provider(ProviderUnavailableReason::AuthenticationRequired)
-            .await
-            .unwrap();
-        let next = CodingAgentConfig::new(
-            "key",
-            "https://example.test/v1",
-            "after-login",
-            ".",
-            crate::config::product_dirs_from_env(),
-        );
-        runtime.handle.reassemble_provider(next).await.unwrap();
-
-        let receipt = runtime.handle.submit(UserInput::from("after login")).await;
-        assert!(
-            matches!(receipt, Ok(SubmitReceipt::Started { .. })),
-            "a recovered runtime reported Ready but could not start a turn: {receipt:?}"
-        );
         runtime.handle.shutdown().await.unwrap();
     }
 
@@ -15775,12 +11913,9 @@ mod tests {
             Some(AgentCommand::SendMessage { text, .. }) if text == "steer"
         ));
 
-        kernel_events
-            .send(AgentEvent::TurnStarted { turn: None })
-            .unwrap();
+        kernel_events.send(AgentEvent::TurnStarted).unwrap();
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::Stopped,
             })
             .unwrap();
@@ -15790,7 +11925,7 @@ mod tests {
         ));
         assert!(matches!(
             runtime_events.recv().await,
-            Some(CodingRuntimeEvent::Agent(AgentEvent::TurnStarted { .. }))
+            Some(CodingRuntimeEvent::Agent(AgentEvent::TurnStarted))
         ));
         assert!(runtime_events.try_recv().is_err());
 
@@ -15808,404 +11943,6 @@ mod tests {
                 snapshot,
                 ..
             })) if snapshot.as_ref() == &expected
-        ));
-        assert_eq!(handle.status().phase, RuntimePhase::Ready);
-        handle.shutdown().await.unwrap();
-    }
-
-    /// `/model` in the middle of a turn, then esc: the stop still reaches the
-    /// turn.
-    ///
-    /// On the harness a model switch is a patch — the turn runs on under the new
-    /// generation. The phase was left at `Reconfiguring` with the *old*
-    /// generation, so `cancel()` stamped every request with a generation the
-    /// owner no longer had and each was refused as stale ("unavailable") while
-    /// the turn carried on.
-    #[tokio::test]
-    async fn a_model_switched_mid_turn_leaves_the_turn_stoppable() {
-        let mut start = native_start(false);
-        start.provider_factory = Arc::new(PendingProviderFactory);
-        let mut runtime = CodingRuntime::start(start).await.unwrap();
-        runtime
-            .handle
-            .submit(UserInput::from("a long answer"))
-            .await
-            .unwrap();
-
-        let next = CodingAgentConfig::new(
-            "key",
-            "https://example.test/v1",
-            "after-switch",
-            ".",
-            crate::config::product_dirs_from_env(),
-        );
-        runtime.handle.reassemble_provider(next).await.unwrap();
-        assert_eq!(
-            runtime.handle.status().phase,
-            RuntimePhase::InTurn,
-            "the patch did not end the turn, so the phase must still say it runs"
-        );
-
-        runtime
-            .handle
-            .cancel()
-            .await
-            .expect("a cancel after a mid-turn model switch was refused as stale");
-        let terminal = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            loop {
-                if let CodingRuntimeEvent::TurnFinished(completion) =
-                    runtime.events.recv().await.unwrap().event
-                {
-                    break completion;
-                }
-            }
-        })
-        .await
-        .expect("the cancelled turn never ended");
-        assert!(
-            matches!(
-                terminal,
-                TurnCompletion::Completed {
-                    reason: StopReason::Cancelled,
-                    ..
-                }
-            ),
-            "{terminal:?}"
-        );
-        runtime.handle.shutdown().await.unwrap();
-    }
-
-    /// Stopping the loop does not stop the turn the person opened under it.
-    ///
-    /// The hold is this owner's bookkeeping, not work: with a turn the agent
-    /// opened under it, closing the hold reported a terminal for a turn that had
-    /// already finished and left `active_turn` empty — so the running one was
-    /// accounted for by nobody, and the second terminal it produced named turn 0.
-    /// `/loop` stopping is not a reason to stop what the person typed, so the
-    /// hold goes and the running turn keeps the id it had.
-    #[tokio::test]
-    async fn stopping_the_loop_leaves_the_turn_opened_under_it_running() {
-        let (
-            handle,
-            mut kernel_commands,
-            kernel_events,
-            mut runtime_events,
-            wakeup_tx,
-            _loop_active,
-            _adapter,
-        ) = controller_test_runtime(Arc::new(TestProviderFactory { fail: false })).await;
-
-        handle.start_loop("watch CI", None).await.unwrap();
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::SendMessage { .. })
-        ));
-        kernel_events
-            .send(AgentEvent::TurnStarted { turn: None })
-            .unwrap();
-        wakeup_tx
-            .send(WakeupRequest {
-                delay_seconds: 3600,
-                reason: "later".into(),
-                prompt: "check CI".into(),
-            })
-            .unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            loop {
-                if matches!(
-                    runtime_events.recv().await,
-                    Some(CodingRuntimeEvent::LoopChanged(LoopProgress {
-                        last_reason: Some(reason),
-                        ..
-                    })) if reason.starts_with("scheduled in")
-                ) {
-                    break;
-                }
-            }
-        })
-        .await
-        .expect("the wakeup was not registered");
-        kernel_events
-            .send(AgentEvent::TurnComplete {
-                turn: None,
-                reason: StopReason::Stopped,
-            })
-            .unwrap();
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::Snapshot)
-        ));
-        kernel_events
-            .send(AgentEvent::Snapshot {
-                snapshot: SessionSnapshot::new(vec![Message::assistant("round one", vec![])]),
-            })
-            .unwrap();
-
-        // Held, and the person types; the agent opens a turn for it.
-        handle
-            .submit(UserInput::from("while it waits"))
-            .await
-            .unwrap();
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::SendMessage { .. })
-        ));
-        kernel_events
-            .send(AgentEvent::TurnStarted { turn: None })
-            .unwrap();
-
-        handle.stop_loop().await.unwrap();
-        // Nothing was asked of the agent: what is running is the person's own.
-        assert!(
-            tokio::time::timeout(
-                std::time::Duration::from_millis(200),
-                kernel_commands.recv()
-            )
-            .await
-            .is_err(),
-            "stopping the loop stopped the turn the person had opened"
-        );
-
-        kernel_events
-            .send(AgentEvent::TurnComplete {
-                turn: None,
-                reason: StopReason::Stopped,
-            })
-            .unwrap();
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::Snapshot)
-        ));
-        kernel_events
-            .send(AgentEvent::Snapshot {
-                snapshot: SessionSnapshot::new(vec![Message::assistant("answered", vec![])]),
-            })
-            .unwrap();
-
-        let mut terminals = Vec::new();
-        while let Ok(Some(event)) =
-            tokio::time::timeout(std::time::Duration::from_millis(300), runtime_events.recv()).await
-        {
-            if let CodingRuntimeEvent::TurnFinished(completion) = event {
-                terminals.push(completion);
-            }
-        }
-        assert_eq!(
-            terminals.len(),
-            1,
-            "one turn ran under the hold, so one terminal: {terminals:?}"
-        );
-        assert!(
-            matches!(
-                terminals[0],
-                TurnCompletion::Completed {
-                    turn_id: 1,
-                    reason: StopReason::Stopped,
-                    ..
-                }
-            ),
-            "{terminals:?}"
-        );
-        handle.shutdown().await.unwrap();
-    }
-
-    /// A picture being read is not a reason esc cannot be heard.
-    ///
-    /// Recognition runs inside the owner's own loop, and it is a model call with
-    /// no overall cap — so a `Cancel` sent while a pasted image was being read
-    /// sat unread on the channel for the whole call, and the person watched
-    /// nothing happen. The stop is fired before the command now, which is what
-    /// lets the await see it.
-    #[tokio::test]
-    async fn a_stop_is_heard_while_a_pasted_picture_is_being_read() {
-        struct NeverReads;
-
-        #[async_trait::async_trait]
-        impl ImagePreprocessor for NeverReads {
-            async fn preprocess(
-                &self,
-                _text: String,
-                _images: Vec<atomcode_kernel::message::ImageContent>,
-                _supports_vision: bool,
-                _session_id: Option<String>,
-            ) -> (UserInput, Option<VisionNotice>) {
-                std::future::pending().await
-            }
-        }
-
-        let (agent, mut kernel_commands, _kernel_events) = fake_agent();
-        let (handle, controls) = coding_runtime_control_channel();
-        let (runtime_tx, mut runtime_events) = mpsc::unbounded_channel();
-        let (wakeup_tx, wakeup_rx) = mpsc::unbounded_channel();
-        let CodingRuntimeStart {
-            agent: config,
-            prepare,
-            plugin_hooks,
-            provider_factory,
-            ..
-        } = native_start(false);
-        let parts =
-            prepare_with_plugin_hook_source(&config, prepare.clone(), plugin_hooks.as_ref())
-                .await
-                .unwrap();
-        let resources = RuntimeResources {
-            config,
-            prepare,
-            provider_factory,
-            plugin_hooks,
-            parts,
-            harness_app: None,
-            harness_providers: None,
-            wakeup_tx,
-            loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            image_preprocessor: Some(Arc::new(NeverReads)),
-        };
-        let _adapter = spawn_runtime_owner_with_protocol(
-            agent,
-            controls,
-            runtime_tx,
-            true,
-            true,
-            None,
-            Some(resources),
-            Some(wakeup_rx),
-        );
-
-        // 带驱动器自己那张回执提交：这条回执必须拿到终态，否则前端会一直等一个
-        // 永远不会来认领它的回合。
-        let submitted = handle.submit_tagged(
-            "tui-img".into(),
-            UserInput {
-                text: "what is in this".into(),
-                images: vec![atomcode_kernel::message::ImageContent {
-                    media_type: "image/png".into(),
-                    data: "x".into(),
-                }],
-            },
-        );
-        // The submit itself does not come back until recognition does — it is
-        // the same await. What must not wait is the stop.
-        tokio::pin!(submitted);
-        assert!(
-            tokio::time::timeout(std::time::Duration::from_millis(200), &mut submitted)
-                .await
-                .is_err(),
-            "the control: the picture is still being read"
-        );
-
-        tokio::time::timeout(std::time::Duration::from_secs(2), handle.cancel())
-            .await
-            .expect("the stop waited for the picture to be read")
-            .expect("the stop was refused");
-        assert!(
-            kernel_commands.try_recv().is_err()
-                || !matches!(
-                    kernel_commands.try_recv(),
-                    Ok(AgentCommand::SendMessage { .. })
-                ),
-            "the turn the person stopped must not reach the agent"
-        );
-
-        // 没送达这件事只说一趟：回执换成 `NotSent`，由拿着回执的人去答它背后的
-        // 驱动器。不答它，前端手里的 `outstanding` 会一直挂着（`atomcode-tui` 的
-        // `SessionView::settled` 永远为假），那一屏的"agent 说空闲"兜底和 esc 的
-        // 空闲档就一起废了。
-        let receipt = tokio::time::timeout(std::time::Duration::from_secs(2), &mut submitted)
-            .await
-            .expect("the submit must come back once the stop lands")
-            .expect("the submit was taken, so this is not a delivery failure");
-        assert!(
-            matches!(receipt, SubmitReceipt::NotSent { .. }),
-            "一条什么都没送达的消息要说出来，而不是声称开了个回合：{receipt:?}"
-        );
-        // 而且不再另发一条事件：同一张回执两个答案（一个说"开了回合"、一个说
-        // "没送达"），任谁拿到都会左右为难。
-        while let Ok(Some(event)) =
-            tokio::time::timeout(std::time::Duration::from_millis(200), runtime_events.recv()).await
-        {
-            assert!(
-                !matches!(
-                    event,
-                    CodingRuntimeEvent::Agent(AgentEvent::Rejected { .. })
-                ),
-                "终态跟着回执走，不是第二条事件：{event:?}"
-            );
-        }
-
-        handle.shutdown().await.unwrap();
-    }
-
-    /// A turn the agent opened itself is still one a person can stop.
-    ///
-    /// Not every turn comes through `submit`: a catalog command — `/init`,
-    /// `/worklog`, a skill such as `/setup` — puts its prompt straight into the
-    /// agent's inbox, and the agent wakes and runs it. This owner used to learn
-    /// of such a turn only as a phase (`InTurn`), with no `active_turn`, so a
-    /// cancel read it as idle, answered `Ok` and never told the kernel: esc
-    /// said 正在停止 while the turn ran on to its end, and quitting waited out
-    /// its timeout for a terminal that was not coming.
-    #[tokio::test]
-    async fn a_turn_the_agent_started_itself_can_still_be_cancelled() {
-        let (agent, mut kernel_commands, kernel_events) = fake_agent();
-        let (handle, controls) = coding_runtime_control_channel();
-        let (runtime_tx, mut runtime_events) = mpsc::unbounded_channel();
-        let _adapter = spawn_runtime_owner_with_protocol(
-            agent, controls, runtime_tx, true, true, None, None, None,
-        );
-
-        // No submit: the turn is the agent's own.
-        kernel_events
-            .send(AgentEvent::TurnStarted { turn: None })
-            .unwrap();
-        assert!(matches!(
-            runtime_events.recv().await,
-            Some(CodingRuntimeEvent::Agent(AgentEvent::TurnStarted { .. }))
-        ));
-
-        handle.cancel().await.unwrap();
-        assert!(
-            matches!(
-                tokio::time::timeout(std::time::Duration::from_secs(2), kernel_commands.recv())
-                    .await,
-                Ok(Some(AgentCommand::Cancel))
-            ),
-            "the cancel was answered but never reached the agent"
-        );
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::Snapshot)
-        ));
-
-        kernel_events
-            .send(AgentEvent::TurnComplete {
-                turn: None,
-                reason: StopReason::Cancelled,
-            })
-            .unwrap();
-        let kept = SessionSnapshot::new(vec![Message::user("/setup")]);
-        kernel_events
-            .send(AgentEvent::Snapshot {
-                snapshot: kept.clone(),
-            })
-            .unwrap();
-        let terminal = tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            loop {
-                match runtime_events.recv().await {
-                    Some(CodingRuntimeEvent::TurnFinished(completion)) => break completion,
-                    Some(_) => {}
-                    None => panic!("runtime events closed before the cancel's terminal"),
-                }
-            }
-        })
-        .await
-        .expect("a cancelled turn must end in a terminal the driver can see");
-        assert!(matches!(
-            terminal,
-            TurnCompletion::Completed {
-                reason: StopReason::Cancelled,
-                snapshot,
-                ..
-            } if snapshot.as_ref() == &kept
         ));
         assert_eq!(handle.status().phase, RuntimePhase::Ready);
         handle.shutdown().await.unwrap();
@@ -16268,8 +12005,6 @@ mod tests {
             provider_factory,
             plugin_hooks,
             parts,
-            harness_app: None,
-            harness_providers: None,
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
@@ -16293,13 +12028,16 @@ mod tests {
                 ..
             }))
         ));
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         assert!(matches!(
             kernel_commands.recv().await,
             Some(AgentCommand::SendMessage { .. })
         ));
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::Stopped,
             })
             .unwrap();
@@ -16451,8 +12189,6 @@ mod tests {
             provider_factory,
             plugin_hooks,
             parts,
-            harness_app: None,
-            harness_providers: None,
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: pp,
@@ -16722,7 +12458,6 @@ mod tests {
 
         kernel_events
             .send(AgentEvent::Steered {
-                turn: None,
                 count: 1,
                 inputs: vec![atomcode_kernel::event::SteeredInput {
                     text: "VL[before\n[Image #1]\nafter]".into(),
@@ -16859,8 +12594,6 @@ mod tests {
             provider_factory,
             plugin_hooks,
             parts,
-            harness_app: None,
-            harness_providers: None,
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
@@ -16878,10 +12611,13 @@ mod tests {
 
         handle.start_goal("tests pass").await.unwrap();
         let _ = runtime_events.recv().await;
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         let _ = kernel_commands.recv().await;
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::ProviderError,
             })
             .unwrap();
@@ -16953,8 +12689,6 @@ mod tests {
             provider_factory: factory.clone(),
             plugin_hooks,
             parts,
-            harness_app: None,
-            harness_providers: None,
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
@@ -16974,7 +12708,6 @@ mod tests {
         let _ = kernel_commands.recv().await;
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::Cancelled,
             })
             .unwrap();
@@ -17019,8 +12752,6 @@ mod tests {
             provider_factory,
             plugin_hooks,
             parts,
-            harness_app: None,
-            harness_providers: None,
             wakeup_tx: wakeup_tx.clone(),
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
@@ -17036,7 +12767,7 @@ mod tests {
             Some(wakeup_rx),
         );
 
-        handle.start_loop("watch CI", None).await.unwrap();
+        handle.start_loop("watch CI").await.unwrap();
         assert!(matches!(
             runtime_events.recv().await,
             Some(CodingRuntimeEvent::LoopChanged(LoopProgress {
@@ -17044,6 +12775,10 @@ mod tests {
                 ..
             }))
         ));
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         assert!(matches!(
             kernel_commands.recv().await,
             Some(AgentCommand::SendMessage { .. })
@@ -17064,7 +12799,6 @@ mod tests {
         ));
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::Stopped,
             })
             .unwrap();
@@ -17113,14 +12847,7 @@ mod tests {
                 ..
             }))
         ));
-        // The goal that took the slot opens its own first round, so what the
-        // held turn's terminal left behind is a session back at work — not an
-        // idle one.
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::SendMessage { text, .. }) if text == "tests pass"
-        ));
-        assert_eq!(handle.status().phase, RuntimePhase::InTurn);
+        assert_eq!(handle.status().phase, RuntimePhase::Ready);
 
         handle.shutdown().await.unwrap();
     }
@@ -17147,8 +12874,6 @@ mod tests {
             provider_factory: Arc::new(PendingProviderFactory),
             plugin_hooks,
             parts,
-            harness_app: None,
-            harness_providers: None,
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
@@ -17172,13 +12897,16 @@ mod tests {
                 ..
             }))
         ));
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         assert!(matches!(
             kernel_commands.recv().await,
             Some(AgentCommand::SendMessage { .. })
         ));
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::Stopped,
             })
             .unwrap();
@@ -17194,7 +12922,7 @@ mod tests {
 
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
-                match handle.start_loop("watch CI", None).await {
+                match handle.start_loop("watch CI").await {
                     Ok(()) => break,
                     Err(RuntimeError::Busy) => tokio::task::yield_now().await,
                     Err(error) => panic!("unexpected start_loop error: {error}"),
@@ -17227,13 +12955,7 @@ mod tests {
                 ..
             }))
         ));
-        // Same as the other way round: the loop that took the slot runs its
-        // own first pass.
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::SendMessage { text, .. }) if text == "watch CI"
-        ));
-        assert_eq!(handle.status().phase, RuntimePhase::InTurn);
+        assert_eq!(handle.status().phase, RuntimePhase::Ready);
 
         handle.shutdown().await.unwrap();
     }
@@ -17261,8 +12983,6 @@ mod tests {
             provider_factory,
             plugin_hooks,
             parts,
-            harness_app: None,
-            harness_providers: None,
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
@@ -17331,8 +13051,6 @@ mod tests {
             provider_factory,
             plugin_hooks,
             parts,
-            harness_app: None,
-            harness_providers: None,
             wakeup_tx: wakeup_tx.clone(),
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
@@ -17348,8 +13066,12 @@ mod tests {
             Some(wakeup_rx),
         );
 
-        handle.start_loop("watch CI", None).await.unwrap();
+        handle.start_loop("watch CI").await.unwrap();
         let _ = runtime_events.recv().await;
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         let _ = kernel_commands.recv().await;
         wakeup_tx
             .send(WakeupRequest {
@@ -17361,7 +13083,6 @@ mod tests {
         let _ = runtime_events.recv().await;
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::Stopped,
             })
             .unwrap();
@@ -17432,8 +13153,6 @@ mod tests {
             provider_factory,
             plugin_hooks,
             parts,
-            harness_app: None,
-            harness_providers: None,
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
@@ -17459,162 +13178,6 @@ mod tests {
         assert_eq!(handle.status().phase, RuntimePhase::InTurn);
         assert!(runtime_events.try_recv().is_err());
 
-        handle.shutdown().await.unwrap();
-    }
-
-    /// The other half of that rule: the actions that withdraw the tools, and the
-    /// ones that only reach the session through a rebuild, wait for an idle
-    /// session — up front, before anything is written, so a refusal never leaves
-    /// a change on disk that the session does not have. `Disable` takes tools
-    /// away in place rather than widening anything, and a mid-session switch is
-    /// the point (design §5.4), so it runs mid-turn the way `SwitchTool` does.
-    #[tokio::test]
-    #[serial_test::serial(atomcode_home)]
-    async fn mcp_act_that_needs_an_idle_session_rejects_an_active_turn_but_a_disable_goes_through()
-    {
-        use crate::parts::McpAction;
-
-        let home = tempfile::tempdir().unwrap();
-        std::env::set_var("ATOMCODE_HOME", home.path());
-        // `native_start` hands out "." as the working dir; this test's `Disable`
-        // writes `.mcp.json`, so the project is a temp dir rather than the crate's
-        // own directory.
-        let project = tempfile::tempdir().unwrap();
-        std::fs::write(
-            project.path().join(".mcp.json"),
-            r#"{"mcpServers":{"srv":{"command":"npx","args":["-y","x"]}}}"#,
-        )
-        .unwrap();
-
-        let (agent, mut kernel_commands, _kernel_events) = fake_agent();
-        let (handle, controls) = coding_runtime_control_channel();
-        let (runtime_tx, _runtime_events) = mpsc::unbounded_channel();
-        let (wakeup_tx, wakeup_rx) = mpsc::unbounded_channel();
-        let CodingRuntimeStart {
-            agent: mut config,
-            mut prepare,
-            provider_factory,
-            plugin_hooks,
-            ..
-        } = native_start(false);
-        config.working_dir = project.path().to_path_buf();
-        prepare.session = crate::SessionMode::Fresh;
-        let parts =
-            prepare_with_plugin_hook_source(&config, prepare.clone(), plugin_hooks.as_ref())
-                .await
-                .unwrap();
-        let resources = RuntimeResources {
-            config,
-            prepare,
-            provider_factory,
-            plugin_hooks,
-            parts,
-            harness_app: None,
-            harness_providers: None,
-            wakeup_tx,
-            loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            image_preprocessor: None,
-        };
-        let _adapter = spawn_runtime_owner_with_protocol(
-            agent,
-            controls,
-            runtime_tx,
-            true,
-            true,
-            None,
-            Some(resources),
-            Some(wakeup_rx),
-        );
-
-        handle.submit(UserInput::from("active")).await.unwrap();
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::SendMessage { .. })
-        ));
-
-        // Both withdrawing actions take the refusal the dedicated control takes.
-        let untrust = handle.mcp_act("srv".into(), McpAction::Untrust).await;
-        assert_eq!(untrust, Err(RuntimeError::Busy));
-        let logout = handle.mcp_act("srv".into(), McpAction::Logout).await;
-        assert_eq!(logout, Err(RuntimeError::Busy));
-        // And the two that only a rebuild can apply.
-        for action in [McpAction::Trust, McpAction::Enable] {
-            assert_eq!(
-                handle.mcp_act("srv".into(), action).await,
-                Err(RuntimeError::Busy),
-                "{action:?} is applied by a rebuild, which a running turn refuses"
-            );
-        }
-        assert!(
-            !std::fs::read_to_string(project.path().join(".mcp.json"))
-                .unwrap()
-                .contains("disabled"),
-            "a refused action wrote nothing"
-        );
-
-        // The non-withdrawing one goes through: the flag reached the file.
-        handle
-            .mcp_act("srv".into(), McpAction::Disable)
-            .await
-            .unwrap();
-        let text = std::fs::read_to_string(project.path().join(".mcp.json")).unwrap();
-        assert!(
-            text.contains("\"disabled\": true"),
-            "a mid-turn disable still writes the flag: {text}"
-        );
-
-        handle.shutdown().await.unwrap();
-    }
-
-    /// Trusting a project from the panel connects its servers.
-    ///
-    /// Trust is read when the graph is prepared, so writing it and stopping
-    /// there left the server listed as untrusted with 信任 still on offer — the
-    /// action looked like it had not happened. After it, the server has to be
-    /// something other than blocked: connecting, connected, or failed on its own
-    /// terms.
-    #[tokio::test]
-    #[serial_test::serial(atomcode_home)]
-    async fn trusting_a_project_from_the_panel_reaches_the_session() {
-        use crate::parts::McpAction;
-        use atomcode_capabilities::mcp::ServerStatus;
-
-        let home = tempfile::tempdir().unwrap();
-        std::env::set_var("ATOMCODE_HOME", home.path());
-        let project = tempfile::tempdir().unwrap();
-        std::fs::write(
-            project.path().join(".mcp.json"),
-            r#"{"mcpServers":{"local":{"command":"/nonexistent/atomcode-test-mcp"}}}"#,
-        )
-        .unwrap();
-        let mut start = native_start(false);
-        start.agent.working_dir = project.path().to_path_buf();
-        start.prepare.mcp = true;
-        let runtime = CodingRuntime::start(start).await.unwrap();
-        let handle = runtime.handle.clone();
-
-        let status = |rows: &McpRowsSnapshot| {
-            rows.rows
-                .iter()
-                .find(|row| row.name == "local")
-                .map(|row| row.status.clone())
-                .expect("the project server is listed")
-        };
-        assert_eq!(
-            status(&handle.mcp_rows().await.unwrap()),
-            ServerStatus::BlockedUntrusted,
-            "an untrusted project's server starts blocked"
-        );
-
-        handle
-            .mcp_act("local".into(), McpAction::Trust)
-            .await
-            .unwrap();
-        assert_ne!(
-            status(&handle.mcp_rows().await.unwrap()),
-            ServerStatus::BlockedUntrusted,
-            "after 信任 the server is no longer held back"
-        );
         handle.shutdown().await.unwrap();
     }
 
@@ -17688,8 +13251,6 @@ mod tests {
             provider_factory: start.provider_factory,
             plugin_hooks: start.plugin_hooks,
             parts,
-            harness_app: None,
-            harness_providers: None,
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
@@ -17766,7 +13327,6 @@ mod tests {
             "https://next.example.test/v1",
             "next-model",
             ".",
-            crate::config::product_dirs_from_env(),
         );
         next.provider_name = "next-provider".into();
         next.provider_type = "openai".into();
@@ -17836,7 +13396,6 @@ mod tests {
                 if matches!(command, AgentCommand::Shutdown) {
                     if emit_verified_terminal {
                         let _ = event_tx.send(AgentEvent::TurnComplete {
-                            turn: None,
                             reason: StopReason::Cancelled,
                         });
                         let _ = event_tx.send(AgentEvent::Snapshot {
@@ -17871,8 +13430,6 @@ mod tests {
             provider_factory: start.provider_factory,
             plugin_hooks: start.plugin_hooks,
             parts,
-            harness_app: None,
-            harness_providers: None,
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
@@ -17904,7 +13461,6 @@ mod tests {
             "https://next.example.test/v1",
             "next-model",
             ".",
-            crate::config::product_dirs_from_env(),
         );
         assert!(matches!(
             handle.reassemble_provider(next).await,
@@ -17945,7 +13501,6 @@ mod tests {
             "https://next.example.test/v1",
             "next-model",
             ".",
-            crate::config::product_dirs_from_env(),
         );
 
         assert_eq!(
@@ -17992,13 +13547,8 @@ mod tests {
         let model_a_context = runtime.handle.context_stats().await.unwrap();
         assert!(model_a_context.used_tokens > 0);
 
-        let mut model_b = CodingAgentConfig::new(
-            "key",
-            "https://example.test/v1",
-            "model-b",
-            project.path(),
-            crate::config::product_dirs_from_env(),
-        );
+        let mut model_b =
+            CodingAgentConfig::new("key", "https://example.test/v1", "model-b", project.path());
         model_b.provider_name = "provider-b".into();
         runtime
             .handle
@@ -18031,10 +13581,7 @@ mod tests {
             .unwrap();
         wait_for_turn_finished(&mut runtime).await;
 
-        let manager = atomcode_capabilities::session::SessionManager::for_project(
-            project.path(),
-            &crate::config::product_dirs_from_env(),
-        );
+        let manager = atomcode_capabilities::session::SessionManager::for_project(project.path());
         let sessions = manager.list();
         assert_eq!(sessions.len(), 1);
         let report = atomcode_capabilities::session::aggregate_session_cost(
@@ -18129,10 +13676,7 @@ mod tests {
         start.agent.working_dir = project.path().to_path_buf();
         start.provider_factory = factory.clone();
         let runtime = CodingRuntime::start(start).await.unwrap();
-        let manager = atomcode_capabilities::session::SessionManager::for_project(
-            project.path(),
-            &crate::config::product_dirs_from_env(),
-        );
+        let manager = atomcode_capabilities::session::SessionManager::for_project(project.path());
         assert!(manager.list().is_empty());
 
         assert!(matches!(
@@ -18172,10 +13716,7 @@ mod tests {
         start.agent.working_dir = project.path().to_path_buf();
         start.provider_factory = factory;
         let runtime = CodingRuntime::start(start).await.unwrap();
-        let manager = atomcode_capabilities::session::SessionManager::for_project(
-            project.path(),
-            &crate::config::product_dirs_from_env(),
-        );
+        let manager = atomcode_capabilities::session::SessionManager::for_project(project.path());
         let handle = runtime.handle.clone();
         let transition = tokio::spawn(async move { handle.fresh_session().await });
 
@@ -18202,10 +13743,7 @@ mod tests {
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
         let session_id = "leased-runtime";
-        let manager = atomcode_capabilities::session::SessionManager::for_project(
-            project.path(),
-            &crate::config::product_dirs_from_env(),
-        );
+        let manager = atomcode_capabilities::session::SessionManager::for_project(project.path());
         persist_native_session(
             &manager,
             session_id,
@@ -18243,10 +13781,7 @@ mod tests {
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
         let session_id = "config-reprepare-session";
-        let manager = atomcode_capabilities::session::SessionManager::for_project(
-            project.path(),
-            &crate::config::product_dirs_from_env(),
-        );
+        let manager = atomcode_capabilities::session::SessionManager::for_project(project.path());
         persist_native_session(
             &manager,
             session_id,
@@ -18282,10 +13817,7 @@ mod tests {
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
         let id = "imported-runtime";
-        let manager = atomcode_capabilities::session::SessionManager::for_project(
-            project.path(),
-            &crate::config::product_dirs_from_env(),
-        );
+        let manager = atomcode_capabilities::session::SessionManager::for_project(project.path());
         persist_native_session(
             &manager,
             id,
@@ -18316,10 +13848,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
-        let manager = atomcode_capabilities::session::SessionManager::for_project(
-            project.path(),
-            &crate::config::product_dirs_from_env(),
-        );
+        let manager = atomcode_capabilities::session::SessionManager::for_project(project.path());
         let target_id = "prepared-target";
         let target_snapshot = SessionSnapshot::new(vec![Message::user("target history")]);
         let target_lease = manager.acquire_lease(target_id).unwrap();
@@ -18369,10 +13898,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
-        let manager = atomcode_capabilities::session::SessionManager::for_project(
-            project.path(),
-            &crate::config::product_dirs_from_env(),
-        );
+        let manager = atomcode_capabilities::session::SessionManager::for_project(project.path());
         let target_id = "cancelled-target";
         persist_native_session(
             &manager,
@@ -18420,10 +13946,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
-        let manager = atomcode_capabilities::session::SessionManager::for_project(
-            project.path(),
-            &crate::config::product_dirs_from_env(),
-        );
+        let manager = atomcode_capabilities::session::SessionManager::for_project(project.path());
         manager
             .save_snapshot(
                 "target-session",
@@ -18461,10 +13984,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
-        let manager = atomcode_capabilities::session::SessionManager::for_project(
-            project.path(),
-            &crate::config::product_dirs_from_env(),
-        );
+        let manager = atomcode_capabilities::session::SessionManager::for_project(project.path());
         for id in ["session-a", "session-b"] {
             persist_native_session(
                 &manager,
@@ -18510,10 +14030,7 @@ mod tests {
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
         let session_id = "incomplete-runtime";
-        let manager = atomcode_capabilities::session::SessionManager::for_project(
-            project.path(),
-            &crate::config::product_dirs_from_env(),
-        );
+        let manager = atomcode_capabilities::session::SessionManager::for_project(project.path());
         let snapshot = SessionSnapshot::new(vec![Message::user("persisted")]);
         manager.save_snapshot(session_id, &snapshot).unwrap();
         let mut meta = SessionMeta::new(session_id, project.path().to_string_lossy(), 1);
@@ -18550,10 +14067,7 @@ mod tests {
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
         let session_id = "failed-runtime";
-        let manager = atomcode_capabilities::session::SessionManager::for_project(
-            project.path(),
-            &crate::config::product_dirs_from_env(),
-        );
+        let manager = atomcode_capabilities::session::SessionManager::for_project(project.path());
         persist_native_session(
             &manager,
             session_id,
@@ -18571,61 +14085,6 @@ mod tests {
         manager.acquire_lease(session_id).unwrap();
     }
 
-    /// A session started in the background for another conversation (a
-    /// review) is left out of the pickers; a person who resumes it — at start,
-    /// or by switching to it — makes it one of theirs.
-    #[tokio::test]
-    #[serial_test::serial(atomcode_home)]
-    async fn resuming_background_work_takes_it_up() {
-        use atomcode_capabilities::session::manager::SessionOrigin;
-        let home = tempfile::tempdir().unwrap();
-        let project = tempfile::tempdir().unwrap();
-        std::env::set_var("ATOMCODE_HOME", home.path());
-        let manager = atomcode_capabilities::session::SessionManager::for_project(
-            project.path(),
-            &crate::config::product_dirs_from_env(),
-        );
-        for id in ["review-a", "review-b"] {
-            persist_native_session(
-                &manager,
-                id,
-                project.path(),
-                &SessionSnapshot::new(vec![Message::user("review it")]),
-            );
-            manager
-                .update_meta(id, |meta| meta.origin = SessionOrigin::Delegated)
-                .unwrap();
-        }
-        let origin = |id: &str| manager.read_meta(id).unwrap().origin;
-
-        let mut start = native_start(false);
-        start.agent.working_dir = project.path().to_path_buf();
-        start.prepare.session = crate::SessionMode::Resume("review-a".into());
-        let runtime = CodingRuntime::start(start).await.unwrap();
-        assert_eq!(
-            origin("review-a"),
-            SessionOrigin::Manual,
-            "resumed at start"
-        );
-
-        assert_eq!(origin("review-b"), SessionOrigin::Delegated);
-        runtime.handle.resume_session("review-b").await.unwrap();
-        assert_eq!(origin("review-b"), SessionOrigin::Manual, "switched to");
-
-        // Rebuilding the session already open is not a person taking it up:
-        // a review's own runtime reloads while it works.
-        manager
-            .update_meta("review-b", |meta| meta.origin = SessionOrigin::Delegated)
-            .unwrap();
-        runtime
-            .handle
-            .reload_capabilities_with_plugin_skills(None)
-            .await
-            .unwrap();
-        assert_eq!(origin("review-b"), SessionOrigin::Delegated, "reloaded");
-        runtime.handle.shutdown().await.unwrap();
-    }
-
     #[tokio::test]
     #[serial_test::serial(atomcode_home)]
     async fn dropping_runtime_releases_its_session_lease() {
@@ -18633,10 +14092,7 @@ mod tests {
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
         let session_id = "dropped-runtime";
-        let manager = atomcode_capabilities::session::SessionManager::for_project(
-            project.path(),
-            &crate::config::product_dirs_from_env(),
-        );
+        let manager = atomcode_capabilities::session::SessionManager::for_project(project.path());
         persist_native_session(
             &manager,
             session_id,
@@ -18724,12 +14180,13 @@ mod tests {
         assert_eq!(catalog.points.len(), 1);
         assert_eq!(catalog.points[0].prompt_number, 1);
         assert_eq!(catalog.points[0].prompt_preview, "first rewind prompt");
-        // The kind, not a substring of a sentence. This used to hunt for
-        // "off by default" — with a comment explaining that the *other* reason
-        // also mentions `ATOMCODE_CODE_REWIND`, so the obvious substring could
-        // not tell the two apart. That was the reason being a sentence; it is a
-        // kind now, and the two states are simply two values.
-        assert_eq!(catalog.code_unavailable, Some(CodeUnavailable::NotEnabled));
+        assert!(catalog
+            .code_unavailable
+            .as_deref()
+            // "off by default" is UNIQUE to the disabled reason; the
+            // opted-in-setup-failed error also mentions ATOMCODE_CODE_REWIND, so
+            // that substring can't prove we're in the disabled state.
+            .is_some_and(|reason| reason.contains("off by default")));
 
         let code_error = runtime
             .handle
@@ -19048,7 +14505,6 @@ mod tests {
                 catalog.revision,
                 original.undo_snapshot,
                 undo,
-                None,
             )
             .await
             .unwrap();
@@ -19106,13 +14562,7 @@ mod tests {
                 break snapshot;
             }
         };
-        let next = CodingAgentConfig::new(
-            "key",
-            "https://example.test/v1",
-            "next",
-            ".",
-            crate::config::product_dirs_from_env(),
-        );
+        let next = CodingAgentConfig::new("key", "https://example.test/v1", "next", ".");
 
         runtime.handle.reassemble_provider(next).await.unwrap();
         let visible = |snapshot: &SessionSnapshot| {
@@ -19123,31 +14573,15 @@ mod tests {
                 .cloned()
                 .collect::<Vec<_>>()
         };
-        let next_again = CodingAgentConfig::new(
-            "key",
-            "https://example.test/v1",
-            "next-again",
-            ".",
-            crate::config::product_dirs_from_env(),
-        );
+        let next_again =
+            CodingAgentConfig::new("key", "https://example.test/v1", "next-again", ".");
         runtime
             .handle
             .reassemble_provider(next_again)
             .await
             .unwrap();
         let after_second_reassemble = runtime.handle.snapshot().await.unwrap();
-        // The conversation is kept whole; what follows it is only the two
-        // switches, each told to the model where it happened.
-        let after = visible(&after_second_reassemble);
-        let (kept, added) = after.split_at(visible(&before).len().min(after.len()));
-        assert_eq!(visible(&before), kept);
-        assert_eq!(added.len(), 2, "{added:#?}");
-        assert!(
-            added
-                .iter()
-                .all(|message| message.synthetic && message.text.contains("switched from")),
-            "{added:#?}"
-        );
+        assert_eq!(visible(&before), visible(&after_second_reassemble));
         let persona = after_second_reassemble
             .messages
             .iter()
@@ -19161,13 +14595,6 @@ mod tests {
         runtime.handle.shutdown().await.unwrap();
     }
 
-    /// A conversation the log cannot say — one with a prompt the session never
-    /// saw — is restored by rebuilding, and a candidate provider that cannot be
-    /// built takes the conversation back to what it was.
-    ///
-    /// The route matters as much as the rollback: see `live_can_say`. A restore
-    /// that committed that prompt as a fact would hand the live agent something
-    /// to answer, which is a restore that talks to the model.
     #[tokio::test]
     async fn failed_sessionless_restore_rolls_back_to_the_original_snapshot() {
         let factory = Arc::new(FailSecondBuildFactory {
@@ -19204,82 +14631,6 @@ mod tests {
             .messages
             .iter()
             .all(|message| message.text != "replacement prompt"));
-        runtime.handle.shutdown().await.unwrap();
-    }
-
-    /// A restore the log *can* say — going back to a conversation this session
-    /// already had — is facts in the live log and nothing else: the provider the
-    /// conversation is running on is kept, and the model is not asked anything
-    /// (`docs/adr/0022` §2, `docs/adr/0024` §17).
-    ///
-    /// A rebuild here would close the fact stream every front end is reading
-    /// and build a second provider for a session that never changed.
-    #[tokio::test]
-    async fn a_restore_the_log_can_say_is_facts_and_keeps_the_provider() {
-        let factory = Arc::new(FailSecondBuildFactory {
-            builds: std::sync::atomic::AtomicUsize::new(0),
-        });
-        let mut start = native_start(false);
-        start.provider_factory = factory.clone();
-        let mut runtime = CodingRuntime::start(start).await.unwrap();
-        let mut after = Vec::new();
-        for text in ["first prompt", "second prompt"] {
-            runtime.handle.submit(UserInput::from(text)).await.unwrap();
-            loop {
-                if let CodingRuntimeEvent::TurnFinished(TurnCompletion::Completed {
-                    snapshot,
-                    ..
-                }) = runtime.events.recv().await.unwrap().event
-                {
-                    after.push(snapshot);
-                    break;
-                }
-            }
-        }
-        let built = factory.builds.load(Ordering::Acquire);
-        // The conversation as it stood after the first turn: a truncation of the
-        // one that is live, which is what an undo is and what the log says with
-        // one `Rewound`.
-        let candidate = after[0].as_ref().clone();
-
-        runtime
-            .handle
-            .restore_snapshot(candidate)
-            .await
-            .expect("a restore the log can say needs nothing built");
-        assert_eq!(
-            factory.builds.load(Ordering::Acquire),
-            built,
-            "the live session kept the provider it was running on: a second \
-             build is a rebuilt runtime"
-        );
-        let restored = runtime.handle.snapshot().await.unwrap();
-        assert!(
-            restored
-                .messages
-                .iter()
-                .all(|message| message.text != "second prompt"),
-            "the conversation went back: {:#?}",
-            restored.messages
-        );
-        // And nothing was sent: a restore is not a prompt. `TurnStarted` after
-        // the restore is the live agent answering a fact the restore committed.
-        let mut started = Vec::new();
-        while let Ok(Some(event)) =
-            tokio::time::timeout(std::time::Duration::from_millis(300), runtime.events.recv()).await
-        {
-            if matches!(
-                event.event,
-                CodingRuntimeEvent::Agent(AgentEvent::TurnStarted { .. })
-            ) {
-                started.push(event.event);
-            }
-        }
-        assert!(
-            started.is_empty(),
-            "a restore asked the model for something: {started:#?}"
-        );
-        assert_eq!(runtime.handle.status().phase, RuntimePhase::Ready);
         runtime.handle.shutdown().await.unwrap();
     }
 
@@ -19322,7 +14673,6 @@ mod tests {
             .handle
             .tx
             .send(CodingRuntimeControl::ApplyUndo {
-                code_rewound_to: None,
                 generation: runtime.handle.status().generation,
                 expected_revision: original.revision,
                 original: original.snapshot,
@@ -19350,10 +14700,7 @@ mod tests {
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
         let id = "undo-snapshot-cas";
-        let manager = atomcode_capabilities::session::SessionManager::for_project(
-            project.path(),
-            &crate::config::product_dirs_from_env(),
-        );
+        let manager = atomcode_capabilities::session::SessionManager::for_project(project.path());
         let initial = SessionSnapshot::new(vec![
             Message::user("first prompt"),
             Message::assistant("first answer", Vec::new()),
@@ -19370,42 +14717,12 @@ mod tests {
             Message::assistant("first answer", Vec::new()),
             Message::user("concurrent prompt"),
         ]);
-        // Another writer's fact lands in the log behind the runtime's back.
-        let stored = manager.load_events(id).unwrap();
-        let next = stored.iter().map(|e| e.seq).max().unwrap_or(0) + 1;
-        let turn = stored.iter().map(|e| e.event.turn()).max().unwrap_or(0) + 1;
-        let mut log = std::fs::OpenOptions::new()
-            .append(true)
-            .open(manager.events_path(id).unwrap())
-            .unwrap();
-        for (seq, event) in [
-            (
-                next,
-                atomcode_kernel::session::SessionEvent::TurnStart { turn },
-            ),
-            (
-                next + 1,
-                atomcode_kernel::session::SessionEvent::UserMessage {
-                    turn,
-                    text: "concurrent prompt".into(),
-                    images: Vec::new(),
-                },
-            ),
-        ] {
-            use std::io::Write;
-            writeln!(
-                log,
-                "{}",
-                serde_json::json!({ "seq": seq, "at": 0, "event": event })
-            )
-            .unwrap();
-        }
+        manager.save_snapshot(id, &newer).unwrap();
         let (done, result) = oneshot::channel();
         runtime
             .handle
             .tx
             .send(CodingRuntimeControl::ApplyUndo {
-                code_rewound_to: None,
                 generation: runtime.handle.status().generation,
                 expected_revision: original.revision,
                 original: original.undo_snapshot,
@@ -19418,7 +14735,7 @@ mod tests {
             .unwrap();
 
         assert!(matches!(result.await.unwrap(), Err(RuntimeError::Busy)));
-        assert_eq!(manager.load_snapshot(id).unwrap().messages, newer.messages);
+        assert_eq!(manager.load_snapshot(id).unwrap(), newer);
         runtime.handle.shutdown().await.unwrap();
     }
 
@@ -19429,10 +14746,7 @@ mod tests {
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
         let id = "undo-unhealthy-native";
-        let manager = atomcode_capabilities::session::SessionManager::for_project(
-            project.path(),
-            &crate::config::product_dirs_from_env(),
-        );
+        let manager = atomcode_capabilities::session::SessionManager::for_project(project.path());
         let snapshot = SessionSnapshot::new(vec![
             Message::user("first prompt"),
             Message::assistant("answer", Vec::new()),
@@ -19442,25 +14756,73 @@ mod tests {
         start.agent.working_dir = project.path().to_path_buf();
         start.prepare.session = crate::SessionMode::Resume(id.into());
         let runtime = CodingRuntime::start(start).await.unwrap();
-        let log_path = manager.events_path(id).unwrap();
-        std::fs::remove_file(&log_path).unwrap();
+        let presentation_path = manager.presentation_path(id).unwrap();
+        std::fs::remove_file(&presentation_path).unwrap();
 
         let error = runtime.handle.undo_to_prompt(None).await.unwrap_err();
 
         let RuntimeError::ReconfigureFailed(message) = &error else {
-            panic!("expected session log persistence error, got {error:?}");
+            panic!("expected presentation persistence error, got {error:?}");
         };
         assert!(
-            message.contains(log_path.to_string_lossy().as_ref()),
-            "expected missing session log path in error, got {error:?}"
+            message.contains(presentation_path.to_string_lossy().as_ref()),
+            "expected missing presentation path in error, got {error:?}"
         );
         assert_eq!(runtime.handle.status().phase, RuntimePhase::Failed);
         assert_eq!(
             runtime.handle.submit(UserInput::from("must fail")).await,
             Err(RuntimeError::Unavailable)
         );
-        // Sticky, not just refused once: a runtime that could not prove the
-        // undo was kept does not come back through a reload either.
+        runtime.handle.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[serial_test::serial(atomcode_home)]
+    async fn native_undo_rollback_persistence_failure_is_sticky() {
+        let home = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        std::env::set_var("ATOMCODE_HOME", home.path());
+        let id = "undo-rollback-persistence-failure";
+        let manager = atomcode_capabilities::session::SessionManager::for_project(project.path());
+        let snapshot = SessionSnapshot::new(vec![
+            Message::user("first prompt"),
+            Message::assistant("answer", Vec::new()),
+        ]);
+        persist_native_session(&manager, id, project.path(), &snapshot);
+        let mut start = native_start(false);
+        start.agent.working_dir = project.path().to_path_buf();
+        start.prepare.session = crate::SessionMode::Resume(id.into());
+        start.provider_factory = Arc::new(DeletePresentationAndFailSecondBuildFactory {
+            builds: std::sync::atomic::AtomicUsize::new(0),
+            presentation_path: manager.presentation_path(id).unwrap(),
+        });
+        let runtime = CodingRuntime::start(start).await.unwrap();
+
+        // Resume may normalize the live snapshot (for example, refreshing the
+        // current persona) before a turn persists it. Align the canonical CAS
+        // preimage so this test reaches the intended rollback-failure branch.
+        let live_snapshot = runtime.handle.snapshot().await.unwrap();
+        manager.save_snapshot(id, &live_snapshot).unwrap();
+        assert_eq!(
+            live_snapshot.as_ref(),
+            &manager.load_snapshot(id).unwrap(),
+            "live and canonical snapshots must agree before undo"
+        );
+
+        let undo = runtime.handle.undo_to_prompt(None).await;
+        assert!(
+            matches!(
+                &undo,
+                Err(RuntimeError::ReconfigureFailed(message))
+                    if message.contains("snapshot restore failed")
+            ),
+            "unexpected undo result: {undo:?}"
+        );
+        assert_eq!(runtime.handle.status().phase, RuntimePhase::Failed);
+        assert_eq!(
+            runtime.handle.submit(UserInput::from("must fail")).await,
+            Err(RuntimeError::Unavailable)
+        );
         assert_eq!(
             runtime.handle.reload_capabilities().await,
             Err(RuntimeError::Unavailable)
@@ -19468,12 +14830,6 @@ mod tests {
         runtime.handle.shutdown().await.unwrap();
     }
 
-    /// The rebuild's own rollback, when *that* cannot be persisted either: the
-    /// runtime stops and stays stopped.
-    ///
-    /// Judged here rather than on the undo route as well, because an undo of the
-    /// live session no longer rebuilds (`live_can_say`) — only a conversation
-    /// the log cannot say still goes that way, and this is it.
     #[tokio::test]
     #[serial_test::serial(atomcode_home)]
     async fn restore_snapshot_rollback_persistence_failure_is_sticky() {
@@ -19481,21 +14837,19 @@ mod tests {
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
         let id = "restore-rollback-persistence-failure";
-        let manager = atomcode_capabilities::session::SessionManager::for_project(
-            project.path(),
-            &crate::config::product_dirs_from_env(),
-        );
+        let manager = atomcode_capabilities::session::SessionManager::for_project(project.path());
         let initial = SessionSnapshot::new(vec![Message::user("initial")]);
         persist_native_session(&manager, id, project.path(), &initial);
         let mut start = native_start(false);
         start.agent.working_dir = project.path().to_path_buf();
         start.prepare.session = crate::SessionMode::Resume(id.into());
-        start.provider_factory = Arc::new(DeleteLogAndFailSecondBuildFactory {
+        start.provider_factory = Arc::new(DeletePresentationAndFailSecondBuildFactory {
             builds: std::sync::atomic::AtomicUsize::new(0),
-            log_path: manager.events_path(id).unwrap(),
+            presentation_path: manager.presentation_path(id).unwrap(),
         });
         let mut runtime = CodingRuntime::start(start).await.unwrap();
         let live_snapshot = runtime.handle.snapshot().await.unwrap();
+        manager.save_snapshot(id, &live_snapshot).unwrap();
         let mut replacement = live_snapshot.as_ref().clone();
         replacement.messages.push(Message::user("replacement"));
 
@@ -19540,8 +14894,7 @@ mod tests {
         let project = tempfile::tempdir().unwrap();
         std::env::set_var("ATOMCODE_HOME", home.path());
         let id = "undo-sidecar-merge";
-        let manager =
-            SessionManager::for_project(project.path(), &crate::config::product_dirs_from_env());
+        let manager = SessionManager::for_project(project.path());
         let original_snapshot = SessionSnapshot::new(vec![
             Message::user("first"),
             Message::assistant("first answer", Vec::new()),
@@ -19634,8 +14987,6 @@ mod tests {
             provider_factory,
             plugin_hooks,
             parts,
-            harness_app: None,
-            harness_providers: None,
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor,
@@ -19643,14 +14994,10 @@ mod tests {
 
         let mut truncated = original_snapshot.clone();
         truncated.messages.truncate(2);
-        let receipt =
-            persist_runtime_undo(&mut resources, Some(&original_snapshot), &truncated, None)
-                .unwrap()
-                .expect("native undo must retain a sidecar rollback receipt");
-        assert_eq!(
-            manager.load_snapshot(id).unwrap().messages,
-            truncated.messages
-        );
+        let receipt = persist_runtime_undo(&mut resources, Some(&original_snapshot), &truncated)
+            .unwrap()
+            .expect("native undo must retain a sidecar rollback receipt");
+        assert_eq!(manager.load_snapshot(id).unwrap(), truncated);
         let persisted_meta = manager.read_meta(id).unwrap();
         assert_eq!(persisted_meta.turn_stats, vec![original_stats[0].clone()]);
         assert_eq!(persisted_meta.turn_count, 1);
@@ -19694,10 +15041,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            manager.load_snapshot(id).unwrap().messages,
-            original_snapshot.messages
-        );
+        assert_eq!(manager.load_snapshot(id).unwrap(), original_snapshot);
         let restored_meta = manager.read_meta(id).unwrap();
         assert_eq!(restored_meta.owner, StorageOwner::Native);
         assert_eq!(restored_meta.name, "renamed while undo rebuilds");
@@ -19719,22 +15063,15 @@ mod tests {
 
         let mut second_truncated = original_snapshot.clone();
         second_truncated.messages.truncate(2);
-        let second_receipt = persist_runtime_undo(
-            &mut resources,
-            Some(&original_snapshot),
-            &second_truncated,
-            None,
-        )
-        .unwrap()
-        .expect("second native undo must retain a rollback receipt");
+        let second_receipt =
+            persist_runtime_undo(&mut resources, Some(&original_snapshot), &second_truncated)
+                .unwrap()
+                .expect("second native undo must retain a rollback receipt");
         let concurrently_advanced = SessionSnapshot::new(vec![
             Message::user("concurrent"),
             Message::assistant("newer answer", Vec::new()),
         ]);
-        let binding = resources.parts.session.as_ref().unwrap();
-        manager
-            .append_conversation_change(&binding.lease, &concurrently_advanced.messages, 1)
-            .unwrap();
+        manager.save_snapshot(id, &concurrently_advanced).unwrap();
 
         let error = restore_runtime_undo(
             &mut resources,
@@ -19744,10 +15081,7 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.is_snapshot_conflict());
-        assert_eq!(
-            manager.load_snapshot(id).unwrap().messages,
-            concurrently_advanced.messages
-        );
+        assert_eq!(manager.load_snapshot(id).unwrap(), concurrently_advanced);
     }
 
     #[test]
@@ -19853,13 +15187,16 @@ mod tests {
 
         handle.start_goal("tests pass").await.unwrap();
         let _ = runtime_events.recv().await; // GoalChanged(active=true)
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         assert!(matches!(
             kernel_commands.recv().await,
             Some(AgentCommand::SendMessage { .. })
         ));
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::Stopped,
             })
             .unwrap();
@@ -19928,12 +15265,15 @@ mod tests {
 
         handle.start_goal("tests pass").await.unwrap();
         let _ = runtime_events.recv().await; // GoalChanged(active=true)
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         let _ = kernel_commands.recv().await;
 
         for attempt in 0..2 {
             kernel_events
                 .send(AgentEvent::TurnComplete {
-                    turn: None,
                     reason: StopReason::Stopped,
                 })
                 .unwrap();
@@ -20022,12 +15362,15 @@ mod tests {
         // --- Drive the goal to PausedAtCap ---
         handle.start_goal("tests pass").await.unwrap();
         let _ = runtime_events.recv().await; // GoalChanged(active=true)
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
         let _ = kernel_commands.recv().await; // SendMessage
 
         for attempt in 0..2 {
             kernel_events
                 .send(AgentEvent::TurnComplete {
-                    turn: None,
                     reason: StopReason::Stopped,
                 })
                 .unwrap();
@@ -20118,210 +15461,34 @@ mod tests {
         handle.shutdown().await.unwrap();
     }
 
-    /// A slow classifier: the follow-up question takes a while to answer, the
-    /// way a real model call does. The evaluator's own verdict stays instant so
-    /// only the classifier is being measured.
-    /// A provider that takes its time on every call, the way a real one does.
-    ///
-    /// The negative control for the keypress path: any model call the runtime
-    /// makes *on that path* shows up as time on the clock. Its reply serves the
-    /// goal evaluator, which is the one call that is allowed to be slow — it
-    /// runs spawned, off the owner loop, while the turn is held.
-    struct SlowProvider {
-        delay: std::time::Duration,
-    }
-    #[async_trait::async_trait]
-    impl LlmProvider for SlowProvider {
-        fn model_name(&self) -> &str {
-            "slow-test-provider"
-        }
-        async fn chat_stream(
-            &self,
-            _messages: &[Message],
-            _tools: &[atomcode_kernel::tool::ToolDef],
-            _options: &atomcode_kernel::provider::ChatOptions,
-        ) -> Result<
-            futures::stream::BoxStream<'static, atomcode_kernel::stream::StreamEvent>,
-            atomcode_kernel::stream::ProviderError,
-        > {
-            use atomcode_kernel::stream::StreamEvent;
-            tokio::time::sleep(self.delay).await;
-            Ok(Box::pin(futures::stream::iter(vec![
-                StreamEvent::TextDelta("Verdict: yes goal met".into()),
-                StreamEvent::Done { truncated: false },
-            ])))
-        }
-    }
-    struct SlowProviderFactory {
-        delay: std::time::Duration,
-    }
-    impl CodingProviderFactory for SlowProviderFactory {
-        fn build(
-            &self,
-            _config: &CodingAgentConfig,
-            _session_id: Option<&str>,
-        ) -> Result<Arc<dyn LlmProvider>, crate::ProviderBuildError> {
-            Ok(Arc::new(SlowProvider { delay: self.delay }))
-        }
-    }
-
-    /// A provider whose call never returns: the goal's evaluator is still
-    /// thinking, so the turn it is judging stays held.
-    ///
-    /// `built` fires when the runtime asks for an evaluator, which it does on
-    /// the owner loop immediately before holding the turn — the test's proof
-    /// that the hold is in place rather than a race with it.
-    struct NeverAnsweringProviderFactory {
-        built: mpsc::UnboundedSender<()>,
-    }
-    struct NeverAnsweringProvider;
-    #[async_trait::async_trait]
-    impl LlmProvider for NeverAnsweringProvider {
-        fn model_name(&self) -> &str {
-            "never-answering-test-provider"
-        }
-        async fn chat_stream(
-            &self,
-            _messages: &[Message],
-            _tools: &[atomcode_kernel::tool::ToolDef],
-            _options: &atomcode_kernel::provider::ChatOptions,
-        ) -> Result<
-            futures::stream::BoxStream<'static, atomcode_kernel::stream::StreamEvent>,
-            atomcode_kernel::stream::ProviderError,
-        > {
-            std::future::pending().await
-        }
-    }
-    impl CodingProviderFactory for NeverAnsweringProviderFactory {
-        fn build(
-            &self,
-            _config: &CodingAgentConfig,
-            _session_id: Option<&str>,
-        ) -> Result<Arc<dyn LlmProvider>, crate::ProviderBuildError> {
-            let _ = self.built.send(());
-            Ok(Arc::new(NeverAnsweringProvider))
-        }
-    }
-
-    /// Typing while a goal round is being judged starts a turn, it does not
-    /// steer one.
-    ///
-    /// Between rounds the agent has finished and the runtime is HOLDING the
-    /// turn open while the evaluator decides. There is nothing live to fold
-    /// into: a message sent now opens a turn of its own at the agent. Reporting
-    /// it as a steer was a claim about a turn that had already ended, and two
-    /// things followed from it — a driver waiting for the `Steered` that closes
-    /// its steering panel waited forever, and the verdict, arriving later,
-    /// closed the HELD turn while the agent was busy with the person's new one,
-    /// so the screen went idle in the middle of work.
-    ///
-    /// The goal is not harmed by this: it stays Pursuing, and the end of the
-    /// turn this starts evaluates and continues it like any other round's.
+    // When the goal is Satisfied and the user submits a follow-up, the runtime must
+    // RE-ENGAGE the goal (same as PausedAtCap): resume it into Pursuing (round 0) and
+    // deliver the input as the resumed goal round's user message.
     #[tokio::test]
-    async fn a_message_typed_while_a_goal_round_is_judged_starts_its_own_turn() {
-        let (built_tx, mut built) = mpsc::unbounded_channel();
-        let (handle, mut kernel_commands, kernel_events, mut runtime_events, _w, _l, _a) =
-            controller_test_runtime(Arc::new(NeverAnsweringProviderFactory { built: built_tx }))
-                .await;
+    async fn submit_while_satisfied_reengages_goal_and_delivers_message() {
+        let (
+            handle,
+            mut kernel_commands,
+            kernel_events,
+            mut runtime_events,
+            _wakeup_tx,
+            _loop_active,
+            _adapter,
+        ) = controller_test_runtime(Arc::new(GoalMetProviderFactory)).await;
 
+        // --- Drive the goal to Satisfied ---
         handle.start_goal("tests pass").await.unwrap();
         let _ = runtime_events.recv().await; // GoalChanged(active=true)
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::SendMessage { .. })
-        ));
-        while built.try_recv().is_ok() {} // anything built while starting up
-                                          // The round ends; the runtime holds the turn and asks the evaluator,
-                                          // which never answers.
-        kernel_events
-            .send(AgentEvent::TurnComplete {
-                turn: None,
-                reason: StopReason::Stopped,
-            })
-            .unwrap();
-        assert!(matches!(
-            kernel_commands.recv().await,
-            Some(AgentCommand::Snapshot)
-        ));
-        kernel_events
-            .send(AgentEvent::Snapshot {
-                snapshot: SessionSnapshot::new(vec![Message::assistant("round one", vec![])]),
-            })
-            .unwrap();
-
-        tokio::time::timeout(std::time::Duration::from_secs(5), built.recv())
+        handle
+            .submit(UserInput::from("initial turn"))
             .await
-            .expect("the runtime never asked for an evaluator")
-            .expect("the evaluator channel closed");
-
-        // Nothing is live at the agent now. What a person types opens a turn.
-        let receipt = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            handle.submit(UserInput::from("actually, do this first")),
-        )
-        .await
-        .expect("submit did not answer while the turn was held")
-        .expect("submit was refused while the turn was held");
-        assert!(
-            matches!(receipt, SubmitReceipt::Started { .. }),
-            "a held turn has no live turn to steer: {receipt:?}"
-        );
-
-        // And the round it was holding is reported finished rather than left
-        // open to be closed later, under the agent's new turn.
-        let mut finished = false;
-        while let Ok(event) = runtime_events.try_recv() {
-            if matches!(event, CodingRuntimeEvent::TurnFinished(_)) {
-                finished = true;
-            }
-        }
-        assert!(finished, "the held round must report its terminal");
-        assert!(matches!(
-            tokio::time::timeout(std::time::Duration::from_secs(5), kernel_commands.recv())
-                .await
-                .expect("the message never reached the agent"),
-            Some(AgentCommand::SendMessage { .. })
-        ));
-        handle.shutdown().await.unwrap();
-    }
-
-    /// A met goal is CLOSED, so the next thing a person says is an ordinary
-    /// turn — and it reaches the agent on the keypress.
-    ///
-    /// Both halves are the criterion, and both come from the same report.
-    ///
-    /// * **At once.** A met goal used to stay registered and put the next
-    ///   message to a classifier ("does this continue the goal?") — awaited on
-    ///   the owner loop, up to 4s. Nothing on screen said so: the composer was
-    ///   already cleared, no fact had been logged for the transcript, and a
-    ///   screen that is idle after a goal ends draws no steering panel either.
-    ///   That was the reported "我说的话一会之后才出现, 出现之前屏幕上没有任何
-    ///   变化". The provider here is slow on every call, so any model call made
-    ///   on the keypress path shows up as time on the clock.
-    /// * **Ordinary.** No `GoalChanged` puts a goal back into `Pursuing`. An
-    ///   autonomous loop that came back on its own would be one nobody was told
-    ///   about — the badge went when the goal was met. `/goal` starts another.
-    ///
-    /// Virtual clock: the delay is never really waited out, and what is measured
-    /// is the runtime's own await rather than the machine.
-    #[tokio::test(flavor = "current_thread", start_paused = true)]
-    async fn a_met_goal_is_closed_so_the_next_message_is_an_ordinary_turn_at_once() {
-        let (handle, mut kernel_commands, kernel_events, mut runtime_events, _w, _l, _a) =
-            controller_test_runtime(Arc::new(SlowProviderFactory {
-                delay: std::time::Duration::from_secs(3),
-            }))
-            .await;
-
-        // --- Drive the goal to Met ---
-        handle.start_goal("tests pass").await.unwrap();
-        let _ = runtime_events.recv().await; // GoalChanged(active=true)
+            .unwrap();
         assert!(matches!(
             kernel_commands.recv().await,
             Some(AgentCommand::SendMessage { .. })
         ));
         kernel_events
             .send(AgentEvent::TurnComplete {
-                turn: None,
                 reason: StopReason::Stopped,
             })
             .unwrap();
@@ -20334,7 +15501,9 @@ mod tests {
                 snapshot: SessionSnapshot::new(vec![Message::assistant("done", vec![])]),
             })
             .unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(20), async {
+
+        // Wait until TurnFinished (goal Met/Satisfied).
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
                 match runtime_events.recv().await {
                     Some(CodingRuntimeEvent::TurnFinished(_)) => break,
@@ -20346,40 +15515,312 @@ mod tests {
         .await
         .expect("satisfied turn did not finish");
 
-        // --- The keypress ---
-        let submit_text = "so what about the other half?";
-        let at = tokio::time::Instant::now();
+        // --- Goal is now Satisfied; submit new message ---
+        let submit_text = "follow-up question";
         handle.submit(UserInput::from(submit_text)).await.unwrap();
-        let reached = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+
+        // Collect until SendMessage; assert no GoalChanged(Pursuing) seen.
+        let mut saw_goal_changed_pursuing = false;
+        let mut saw_send_message_with_input = false;
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
-                match kernel_commands.recv().await {
-                    Some(AgentCommand::SendMessage { text, .. }) if text.contains(submit_text) => {
-                        break tokio::time::Instant::now()
+                tokio::select! {
+                    // biased: GoalChanged(Pursuing) is emitted before SendMessage.
+                    biased;
+                    event = runtime_events.recv() => {
+                        match event {
+                            Some(CodingRuntimeEvent::GoalChanged(p)) => {
+                                if p.phase == GoalPhase::Pursuing && p.round == 0 {
+                                    saw_goal_changed_pursuing = true;
+                                }
+                            }
+                            Some(_) => {}
+                            None => break,
+                        }
                     }
-                    Some(_) => {}
-                    None => panic!("commands closed before the message was forwarded"),
+                    cmd = kernel_commands.recv() => {
+                        match cmd {
+                            Some(AgentCommand::SendMessage { text, .. }) => {
+                                if text == submit_text {
+                                    saw_send_message_with_input = true;
+                                }
+                                break;
+                            }
+                            _ => break,
+                        }
+                    }
                 }
             }
         })
         .await
-        .expect("the message never reached the agent");
+        .expect("submit after Satisfied did not deliver message within timeout");
 
-        let waited = reached.duration_since(at);
         assert!(
-            waited < std::time::Duration::from_millis(100),
-            "a person's message waited {waited:?} inside the runtime before reaching the agent"
+            saw_goal_changed_pursuing,
+            "submit while Satisfied must RE-ENGAGE the goal (GoalChanged Pursuing, round=0)"
         );
-        let mut reengaged = None;
-        while let Ok(event) = runtime_events.try_recv() {
-            if let CodingRuntimeEvent::GoalChanged(progress) = event {
-                if progress.phase == GoalPhase::Pursuing {
-                    reengaged = Some(progress);
+        assert!(
+            saw_send_message_with_input,
+            "submit while Satisfied must deliver the input as the resumed goal round's message"
+        );
+
+        handle.shutdown().await.unwrap();
+    }
+
+    // Classifier says NEW-GOAL: the satisfied goal re-engages AND re-tasks its
+    // condition to the follow-up (badge shows the NEW question · round 1).
+    #[tokio::test]
+    async fn submit_while_satisfied_new_goal_retasks_condition() {
+        let (handle, mut kernel_commands, kernel_events, mut runtime_events, _w, _l, _a) =
+            controller_test_runtime(Arc::new(ClassifierProviderFactory {
+                class_line: "Class: new-goal",
+            }))
+            .await;
+        // --- Drive the goal to Satisfied ---
+        handle.start_goal("tests pass").await.unwrap();
+        let _ = runtime_events.recv().await; // GoalChanged(active=true)
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
+        assert!(matches!(
+            kernel_commands.recv().await,
+            Some(AgentCommand::SendMessage { .. })
+        ));
+        kernel_events
+            .send(AgentEvent::TurnComplete {
+                reason: StopReason::Stopped,
+            })
+            .unwrap();
+        assert!(matches!(
+            kernel_commands.recv().await,
+            Some(AgentCommand::Snapshot)
+        ));
+        kernel_events
+            .send(AgentEvent::Snapshot {
+                snapshot: SessionSnapshot::new(vec![Message::assistant("done", vec![])]),
+            })
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                match runtime_events.recv().await {
+                    Some(CodingRuntimeEvent::TurnFinished(_)) => break,
+                    Some(_) => {}
+                    None => panic!("events closed before met terminal"),
                 }
             }
-        }
+        })
+        .await
+        .expect("satisfied turn did not finish");
+
+        let submit_text = "an entirely different task";
+        handle.submit(UserInput::from(submit_text)).await.unwrap();
+
+        let mut saw_retasked_pursuing = false;
+        let mut saw_send_message = false;
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                tokio::select! {
+                    biased;
+                    event = runtime_events.recv() => match event {
+                        Some(CodingRuntimeEvent::GoalChanged(p)) => {
+                            if p.phase == GoalPhase::Pursuing
+                                && p.round == 0
+                                && p.condition == submit_text
+                            {
+                                saw_retasked_pursuing = true;
+                            }
+                        }
+                        Some(_) => {}
+                        None => break,
+                    },
+                    cmd = kernel_commands.recv() => match cmd {
+                        Some(AgentCommand::SendMessage { text, .. }) => {
+                            saw_send_message = text == submit_text;
+                            break;
+                        }
+                        _ => break,
+                    },
+                }
+            }
+        })
+        .await
+        .expect("new-goal submit did not deliver within timeout");
+
         assert!(
-            reengaged.is_none(),
-            "a met goal must not come back on its own: {reengaged:?}"
+            saw_retasked_pursuing,
+            "new-goal must resume Pursuing AND re-task the condition to the new message"
+        );
+        assert!(saw_send_message, "the new message must be delivered");
+        handle.shutdown().await.unwrap();
+    }
+
+    // Classifier says NOT-A-GOAL (chit-chat): the goal is NOT re-engaged — the message
+    // runs as an ordinary turn and no GoalChanged(Pursuing) is emitted.
+    #[tokio::test]
+    async fn submit_while_satisfied_not_a_goal_does_not_reengage() {
+        let (handle, mut kernel_commands, kernel_events, mut runtime_events, _w, _l, _a) =
+            controller_test_runtime(Arc::new(ClassifierProviderFactory {
+                class_line: "Class: not-a-goal",
+            }))
+            .await;
+        // --- Drive the goal to Satisfied ---
+        handle.start_goal("tests pass").await.unwrap();
+        let _ = runtime_events.recv().await; // GoalChanged(active=true)
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
+        assert!(matches!(
+            kernel_commands.recv().await,
+            Some(AgentCommand::SendMessage { .. })
+        ));
+        kernel_events
+            .send(AgentEvent::TurnComplete {
+                reason: StopReason::Stopped,
+            })
+            .unwrap();
+        assert!(matches!(
+            kernel_commands.recv().await,
+            Some(AgentCommand::Snapshot)
+        ));
+        kernel_events
+            .send(AgentEvent::Snapshot {
+                snapshot: SessionSnapshot::new(vec![Message::assistant("done", vec![])]),
+            })
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                match runtime_events.recv().await {
+                    Some(CodingRuntimeEvent::TurnFinished(_)) => break,
+                    Some(_) => {}
+                    None => panic!("events closed before met terminal"),
+                }
+            }
+        })
+        .await
+        .expect("satisfied turn did not finish");
+
+        let submit_text = "thanks!";
+        handle.submit(UserInput::from(submit_text)).await.unwrap();
+
+        let mut saw_goal_changed_pursuing = false;
+        let mut saw_send_message = false;
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                tokio::select! {
+                    biased;
+                    event = runtime_events.recv() => match event {
+                        Some(CodingRuntimeEvent::GoalChanged(p)) => {
+                            if p.phase == GoalPhase::Pursuing {
+                                saw_goal_changed_pursuing = true;
+                            }
+                        }
+                        Some(_) => {}
+                        None => break,
+                    },
+                    cmd = kernel_commands.recv() => match cmd {
+                        Some(AgentCommand::SendMessage { text, .. }) => {
+                            saw_send_message = text == submit_text;
+                            break;
+                        }
+                        _ => break,
+                    },
+                }
+            }
+        })
+        .await
+        .expect("not-a-goal submit did not deliver within timeout");
+
+        assert!(saw_send_message, "the message must run as an ordinary turn");
+        assert!(
+            !saw_goal_changed_pursuing,
+            "not-a-goal must NOT re-engage the goal (no GoalChanged Pursuing)"
+        );
+        handle.shutdown().await.unwrap();
+    }
+
+    // Fast-path: an empty / whitespace-only submit after a Satisfied goal skips the
+    // classifier entirely and does NOT re-engage — no GoalChanged(Pursuing).
+    #[tokio::test]
+    async fn submit_while_satisfied_empty_input_skips_classifier() {
+        let (handle, mut kernel_commands, kernel_events, mut runtime_events, _w, _l, _a) =
+            controller_test_runtime(Arc::new(GoalMetProviderFactory)).await;
+
+        // --- Drive the goal to Satisfied ---
+        handle.start_goal("tests pass").await.unwrap();
+        let _ = runtime_events.recv().await; // GoalChanged(active=true)
+        handle
+            .submit(UserInput::from("initial turn"))
+            .await
+            .unwrap();
+        assert!(matches!(
+            kernel_commands.recv().await,
+            Some(AgentCommand::SendMessage { .. })
+        ));
+        kernel_events
+            .send(AgentEvent::TurnComplete {
+                reason: StopReason::Stopped,
+            })
+            .unwrap();
+        assert!(matches!(
+            kernel_commands.recv().await,
+            Some(AgentCommand::Snapshot)
+        ));
+        kernel_events
+            .send(AgentEvent::Snapshot {
+                snapshot: SessionSnapshot::new(vec![Message::assistant("done", vec![])]),
+            })
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                match runtime_events.recv().await {
+                    Some(CodingRuntimeEvent::TurnFinished(_)) => break,
+                    Some(_) => {}
+                    None => panic!("events closed before met terminal"),
+                }
+            }
+        })
+        .await
+        .expect("satisfied turn did not finish");
+
+        // Whitespace-only submit → fast-path, no classifier, no re-engage.
+        handle.submit(UserInput::from("   ")).await.unwrap();
+        let mut saw_goal_changed_pursuing = false;
+        let mut saw_send_message = false;
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                tokio::select! {
+                    biased;
+                    event = runtime_events.recv() => match event {
+                        Some(CodingRuntimeEvent::GoalChanged(p)) => {
+                            if p.phase == GoalPhase::Pursuing {
+                                saw_goal_changed_pursuing = true;
+                            }
+                        }
+                        Some(_) => {}
+                        None => break,
+                    },
+                    cmd = kernel_commands.recv() => match cmd {
+                        Some(AgentCommand::SendMessage { .. }) => {
+                            saw_send_message = true;
+                            break;
+                        }
+                        _ => break,
+                    },
+                }
+            }
+        })
+        .await
+        .expect("empty submit did not deliver within timeout");
+
+        assert!(
+            saw_send_message,
+            "the (empty) message still runs as an ordinary turn"
+        );
+        assert!(
+            !saw_goal_changed_pursuing,
+            "empty input must NOT re-engage the goal (classifier skipped)"
         );
         handle.shutdown().await.unwrap();
     }

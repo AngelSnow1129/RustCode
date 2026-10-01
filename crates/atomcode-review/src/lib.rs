@@ -19,10 +19,8 @@
 //! use atomcode_review::{build_review_agent, ReviewAgentConfig};
 //! use atomcode_kernel::agent::AutoRespond;
 //!
-//! // Where the host keeps its data: its user tree and per-project dir name.
-//! let dirs = atomcode_capabilities::ProductDirs::new("/home/me/.myapp", ".myapp");
 //! let (agent, report) = build_review_agent(ReviewAgentConfig::new(
-//!     "sk-...", "https://api.deepseek.com/v1", "deepseek-v4", ".", dirs,
+//!     "sk-...", "https://api.deepseek.com/v1", "deepseek-v4", ".",
 //! ))?;
 //! let _ = agent.run_to_completion("Review this diff:\n<diff>", AutoRespond::AllowAll).await;
 //! for f in report.findings() {
@@ -53,9 +51,7 @@ pub use impact_plan::render_review_impact_plan;
 pub use persona::review_persona;
 /// The `code_review` SUB-AGENT tool — mount it in a host agent (e.g. coding) to give that
 /// agent a read-only "review the current changes" capability.
-pub use review_tool::{
-    DelegatedReview, ReviewDelegate, ReviewTool, ReviewToolConfig, SharedReviewProvider,
-};
+pub use review_tool::{ReviewTool, ReviewToolConfig, SharedReviewProvider};
 pub use rules::{changed_files_from_diff, is_low_signal_file, render_rules_section};
 
 /// Re-exported so a driver (CLI) can read findings without depending on

@@ -4,35 +4,12 @@
 //! invalidation, LSP notify).
 
 use super::{err, ok, resolve_path};
-use crate::world::{FileSystem, LocalFs};
 use async_trait::async_trait;
 use atomcode_kernel::tool::{RiskLevel, Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::json;
-use std::sync::Arc;
 
-pub struct WriteFileTool {
-    /// Where the write actually lands. Defaults to plain local I/O, which is
-    /// exactly what this tool did before the seam existed — so mounting it
-    /// unchanged changes nothing.
-    world: Arc<dyn FileSystem>,
-}
-
-impl Default for WriteFileTool {
-    fn default() -> Self {
-        Self {
-            world: Arc::new(LocalFs::unfenced()),
-        }
-    }
-}
-
-impl WriteFileTool {
-    /// Route this tool's writes through `world` — a fenced root, a read-only
-    /// view, a sandbox. The tool cannot tell which, which is the point.
-    pub fn with_world(world: Arc<dyn FileSystem>) -> Self {
-        Self { world }
-    }
-}
+pub struct WriteFileTool;
 
 #[derive(Deserialize)]
 struct Args {
@@ -81,15 +58,13 @@ impl Tool for WriteFileTool {
         let path = resolve_path(&a.file_path, &ctx.working_dir);
 
         // Capture pre-existing line count for an overwrite diff message.
-        let old_lines = self
-            .world
-            .read_text(&path)
+        let old_lines = tokio::fs::read_to_string(&path)
             .await
             .ok()
             .map(|s| s.lines().count());
 
         if let Some(parent) = path.parent() {
-            if let Err(e) = self.world.create_dir_all(parent).await {
+            if let Err(e) = tokio::fs::create_dir_all(parent).await {
                 return err(format!(
                     "write_file: failed to create parent directory {}: {e}",
                     crate::pathnorm::to_display(parent)
@@ -107,7 +82,7 @@ impl Tool for WriteFileTool {
         // back to the original encoding (see tools::encoding) — overwriting an existing
         // GBK file here converts it to UTF-8. That asymmetry is deliberate; steer legacy-
         // encoding-preserving changes through `edit_file`.
-        if let Err(e) = self.world.write_text(&path, &a.content).await {
+        if let Err(e) = tokio::fs::write(&path, &a.content).await {
             return err(format!("write_file: failed to write {disp}: {e}"));
         }
 
@@ -151,7 +126,7 @@ mod tests {
     #[tokio::test]
     async fn creates_new_file_and_parents() {
         let d = tempfile::tempdir().unwrap();
-        let r = WriteFileTool::default()
+        let r = WriteFileTool
             .execute(
                 r#"{"file_path":"nested/dir/a.txt","content":"hello\nworld\n"}"#,
                 &ctx(d.path()),
@@ -167,7 +142,7 @@ mod tests {
     async fn overwrite_reports_line_diff() {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("a.txt"), "1\n2\n3\n").unwrap();
-        let r = WriteFileTool::default()
+        let r = WriteFileTool
             .execute(
                 r#"{"file_path":"a.txt","content":"1\n2\n3\n4\n5\n"}"#,
                 &ctx(d.path()),
@@ -186,7 +161,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let big: String = (0..100).map(|i| format!("line {i}\n")).collect();
         std::fs::write(d.path().join("a.txt"), big).unwrap();
-        let r = WriteFileTool::default()
+        let r = WriteFileTool
             .execute(
                 r#"{"file_path":"a.txt","content":"tiny\n"}"#,
                 &ctx(d.path()),
@@ -197,6 +172,6 @@ mod tests {
 
     #[tokio::test]
     async fn write_is_risky() {
-        assert_eq!(WriteFileTool::default().risk("{}"), RiskLevel::Risky);
+        assert_eq!(WriteFileTool.risk("{}"), RiskLevel::Risky);
     }
 }

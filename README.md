@@ -27,7 +27,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-5.2.0-blue" alt="version">
+  <img src="https://img.shields.io/badge/version-5.1.0-blue" alt="version">
   <img src="https://img.shields.io/badge/rust-1.88%2B-orange" alt="rust">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20HarmonyOS%20PC%20%7C%20Windows-lightgrey" alt="platform">
@@ -428,11 +428,10 @@ Then just type what you want:
 | `F2 / Shift+F2` | Switch to next / previous model (usually `Fn+F2 / Fn+Shift+F2` on Mac) |
 | `Ctrl+R` | Reverse-search input history |
 | `Ctrl+T` | Cycle `reasoning_effort` |
-| `Ctrl+O` | Show / hide tool output and reasoning (verbose mode) |
 | `Ctrl+U` | Clear line |
 | `Ctrl+W` | Delete word |
 | `Ctrl+K` | Delete to end of line |
-| `Ctrl+V / Ctrl+Alt+V` | Attach the image on the clipboard as `[Image #N]` (text goes through your terminal's own paste). On Windows Terminal use `Ctrl+Alt+V` or `/paste` |
+| `Ctrl+V / Ctrl+Alt+V` | Paste text or image from clipboard (Windows can also use `/paste`) |
 
 > **Terminal compatibility for newline chords:**
 >
@@ -442,13 +441,10 @@ Then just type what you want:
 > - Xshell does not support the Kitty protocol; in its keymap settings, map a free chord to send `ESC, Enter` (`\x1b\r`) to get the same effect, or paste multi-line text via the clipboard (bracketed paste is enabled).
 
 > **Pasting images on Windows:**
-> Windows Terminal and conhost bind `Ctrl+V` to their own `paste` action, which only forwards `CF_UNICODETEXT` from the clipboard — an image-only clipboard sends nothing, so the in-app `Ctrl+V` handler never fires. Three ways out:
+> Windows Terminal and conhost bind `Ctrl+V` to their own `paste` action, which only forwards `CF_UNICODETEXT` from the clipboard — an image-only clipboard sends nothing, so the in-app `Ctrl+V` handler never fires. Two ways out:
 >
-> 1. Press **`Ctrl+Alt+V`** — Windows Terminal lets it through, and it attaches the clipboard image as `[Image #N]`.
-> 2. Use **`/paste`** — the slash command pulls the clipboard image and attaches it the same way. Works in every terminal, including Windows Terminal, PowerShell 7, conhost, and git bash.
-> 3. If you want `Ctrl+V` muscle memory: open Windows Terminal `settings.json` (`Ctrl+,` → "Open JSON file") and either delete the `{ "command": "paste", "keys": "ctrl+v" }` entry under `"actions"`, or rebind it to `ctrl+shift+v`. After a restart, `Ctrl+V` passes through to atomcode.
->
-> When a new picture lands on the clipboard — a `Win+Shift+S` screenshot, say — the top-right of the input box says `Image in clipboard · ctrl+alt+v or /paste` for a few seconds (`· ctrl+v to paste` on macOS and Linux). Screenshots from the Snipping Tool and Qt-based tools (PixPin, Snipaste) are read too, including the `CF_DIBV5` format they use.
+> 1. Use **`/paste`** — the slash command pulls the clipboard image and attaches it as `[Image #N]`. Works in every terminal, including Windows Terminal, PowerShell 7, conhost, and git bash. The TUI's bottom-right hint on Windows says `Image in clipboard · /paste` automatically.
+> 2. If you want `Ctrl+V` muscle memory: open Windows Terminal `settings.json` (`Ctrl+,` → "Open JSON file") and either delete the `{ "command": "paste", "keys": "ctrl+v" }` entry under `"actions"`, or rebind it to `ctrl+shift+v`. After a restart, `Ctrl+V` passes through to atomcode.
 >
 > Git Bash (MinTTY) doesn't intercept `Ctrl+V`, so it works there out of the box.
 
@@ -463,16 +459,6 @@ Then just type what you want:
 | Empty input + `Home/End` | Jump to top / bottom of conversation  |
 | `Ctrl+Shift+C`           | Copy selection                        |
 | `Ctrl+C`                 | Cancel operation (double-tap to exit) |
-
-### New screen (`atomcode --tui`)
-
-Most keys are the same as above; these differ. Type `/keys` in a session for the full list:
-
-| Key | Action |
-|-----|--------|
-| `Ctrl+O` | Reasoning: one line / in full / folded, cycles (also `/reasoning`; `Alt+R` works too when the terminal sends Option as Meta) |
-| `Ctrl+T` | Tool output: all / one summary each / summarised in groups, cycles |
-| `Ctrl+G` | Hand the mouse to the terminal (use its own selection), again to take it back (also `/mouse`) |
 
 ### Slash Commands
 

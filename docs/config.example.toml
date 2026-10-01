@@ -8,9 +8,11 @@
 # ---- 默认 provider（必须匹配下方某个 [providers.*] 的键名）----
 default_provider = "deepseek"
 
-# ---- 自动更新（顶层键，必须在任何 [表] 之前）----
+# ---- 自动更新 / 自动提交（顶层键，必须在任何 [表] 之前）----
 # auto_update: 每小时轮询新版本并预暂存，下次启动时应用（/upgrade 仍可手动）
+# auto_commit: 每轮 agent 结束后自动提交改动的文件（仅在 git 仓库内生效）
 auto_update = true
+auto_commit = false
 
 # ---- 离线 / 内网无公网环境开关（顶层键）----
 # offline_mode: 离线 / 内网无公网环境开关。
@@ -203,27 +205,24 @@ mode = "follow_system"
 # no_proxy = "localhost,127.0.0.1"
 
 # Lifecycle hooks — run custom scripts on key events.
-# Hooks are NOT configured in this file. They live in two JSON files, and the hooks
-# of BOTH run (a project hook does not replace a global one of the same name):
-#   ~/.atomcode/hooks.json        (every project)
-#   <project>/.hooks.json         (this project)
-# The old TOML hooks (~/.atomcode/hooks/hooks.toml) no longer run.
-# `atomcode hooks list` shows what is loaded; `atomcode hooks test` runs one.
+# Hooks are NOT configured in this file. Use separate config files instead:
+#   TOML: ~/.atomcode/hooks/hooks.toml (recommended, supports ScriptHook + Webhook)
+#   JSON: ~/.atomcode/hooks.json (CC-compatible, lightweight)
+# See docs/hooks.md for full reference.
 #
-# Events (PascalCase or snake_case): PreToolUse, PostToolUse, PostToolUseFailure,
-#   SessionStart, SessionEnd, UserPromptSubmit, Stop, StopFailure
-# matcher: tool names, `|`-separated, `*` as a wildcard (e.g. "Edit|Write", "mcp__github__*")
+# Available events (JSON CC format; TOML ScriptHook uses different trigger names — see docs/hooks.md):
+#   pre_tool_use    — before each tool call (can block via stdout {"action":"block","reason":"..."})
+#   post_tool_use   — after each tool call
+#   user_prompt_submit — when the user submits a prompt (can block via stdout {"decision":"block","reason":"..."} or inject context via {"hookSpecificOutput":{"additionalContext":"..."}})
+#   session_start   — when a new session begins
+#   session_end     — when a session ends
 #
-# A hook reads a JSON object on stdin (Claude Code's hook payload): hook_event_name,
-# session_id, cwd, and tool_name / tool_input for tool events.
-# PreToolUse can decide by printing {"action":"allow"} / {"action":"block","reason":"..."} /
-#   {"action":"modify","args":{...}}, or Claude Code's
-#   {"hookSpecificOutput":{"permissionDecision":"allow|deny|ask"}}; exit code 2 with a
-#   reason also blocks.
-# UserPromptSubmit can block via {"decision":"block","reason":"..."} or add context via
-#   {"hookSpecificOutput":{"additionalContext":"..."}}.
+# JSON CC scripts receive context via env vars: ATOMCODE_HOOK_EVENT, ATOMCODE_TOOL_NAME,
+# ATOMCODE_HOOK_CONTEXT (JSON string). TOML ScriptHook uses stdin instead — see docs/hooks.md.
+# JSON CC PreToolUse stdout supports (TOML ScriptHook uses text protocol ok/deny:/modify: — see docs/hooks.md):
+#   {"action":"allow"} or {"action":"block","reason":"..."} or {"action":"modify","args":{...}}
 #
-# Example ~/.atomcode/hooks.json:
+# Example ~/.atomcode/hooks.json (JSON CC format; TOML uses [[hooks]] with trigger/script/timeout_secs — see docs/hooks.md):
 # {
 #   "hooks": {
 #     "verify-gate": {
@@ -253,8 +252,6 @@ mode = "follow_system"
 # 内嵌 code_review 在父回合等待期间有自己的默认保险（200 轮/900 秒），均可覆盖，0 为关闭：
 #   ATOMCODE_REVIEW_MAX_ROUNDS=200
 #   ATOMCODE_REVIEW_MAX_DURATION_SECS=900
-# 工具返回的截断阈值见下方 [tools.output]；环境变量优先于配置文件：
-#   ATOMCODE_TOOL_OUTPUT_THRESHOLD_BYTES=204800
 [coding]
 max_rounds = 0
 
@@ -266,14 +263,6 @@ max_rounds = 100
 [tools.todo]
 enabled = true
 eager = "auto"
-
-# 工具返回超过阈值时，上下文里只留头 32KB + 尾 12KB，并注明中间哪段字节没有显示；
-# 完整内容存为 artifact，模型用 fetch_output 分页读取（每页最多 64KB）。数据密集的
-# 场景（财报、全市场筛选）可调高阈值。单位字节，不设置时为 51200，取值限制在
-# 46080–4194304。VS Code 扩展等拿不到自定义环境变量的部署用这里配置；
-# 设置了 ATOMCODE_TOOL_OUTPUT_THRESHOLD_BYTES 时以环境变量为准。修改后需重启当前 runtime。
-# [tools.output]
-# threshold_bytes = 204800
 
 # =============================================================================
 # 权限预授权（`[permissions]`）
@@ -306,14 +295,20 @@ eager = "auto"
 # deny  = ["Bash(rm -rf *)"]
 
 # =============================================================================
-# Subagent 设置（`task` / `team` 工具：主 agent 把子任务派发给隔离上下文的子 agent）
+# Subagent 设置（`task` 工具：主 agent 把子任务派发给隔离上下文的子 agent）
 # =============================================================================
-# 是否挂载由前端决定；环境变量 `ATOMCODE_SUBAGENT=0` 可以关掉。没有配置键控制开关。
+# 总开关是环境变量 ATOMCODE_SUBAGENT（默认开启）——用 `ATOMCODE_SUBAGENT=0` 关闭。
+# 下面的 `enabled` 字段是历史遗留、当前不生效；真正开关看上面的环境变量。
+# 生效旋钮：max_concurrent（并发数）和 max_rounds（单任务模型轮次高水位）。
+# timeout_secs 仅为兼容旧配置保留，不再限制 subagent 的总运行时间。
 # max_rounds 可由 ATOMCODE_SUBAGENT_MAX_ROUNDS 覆盖。
-# （旧文件里的 enabled / initial_turns / max_turns / timeout_secs 从来没有生效过，已移除；留着也照常解析。）
 [subagent]
-max_concurrent = 3      # 并发子 agent 上限（下限 1）
-max_rounds = 200        # 单个子任务模型轮次高水位（0=不设上限）
+enabled = true          # 遗留字段，不生效（改这个不会关掉 subagent；用 ATOMCODE_SUBAGENT=0）
+initial_turns = 4       # 遗留字段，不生效
+max_turns = 12          # 遗留字段，不生效
+max_concurrent = 3      # 生效：并发子 agent 上限（下限 1）
+timeout_secs = 900      # 遗留字段：仍可解析，但不生效
+max_rounds = 200        # 生效：单个子任务模型轮次高水位（0=不设上限；继承上面的精确防护策略）
 
 # =============================================================================
 # LSP（语言服务器协议）

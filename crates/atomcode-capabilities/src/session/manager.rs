@@ -16,7 +16,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Barrier;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::ProductDirs;
 use atomcode_kernel::message::{Message, Role, SessionSnapshot, SNAPSHOT_VERSION};
 use serde::{de::IgnoredAny, Deserialize, Serialize};
 
@@ -55,29 +54,6 @@ pub struct TodoSidecar {
     /// Conversation message count at write time (stale-detection marker).
     #[serde(default)]
     pub message_count: usize,
-    /// Where the last todo call `todos` already reflects was made. A transcript
-    /// that lost its plan to compaction still carries calls; a reader lays only
-    /// the ones made after this point over `todos`, so none is applied twice (a
-    /// replayed `add` would append its task again). `None` in a sidecar written
-    /// before this field existed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub through: Option<TodoCallPosition>,
-}
-
-/// Where in a session a todo call was made: the kernel turn, the round within it,
-/// and the call's index in that round's reply.
-///
-/// A position, not the call's id: ids are provider-minted and need not be unique
-/// (Ollama numbers every reply's calls from `ollama_call_0`). Turn ids never go
-/// back — a resumed session seeds its counter from every turn its log holds, the
-/// taken-back ones included — so a call made later always sorts after.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
-pub struct TodoCallPosition {
-    pub turn: u64,
-    pub round: u32,
-    pub index: u32,
 }
 
 /// One todo row in the sidecar. `status` uses the canonical strings
@@ -281,18 +257,6 @@ pub struct CatalogEntry {
     pub message_count: usize,
     pub turn_count: usize,
     pub presence: CatalogPresence,
-    /// Written by a build newer than this one: listed, not resumable here.
-    pub needs_newer_version: bool,
-    /// How the session was created. Legacy-only sessions read as `Manual`.
-    pub origin: SessionOrigin,
-}
-
-impl CatalogEntry {
-    /// Work done in the background for another conversation: found by id,
-    /// but not offered in a picker or to `--continue`.
-    pub fn delegated(&self) -> bool {
-        self.origin == SessionOrigin::Delegated
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -406,14 +370,6 @@ pub enum SessionOrigin {
     /// Started by the scheduled-tasks runner. Hidden from normal `/resume`
     /// and sidebar pickers; visible in a dedicated scheduled-tasks view.
     Scheduled,
-    /// Started in the background to do something for another conversation
-    /// (a review, `/bg <task>`), whose result goes back to that conversation.
-    /// Not one of the person's conversations: pickers and `--continue` leave it
-    /// out ([`CatalogEntry::delegated`]), but it opens by id — its exit hint
-    /// names it when it did not finish — and becomes `Manual` once a person
-    /// takes it up. Unlike a team member's session it has no `parent`: it is a
-    /// runtime of its own, and resumes on its own.
-    Delegated,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -473,18 +429,6 @@ pub struct SessionMeta {
     /// that sessions written before this field existed deserialize correctly.
     #[serde(default)]
     pub origin: SessionOrigin,
-    /// The session-format version of the last build that wrote this session's
-    /// log and index — what a catalog reads to tell that a session needs a newer
-    /// build without opening its log (`docs/adr/0024` §16). Zero for a session
-    /// stored as a snapshot.
-    #[serde(default, skip_serializing_if = "is_zero_u32")]
-    pub format_version: u32,
-    /// The session this one was delegated from — a team member's lead, a task
-    /// child's parent — by its session id. Such a session is kept under its
-    /// parent: no catalog, picker or `--continue` offers it on its own, and it
-    /// is found through [`SessionManager::children`] (`docs/adr/0024` §11).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent: Option<String>,
 }
 
 impl SessionMeta {
@@ -510,14 +454,7 @@ impl SessionMeta {
             detached_model_usage: Vec::new(),
             detached_unattributed_tokens: 0,
             origin: SessionOrigin::Manual,
-            format_version: 0,
-            parent: None,
         }
-    }
-
-    /// Whether a build older than the one that last wrote this session.
-    pub fn needs_newer_version(&self) -> bool {
-        self.format_version > atomcode_kernel::session::SESSION_FORMAT_VERSION
     }
 
     /// Remove turn stats selected by `predicate` while preserving their usage
@@ -737,10 +674,6 @@ fn default_true() -> bool {
 }
 
 fn is_zero_u64(value: &u64) -> bool {
-    *value == 0
-}
-
-fn is_zero_u32(value: &u32) -> bool {
     *value == 0
 }
 
@@ -1011,54 +944,13 @@ impl MetaReadPause {
 }
 
 impl SessionManager {
-    /// The one directory under [`sessions_root`](Self::sessions_root) that is
-    /// not a project bucket: the coding runtime's event journal, kept beside
-    /// the native store and apart from its files so neither writer ever reads
-    /// the other's as its own. The catalog passes over it.
-    ///
-    /// Named here, and used by the runtime that writes it, so the directory and
-    /// the scanner that must not mistake it for a bucket cannot disagree.
-    pub const JOURNAL_DIR: &'static str = "harness";
-
-    /// Whether `path` is an event-journal file rather than one of this store's.
-    ///
-    /// Journals were not always kept under [`Self::JOURNAL_DIR`]: the coding
-    /// runtime before 2026-09-16, and the harness launchers (`harness`, `atui`),
-    /// wrote `<id>.jsonl` straight into project buckets. Hundreds of those are on
-    /// disk, and a reader of native files — `recall`, the catalog — must pass over
-    /// them rather than call its own file corrupt. Recognised by the first record,
-    /// which no native file shares: a journal header (`{"header":…}`), or, in
-    /// journals older than headers, a sequenced event (`{"seq":…,"event":…}`).
-    /// Not a regular file, or unreadable, is `false`: the caller's own checks
-    /// report those.
-    pub fn is_journal_file(path: &Path) -> bool {
-        let Ok(file) = open_read_file(path) else {
-            return false;
-        };
-        let mut first = Vec::new();
-        if BufReader::new(file)
-            .take(MAX_JSONL_LINE_BYTES as u64)
-            .read_until(b'\n', &mut first)
-            .is_err()
-        {
-            return false;
-        }
-        let Ok(serde_json::Value::Object(record)) = serde_json::from_slice(&first) else {
-            return false;
-        };
-        !record.contains_key("turn_id")
-            && (record.contains_key("header")
-                || (record.contains_key("event") && record.contains_key("seq")))
-    }
-
-    /// `<user tree>/sessions` — every project's buckets.
-    pub fn sessions_root(user_dir: &Path) -> PathBuf {
-        user_dir.join("sessions")
+    pub fn sessions_root() -> PathBuf {
+        super::config_dir().join("sessions")
     }
 
     /// Copy the pre-v4.16 macOS session tree into the canonical sessions root.
     /// An initialized canonical root is never modified.
-    pub fn migrate_from_legacy(user_dir: &Path) -> SessionResult<usize> {
+    pub fn migrate_from_legacy() -> SessionResult<usize> {
         #[cfg(target_os = "macos")]
         {
             let Some(legacy_root) =
@@ -1066,20 +958,19 @@ impl SessionManager {
             else {
                 return Ok(0);
             };
-            migrate_sessions_from(&legacy_root, &Self::sessions_root(user_dir))
+            migrate_sessions_from(&legacy_root, &Self::sessions_root())
         }
         #[cfg(not(target_os = "macos"))]
         {
-            let _ = user_dir;
             Ok(0)
         }
     }
 
-    /// The store for `working_dir`'s project — `<user tree>/sessions/<project_hash>`,
+    /// The store for `working_dir`'s project — `$ATOMCODE_HOME/sessions/<project_hash>`,
     /// the SAME bucket production uses (so old `<id>.json` and new `<id>.snapshot`
     /// sessions of the same project land together).
-    pub fn for_project(working_dir: &Path, dirs: &ProductDirs) -> Self {
-        let root = Self::sessions_root(dirs.user()).join(Self::project_hash(working_dir, dirs));
+    pub fn for_project(working_dir: &Path) -> Self {
+        let root = Self::sessions_root().join(Self::project_hash(working_dir));
         Self {
             root,
             #[cfg(test)]
@@ -1109,114 +1000,9 @@ impl SessionManager {
         &self.root
     }
 
-    /// The bucket a project's sessions live in.
-    ///
-    /// Prefers the persistent marker written by [`Self::ensure_project_marker`]
-    /// (`<project dir>/local/id`), falling back to the path hash for a
-    /// project that has no marker yet — the pre-marker default. The marker is
-    /// what survives a folder RENAME: it travels with the folder and holds the
-    /// bucket the sessions are actually in, whereas the path hash changes with
-    /// the path and would orphan them. A marker whose content is not a valid
-    /// bucket id is ignored. (Project-scoped MCP trust keys on the path via its
-    /// own `mcp::registry::project_trust_key`, deliberately NOT this — a renamed
-    /// folder re-confirming trust is the safer boundary.)
-    pub fn project_hash(working_dir: &Path, dirs: &ProductDirs) -> String {
-        if let Ok(content) = fs::read_to_string(Self::project_marker_path(working_dir, dirs)) {
-            let id = content.trim();
-            if valid_project_bucket(id) {
-                return id.to_string();
-            }
-        }
+    /// Stable per-project bucket id shared with project-scoped trust storage.
+    pub fn project_hash(working_dir: &Path) -> String {
         atomcode_config::util::stable_project_hash(working_dir)
-    }
-
-    /// The pin file: `<project dir>/local/id`. In the already git-ignored
-    /// machine-local dir (see `memory::MemoryStore::local`), so it never reaches
-    /// version control and moves with the folder on a rename.
-    fn project_marker_path(working_dir: &Path, dirs: &ProductDirs) -> PathBuf {
-        dirs.project(working_dir).join("local").join("id")
-    }
-
-    /// Pin this project to a stable session bucket, so a later folder rename
-    /// still finds its sessions. Called when a session STARTS in `working_dir`.
-    ///
-    /// No-op if a marker is already there. Otherwise freezes the CURRENT path
-    /// hash into the marker: for a project that already has a path-hash bucket
-    /// this simply records where its sessions already are (adoption, zero data
-    /// movement); for a brand-new project it is the same bucket a session would
-    /// use anyway — only now frozen, so a rename cannot move it. Best-effort: a
-    /// write failure leaves the plain path-hash behaviour unchanged rather than
-    /// erroring a session start.
-    pub fn ensure_project_marker(working_dir: &Path, dirs: &ProductDirs) {
-        Self::write_project_marker(
-            working_dir,
-            dirs,
-            &atomcode_config::util::stable_project_hash(working_dir),
-            false,
-        );
-    }
-
-    /// Pin this project to an EXISTING session bucket — the one a session it is
-    /// resuming actually lives in — rather than to its own path hash.
-    ///
-    /// This is the folder-RENAME repair on the resume side: a renamed folder's
-    /// sessions still live under the OLD path's bucket, so a resume here would
-    /// look in this folder's (empty) bucket and miss them. Pinning the folder to
-    /// the resumed session's bucket makes that resume load AND makes later
-    /// resumes and fresh sessions here land in the same place. Unlike
-    /// [`Self::ensure_project_marker`], which freezes the current path hash, this
-    /// freezes a GIVEN bucket. No-op if `bucket` is not a valid bucket id, or if
-    /// the folder already carries a DELIBERATE identity — a marker naming some
-    /// bucket other than its own path hash (an earlier pin, or a rename that kept
-    /// its marker): that is never hijacked.
-    ///
-    /// A marker holding the folder's OWN path hash is replaced. That is the one
-    /// [`Self::ensure_project_marker`] freezes at every fresh start — including
-    /// the start in a just-renamed folder, before the person has had a chance to
-    /// `/resume` anything. Treating it as an identity made the rename repair dead
-    /// on arrival: the pin found a marker and did nothing, and the resume looked
-    /// in the empty new bucket. Whether this folder owns real sessions under that
-    /// bucket is the caller's check (`bucket_to_pin_on_resume` refuses to repin a
-    /// folder that does). Best-effort, like `ensure_project_marker`.
-    pub fn pin_project_bucket(working_dir: &Path, dirs: &ProductDirs, bucket: &str) {
-        if !valid_project_bucket(bucket) {
-            return;
-        }
-        let own = atomcode_config::util::stable_project_hash(working_dir);
-        let current = fs::read_to_string(Self::project_marker_path(working_dir, dirs))
-            .ok()
-            .map(|content| content.trim().to_string())
-            .filter(|id| valid_project_bucket(id));
-        // No marker, or one `project_hash` ignores anyway (junk), or the
-        // startup-frozen own hash: write. Any other valid bucket: keep it.
-        if current.is_none_or(|id| id == own) {
-            Self::write_project_marker(working_dir, dirs, bucket, true);
-        }
-    }
-
-    /// Write the pin marker `<project dir>/local/id` = `bucket`.
-    /// Without `replace`, a no-op if one is already there. Also drops a
-    /// `.gitignore` sentinel so the marker never reaches version control.
-    /// Best-effort: a write failure leaves the plain path-hash behaviour
-    /// unchanged rather than erroring the caller.
-    fn write_project_marker(working_dir: &Path, dirs: &ProductDirs, bucket: &str, replace: bool) {
-        let marker = Self::project_marker_path(working_dir, dirs);
-        if marker.exists() && !replace {
-            return;
-        }
-        let Some(dir) = marker.parent() else {
-            return;
-        };
-        if fs::create_dir_all(dir).is_err() {
-            return;
-        }
-        // Keep the marker out of version control, like the local memory store —
-        // never clobbering a `.gitignore` already there.
-        let gitignore = dir.join(".gitignore");
-        if !gitignore.exists() {
-            let _ = fs::write(&gitignore, "*\n");
-        }
-        let _ = fs::write(&marker, format!("{bucket}\n"));
     }
 
     pub fn snapshot_path(&self, id: &str) -> SessionResult<PathBuf> {
@@ -1227,24 +1013,12 @@ impl SessionManager {
     pub fn artifacts_dir(&self, id: &str) -> SessionResult<PathBuf> {
         self.path_for(id, "artifacts")
     }
-    /// An event session's metadata is its index (`<id>.index`); a snapshot
-    /// session's is `<id>.meta`. See [`super::events`].
     pub fn meta_path(&self, id: &str) -> SessionResult<PathBuf> {
-        self.format_path(id, "index", "meta")
+        self.path_for(id, "meta")
     }
-    /// Todo-list sidecar path: `<root>/<id>.todos.json` (sibling of meta/snapshot),
-    /// `<id>.todos` for an event session.
+    /// Todo-list sidecar path: `<root>/<id>.todos.json` (sibling of meta/snapshot).
     pub fn todo_sidecar_path(&self, id: &str) -> SessionResult<PathBuf> {
-        self.format_path(id, "todos", "todos.json")
-    }
-    /// The event-session name of a file when `id` is an event session, the
-    /// snapshot-session name otherwise.
-    fn format_path(&self, id: &str, events: &str, snapshot: &str) -> SessionResult<PathBuf> {
-        if self.is_event_session(id) {
-            self.path_for(id, events)
-        } else {
-            self.path_for(id, snapshot)
-        }
+        self.path_for(id, "todos.json")
     }
     /// Write the todo-list sidecar atomically. Best-effort by callers: a failure
     /// only means the todo panel/anchor may fall back to transcript derivation.
@@ -1253,20 +1027,18 @@ impl SessionManager {
         id: &str,
         todos: &[TodoSidecarItem],
         message_count: usize,
-        through: Option<TodoCallPosition>,
     ) -> SessionResult<()> {
         let sidecar = TodoSidecar {
             todos: todos.to_vec(),
             message_count,
-            through,
         };
         let bytes = serialize_bounded(&sidecar, "todo sidecar", MAX_TODO_SIDECAR_BYTES)?;
         atomic_write(&self.todo_sidecar_path(id)?, &bytes)
     }
-    /// Read the todo-list sidecar. The sidecar is written at `turn_complete` and,
-    /// mid-turn, whenever the list reflects a todo call it does not yet (so a
-    /// compaction later in the same turn cannot drain a plan the sidecar never
-    /// saw). Message count is intentionally NOT used as a staleness
+    /// Read the todo-list sidecar. The sidecar is written ONLY on a normal
+    /// `turn_complete` — the cancel/undo path (`finish_cancelled`) never reaches
+    /// `turn_complete`, so a truncated history never leaves a freshly-written
+    /// stale list behind. Message count is intentionally NOT used as a staleness
     /// check here: a compaction ALSO shrinks the transcript (121 → 24 messages)
     /// and must NOT invalidate the todo list — that is exactly the scenario this
     /// sidecar exists for (issue #1503). `Ok(None)` when absent.
@@ -1285,24 +1057,24 @@ impl SessionManager {
     fn lease_path(&self, id: &str) -> SessionResult<PathBuf> {
         self.path_for(id, "lease")
     }
-    /// The transcript a session a released build kept — or, for an event
-    /// session, its event log, which replaced the transcript (`docs/adr/0024` §14).
+    /// The append-only transcript path the [`TranscriptHook`](super::TranscriptHook)
+    /// writes (and the recall tool reads).
     pub fn jsonl_path(&self, id: &str) -> SessionResult<PathBuf> {
-        self.format_path(id, "events", "jsonl")
+        self.path_for(id, "jsonl")
     }
 
     /// UI-only replay data. This file is intentionally separate from the runtime
     /// snapshot so display-only entries can never enter provider context.
     pub fn presentation_path(&self, id: &str) -> SessionResult<PathBuf> {
-        self.format_path(id, "ui", "ui.json")
+        self.path_for(id, "ui.json")
     }
 
     fn rewind_path(&self, id: &str) -> SessionResult<PathBuf> {
-        self.format_path(id, "rewind", "rewind.json")
+        self.path_for(id, "rewind.json")
     }
 
     fn rewind_transaction_path(&self, id: &str) -> SessionResult<PathBuf> {
-        self.format_path(id, "rewind.txn", "rewind.txn.json")
+        self.path_for(id, "rewind.txn.json")
     }
 
     pub(crate) fn load_rewind_ledger(
@@ -1535,33 +1307,16 @@ impl SessionManager {
         &self,
         lease: &SessionLease,
     ) -> SessionResult<(LoadedSession, Option<Message>)> {
-        self.load_native_session_for_resume_noting(lease, &mut Vec::new())
-    }
-
-    /// [`Self::load_native_session_for_resume`], saying in `notes` what the
-    /// person should be told about the resume — an in-flight prompt that could
-    /// not be read and was dropped. The host shows them; nothing here writes to
-    /// stderr, which a full-screen front end may be holding.
-    pub fn load_native_session_for_resume_noting(
-        &self,
-        lease: &SessionLease,
-        notes: &mut Vec<String>,
-    ) -> SessionResult<(LoadedSession, Option<Message>)> {
         self.validate_active_lease(lease)?;
         let mut loaded = self.load_native_session(lease.id())?;
-        // An event session's accepted prompt is already a fact in its log.
-        if self.is_event_session(lease.id()) {
-            return Ok((loaded, None));
-        }
         let inflight = match self.load_inflight_snapshot(lease.id()) {
             Ok(Some(checkpoint)) => checkpoint,
             Ok(None) => return Ok((loaded, None)),
             Err(error) => {
-                notes.push(format!(
-                    "the prompt session {} was answering when it stopped could not be read \
-                     and was dropped: {error}",
+                eprintln!(
+                    "[SessionManager] ignoring unreadable inflight snapshot for {}: {error}",
                     lease.id()
-                ));
+                );
                 self.clear_inflight_snapshot(lease.id());
                 return Ok((loaded, None));
             }
@@ -1600,7 +1355,7 @@ impl SessionManager {
         )
     }
 
-    pub(super) fn path_for(&self, id: &str, extension: &str) -> SessionResult<PathBuf> {
+    fn path_for(&self, id: &str, extension: &str) -> SessionResult<PathBuf> {
         validate_session_id(id)?;
         Ok(self.root.join(format!("{id}.{extension}")))
     }
@@ -1630,13 +1385,7 @@ impl SessionManager {
     }
 
     /// Persist the working-set snapshot (atomic). Overwrites every turn.
-    ///
-    /// An event session's content is its log: there is no snapshot to write,
-    /// and this does nothing.
     pub fn save_snapshot(&self, id: &str, snap: &SessionSnapshot) -> SessionResult<()> {
-        if self.is_event_session(id) {
-            return Ok(());
-        }
         validate_snapshot(snap)?;
         let bytes = serialize_bounded(snap, "snapshot", MAX_SNAPSHOT_BYTES)?;
         self.with_meta_lock(id, || {
@@ -1646,9 +1395,6 @@ impl SessionManager {
     }
 
     pub fn load_snapshot(&self, id: &str) -> SessionResult<SessionSnapshot> {
-        if self.is_event_session(id) {
-            return self.project_snapshot(id);
-        }
         let bytes =
             read_regular_file_bounded(&self.snapshot_path(id)?, "snapshot", MAX_SNAPSHOT_BYTES)?;
         let snapshot: SessionSnapshot = deserialize(&bytes, "snapshot")?;
@@ -1744,7 +1490,7 @@ impl SessionManager {
         })
     }
 
-    pub(super) fn with_meta_lock<T>(
+    fn with_meta_lock<T>(
         &self,
         id: &str,
         operation: impl FnOnce() -> SessionResult<T>,
@@ -2094,14 +1840,7 @@ impl SessionManager {
             });
         }
         let snapshot = self.load_snapshot(id)?;
-        let presentation = match self.read_presentation(id) {
-            // An event session has display-only entries only if something added
-            // them.
-            Err(error) if self.is_event_session(id) && error.kind() == io::ErrorKind::NotFound => {
-                PresentationFile::default()
-            }
-            other => other?,
-        };
+        let presentation = self.read_presentation(id)?;
         Ok(LoadedSession {
             meta,
             snapshot,
@@ -2122,12 +1861,6 @@ impl SessionManager {
         self.validate_active_lease(lease)?;
         self.with_meta_lock(lease.id(), || {
             let id = lease.id();
-            // Nothing of an event session's is missing without its presentation.
-            if self.is_event_session(id) {
-                return self
-                    .load_native_session_unlocked(id)
-                    .map(NativeSessionRepairOutcome::Healthy);
-            }
             let meta = self.read_meta(id)?;
             if meta.owner != StorageOwner::Native {
                 return Err(SessionStoreError::OwnershipConflict {
@@ -2202,11 +1935,6 @@ impl SessionManager {
             base_message_count: source.meta.message_count,
             base_turn_count: source.meta.turn_count,
         });
-        if self.is_event_session(source_id) {
-            self.fork_event_session(source_id, &destination_lease, &meta, now_ms)?;
-            let forked = self.load_native_session(destination_id)?;
-            return Ok((forked, destination_lease));
-        }
         let forked = LoadedSession {
             meta,
             snapshot: source.snapshot,
@@ -2854,16 +2582,9 @@ impl SessionManager {
         validate_snapshot(snapshot)?;
         let snapshot_bytes = serialize_bounded(snapshot, "snapshot", MAX_SNAPSHOT_BYTES)?;
 
-        let events = self.is_event_session(lease.id());
         self.with_meta_lock(lease.id(), || {
-            // An event session's content is its log, committed fact by fact as it
-            // happens: what is mutated here is only what sits beside it. Taking
-            // conversation back is a `Rewound` fact, never a rewritten snapshot.
-            let (current_snapshot, original_snapshot_bytes) = if events {
-                (self.project_snapshot(lease.id())?, Vec::new())
-            } else {
-                self.read_snapshot_artifact(lease.id())?
-            };
+            let (current_snapshot, original_snapshot_bytes) =
+                self.read_snapshot_artifact(lease.id())?;
             let (mut meta, original_meta_bytes) = self.read_meta_artifact(lease.id())?;
             if meta.owner != StorageOwner::Native {
                 return Err(SessionStoreError::OwnershipConflict {
@@ -2872,23 +2593,11 @@ impl SessionManager {
                     operation: "commit native runtime mutation",
                 });
             }
-            let (mut presentation, original_presentation_bytes) = if events {
-                match self.read_optional_presentation_artifact(lease.id())? {
-                    Some((presentation, bytes)) => (presentation, Some(bytes)),
-                    None => (PresentationFile::default(), None),
-                }
-            } else {
-                let (presentation, bytes) = self.read_presentation_artifact(lease.id())?;
-                (presentation, Some(bytes))
-            };
+            let (mut presentation, original_presentation_bytes) =
+                self.read_presentation_artifact(lease.id())?;
             let original_meta = meta.clone();
             let original_presentation = presentation.clone();
             let result = mutate(&current_snapshot, &mut meta, &mut presentation)?;
-            if events {
-                meta.format_version = meta
-                    .format_version
-                    .max(atomcode_kernel::session::SESSION_FORMAT_VERSION);
-            }
             ensure_meta_id(lease.id(), &meta)?;
             if meta.owner != StorageOwner::Native {
                 return Err(SessionStoreError::OwnershipConflict {
@@ -2903,7 +2612,7 @@ impl SessionManager {
                 serialize_pretty_bounded(&presentation, "presentation", MAX_PRESENTATION_BYTES)?;
             let meta_bytes = serialize_pretty_bounded(&meta, "session meta", MAX_META_BYTES)?;
             let mut replacements = Vec::with_capacity(3);
-            if !events && current_snapshot != *snapshot {
+            if current_snapshot != *snapshot {
                 replacements.push(CommitReplacement {
                     artifact: CommitArtifact::Snapshot,
                     path: self.snapshot_path(lease.id())?,
@@ -2915,7 +2624,7 @@ impl SessionManager {
                 replacements.push(CommitReplacement {
                     artifact: CommitArtifact::Presentation,
                     path: self.presentation_path(lease.id())?,
-                    before: original_presentation_bytes,
+                    before: Some(original_presentation_bytes),
                     after: presentation_bytes,
                 });
             }
@@ -3128,41 +2837,21 @@ impl SessionManager {
         });
     }
 
-    pub fn scan_all(user_dir: &Path) -> CatalogScan {
-        Self::scan_catalog(&Self::sessions_root(user_dir))
+    pub fn scan_all() -> CatalogScan {
+        Self::scan_catalog(&Self::sessions_root())
     }
 
     /// List all sessions in this project bucket, NEWEST FIRST. Reads ONLY `*.meta`
     /// (never the big snapshot / transcript files); a malformed meta is skipped, not
     /// fatal. Production's `<id>.json` files are ignored (different extension).
-    ///
-    /// A delegated agent's session is not one of them: see [`Self::children`].
     pub fn list(&self) -> Vec<SessionMeta> {
-        self.every_meta()
-            .into_iter()
-            .filter(|meta| meta.parent.is_none())
-            .collect()
-    }
-
-    /// The sessions delegated from `parent` (a session id), newest first.
-    pub fn children(&self, parent: &str) -> Vec<SessionMeta> {
-        self.every_meta()
-            .into_iter()
-            .filter(|meta| meta.parent.as_deref() == Some(parent))
-            .collect()
-    }
-
-    fn every_meta(&self) -> Vec<SessionMeta> {
         let mut out = Vec::new();
         let Ok(rd) = fs::read_dir(&self.root) else {
             return out;
         };
         for entry in rd.flatten() {
             let path = entry.path();
-            if !matches!(
-                path.extension().and_then(|e| e.to_str()),
-                Some("meta" | "index")
-            ) {
+            if path.extension().and_then(|e| e.to_str()) != Some("meta") {
                 continue;
             }
             if let Ok(bytes) = read_regular_file_bounded(&path, "session meta", MAX_META_BYTES) {
@@ -3184,28 +2873,13 @@ impl SessionManager {
     }
 
     /// Sessions for normal pickers (/resume, webui sidebar): excludes scheduled-run
-    /// sessions so recurring tasks don't flood the user's manual history, and
-    /// background work done for another conversation. Use `list()` for the full
-    /// set (e.g. a scheduled-tasks view).
+    /// sessions so recurring tasks don't flood the user's manual history. Use `list()`
+    /// for the full set (e.g. a scheduled-tasks view).
     pub fn list_visible(&self) -> Vec<SessionMeta> {
         self.list()
             .into_iter()
-            .filter(|m| m.origin == SessionOrigin::Manual)
+            .filter(|m| m.origin != SessionOrigin::Scheduled)
             .collect()
-    }
-
-    /// A person resumed `id`. Background work done for another conversation
-    /// becomes theirs from here on, offered in pickers like any other; any
-    /// other session is left as it is (and its index untouched).
-    pub fn take_up(&self, id: &str) -> SessionResult<()> {
-        if self.read_meta(id)?.origin != SessionOrigin::Delegated {
-            return Ok(());
-        }
-        self.update_meta(id, |meta| {
-            if meta.origin == SessionOrigin::Delegated {
-                meta.origin = SessionOrigin::Manual;
-            }
-        })
     }
 
     /// The most-recently-updated session, if any.
@@ -3227,37 +2901,15 @@ impl SessionManager {
     pub fn delete(&self, lease: &SessionLease) -> SessionResult<()> {
         let id = lease.id();
         self.validate_lease(lease)?;
-        // What was delegated from it goes first: nothing would ever offer those
-        // sessions again once it is gone. One another runtime holds is left.
-        let session_id = if self.is_event_session(id) {
-            self.read_event_header(id)
-                .map_or_else(|_| id.to_string(), |header| header.id)
-        } else {
-            id.to_string()
-        };
-        for child in self.children(&session_id) {
-            if let Ok(child_lease) = self.acquire_lease(&child.id) {
-                self.delete(&child_lease)?;
-            }
-        }
         let targets = [
-            self.path_for(id, "snapshot")?,
+            self.snapshot_path(id)?,
             self.inflight_path(id)?,
-            self.path_for(id, "rewind.json")?,
-            self.path_for(id, "rewind.txn.json")?,
-            self.path_for(id, "meta")?,
-            self.path_for(id, "jsonl")?,
-            self.path_for(id, "ui.json")?,
+            self.rewind_path(id)?,
+            self.rewind_transaction_path(id)?,
+            self.meta_path(id)?,
+            self.jsonl_path(id)?,
+            self.presentation_path(id)?,
             self.legacy_path(id)?,
-            // An event session's files. The index goes last: it is the commit
-            // point, and a delete that stopped half way leaves a session the
-            // catalog still shows rather than sidecars nothing owns.
-            self.path_for(id, "events")?,
-            self.path_for(id, "ui")?,
-            self.path_for(id, "rewind")?,
-            self.path_for(id, "rewind.txn")?,
-            self.path_for(id, "todos")?,
-            self.path_for(id, "index")?,
         ];
         for path in &targets {
             validate_delete_target(path)?;
@@ -3273,6 +2925,44 @@ impl SessionManager {
             let _ = fs::remove_dir_all(&dir); // best-effort; absent dir is fine
         }
         Ok(())
+    }
+
+    pub(crate) fn append_jsonl_line(&self, id: &str, line: &[u8]) -> SessionResult<()> {
+        self.ensure_native_writable(id, "append transcript")?;
+        if line.len() > MAX_JSONL_LINE_BYTES {
+            return Err(SessionStoreError::TooLarge {
+                kind: "transcript line",
+                limit: MAX_JSONL_LINE_BYTES,
+                actual: line.len(),
+            });
+        }
+        let path = self.jsonl_path(id)?;
+        fs::create_dir_all(&self.root).map_err(|e| io_at(&self.root, e))?;
+        // Windows security software and indexers can briefly deny an open or
+        // lock while inspecting a newly-updated file. Retry only those
+        // pre-write operations: retrying write_all itself could duplicate a
+        // partially-written JSONL record.
+        let mut file = retry_transient_file_access(|| open_append_file(&path))?;
+        retry_transient_file_access(|| {
+            fs2::FileExt::lock_exclusive(&file).map_err(|e| io_at(&path, e))
+        })?;
+        let current = usize::try_from(file.metadata().map_err(|e| io_at(&path, e))?.len())
+            .unwrap_or(usize::MAX);
+        let next = current
+            .checked_add(line.len())
+            .ok_or(SessionStoreError::TooLarge {
+                kind: "transcript",
+                limit: MAX_JSONL_BYTES,
+                actual: usize::MAX,
+            })?;
+        if next > MAX_JSONL_BYTES {
+            return Err(SessionStoreError::TooLarge {
+                kind: "transcript",
+                limit: MAX_JSONL_BYTES,
+                actual: next,
+            });
+        }
+        file.write_all(line).map_err(|e| io_at(&path, e))
     }
 
     /// Load only `(turn_id, timestamp_ms)` from this session's bounded transcript.
@@ -3293,9 +2983,6 @@ impl SessionManager {
             ts: i64,
         }
 
-        if self.is_event_session(id) {
-            return self.event_turn_timestamps(id);
-        }
         let path = self.jsonl_path(id)?;
         match fs::symlink_metadata(&path) {
             Ok(_) => {}
@@ -3566,13 +3253,7 @@ fn scan_bucket_into(bucket: &str, bucket_path: &Path, out: &mut BucketPartial) {
             .strip_suffix(".snapshot")
             .or_else(|| name.strip_suffix(".jsonl"))
             .or_else(|| name.strip_suffix(".rewind.txn.json"))
-            .or_else(|| name.strip_suffix(".rewind.json"))
-            // An event session's content and sidecars.
-            .or_else(|| name.strip_suffix(".events"))
-            .or_else(|| name.strip_suffix(".rewind.txn"))
-            .or_else(|| name.strip_suffix(".rewind"))
-            .or_else(|| name.strip_suffix(".ui"))
-            .or_else(|| name.strip_suffix(".todos"));
+            .or_else(|| name.strip_suffix(".rewind.json"));
         if let Some(id) = direct_sidecar_id {
             match file_entry.file_type() {
                 Ok(file_type) if file_type.is_file() => {}
@@ -3607,10 +3288,7 @@ fn scan_bucket_into(bucket: &str, bucket_path: &Path, out: &mut BucketPartial) {
                 .or_insert(path);
             continue;
         }
-        let source = if let Some(id) = name
-            .strip_suffix(".meta")
-            .or_else(|| name.strip_suffix(".index"))
-        {
+        let source = if let Some(id) = name.strip_suffix(".meta") {
             Some((id, false))
         } else if name.ends_with(".images.json") || name.ends_with(".todos.json") {
             // Per-session sidecars (image payloads / todo lists), NOT catalog
@@ -3621,14 +3299,12 @@ fn scan_bucket_into(bucket: &str, bucket_path: &Path, out: &mut BucketPartial) {
             None
         } else if let Some(id) = name.strip_suffix(".json") {
             if let Some(presentation_id) = name.strip_suffix(".ui.json") {
-                let has_native_companion = ["meta", "snapshot", "jsonl", "index", "events"]
-                    .iter()
-                    .any(|extension| {
-                        bucket_path
-                            .join(format!("{presentation_id}.{extension}"))
-                            .symlink_metadata()
-                            .is_ok()
-                    });
+                let has_native_companion = ["meta", "snapshot", "jsonl"].iter().any(|extension| {
+                    bucket_path
+                        .join(format!("{presentation_id}.{extension}"))
+                        .symlink_metadata()
+                        .is_ok()
+                });
                 if has_native_companion {
                     None
                 } else {
@@ -3693,7 +3369,7 @@ fn scan_bucket_into(bucket: &str, bucket_path: &Path, out: &mut BucketPartial) {
     }
 }
 
-pub(super) fn scan_catalog_root(sessions_root: &Path) -> CatalogScan {
+fn scan_catalog_root(sessions_root: &Path) -> CatalogScan {
     let mut scan = CatalogScan::default();
     // Phase 1 (serial, cheap): enumerate valid bucket directories. Bucket-level
     // validation diagnostics are produced here; the expensive per-file read + JSON
@@ -3727,9 +3403,6 @@ pub(super) fn scan_catalog_root(sessions_root: &Path) -> CatalogScan {
         let bucket_path = bucket_entry.path();
         let bucket = match bucket_entry.file_name().into_string() {
             Ok(bucket) if valid_project_bucket(&bucket) => bucket,
-            // Another writer's directory, put here on purpose: not a bucket,
-            // and not a problem to report.
-            Ok(bucket) if bucket == SessionManager::JOURNAL_DIR => continue,
             Ok(bucket) => {
                 scan.diagnostics.push(CatalogDiagnostic {
                     project_bucket: Some(bucket),
@@ -3871,12 +3544,7 @@ fn finalize_catalog_scan(partials: Vec<BucketPartial>, mut scan: CatalogScan) ->
     }
 
     for (key, path) in native_sidecars {
-        // A journal written into the bucket is not half of a native session.
-        // Read only for orphans, so a healthy bucket costs no extra IO.
-        if !native_meta_ids.contains(&key)
-            && !(path.extension().is_some_and(|ext| ext == "jsonl")
-                && SessionManager::is_journal_file(&path))
-        {
+        if !native_meta_ids.contains(&key) {
             scan.diagnostics.push(CatalogDiagnostic {
                 project_bucket: Some(key.0),
                 path,
@@ -4007,10 +3675,7 @@ fn catalog_entry(
     sources: CatalogAggregate,
 ) -> Option<CatalogEntry> {
     match (sources.native, sources.legacy) {
-        // Kept under the session it was delegated from, not listed beside it.
-        (Some(native), _) if native.parent.is_some() => None,
         (Some(native), legacy) => Some(CatalogEntry {
-            needs_newer_version: native.needs_newer_version(),
             id,
             fork_root_id: native.fork_info.as_ref().map(|fork| fork.root_id.clone()),
             name: native.name,
@@ -4025,7 +3690,6 @@ fn catalog_entry(
             } else {
                 CatalogPresence::NativeOnly
             },
-            origin: native.origin,
         }),
         (None, Some(legacy)) => Some(CatalogEntry {
             id,
@@ -4038,8 +3702,6 @@ fn catalog_entry(
             message_count: legacy.messages.len(),
             turn_count: legacy.turn_stats.len(),
             presence: CatalogPresence::LegacyOnly,
-            needs_newer_version: false,
-            origin: SessionOrigin::Manual,
         }),
         (None, None) => None,
     }
@@ -4195,7 +3857,7 @@ fn is_windows_device_number(suffix: &str) -> bool {
     matches!(suffix, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
 }
 
-pub(super) fn validate_meta(meta: &SessionMeta) -> SessionResult<()> {
+fn validate_meta(meta: &SessionMeta) -> SessionResult<()> {
     validate_session_id(&meta.id)?;
     validate_string("session name", &meta.name, MAX_STORED_STRING_BYTES)?;
     validate_string(
@@ -4352,7 +4014,7 @@ fn serialize_bounded<T: Serialize>(
     Ok(bytes)
 }
 
-pub(super) fn serialize_pretty_bounded<T: Serialize>(
+fn serialize_pretty_bounded<T: Serialize>(
     value: &T,
     kind: &'static str,
     limit: usize,
@@ -4420,7 +4082,7 @@ fn open_read_file(path: &Path) -> SessionResult<File> {
     Ok(file)
 }
 
-pub(super) fn open_append_file(path: &Path) -> SessionResult<File> {
+fn open_append_file(path: &Path) -> SessionResult<File> {
     let mut options = OpenOptions::new();
     // Windows: `append(true)` alone grants only FILE_APPEND_DATA, which is not
     // enough for LockFileEx (requires GENERIC_READ or GENERIC_WRITE) — the
@@ -4468,7 +4130,7 @@ fn acquire_file_lock_until(file: &File, timeout: std::time::Duration) -> io::Res
     }
 }
 
-pub(super) fn retry_transient_file_access<T>(
+fn retry_transient_file_access<T>(
     mut operation: impl FnMut() -> SessionResult<T>,
 ) -> SessionResult<T> {
     for delay_ms in TRANSIENT_FILE_ACCESS_RETRY_DELAYS_MS {
@@ -4576,7 +4238,7 @@ fn no_follow(options: &mut OpenOptions) {
     let _ = options;
 }
 
-pub(super) fn read_regular_file_bounded(
+fn read_regular_file_bounded(
     path: &Path,
     kind: &'static str,
     limit: usize,
@@ -4642,7 +4304,7 @@ pub(crate) fn for_each_jsonl_line(
     Ok((total, lines))
 }
 
-pub(super) fn io_at(path: &Path, source: io::Error) -> SessionStoreError {
+fn io_at(path: &Path, source: io::Error) -> SessionStoreError {
     if source.kind() == io::ErrorKind::NotFound {
         SessionStoreError::NotFound {
             path: path.to_path_buf(),
@@ -4673,7 +4335,7 @@ struct AtomicWriteFailure {
 /// power loss. A crash mid-write never leaves a half-written (corrupt) session file.
 /// The tmp's extension (`…tmp`) is ignored by [`SessionManager::list`]'s `*.meta`
 /// filter, so a leftover tmp from a crash never appears as a session.
-pub(super) fn atomic_write(path: &Path, bytes: &[u8]) -> SessionResult<()> {
+fn atomic_write(path: &Path, bytes: &[u8]) -> SessionResult<()> {
     atomic_write_tracked(path, bytes).map_err(|failure| failure.error)
 }
 
@@ -4736,8 +4398,6 @@ mod tests {
         MAX_PRESENTATION_BYTES, PRESENTATION_VERSION,
     };
     use super::*;
-
-    use crate::product_dirs::test_dirs;
     use atomcode_kernel::message::Message;
     use std::collections::BTreeSet;
 
@@ -4811,15 +4471,15 @@ mod tests {
         let mut expected = DefaultHasher::new();
         PathBuf::from(p.to_string_lossy().to_string()).hash(&mut expected);
         assert_eq!(
-            SessionManager::project_hash(p, &test_dirs()),
+            SessionManager::project_hash(p),
             format!("{:016x}", expected.finish())
         );
     }
 
     #[test]
     fn project_hash_is_stable_and_normalizes_trailing_slash() {
-        let a = SessionManager::project_hash(Path::new("/work/proj"), &test_dirs());
-        let b = SessionManager::project_hash(Path::new("/work/proj/"), &test_dirs());
+        let a = SessionManager::project_hash(Path::new("/work/proj"));
+        let b = SessionManager::project_hash(Path::new("/work/proj/"));
         assert_eq!(a, b, "a trailing slash must not change the bucket");
         assert_eq!(a.len(), 16, "16 hex chars");
         assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
@@ -4875,6 +4535,29 @@ mod tests {
         assert_eq!(loaded.messages[0].text, "hello");
     }
 
+    /// Windows 回归测试：transcript 追加必须真实完成 open → lock → append → unlock。
+    /// 曾因 `open_append_file` 仅 `append(true)`（Windows 上只有 FILE_APPEND_DATA），
+    /// `LockFileEx` 要求 GENERIC_READ/GENERIC_WRITE 而必然失败，
+    /// 报 ERROR_ACCESS_DENIED (os error 5)。此问题仅存在于 Windows。
+    #[test]
+    #[cfg(windows)]
+    fn append_jsonl_line_lock_roundtrip_windows() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = SessionManager::with_root(dir.path());
+        let id = "s1";
+        let mut payload = br#"{"v":1,"msg":"hello"}"#.to_vec();
+        payload.push(b'\n');
+
+        // 真实代码路径: open_append_file → lock_exclusive → write_all（unlock 随句柄关闭）
+        mgr.append_jsonl_line(id, &payload).unwrap_or_else(|e| {
+            panic!("transcript append must not fail on Windows: {e:?}");
+        });
+
+        // 内容确实被追加写入
+        let written = std::fs::read(mgr.jsonl_path(id).unwrap()).unwrap();
+        assert_eq!(written, payload);
+    }
+
     #[test]
     fn transcript_timestamps_load_without_message_bodies_and_missing_is_empty() {
         let dir = tempfile::tempdir().unwrap();
@@ -4899,7 +4582,7 @@ mod tests {
         });
         let mut bytes = serde_json::to_vec(&line).unwrap();
         bytes.push(b'\n');
-        std::fs::write(mgr.jsonl_path("s1").unwrap(), &bytes).unwrap();
+        mgr.append_jsonl_line("s1", &bytes).unwrap();
 
         let legacy_line = serde_json::json!({
             "v": 1,
@@ -4915,9 +4598,7 @@ mod tests {
         });
         let mut legacy_bytes = serde_json::to_vec(&legacy_line).unwrap();
         legacy_bytes.push(b'\n');
-        let mut transcript = std::fs::read(mgr.jsonl_path("s1").unwrap()).unwrap();
-        transcript.extend_from_slice(&legacy_bytes);
-        std::fs::write(mgr.jsonl_path("s1").unwrap(), transcript).unwrap();
+        mgr.append_jsonl_line("s1", &legacy_bytes).unwrap();
 
         let timestamps = mgr.load_transcript_timestamps("s1").unwrap();
         assert_eq!(timestamps.len(), 2);
@@ -4934,7 +4615,6 @@ mod tests {
         // Missing transcript → empty, not an error.
         assert!(mgr.load_transcript_records("missing").unwrap().is_empty());
 
-        let mut lines: Vec<String> = Vec::new();
         for turn in 1..=3u64 {
             let line = serde_json::json!({
                 "v": 1,
@@ -4948,16 +4628,10 @@ mod tests {
                 "tools": [],
                 "usage": { "prompt": 1, "completion": 2, "cached": 0 }
             });
-            lines.push(serde_json::to_string(&line).unwrap());
+            let mut bytes = serde_json::to_vec(&line).unwrap();
+            bytes.push(b'\n');
+            mgr.append_jsonl_line("s1", &bytes).unwrap();
         }
-        // Written straight to the file rather than through a writer: the one
-        // that used to be here went with `TranscriptHook` (513e7567, the move
-        // to the event log), and this test kept calling it — so the whole
-        // crate's tests stopped compiling, quietly, for as long as nobody ran
-        // them. What is still live is the *reader*, which the daemon's
-        // transcript endpoint serves (`atomcode-daemon/src/lib.rs:2303`), and
-        // the reader is what this is about.
-        std::fs::write(mgr.jsonl_path("s1").unwrap(), lines.join("\n") + "\n").unwrap();
 
         // The FULL trajectory comes back — every turn with its raw bodies, including
         // the early turns a snapshot compaction would have dropped. This is the read
@@ -5168,6 +4842,23 @@ mod tests {
                 actual
             }) if actual == MAX_SNAPSHOT_BYTES + 1
         ));
+    }
+
+    #[test]
+    fn transcript_append_rejects_an_oversized_line_without_creating_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = SessionManager::with_root(dir.path());
+        let line = vec![b'x'; MAX_JSONL_LINE_BYTES + 1];
+
+        assert!(matches!(
+            mgr.append_jsonl_line("s1", &line),
+            Err(SessionStoreError::TooLarge {
+                kind: "transcript line",
+                limit: MAX_JSONL_LINE_BYTES,
+                ..
+            })
+        ));
+        assert!(!mgr.jsonl_path("s1").unwrap().exists());
     }
 
     #[test]
@@ -6201,54 +5892,6 @@ mod tests {
         let third = SessionManager::scan_catalog(root.path());
         assert_eq!(third.entries.len(), 2, "rescan must see the added session");
         assert!(third.entries.iter().any(|e| e.id == "b"));
-    }
-
-    #[test]
-    fn the_journal_directory_is_passed_over_and_a_stray_one_is_still_reported() {
-        // The runtime writes its journal to `<sessions>/harness/<bucket>/`. Every
-        // session-list refresh used to report that directory as a malformed
-        // bucket; a directory that really is stray must still be reported, or
-        // this would be silencing the scanner rather than teaching it.
-        let root = tempfile::tempdir().unwrap();
-        let journal = root
-            .path()
-            .join(SessionManager::JOURNAL_DIR)
-            .join("0123456789abcdef");
-        std::fs::create_dir_all(&journal).unwrap();
-        std::fs::write(journal.join("s.jsonl"), "{\"header\":{}}\n").unwrap();
-        let stray = root.path().join("not-a-bucket");
-        std::fs::create_dir_all(&stray).unwrap();
-
-        let scan = scan_catalog_root(root.path());
-        assert!(scan.entries.is_empty(), "a journal is not a session");
-        let reported: Vec<_> = scan.diagnostics.iter().map(|d| d.path.clone()).collect();
-        assert_eq!(reported, vec![stray]);
-    }
-
-    #[test]
-    fn a_journal_file_inside_a_bucket_is_not_an_orphaned_sidecar() {
-        // Launchers wrote their journals straight into project buckets for months;
-        // each one was reported as half a native session on every list refresh. A
-        // transcript with no metadata is still reported — that one really is.
-        let root = tempfile::tempdir().unwrap();
-        let bucket = root.path().join("0123456789abcdef");
-        std::fs::create_dir_all(&bucket).unwrap();
-        std::fs::write(
-            bucket.join("1789296604064-38002.jsonl"),
-            "{\"header\":{\"id\":\"1789296604064-38002\",\"version\":1}}\n",
-        )
-        .unwrap();
-        std::fs::write(
-            bucket.join("1789000000000-1.jsonl"),
-            "{\"seq\":1,\"event\":{\"kind\":\"turn_start\",\"turn\":1}}\n",
-        )
-        .unwrap();
-        let orphan = bucket.join("5b0e0b8e-0000-4000-8000-000000000000.jsonl");
-        std::fs::write(&orphan, "{\"v\":1,\"ts\":1,\"turn_id\":1}\n").unwrap();
-
-        let scan = scan_catalog_root(root.path());
-        let reported: Vec<_> = scan.diagnostics.iter().map(|d| d.path.clone()).collect();
-        assert_eq!(reported, vec![orphan]);
     }
 
     /// Not a correctness gate — a manual throughput check. Run with:
@@ -7871,123 +7514,6 @@ mod tests {
     }
 
     #[test]
-    fn a_project_marker_keeps_the_bucket_stable_across_a_folder_rename() {
-        let tmp = tempfile::tempdir().unwrap();
-        let old = tmp.path().join("proj");
-        std::fs::create_dir_all(&old).unwrap();
-
-        // No marker yet: the bucket is the plain path hash (unchanged behaviour).
-        assert_eq!(
-            SessionManager::project_hash(&old, &test_dirs()),
-            atomcode_config::util::stable_project_hash(&old),
-        );
-
-        // Starting a session pins the project — the marker freezes the CURRENT
-        // path hash, so the resolved bucket does not change.
-        SessionManager::ensure_project_marker(&old, &test_dirs());
-        let frozen = SessionManager::project_hash(&old, &test_dirs());
-        assert_eq!(frozen, atomcode_config::util::stable_project_hash(&old));
-
-        // Rename the folder (the marker travels inside it).
-        let renamed = tmp.path().join("proj-renamed");
-        std::fs::rename(&old, &renamed).unwrap();
-
-        // The bucket is STILL the old hash — the sessions are found — even though
-        // the new path hashes to something else.
-        assert_eq!(
-            SessionManager::project_hash(&renamed, &test_dirs()),
-            frozen,
-            "rename keeps the frozen bucket"
-        );
-        assert_ne!(
-            frozen,
-            atomcode_config::util::stable_project_hash(&renamed),
-            "and it differs from the renamed path's own hash"
-        );
-
-        // A junk marker is ignored (falls back to the path hash).
-        let junk = tmp.path().join("junk");
-        std::fs::create_dir_all(junk.join(".ours").join("local")).unwrap();
-        std::fs::write(junk.join(".ours").join("local").join("id"), "not-a-bucket").unwrap();
-        assert_eq!(
-            SessionManager::project_hash(&junk, &test_dirs()),
-            atomcode_config::util::stable_project_hash(&junk),
-        );
-    }
-
-    #[test]
-    fn pinning_to_a_bucket_survives_the_rename_that_lost_it() {
-        let tmp = tempfile::tempdir().unwrap();
-        // The renamed folder: unmarked, so its bucket is its own (empty) path
-        // hash — this is exactly why a resume here misses the old sessions.
-        let renamed = tmp.path().join("proj-renamed");
-        std::fs::create_dir_all(&renamed).unwrap();
-        assert_eq!(
-            SessionManager::project_hash(&renamed, &test_dirs()),
-            atomcode_config::util::stable_project_hash(&renamed),
-        );
-
-        // Resuming a session whose files live under some other bucket pins the
-        // folder to THAT bucket, so this and future resumes resolve to it.
-        let session_bucket = "00112233445566ff".to_string();
-        SessionManager::pin_project_bucket(&renamed, &test_dirs(), &session_bucket);
-        assert_eq!(
-            SessionManager::project_hash(&renamed, &test_dirs()),
-            session_bucket
-        );
-
-        // Pinning never hijacks a folder that already has a marker.
-        SessionManager::pin_project_bucket(&renamed, &test_dirs(), "ffffffffffffffff");
-        assert_eq!(
-            SessionManager::project_hash(&renamed, &test_dirs()),
-            session_bucket,
-            "a second pin does not overwrite the first"
-        );
-
-        // A junk bucket is refused outright, leaving the path-hash default.
-        let fresh = tmp.path().join("fresh");
-        std::fs::create_dir_all(&fresh).unwrap();
-        SessionManager::pin_project_bucket(&fresh, &test_dirs(), "not-a-bucket");
-        assert_eq!(
-            SessionManager::project_hash(&fresh, &test_dirs()),
-            atomcode_config::util::stable_project_hash(&fresh),
-            "an invalid bucket writes no marker"
-        );
-    }
-
-    /// The rename repair must survive the fresh start that comes first: opening
-    /// the renamed folder freezes its OWN path hash into a marker before the
-    /// person ever types `/resume`. That marker is not an identity to protect.
-    #[test]
-    fn a_marker_frozen_at_startup_does_not_block_the_rename_repair() {
-        let tmp = tempfile::tempdir().unwrap();
-        let renamed = tmp.path().join("proj-renamed");
-        std::fs::create_dir_all(&renamed).unwrap();
-
-        // The TUI starts here: a fresh session freezes the path hash.
-        SessionManager::ensure_project_marker(&renamed, &test_dirs());
-        assert_eq!(
-            SessionManager::project_hash(&renamed, &test_dirs()),
-            atomcode_config::util::stable_project_hash(&renamed),
-        );
-
-        // `/resume` of a session under the old bucket repins the folder to it.
-        let session_bucket = "00112233445566ff";
-        SessionManager::pin_project_bucket(&renamed, &test_dirs(), session_bucket);
-        assert_eq!(
-            SessionManager::project_hash(&renamed, &test_dirs()),
-            session_bucket
-        );
-
-        // …and that deliberate pin is then what a later pin must not overwrite.
-        SessionManager::pin_project_bucket(&renamed, &test_dirs(), "ffffffffffffffff");
-        assert_eq!(
-            SessionManager::project_hash(&renamed, &test_dirs()),
-            session_bucket
-        );
-    }
-
-    #[test]
     fn delete_removes_the_inflight_checkpoint() {
         let dir = tempfile::tempdir().unwrap();
         let mgr = SessionManager::with_root(dir.path());
@@ -8032,33 +7558,5 @@ mod tests {
         let old = r#"{"id":"x","name":"n","working_dir":"/w","created_at":0,"updated_at":0}"#;
         let parsed: SessionMeta = serde_json::from_str(old).unwrap();
         assert_eq!(parsed.origin, SessionOrigin::Manual);
-    }
-
-    /// Background work done for another conversation is cataloged — it opens
-    /// by id — but says so, and is not among the sessions offered.
-    #[test]
-    fn a_delegated_session_is_cataloged_but_not_offered() {
-        let root = tempfile::tempdir().unwrap();
-        let bucket = root.path().join("0123456789abcdef");
-        let manager = SessionManager::with_root(&bucket);
-        manager
-            .write_meta(&SessionMeta::new("mine", "/project", 1))
-            .unwrap();
-        let mut review = SessionMeta::new("review", "/project", 2);
-        review.origin = SessionOrigin::Delegated;
-        manager.write_meta(&review).unwrap();
-
-        let scan = SessionManager::scan_catalog(root.path());
-        let delegated = |id: &str| {
-            scan.entries
-                .iter()
-                .find(|entry| entry.id == id)
-                .map(CatalogEntry::delegated)
-        };
-        assert_eq!(delegated("review"), Some(true));
-        assert_eq!(delegated("mine"), Some(false));
-
-        let offered: Vec<String> = manager.list_visible().into_iter().map(|m| m.id).collect();
-        assert_eq!(offered, ["mine"]);
     }
 }

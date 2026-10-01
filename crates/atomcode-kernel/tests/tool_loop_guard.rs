@@ -163,7 +163,7 @@ async fn shutdown(handle: AgentHandle) {
 
 fn terminal_reason(events: &[AgentEvent]) -> Option<StopReason> {
     events.iter().find_map(|event| match event {
-        AgentEvent::TurnComplete { reason, .. } => Some(*reason),
+        AgentEvent::TurnComplete { reason } => Some(*reason),
         _ => None,
     })
 }
@@ -244,31 +244,12 @@ async fn intentional_exact_repetition_can_raise_the_policy_threshold() {
     assert_eq!(calls.lock().unwrap().len(), 11);
     assert_eq!(started_ids(&events).len(), 10);
     assert_eq!(result_ids(&events).len(), 10);
-    // The warning tier is SILENT — a synthetic course-correction to the model
-    // only — so no user-facing diagnostic may appear before the stop threshold.
+    let diagnostics = warnings(&events);
+    assert_eq!(diagnostics.len(), 1);
     assert!(
-        warnings(&events).is_empty(),
-        "the warning tier must not surface a user-facing diagnostic"
+        diagnostics[0].1.contains("10"),
+        "a custom policy must report its real warning threshold"
     );
-    // The nudge still reports the CUSTOM warning threshold, and only rides the
-    // request that follows the tenth identical result.
-    let log = calls.lock().unwrap();
-    for (index, (messages, _, _)) in log.iter().enumerate() {
-        let nudged = messages
-            .iter()
-            .any(|m| m.text.contains("[Tool-loop guard]"));
-        if index == 10 {
-            assert!(
-                nudged
-                    && messages
-                        .iter()
-                        .any(|m| m.text.contains("result(s) 10 times")),
-                "the tenth identical result must nudge the model with the custom threshold"
-            );
-        } else {
-            assert!(!nudged, "request {index} must precede the warning tier");
-        }
-    }
 }
 
 #[tokio::test]
@@ -332,13 +313,12 @@ async fn repeated_call_with_changing_results_hits_the_coarse_repeat_fuse() {
 }
 
 #[tokio::test]
-async fn exact_stable_loop_nudges_silently_on_third_and_stops_on_fifth_without_a_sixth_request() {
+async fn exact_stable_loop_warns_on_third_and_stops_after_fourth_without_fifth_request() {
     let provider = Arc::new(RecordingProvider::new(vec![
         tool_round("c1", r#"{"path":"same"}"#),
         tool_round("c2", r#"{"path":"same"}"#),
         tool_round("c3", r#"{"path":"same"}"#),
         tool_round("c4", r#"{"path":"same"}"#),
-        tool_round("c5", r#"{"path":"same"}"#),
         stop_round("must never be requested"),
     ]));
     let calls = provider.calls();
@@ -356,31 +336,29 @@ async fn exact_stable_loop_nudges_silently_on_third_and_stops_on_fifth_without_a
     assert_eq!(
         terminal_reason(&events),
         Some(StopReason::ToolLoopDetected),
-        "the fifth unchanged execution must end the turn as a detected tool loop"
+        "the fourth unchanged execution must end the turn as a detected tool loop"
     );
     assert_eq!(
         calls.lock().unwrap().len(),
-        5,
-        "termination after the fifth result must prevent a sixth provider request"
+        4,
+        "termination after the fourth result must prevent a fifth provider request"
     );
 
     let started = started_ids(&events);
     let results = result_ids(&events);
-    assert_eq!(started, vec!["c1", "c2", "c3", "c4", "c5"]);
+    assert_eq!(started, vec!["c1", "c2", "c3", "c4"]);
     assert_eq!(
         results, started,
-        "all five executed calls must have exactly one matching ToolResult"
+        "all four executed calls must have exactly one matching ToolResult"
     );
 
-    // The warning tier is silent: the course correction at the third repeat goes
-    // to the model only, so the ONLY user-facing diagnostic is the terminal one.
     let loop_warnings = warnings(&events);
     assert_eq!(
         loop_warnings.len(),
-        1,
-        "the guard must emit only the terminal diagnostic"
+        2,
+        "the guard must emit one course-correction and one terminal diagnostic"
     );
-    let results_before_warning = |warning_index: usize| {
+    let results_before_warning = |warning_index| {
         events[..warning_index]
             .iter()
             .filter(|event| matches!(event, AgentEvent::ToolResult { .. }))
@@ -388,34 +366,14 @@ async fn exact_stable_loop_nudges_silently_on_third_and_stops_on_fifth_without_a
     };
     assert_eq!(
         results_before_warning(loop_warnings[0].0),
-        5,
-        "the terminal diagnostic must be emitted only after the fifth result is applied"
+        3,
+        "the warning must be emitted only after the third real result is applied"
     );
-    assert!(
-        loop_warnings[0].1.contains("the same action 5 times"),
-        "the terminal diagnostic must report the real stop threshold"
+    assert_eq!(
+        results_before_warning(loop_warnings[1].0),
+        4,
+        "the terminal diagnostic must be emitted only after the fourth result is applied"
     );
-
-    // The silent nudge is observable where it belongs — in what the model is
-    // sent: it rides every request from the one after the third identical
-    // result onward, and never an earlier one.
-    let log = calls.lock().unwrap();
-    for (index, (messages, _, _)) in log.iter().enumerate() {
-        let nudged = messages
-            .iter()
-            .any(|m| m.text.contains("[Tool-loop guard]"));
-        if index < 3 {
-            assert!(!nudged, "request {index} must precede the warning tier");
-        } else {
-            assert!(
-                nudged
-                    && messages
-                        .iter()
-                        .any(|m| m.text.contains("result(s) 3 times")),
-                "the nudge must ride every request from the third repeat onward"
-            );
-        }
-    }
 }
 
 #[tokio::test]
@@ -425,7 +383,6 @@ async fn exact_stable_read_only_batch_is_detected_without_a_coarse_signature_gua
         tool_batch_round(2),
         tool_batch_round(3),
         tool_batch_round(4),
-        tool_batch_round(5),
         stop_round("must never be requested"),
     ]));
     let calls = provider.calls();
@@ -445,14 +402,9 @@ async fn exact_stable_read_only_batch_is_detected_without_a_coarse_signature_gua
         Some(StopReason::ToolLoopDetected),
         "an unchanged all-read-only batch must not bypass loop detection"
     );
-    assert_eq!(calls.lock().unwrap().len(), 5);
-    assert_eq!(started_ids(&events).len(), 10);
-    assert_eq!(result_ids(&events).len(), 10);
-    assert_eq!(
-        warnings(&events).len(),
-        1,
-        "the batch streak is nudged silently; only the terminal diagnostic is user-facing"
-    );
+    assert_eq!(calls.lock().unwrap().len(), 4);
+    assert_eq!(started_ids(&events).len(), 8);
+    assert_eq!(result_ids(&events).len(), 8);
 }
 
 #[tokio::test]
@@ -462,7 +414,6 @@ async fn repeated_mutating_call_with_identical_observation_is_detected() {
         tool_round("c2", r#"{"path":"same"}"#),
         tool_round("c3", r#"{"path":"same"}"#),
         tool_round("c4", r#"{"path":"same"}"#),
-        tool_round("c5", r#"{"path":"same"}"#),
         stop_round("must never be requested"),
     ]));
     let calls = provider.calls();
@@ -480,12 +431,8 @@ async fn repeated_mutating_call_with_identical_observation_is_detected() {
     shutdown(handle).await;
 
     assert_eq!(terminal_reason(&events), Some(StopReason::ToolLoopDetected));
-    assert_eq!(calls.lock().unwrap().len(), 5);
-    assert_eq!(
-        warnings(&events).len(),
-        1,
-        "the third repeat is a silent nudge; only the terminal diagnostic is user-facing"
-    );
+    assert_eq!(calls.lock().unwrap().len(), 4);
+    assert_eq!(warnings(&events).len(), 2);
 }
 
 #[tokio::test]
@@ -495,7 +442,6 @@ async fn repeated_failed_mutating_call_is_also_detected() {
         tool_round("c2", r#"{"command":"same"}"#),
         tool_round("c3", r#"{"command":"same"}"#),
         tool_round("c4", r#"{"command":"same"}"#),
-        tool_round("c5", r#"{"command":"same"}"#),
         stop_round("must never be requested"),
     ]));
     let calls = provider.calls();
@@ -513,12 +459,8 @@ async fn repeated_failed_mutating_call_is_also_detected() {
     shutdown(handle).await;
 
     assert_eq!(terminal_reason(&events), Some(StopReason::ToolLoopDetected));
-    assert_eq!(calls.lock().unwrap().len(), 5);
-    assert_eq!(
-        warnings(&events).len(),
-        1,
-        "the third repeat is a silent nudge; only the terminal diagnostic is user-facing"
-    );
+    assert_eq!(calls.lock().unwrap().len(), 4);
+    assert_eq!(warnings(&events).len(), 2);
 }
 
 #[tokio::test]
@@ -604,21 +546,19 @@ async fn real_user_steer_resets_the_consecutive_streak() {
 #[tokio::test]
 async fn synthetic_continuation_preserves_streak_across_turn_boundary() {
     let provider = Arc::new(RecordingProvider::new(vec![
-        // Initial user turn establishes a streak of three (the third repeat is
-        // nudged silently) and is cut by the round fuse.
+        // Initial user turn establishes a streak of two and is cut by the round fuse.
         tool_round("c1", r#"{"path":"same"}"#),
         tool_round("c2", r#"{"path":"same"}"#),
+        // Goal-mode synthetic continuation retains the streak: c3 warns, c4 stops.
         tool_round("c3", r#"{"path":"same"}"#),
-        // Goal-mode synthetic continuation retains the streak: c4 keeps it, c5 stops.
         tool_round("c4", r#"{"path":"same"}"#),
-        tool_round("c5", r#"{"path":"same"}"#),
     ]));
     let calls = provider.calls();
     let mut handle = Agent::builder()
         .provider(provider)
         .tools(mounted_probe(ReadProbeTool::stable("unchanged")))
         .tool_loop_policy(ToolLoopPolicy::default())
-        .max_rounds(3)
+        .max_rounds(2)
         .build()
         .spawn();
 
@@ -640,19 +580,17 @@ async fn synthetic_continuation_preserves_streak_across_turn_boundary() {
     );
     assert_eq!(
         calls.lock().unwrap().len(),
-        5,
-        "the synthetic turn must terminate after c5 without a fallback request"
+        4,
+        "the synthetic turn must terminate after c4 without its fallback request"
     );
-    assert_eq!(started_ids(&first), vec!["c1", "c2", "c3"]);
-    assert_eq!(result_ids(&first), vec!["c1", "c2", "c3"]);
-    assert_eq!(started_ids(&second), vec!["c4", "c5"]);
-    assert_eq!(result_ids(&second), vec!["c4", "c5"]);
+    assert_eq!(started_ids(&first), vec!["c1", "c2"]);
+    assert_eq!(result_ids(&first), vec!["c1", "c2"]);
+    assert_eq!(started_ids(&second), vec!["c3", "c4"]);
+    assert_eq!(result_ids(&second), vec!["c3", "c4"]);
 
-    // The warning tier is silent, so the only user-facing diagnostic is the
-    // terminal one, fired after the fifth result of the PRESERVED streak.
     let loop_warnings = warnings(&second);
-    assert_eq!(loop_warnings.len(), 1);
-    let results_before_warning = |warning_index: usize| {
+    assert_eq!(loop_warnings.len(), 2);
+    let results_before_warning = |warning_index| {
         second[..warning_index]
             .iter()
             .filter(|event| matches!(event, AgentEvent::ToolResult { .. }))
@@ -660,31 +598,13 @@ async fn synthetic_continuation_preserves_streak_across_turn_boundary() {
     };
     assert_eq!(
         results_before_warning(loop_warnings[0].0),
+        1,
+        "c3 is the third execution in the preserved streak and must warn after its result"
+    );
+    assert_eq!(
+        results_before_warning(loop_warnings[1].0),
         2,
-        "c5 is the fifth execution of the preserved streak (c4, c5 in this turn) and \
-         must be diagnosed after its result"
-    );
-    assert!(
-        loop_warnings[0].1.contains("the same action 5 times"),
-        "the terminal diagnostic must report the real stop threshold"
-    );
-
-    // The nudge injected on the third repeat (first turn) rides the synthetic
-    // turn's first request — the streak, and its correction, crossed the boundary.
-    let log = calls.lock().unwrap();
-    assert!(
-        !log[2]
-            .0
-            .iter()
-            .any(|m| m.text.contains("[Tool-loop guard]")),
-        "the third request must precede the warning tier"
-    );
-    assert!(
-        log[3]
-            .0
-            .iter()
-            .any(|m| m.text.contains("[Tool-loop guard]")),
-        "the nudge must survive into the synthetic turn's first request"
+        "c4 is the fourth execution in the preserved streak and must diagnose after its result"
     );
 }
 

@@ -44,10 +44,6 @@ pub mod datalog;
 /// Dependency-free, so it is always available regardless of capability features.
 pub mod reminder;
 
-/// JSONC comment stripping shared by the hand-edited JSON configs (`.mcp.json`,
-/// `.hooks.json`). Dependency-free, so it is always available.
-pub mod jsonc;
-
 /// Provider- and UI-neutral contracts shared by Team Agent orchestration and drivers.
 pub mod team;
 
@@ -63,10 +59,18 @@ pub mod cc_hooks;
 /// Kernel-only deps, so it is always available regardless of capability features.
 pub mod compaction;
 
-/// Where the product keeps its data, handed in by the host ([`ProductDirs`]).
-/// Unconditional and dependency-free: every persisting capability takes it.
-pub mod product_dirs;
-pub use product_dirs::ProductDirs;
+/// Shared `$ATOMCODE_HOME` path resolution for the persisting capabilities — one
+/// home for the rule (and for documenting its single known `sudo` divergence from
+/// production). Internal; compiled only when a feature that persists needs it.
+/// `provider` also needs it for wire dumps; `tools` needs it for the credential-path gate.
+#[cfg(any(
+    feature = "mcp",
+    feature = "session",
+    feature = "memory",
+    feature = "provider",
+    feature = "tools"
+))]
+pub(crate) mod paths;
 
 /// Shared L1 process utilities (console-window suppression, `shell_command`,
 /// UTF-8 locale, `is_running_as_admin`) — used here and by the CLI/TUI drivers, so
@@ -103,18 +107,6 @@ pub(crate) mod pathutil;
 /// uses `atomic_write` for the security-sensitive `mcp_trust.json`).
 #[cfg(any(feature = "plugin", feature = "mcp"))]
 pub mod fs;
-
-/// The execution world: the seam every world-touching tool goes through, so
-/// "read-only" or "in a sandbox" is a property of the world rather than a rule
-/// each tool is asked to respect. See [`world`] for what deliberately does not
-/// route through it.
-pub mod world;
-
-/// What the person's own checkout looks like right now, as git sees it — the
-/// other half of `/diff`. Distinct from [`session::rewind`]'s shadow repository
-/// in every way that matters: this one reads the repository the person works
-/// in.
-pub mod worktree_status;
 
 /// Plugin subsystem: loader / installer / marketplace / manifest / trust store.
 /// Faithful port of `core::plugin` as a v2 migration target for the front-ends.
@@ -155,12 +147,6 @@ pub mod setup;
 #[cfg(feature = "tools")]
 pub mod tools;
 
-/// Downscale + re-encode oversized user images (read_file attachments + clipboard
-/// paste) before they enter the conversation, so a huge screenshot can't blow the
-/// per-request body and get re-sent every turn.
-#[cfg(feature = "tools")]
-pub mod image_normalize;
-
 /// `@`-mention infrastructure: token detection + a gitignore-aware project file
 /// index with cross-level substring matching. Shared by the TUI popup and the
 /// daemon `/fs/search` endpoint so the webui picker matches CLI behavior.
@@ -195,26 +181,12 @@ pub mod skills;
 #[cfg(feature = "mcp")]
 pub mod mcp;
 
-/// Session persistence + cross-session recall: a session is its append-only event log
-/// (`<id>.events`) beside a metadata index, with RESUME replaying the log and RECALL
-/// folding per-turn records out of it; per-turn statistics ride the kernel's
-/// `turn_complete` seam ([`SnapshotHook`](session::SnapshotHook)), `recall` is a tool.
-/// Wall-clock lives only here (the kernel is clock-free). Opt-in `session` feature. See
-/// [`session`].
-/// The three-tier project-instructions loader (`AGENTS.md` / `CLAUDE.md` /
-/// `.atomcode.md`, global + project + user). Pure — paths in, string out, no
-/// dependencies beyond `std::path` — so it is its own feature: a consumer that
-/// wants a repository's standing instructions should not have to take a whole
-/// session-persistence subsystem to get them.
-#[cfg(feature = "instructions")]
-pub mod instructions;
-
-/// Keyword ranking (CJK-bigram aware) shared by anything searchable. Pure and
-/// dependency-free, so a store with its own record shape can rank the same way
-/// `recall` does without adopting `recall`'s records.
-#[cfg(feature = "search")]
-pub mod search;
-
+/// Session persistence + cross-session recall: a two-tier on-disk store (a per-turn
+/// compacted `<id>.snapshot` for RESUME + an append-only, never-compacted `<id>.jsonl`
+/// transcript for RECALL), driven entirely by kernel seams ([`SnapshotHook`](session::SnapshotHook)
+/// / [`TranscriptHook`](session::TranscriptHook) on the `turn_complete` terminal hook, a
+/// `recall` tool, a current-date injection hook). Wall-clock lives only here (the kernel
+/// is clock-free). Opt-in `session` feature. See [`session`].
 #[cfg(feature = "session")]
 pub mod session;
 

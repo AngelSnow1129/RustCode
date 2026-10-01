@@ -11,15 +11,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-mod support;
-
-use atomcode_coding::{prepare, CodingAgentConfig, PrepareOptions, SessionMode};
+use atomcode_coding::{assemble, prepare, CodingAgentConfig, PrepareOptions, SessionMode};
 use atomcode_kernel::event::{AgentCommand, AgentEvent};
 use atomcode_kernel::message::{Message, Role};
 use atomcode_kernel::stream::StreamEvent;
 use atomcode_kernel::testkit::RecordingProvider;
 use atomcode_kernel::tool::ToolDef;
-use support::mount_parts;
 
 #[ctor::ctor]
 fn _isolate_atomcode_home() {
@@ -27,13 +24,7 @@ fn _isolate_atomcode_home() {
 }
 
 fn cfg(working_dir: &std::path::Path) -> CodingAgentConfig {
-    let mut c = CodingAgentConfig::new(
-        "k",
-        "http://unused",
-        "test-model",
-        working_dir,
-        atomcode_coding::config::product_dirs_from_env(),
-    );
+    let mut c = CodingAgentConfig::new("k", "http://unused", "test-model", working_dir);
     c.stream_timeout = Duration::from_secs(5);
     c.request_timeout = Some(Duration::from_secs(5));
     c
@@ -87,19 +78,6 @@ fn leading_system(messages: &[Message]) -> &[Message] {
     &messages[..n]
 }
 
-/// Strip the `StatusReminderHook` tail: its `pre_request` appends exactly one trailing
-/// `user` `<system-reminder>…Current date: …` message — ephemeral (not stored, not part of
-/// the cached prefix), and its date changes day to day. Everything before it is the
-/// byte-stable prefix, so the append-only check compares histories WITHOUT it.
-fn without_date_tail(messages: &[Message]) -> &[Message] {
-    match messages.last() {
-        Some(m) if m.role == Role::User && m.text.contains("Current date:") => {
-            &messages[..messages.len() - 1]
-        }
-        _ => messages,
-    }
-}
-
 fn text_turn(t: &str) -> Vec<StreamEvent> {
     vec![
         StreamEvent::TextDelta(t.into()),
@@ -149,10 +127,8 @@ async fn full_assembly_wire_prefix_is_cacheable_across_turns() {
         subagents: atomcode_coding::SubagentPolicy::Disabled,
         request_user_input: true,
         rate_limit_source: None,
-        front_end: None,
-        review_delegate: None,
     };
-    let parts = prepare(&cfg, opts.clone()).await.unwrap();
+    let mut parts = prepare(&cfg, opts).await.unwrap();
 
     // Two text-only turns → one recorded provider call each.
     let provider = Arc::new(RecordingProvider::new(vec![
@@ -160,11 +136,11 @@ async fn full_assembly_wire_prefix_is_cacheable_across_turns() {
         text_turn("answer two"),
     ]));
     let calls = provider.calls();
-    let mounted_h = mount_parts(&parts, &cfg, &opts, provider).await;
-    let mut h = mounted_h.handle;
+    let mut h = assemble(&mut parts, &cfg, provider).unwrap().spawn();
     drive(&mut h, "first task").await;
     drive(&mut h, "second task").await;
     h.commands.send(AgentCommand::Shutdown).unwrap();
+    let _ = h.task.await;
 
     let calls = calls.lock().unwrap();
     assert!(
@@ -205,12 +181,11 @@ async fn full_assembly_wire_prefix_is_cacheable_across_turns() {
     }
 
     // (3) append-only: each call's stored history is a STRICT byte prefix of the next — no head
-    //     mutation, no mid-session rewrite. The ephemeral per-round date tail (`StatusReminderHook`)
-    //     is stripped first: it rides AFTER the prefix and its date changes day to day, so it is
-    //     not part of the cacheable prefix this invariant is about.
+    //     mutation, no mid-session rewrite. (No ephemeral date tail to strip: the per-round
+    //     status reminder was removed; the date now lives in the frozen persona prefix.)
     for w in calls.windows(2) {
-        let prev = history_repr(without_date_tail(&w[0].0));
-        let next = history_repr(without_date_tail(&w[1].0));
+        let prev = history_repr(&w[0].0);
+        let next = history_repr(&w[1].0);
         assert!(
             is_strict_prefix(&prev, &next),
             "history must be append-only (strict byte prefix).\n  prev = {prev:?}\n  next = {next:?}"
@@ -246,18 +221,16 @@ async fn tool_block_and_system_are_deterministic_across_independent_assemblies()
         subagents: atomcode_coding::SubagentPolicy::Disabled,
         request_user_input: true,
         rate_limit_source: None,
-        front_end: None,
-        review_delegate: None,
     };
 
     async fn first_call(cfg: &CodingAgentConfig, opts: PrepareOptions) -> (String, String) {
-        let parts = prepare(cfg, opts.clone()).await.unwrap();
+        let mut parts = prepare(cfg, opts).await.unwrap();
         let provider = Arc::new(RecordingProvider::new(vec![text_turn("ok")]));
         let calls = provider.calls();
-        let mounted_h = mount_parts(&parts, cfg, &opts, provider).await;
-        let mut h = mounted_h.handle;
+        let mut h = assemble(&mut parts, cfg, provider).unwrap().spawn();
         drive(&mut h, "task").await;
         h.commands.send(AgentCommand::Shutdown).unwrap();
+        let _ = h.task.await;
         let calls = calls.lock().unwrap();
         (
             tool_block_repr(&calls[0].1),
