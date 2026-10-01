@@ -5782,6 +5782,7 @@ mod tests {
             updated_at_ms,
             message_count: 1,
             turn_count: 1,
+            origin: Default::default(),
             presence: rustcode_capabilities::session::CatalogPresence::NativeOnly,
         }
     }

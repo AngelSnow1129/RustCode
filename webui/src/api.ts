@@ -258,6 +258,9 @@ export interface SessionMeta {
   updated_at: number;
   message_count: number;
   file_size?: number;
+  /** How the session started: `manual` | `scheduled` | `im`. Absent on
+   *  responses from older daemons (treated as manual). */
+  origin?: string;
 }
 
 export interface SessionMetaWithProject extends SessionMeta {

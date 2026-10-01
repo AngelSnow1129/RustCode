@@ -1412,6 +1412,10 @@ pub struct SessionSummary {
     pub message_count: usize,
     #[serde(default)]
     pub file_size: u64,
+    /// How the session started (`manual` / `scheduled` / `im`). Additive wire
+    /// field -- older webui bundles ignore unknown JSON keys, and pre-origin
+    /// catalog entries read as `manual`.
+    pub origin: rustcode_capabilities::session::manager::SessionOrigin,
 }
 
 fn catalog_scan_in_root(
@@ -1440,6 +1444,7 @@ fn catalog_entry_to_session_summary(
         updated_at: u64::try_from(entry.updated_at_ms.max(0)).unwrap_or(0) / 1_000,
         message_count: entry.message_count,
         file_size: 0,
+        origin: entry.origin,
     }
 }
 
@@ -8980,6 +8985,7 @@ mod tests {
             updated_at_ms: 1,
             message_count: 0,
             turn_count: 0,
+            origin: Default::default(),
             presence: CatalogPresence::NativeOnly,
         };
 

@@ -34,3 +34,31 @@ test('im channels dialog keeps its layout contract (wide modal + flex head)', ()
   // (Tailwind Preflight strips border/padding from bare inputs).
   assert.doesNotMatch(tsx, /class="im-channel-field"[^>]*>\s*<span>[^<]*<\/span>\s*<input\s+type="text"\s+placeholder/s);
 });
+
+test('im UI additions keep their CSS contracts (grouped credentials, status pills, back affordance)', () => {
+  const tsx = readFileSync(join(root, 'src/components/SettingsDialogs.tsx'), 'utf8');
+  const sidebar = readFileSync(join(root, 'src/components/Sidebar.tsx'), 'utf8');
+  const css = readFileSync(join(root, 'src/styles/app.css'), 'utf8');
+
+  // Credential fields render inside one dashed sub-card; every class the
+  // section emits must exist in app.css.
+  assert.match(tsx, /class="im-cred-section"/);
+  for (const cls of ['im-cred-section', 'im-cred-title', 'im-test-mark', 'im-test-host']) {
+    assert.match(css, new RegExp(`\\.${cls.replace(/-/g, '\\-')}\\s*\\{`), `missing .${cls} in app.css`);
+  }
+
+  // Records popover: back button (32px hit target + visible focus ring),
+  // channel summary line, and status pills for all three health states.
+  assert.match(sidebar, /class="im-back"/);
+  assert.match(sidebar, /im-menu-summary/);
+  for (const cls of ['im-back', 'im-menu-summary', 'im-status-enabled', 'im-status-disabled', 'im-status-unconfigured']) {
+    assert.match(css, new RegExp(`\\.${cls.replace(/-/g, '\\-')}\\s*\\{`), `missing .${cls} in app.css`);
+  }
+  assert.match(css, /\.im-back\s*\{[^}]*width:\s*32px;/s);
+  assert.match(css, /\.im-back:focus-visible,\s*\n?\.im-crumb:focus-visible\s*\{\s*\n?\s*outline:/s);
+
+  // Unread dot: rendered from the imUnseen flag in both expanded and rail IM
+  // entries, styled with the brand accent.
+  assert.match(sidebar, /im-unseen-dot/);
+  assert.match(css, /\.im-unseen-dot\s*\{[^}]*var\(--app-brand\)/s);
+});

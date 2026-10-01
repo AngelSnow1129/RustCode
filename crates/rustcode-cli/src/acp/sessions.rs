@@ -395,6 +395,7 @@ pub(crate) mod test_support {
             updated_at_ms: 0,
             message_count: 0,
             turn_count: 0,
+            origin: Default::default(),
             presence: CatalogPresence::NativeOnly,
         }
     }

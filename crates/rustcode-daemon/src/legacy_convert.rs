@@ -3690,6 +3690,7 @@ mod tests {
             updated_at_ms: meta.updated_at,
             message_count: 0,
             turn_count: 0,
+            origin: SessionOrigin::Manual,
             presence: CatalogPresence::NativeOnly,
         };
 
@@ -3791,6 +3792,7 @@ mod tests {
             updated_at_ms: 1,
             message_count: 1,
             turn_count: 0,
+            origin: SessionOrigin::Manual,
             presence: CatalogPresence::NativeOnly,
         };
 
@@ -4084,6 +4086,7 @@ mod tests {
             updated_at_ms: 1,
             message_count: 1,
             turn_count: 0,
+            origin: SessionOrigin::Manual,
             presence: CatalogPresence::NativeOnly,
         };
 
@@ -4264,6 +4267,7 @@ mod tests {
             updated_at_ms: 1,
             message_count: 1,
             turn_count: 0,
+            origin: SessionOrigin::Manual,
             presence: CatalogPresence::NativeOnly,
         };
 
@@ -4305,6 +4309,7 @@ mod tests {
             updated_at_ms: session.updated_at as i64 * 1_000,
             message_count: session.messages.len(),
             turn_count: session.turn_stats.len(),
+            origin: SessionOrigin::Manual,
             presence: CatalogPresence::LegacyOnly,
         };
 
@@ -4340,6 +4345,7 @@ mod tests {
             updated_at_ms: session.updated_at as i64 * 1_000,
             message_count: session.messages.len(),
             turn_count: session.turn_stats.len(),
+            origin: SessionOrigin::Manual,
             presence: CatalogPresence::LegacyOnly,
         };
 

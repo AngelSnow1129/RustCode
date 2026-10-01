@@ -405,10 +405,31 @@ project,回答回发同一会话。首发平台**钉钉 Stream 长连接**(客�
   `im.*` + `settings.menuIm` 双语;「测试连接」对**已保存**配置实测
   (服务端读盘,非表单草稿),保存/删除/重排后旧判定作废。配置改动需重启
   `rustcode im` 进程(启动时读盘),面板有 restartHint 提示。
-- **WebUI IM 记录栏目**(只读查看,2026-09-23 落地):侧栏 `ImGlyph` 入口(含折叠态
-  图标栏),仿 MCP 栏目的**懒加载 + 计数徽标**;三级面包屑
+- **WebUI IM 记录栏目**(只读查看,2026-09-23 落地,2026-10-01 增强):侧栏 `ImGlyph`
+  入口(含折叠态图标栏),仿 MCP 栏目的**懒加载 + 计数徽标**;三级面包屑
   `平台 -> 项目 -> 会话`(`webui/src/lib/imRecords.ts` 纯函数 + 单测),
   点击叶子会话走既有 `resolveSession` -> `onSelect` 复用会话查看器。
+  **2026-10-01 增强(纯客户端,零后端改动)**:① 未读圆点——`lib/imUnseen.ts` 比对
+  树内最新 `updated_at` 与 localStorage 的 last-seen mark(`rustcode.im.lastSeen`,
+  关闭弹层时写 `markImSeen()`),展开态与折叠 rail 的 IM 入口都渲染 `.im-unseen-dot`;
+  ② 平台行状态药丸——`imPlatformStatus()`(configured+enabled→enabled / configured
+  但关→disabled / 未配→unconfigured)在平台名旁显示三色药丸,顶部加
+  `可用渠道 n/total` 摘要行;③ 面包屑加 `‹` 返回键(`.im-back`,32px 触达 +
+  focus-visible 环,与 `.im-crumb` 共用焦点规则);④ 渠道配置弹窗凭据字段收进
+  `.im-cred-section` 虚线分组(标题写明 $ENV 引用契约),测试连接结果带
+  `[OK]/[FAIL]` 标记与 endpoint_host 的底色行。新类契约钉在
+  `lib/imChannelsStyles.test.ts` 第二个测试。
+  **2026-10-01 第二批(对标 WorkBuddy 助理文档,会话来源标识 + 删除确认增强)**:
+  ⑤ 会话 IM 来源标识——`SessionOrigin`(`manual/scheduled/im`,serde 小写)从
+  `SessionMeta.origin` 经 `CatalogEntry.origin`(capabilities 新字段,legacy-only
+  聚合读 Manual)带出到 daemon `SessionSummary.origin`(**加性 wire 字段**,旧
+  webui 忽略未知键、旧目录条目读 manual),webui 会话行对 `origin === 'im'` 渲染
+  `.session-origin-badge` 药丸(title 解释三平台);⑥ 删除渠道确认文案补齐影响
+  说明(平台侧机器人仍在但消息不再接收、会话历史保留、其它渠道不受影响,
+  对标 WorkBuddy「解绑后的影响」节)。**刻意不做**:daemon 侧查 OS 服务状态
+  (daemon 与 `rustcode im serve` 可能不同机,语义不成立)、IM 弹层内解绑按钮
+  (记录面板 2026-09-23 裁决「只读,无增删」,翻案需用户确认)、微信/QQ 平台
+  (无一手协议文档,按铁律不臆断)。
   后端 `GET /im/bindings?platform=&project=&session_id=` 返回
   `{enabled,total,platforms:[{platform,known_platform,configured,channel_enabled,
   binding_count,project_count,last_active_at,projects:[{project,binding_count,

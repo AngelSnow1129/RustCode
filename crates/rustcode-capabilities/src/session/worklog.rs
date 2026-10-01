@@ -369,6 +369,7 @@ mod tests {
             updated_at_ms: 200,
             message_count: 1,
             turn_count: 1,
+            origin: Default::default(),
             presence: crate::session::CatalogPresence::NativeOnly,
         };
         assert!(session_overlaps_day(&e, 150, 300));

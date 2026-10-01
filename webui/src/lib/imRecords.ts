@@ -73,6 +73,18 @@ export function imPlatformRows(tree: ImBindingsInfo | null | undefined): ImPlatf
     .sort((a, b) => b.last_active_at - a.last_active_at || a.platform.localeCompare(b.platform));
 }
 
+/** Roll-up status of one platform row for the records popover: a platform with
+ *  no channel configuration cannot receive messages even when bindings from an
+ *  older config remain on disk. */
+export type ImPlatformStatus = 'enabled' | 'disabled' | 'unconfigured';
+
+export function imPlatformStatus(
+  row: Pick<ImPlatformRow, 'configured' | 'channel_enabled'>,
+): ImPlatformStatus {
+  if (!row.configured) return 'unconfigured';
+  return row.channel_enabled ? 'enabled' : 'disabled';
+}
+
 /** Projects of the selected platform (level 1). Empty when nothing is selected. */
 export function imProjectRows(
   tree: ImBindingsInfo | null | undefined,

@@ -22,11 +22,13 @@ import {
   IM_ROOT_SELECTION,
   imBreadcrumbs,
   imPlatformRows,
+  imPlatformStatus,
   imProjectRows,
   imSessionRows,
   imTotalBindings,
   type ImRecordSelection,
 } from '../lib/imRecords';
+import { imHasUnseen, markImSeen, readImLastSeen } from '../lib/imUnseen';
 
 interface SidebarProps {
   activeSessionId: string | null;
@@ -391,6 +393,8 @@ export function Sidebar({
   const [imTree, setImTree] = useState<ImBindingsInfo | null>(null);
   const [imLoading, setImLoading] = useState(false);
   const [imMenuOpen, setImMenuOpen] = useState(false);
+  // Last-seen mark (ms) for the client-side unread dot; see lib/imUnseen.ts.
+  const [imSeenMs, setImSeenMs] = useState(() => readImLastSeen());
   const [imMenuPos, setImMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
   // Where the user has drilled to: null platform = level 0, platform = level 1,
   // platform + project = level 2 (session leaves).
@@ -993,11 +997,13 @@ export function Sidebar({
     };
   }, [imMenuOpen]);
 
-  // Closing rewinds the drill-down so the next open starts at the platform list.
+  // Closing rewinds the drill-down so the next open starts at the platform list,
+  // and marks current activity as seen (the user just viewed the browser).
   useEffect(() => {
     if (imMenuOpen) return;
     setImSelection(IM_ROOT_SELECTION);
     setImOpening(null);
+    setImSeenMs(markImSeen());
   }, [imMenuOpen]);
 
   // Close the IM menu on Escape (same contract as the search dialog).
@@ -1282,6 +1288,8 @@ export function Sidebar({
     const projects = imSelection.platform && !imSelection.project ? imProjectRows(imTree, imSelection) : [];
     const sessions = imSelection.project ? imSessionRows(imTree, imSelection) : [];
     const isEmptyRowList = platforms.length === 0 && projects.length === 0 && sessions.length === 0;
+    // Roll-up for the summary line: how many channels can actually take messages.
+    const enabledChannels = platforms.filter((p) => imPlatformStatus(p) === 'enabled').length;
     return createPortal(
       <div
         class="item-menu im-menu"
@@ -1293,6 +1301,17 @@ export function Sidebar({
         }}
       >
         <div class="im-breadcrumb">
+          {crumbs.length > 1 && (
+            <button
+              type="button"
+              class="im-back"
+              onClick={() => setImSelection(crumbs[crumbs.length - 2].selection)}
+              title={t('im.back')}
+              aria-label={t('im.back')}
+            >
+              ‹
+            </button>
+          )}
           {crumbs.map((crumb, i) => (
             <span key={crumb.level} style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
               <button
@@ -1322,21 +1341,38 @@ export function Sidebar({
             {imSelection.platform ? t('sidebar.imNoBindings') : t('sidebar.imEmpty')}
           </div>
         )}
+        {!imLoading && (imTree?.enabled ?? true) && platforms.length > 0 && (
+          <div class="im-menu-summary">
+            <span class={`im-status ${enabledChannels > 0 ? 'im-status-enabled' : 'im-status-off'}`}>
+              {t('im.summaryReady', { n: enabledChannels, total: platforms.length })}
+            </span>
+          </div>
+        )}
         {!imLoading &&
-          platforms.map((p) => (
-            <button
-              key={p.platform}
-              class="im-menu-row"
-              onClick={() => setImSelection({ platform: p.platform, project: null })}
-              title={p.platform}
-            >
-              <span class="im-menu-name">{p.platform}</span>
-              <span class="im-menu-meta">
-                <span>{t('im.lastActive', { time: formatTime(p.last_active_at, t, timeNow) || '-' })}</span>
-                <span class="im-menu-count">{p.binding_count}</span>
-              </span>
-            </button>
-          ))}
+          platforms.map((p) => {
+            const status = imPlatformStatus(p);
+            return (
+              <button
+                key={p.platform}
+                class="im-menu-row"
+                onClick={() => setImSelection({ platform: p.platform, project: null })}
+                title={p.platform}
+              >
+                <span class="im-menu-name">
+                  {p.platform}
+                  <span class={`im-status im-status-${status}`}>
+                    {status === 'enabled' ? t('im.statusEnabled')
+                      : status === 'disabled' ? t('im.statusDisabled')
+                      : t('im.statusUnconfigured')}
+                  </span>
+                </span>
+                <span class="im-menu-meta">
+                  <span>{t('im.lastActive', { time: formatTime(p.last_active_at, t, timeNow) || '-' })}</span>
+                  <span class="im-menu-count">{p.binding_count}</span>
+                </span>
+              </button>
+            );
+          })}
         {!imLoading &&
           projects.map((p) => (
             <button
@@ -1446,6 +1482,9 @@ export function Sidebar({
       >
         <button class="session-item-main" onClick={() => onSelect(s)} title={dir}>
           <span class="session-item-name">{label}</span>
+          {s.origin === 'im' && (
+            <span class="session-origin-badge" title={t('sidebar.originImTitle')}>IM</span>
+          )}
           <span class="session-item-meta">
             {formatTime(s.updated_at || s.created_at, t, timeNow)}
           </span>
@@ -1465,6 +1504,10 @@ export function Sidebar({
   const menuSession = menuFor
     ? filtered.find((s) => s.id === menuFor) ?? sessions.find((s) => s.id === menuFor) ?? null
     : null;
+
+  // Client-side unread dot: activity newer than the last-seen mark. Hidden
+  // while the IM browser itself is open (viewing counts as seeing).
+  const imUnseen = !imMenuOpen && imHasUnseen(imTree, imSeenMs);
 
   // Rail (collapsed desktop): a narrow icon rail instead of hiding the sidebar.
   if (collapsed) {
@@ -1504,12 +1547,13 @@ export function Sidebar({
             <McpIcon />
           </button>
           <button
-            class="rail-btn"
+            class="rail-btn im-rail-btn"
             onClick={(e) => toggleImMenu(e as unknown as MouseEvent)}
             title={t('sidebar.im')}
             aria-label={t('sidebar.im')}
           >
             <ImGlyph />
+            {imUnseen && <span class="im-unseen-dot" aria-hidden="true" />}
           </button>
         </nav>
         <div class="sidebar-rail-bottom">
@@ -1605,7 +1649,10 @@ export function Sidebar({
           aria-haspopup="menu"
           aria-expanded={imMenuOpen}
         >
-          <span class="sidebar-action-icon"><ImGlyph /></span>
+          <span class="sidebar-action-icon im-action-icon">
+            <ImGlyph />
+            {imUnseen && <span class="im-unseen-dot" aria-hidden="true" />}
+          </span>
           <span class="sidebar-action-label">{t('sidebar.im')}</span>
           {imCount > 0 && <span class="sidebar-action-badge">{imCount}</span>}
           <span class="sidebar-action-caret"><ChevronDownIcon /></span>

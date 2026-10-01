@@ -256,6 +256,9 @@ pub struct CatalogEntry {
     pub updated_at_ms: i64,
     pub message_count: usize,
     pub turn_count: usize,
+    /// How the session was started, from the native `.meta`. Legacy-only
+    /// aggregates predate the field and read as [`SessionOrigin::Manual`].
+    pub origin: SessionOrigin,
     pub presence: CatalogPresence,
 }
 
@@ -3686,6 +3689,7 @@ fn catalog_entry(
             updated_at_ms: native.updated_at,
             message_count: native.message_count as usize,
             turn_count: native.turn_count as usize,
+            origin: native.origin,
             presence: if legacy.is_some() {
                 CatalogPresence::Both
             } else {
@@ -3702,6 +3706,7 @@ fn catalog_entry(
             updated_at_ms: checked_legacy_millis(legacy.updated_at).ok()?,
             message_count: legacy.messages.len(),
             turn_count: legacy.turn_stats.len(),
+            origin: SessionOrigin::Manual,
             presence: CatalogPresence::LegacyOnly,
         }),
         (None, None) => None,

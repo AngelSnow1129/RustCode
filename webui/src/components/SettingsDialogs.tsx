@@ -1376,19 +1376,24 @@ export function ImChannelsDialog({ onClose }: { onClose: () => void }) {
                 />
               </label>
 
-              {fields.map(({ key, label }) => (
-                <label class="im-channel-field" key={key}>
-                  <span>{label}</span>
-                  <input
-                    class="menu-input"
-                    type="text"
-                    placeholder="$ENV_VAR"
-                    value={draft.credentials[key] ?? ''}
-                    onChange={(e) => patchDraft(index, {
-                      credentials: { ...draft.credentials, [key]: e.currentTarget.value },
-                    })}
-                  />
-                </label>
+              {(fields.length > 0 && (
+                <div class="im-cred-section">
+                  <span class="im-cred-title">{t('im.credentialsSection')}</span>
+                  {fields.map(({ key, label }) => (
+                    <label class="im-channel-field" key={key}>
+                      <span>{label}</span>
+                      <input
+                        class="menu-input"
+                        type="text"
+                        placeholder="$ENV_VAR"
+                        value={draft.credentials[key] ?? ''}
+                        onChange={(e) => patchDraft(index, {
+                          credentials: { ...draft.credentials, [key]: e.currentTarget.value },
+                        })}
+                      />
+                    </label>
+                  ))}
+                </div>
               ))}
 
               {missing.length > 0 && (
@@ -1399,7 +1404,13 @@ export function ImChannelsDialog({ onClose }: { onClose: () => void }) {
 
               {testResult?.index === index && (
                 <p class={testResult.result.ok ? 'im-test-ok' : 'im-test-failed'}>
-                  {testResult.result.message}
+                  <span class="im-test-mark" aria-hidden="true">
+                    {testResult.result.ok ? '[OK]' : '[FAIL]'}
+                  </span>
+                  <span>{testResult.result.message}</span>
+                  {testResult.result.endpoint_host && (
+                    <span class="im-test-host">{testResult.result.endpoint_host}</span>
+                  )}
                 </p>
               )}
             </div>

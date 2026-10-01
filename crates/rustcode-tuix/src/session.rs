@@ -399,6 +399,7 @@ mod tests {
             updated_at_ms: 2,
             message_count: 3,
             turn_count: 1,
+            origin: Default::default(),
             presence: CatalogPresence::NativeOnly,
         };
 

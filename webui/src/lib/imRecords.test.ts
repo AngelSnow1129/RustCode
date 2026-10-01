@@ -10,6 +10,7 @@ import {
   imFlattenBindings,
   imHasRecords,
   imPlatformRows,
+  imPlatformStatus,
   imProjectRows,
   imSessionRows,
   imTotalBindings,
@@ -157,6 +158,20 @@ test('im records: flattening honors the (platform, project) filter', () => {
   assert.equal(imFlattenBindings(tree, { platform: 'feishu', project: null }).length, 0);
   assert.equal(imFlattenBindings(tree, { platform: 'dingtalk', project: '/w/a' }).length, 2);
   assert.equal(imFlattenBindings(tree, { platform: 'dingtalk', project: '/w/nope' }).length, 0);
+});
+
+test('im records: platform status roll-up for the records popover', () => {
+  // From the shared fixture: dingtalk is configured + enabled, feishu is
+  // configured but its channel switch is off.
+  const rows = imPlatformRows(tree);
+  assert.deepEqual(
+    rows.map((r) => imPlatformStatus(r)),
+    ['enabled', 'disabled'],
+  );
+  // A platform without config can never receive messages, regardless of the
+  // channel switch or leftover bindings from an older config file.
+  assert.equal(imPlatformStatus({ configured: false, channel_enabled: true }), 'unconfigured');
+  assert.equal(imPlatformStatus({ configured: false, channel_enabled: false }), 'unconfigured');
 });
 
 test('im records: totals come from the backend count', () => {

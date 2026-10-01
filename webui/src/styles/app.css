@@ -1761,6 +1761,19 @@ body {
 .session-item.active .session-item-name { font-weight: 600; }
 .session-item-meta { flex-shrink: 0; font-size: 0.75rem; line-height: 1.25rem; color: var(--app-caption-foreground); white-space: nowrap; }
 
+/* IM-origin badge on session rows (driven by SessionMeta.origin === 'im').
+   Compact pill so it reads as metadata, not as a second title. */
+.session-origin-badge {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app-brand) 16%, transparent);
+  color: var(--app-brand);
+  font-size: 0.625rem;
+  line-height: 14px;
+  font-weight: 600;
+}
+
 /* Kebab (⋮) button — appears on hover or while its menu is open. */
 .session-item-kebab {
   position: absolute;
@@ -2214,6 +2227,85 @@ body {
   opacity: 0.7;
 }
 .im-menu-note { padding: 8px 10px; font-size: 0.75rem; color: var(--app-secondary-foreground); }
+
+/* IM records popover additions: back affordance, channel health summary and
+   status pills. Scoped to im-* selectors only (no global surface changes). */
+.im-back {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 32x32: desktop pointer touch-target floor (24px reads too small next to
+     the 30px .btn baseline and misses clicks). The glyph stays optically small
+     via font-size; only the hit area grows. */
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--corner-radius-small);
+  background: transparent;
+  color: var(--app-secondary-foreground);
+  cursor: pointer;
+  font-size: 0.875rem;
+  line-height: 1;
+}
+.im-back:hover {
+  background: var(--app-ghost-button-hover-background);
+  color: var(--app-primary-foreground);
+}
+.im-back:focus-visible,
+.im-crumb:focus-visible {
+  outline: 2px solid var(--app-input-active-border);
+  outline-offset: 1px;
+}
+.im-menu-summary {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px 2px;
+  font-size: 0.75rem;
+  color: var(--app-secondary-foreground);
+}
+.im-status {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-family: var(--app-sans-font-family);
+  font-size: 0.6875rem;
+  line-height: 16px;
+}
+.im-menu-summary .im-status { margin-left: 0; }
+.im-status-enabled {
+  background: color-mix(in srgb, var(--app-success-foreground) 16%, transparent);
+  color: var(--app-success-foreground);
+}
+.im-status-disabled {
+  background: color-mix(in srgb, var(--app-warning-accent) 16%, transparent);
+  color: var(--app-warning-accent);
+}
+.im-status-unconfigured {
+  background: var(--app-ghost-button-hover-background);
+  color: var(--app-secondary-foreground);
+}
+.im-status-off {
+  background: color-mix(in srgb, var(--app-warning-accent) 16%, transparent);
+  color: var(--app-warning-accent);
+}
+
+/* Client-side unread dot on the sidebar IM entry (expanded + rail). */
+.im-action-icon { position: relative; }
+.im-rail-btn { position: relative; }
+.im-unseen-dot {
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--app-brand);
+  border: 2px solid var(--app-primary-background);
+}
 
 /* Settings button at the bottom of the collapsed icon rail (inside rail-bottom). */
 .rail-btn-settings {
@@ -2684,8 +2776,38 @@ body {
 }
 .remote-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .remote-warn { color: var(--app-warning-accent); }
-.im-test-ok { color: var(--app-success-foreground); font-size: 0.75rem; }
-.im-test-failed { color: var(--app-warning-accent); font-size: 0.75rem; }
+.im-test-ok,
+.im-test-failed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: var(--corner-radius-small);
+  font-size: 0.75rem;
+}
+.im-test-ok {
+  color: var(--app-success-foreground);
+  background: color-mix(in srgb, var(--app-success-foreground) 10%, transparent);
+}
+.im-test-failed {
+  color: var(--app-warning-accent);
+  background: color-mix(in srgb, var(--app-warning-accent) 12%, transparent);
+}
+.im-test-mark {
+  flex-shrink: 0;
+  font-family: var(--app-monospace-font-family);
+  font-weight: 600;
+}
+.im-test-host {
+  margin-left: auto;
+  font-family: var(--app-monospace-font-family);
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .im-channel-missing { font-size: 0.75rem; }
 
 /* IM channels dialog (settings modal). */
@@ -2722,6 +2844,17 @@ body {
 }
 .im-channel-field > span { font-size: 0.75rem; color: var(--app-secondary-foreground); }
 .im-saved { font-size: 0.75rem; color: var(--app-success-foreground); }
+/* Credential fields grouped under one dashed sub-card so platform fields read
+   as one unit (the $ENV reference contract lives in the section title). */
+.im-cred-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px dashed var(--app-input-border);
+  border-radius: var(--corner-radius-small);
+}
+.im-cred-title { font-size: 0.75rem; color: var(--app-secondary-foreground); }
 
 /* Directory browser */
 .dir-browser {
