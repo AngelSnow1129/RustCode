@@ -108,3 +108,19 @@ test('i18n carries both restore/regenerate labels in zh and en', () => {
     assert.equal((i18n.match(new RegExp(`'${key.replace('.', '\\.')}':`, 'g')) ?? []).length, 2);
   }
 });
+
+test('restore/regenerate buttons are icon-only with the label on hover', () => {
+  const chat = read('../components/Chat.tsx');
+  // Both buttons keep the localized label in title/aria-label (hover tooltip +
+  // screen readers) but must NOT render the label as visible text content.
+  for (const key of ['msg.restore', 'msg.regenerate']) {
+    const title = new RegExp(`title=\\{t\\('${key.replace('.', '\\.')}'\\)\\}`);
+    assert.match(chat, title);
+    const labelAsText = new RegExp(`>\\s*\\{t\\('${key.replace('.', '\\.')}'\\)\\}\\s*</button>`);
+    assert.doesNotMatch(chat, labelAsText);
+  }
+  // Each button embeds an inline SVG icon (arrow glyph), like the copy button.
+  const svgCount = (chat.match(/class="msg-action-btn"/g) ?? []).length;
+  assert.equal(svgCount, 2);
+  assert.match(chat, /<svg width="14" height="14" viewBox="0 0 16 16"[\s\S]*?<\/svg>\s*<\/button>/);
+});

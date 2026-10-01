@@ -4121,6 +4121,8 @@ function AssistantMessageView({
   // during streaming there is nothing to judge yet, and an error turn is not a
   // candidate answer. `turnAction` is absent for turns with no user prompt
   // behind them (system notices), so those rows get no toolbar either.
+  // Icon-only buttons (like the copy button) — the localized label surfaces
+  // via title/aria-label on hover, keeping the per-turn toolbar compact.
   const restoreBtn =
     turnAction && !streaming && !isError ? (
       <button
@@ -4130,7 +4132,11 @@ function AssistantMessageView({
         title={t('msg.restore')}
         aria-label={t('msg.restore')}
       >
-        {t('msg.restore')}
+        {/* Undo / restore: hooked arrow pointing back to before this turn. */}
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M3 3.5V7h3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M3.2 6.8A5.2 5.2 0 1 1 2.8 10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+        </svg>
       </button>
     ) : null;
   const regenerateBtn =
@@ -4142,7 +4148,11 @@ function AssistantMessageView({
         title={t('msg.regenerate')}
         aria-label={t('msg.regenerate')}
       >
-        {t('msg.regenerate')}
+        {/* Regenerate: circular retry arrow (rotate/refresh glyph). */}
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M13 2.5V6h-3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M12.8 5.9A5.2 5.2 0 1 0 13.2 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+        </svg>
       </button>
     ) : null;
 
