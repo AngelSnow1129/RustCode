@@ -52,6 +52,9 @@ pub struct ImChannelView {
     pub required: Vec<String>,
     pub project: String,
     pub enabled: bool,
+    /// Sender allowlist echo (`env:`-free plain ids; empty = anyone). The UI
+    /// must send it back on PUT or a whole-list replace silently empties it.
+    pub allow_senders: Vec<String>,
 }
 
 /// `GET /im/channels` — configured channel definitions.
@@ -126,6 +129,7 @@ fn view_channel(index: usize, channel: &ImChannelConfig) -> ImChannelView {
             .unwrap_or_default(),
         project: channel.project.clone(),
         enabled: channel.enabled,
+        allow_senders: channel.allow_senders.clone(),
     }
 }
 

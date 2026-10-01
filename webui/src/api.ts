@@ -662,6 +662,7 @@ export interface ImChannelInfo {
   required: string[];
   project: string;
   enabled: boolean;
+  allow_senders: string[];
 }
 
 export interface ImChannelsInfo {
@@ -679,6 +680,7 @@ export interface ImChannelInput {
   app_secret?: string | null;
   bot_id?: string | null;
   secret?: string | null;
+  allow_senders?: string[] | null;
 }
 
 export async function getImChannels(): Promise<ImChannelsInfo> {

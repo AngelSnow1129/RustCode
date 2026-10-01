@@ -1132,6 +1132,7 @@ type ImDraftChannel = {
   project: string;
   enabled: boolean;
   credentials: Record<string, string>;
+  allowSenders: string;
 };
 
 function imDraftFromChannel(info: ImChannelInfo): ImDraftChannel {
@@ -1140,6 +1141,7 @@ function imDraftFromChannel(info: ImChannelInfo): ImDraftChannel {
     project: info.project,
     enabled: info.enabled,
     credentials: { ...info.credentials },
+    allowSenders: info.allow_senders.join(', '),
   };
 }
 
@@ -1148,6 +1150,12 @@ function imChannelInputFromDraft(draft: ImDraftChannel): ImChannelInput {
     platform: draft.platform,
     project: draft.project,
     enabled: draft.enabled,
+    // Whole-list replace: the allowlist must round-trip or a save silently
+    // resets it to "anyone". Split on commas, drop empties.
+    allow_senders: draft.allowSenders
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
   };
   // Only send fields the platform knows, so an edit that switches platform does
   // not leave stale credentials behind in the config file.
@@ -1182,8 +1190,14 @@ export function ImChannelsDialog({ onClose }: { onClose: () => void }) {
   const [testResult, setTestResult] = useState<{ index: number; result: ImTestResult } | null>(null);
 
   const apply = (next: ImChannelsInfo) => {
+    // Not-yet-saved rows (no server index) survive the refresh: they were
+    // typed but never committed, and silently dropping them reads as data
+    // loss. Saved rows are rebuilt from the server response.
+    setDrafts((prev) => {
+      const unsaved = prev.filter((_, i) => info?.channels[i]?.index === undefined);
+      return [...next.channels.map(imDraftFromChannel), ...unsaved];
+    });
     setInfo(next);
-    setDrafts(next.channels.map(imDraftFromChannel));
     setMasterEnabled(next.enabled);
     // The list may have been reordered/replaced -- old row indices no longer
     // address the same channel, so a stale verdict must not linger.
@@ -1211,7 +1225,7 @@ export function ImChannelsDialog({ onClose }: { onClose: () => void }) {
   const addChannel = () => {
     setDrafts((prev) => [
       ...prev,
-      { platform: 'dingtalk', project: '', enabled: true, credentials: {} },
+      { platform: 'dingtalk', project: '', enabled: true, credentials: {}, allowSenders: '' },
     ]);
   };
 
@@ -1300,6 +1314,7 @@ export function ImChannelsDialog({ onClose }: { onClose: () => void }) {
         {!loading && drafts.map((draft, index) => {
           const fields = IM_CREDENTIAL_FIELDS[draft.platform] ?? [];
           const missing = fields.filter(({ key }) => !(draft.credentials[key] ?? '').trim());
+          const serverIndex = info?.channels[index]?.index;
           return (
             <div
               class="im-channel"
@@ -1324,7 +1339,7 @@ export function ImChannelsDialog({ onClose }: { onClose: () => void }) {
                 </label>
                 <button
                   class="btn"
-                  disabled={testing !== null || loading}
+                  disabled={testing !== null || loading || serverIndex === undefined}
                   onClick={() => runTest(index)}
                   title={t('im.testHint')}
                 >
@@ -1347,6 +1362,17 @@ export function ImChannelsDialog({ onClose }: { onClose: () => void }) {
                   placeholder="/abs/path/to/workdir"
                   value={draft.project}
                   onChange={(e) => patchDraft(index, { project: e.currentTarget.value })}
+                />
+              </label>
+
+              <label class="im-channel-field">
+                <span>{t('im.allowSenders')}</span>
+                <input
+                  class="menu-input"
+                  type="text"
+                  placeholder="user-1, user-2"
+                  value={draft.allowSenders}
+                  onChange={(e) => patchDraft(index, { allowSenders: e.currentTarget.value })}
                 />
               </label>
 

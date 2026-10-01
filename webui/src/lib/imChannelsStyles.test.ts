@@ -25,6 +25,7 @@ test('im channels dialog keeps its layout contract (wide modal + flex head)', ()
     'im-channel-enabled',
     'im-channel-field',
     'im-saved',
+    'im-channel-missing',
   ]) {
     assert.match(css, new RegExp(`\\.${cls.replace(/-/g, '\\-')}\\s*\\{`), `missing .${cls} in app.css`);
   }
