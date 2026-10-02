@@ -1,8 +1,8 @@
 {
-  "updated_at": "2026-10-02T23:34:23Z",
+  "updated_at": "2026-10-02T23:45:44Z",
   "ref": "dev",
   "versions": [
-    { "version": "v6.2.1", "targets": ["linux-arm64","linux-x64"] },
+    { "version": "v6.2.1", "targets": ["linux-arm64","linux-x64","windows-x64"] },
     { "version": "v6.2.0", "targets": ["linux-x64"] },
     { "version": "v6.1.0", "targets": ["linux-arm64","linux-x64"] },
     { "version": "v6.0.0", "targets": ["linux-x64"] }
