@@ -6488,16 +6488,73 @@ pub struct FsListQuery {
     pub path: String,
 }
 
+/// Shared gate for `GET /fs/list` and `GET /fs/search` -- the two enumeration
+/// endpoints on the file surface.
+///
+/// Both used to take `State(_state)` and canonicalize the caller's path directly,
+/// i.e. no auth posture and no containment at all: `?path=/etc` or `?path=~`
+/// walked anything the daemon process could read. They now answer the same three
+/// questions as `/fs/read`, through the same single predicate:
+///
+/// * auth off (`webui_no_auth`, i.e. `enforce_token == false`) -> 403;
+/// * resolves outside the session working directory -> 400;
+/// * protected / secret path -> 403.
+///
+/// `~` is expanded FIRST (parity with `/fs/mkdir`): the boundary resolves relative
+/// paths against the root and cannot expand a shell metacharacter. The returned
+/// path is canonical with the Windows `\\?\` prefix stripped, so it round-trips
+/// into `/cd` in the same session hash bucket as the TUI's spelling.
+///
+/// Fail closed: a root or target that cannot be canonicalized is a refusal, never
+/// a fall back to the caller's spelling.
+async fn authorize_fs_dir(
+    state: &AppState,
+    requested: &str,
+    op: rustcode_capabilities::fs_boundary::FileOp,
+) -> Result<PathBuf, axum::response::Response> {
+    let root = state.project.read().await.working_dir.clone();
+    let no_auth = state.webui_no_auth;
+    let requested = normalize_dir_arg(requested.trim())
+        .to_string_lossy()
+        .into_owned();
+    let authorized = tokio::task::spawn_blocking(move || {
+        let policy = rustcode_capabilities::fs_boundary::FilePolicy {
+            no_auth,
+            ..Default::default()
+        };
+        rustcode_capabilities::fs_boundary::authorize_file_access(&root, &requested, op, &policy)
+    })
+    .await;
+    match authorized {
+        Ok(Ok(dir)) => Ok(rustcode_capabilities::pathnorm::strip_verbatim_path(&dir)),
+        Ok(Err(deny)) => Err(
+            json_error(file_deny_status(deny), file_deny_message(deny)).into_response()
+        ),
+        Err(error) => Err(json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            t(Msg::DaemonApiFileResolveFailed {
+                error: &error.to_string(),
+            })
+            .into_owned(),
+        )
+        .into_response()),
+    }
+}
+
 async fn fs_list(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Query(q): Query<FsListQuery>,
 ) -> impl IntoResponse {
-    // canonicalize 消解 `..`/符号链接；失败时退回展开后的路径。
-    // Windows 上 canonicalize 会加 `\\?\` 扩展长度前缀，剥掉它，否则 webui
-    // 拿到 `\\?\D:\path` 回传给 /cd，会与 TUI 的 `D:\path` 落进不同的会话 hash 桶。
-    let expanded = normalize_dir_arg(&q.path);
-    let dir = expanded.canonicalize().unwrap_or(expanded);
-    let dir = rustcode_capabilities::pathnorm::strip_verbatim_path(&dir);
+    let dir = match authorize_fs_dir(
+        &state,
+        &q.path,
+        rustcode_capabilities::fs_boundary::FileOp::List,
+    )
+    .await
+    {
+        Ok(dir) => dir,
+        Err(response) => return response,
+    };
     match list_subdirs(&dir) {
         Ok(dirs) => Json(serde_json::json!({
             "path": dir.to_string_lossy(),
@@ -6534,15 +6591,24 @@ fn search_at_mention(dir: &std::path::Path, token: &str) -> Vec<serde_json::Valu
 /// Recursive, gitignore-aware `@`-mention search for the webui picker. Mirrors
 /// the CLI popup by sharing `FileIndex` with the TUI (see [`search_at_mention`]).
 /// The blocking full-tree walk runs on a blocking thread so it never stalls the
-/// async runtime. Path normalization matches [`fs_list`] so a match handed back
-/// to `/cd`/`/fs/open` lands in the same session bucket.
+/// async runtime. The search root goes through the same boundary as [`fs_list`]
+/// (working-directory containment, sensitive-path refusal, 403 with auth off),
+/// so a match handed back to `/cd`/`/fs/open` lands in the same session bucket
+/// and nothing outside the working directory is ever walked.
 async fn fs_search(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Query(q): Query<FsSearchQuery>,
 ) -> impl IntoResponse {
-    let expanded = normalize_dir_arg(&q.path);
-    let dir = expanded.canonicalize().unwrap_or(expanded);
-    let dir = rustcode_capabilities::pathnorm::strip_verbatim_path(&dir);
+    let dir = match authorize_fs_dir(
+        &state,
+        &q.path,
+        rustcode_capabilities::fs_boundary::FileOp::Search,
+    )
+    .await
+    {
+        Ok(dir) => dir,
+        Err(response) => return response,
+    };
     let search_dir = dir.clone();
     let token = q.q.clone();
     let matches = tokio::task::spawn_blocking(move || search_at_mention(&search_dir, &token))
@@ -7347,36 +7413,114 @@ pub async fn run_server(opts: ServerOpts) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Minimal `AppState` whose project working directory is the containment root.
+/// Shared by the `/fs/*` handler tests so they all exercise one fixture.
+#[cfg(test)]
+fn test_app_state(working_dir: &std::path::Path, no_auth: bool) -> AppState {
+    let (shutdown_tx, _) = watch::channel(false);
+    AppState {
+        project: Arc::new(RwLock::new(ProjectState {
+            working_dir: working_dir.to_path_buf(),
+            previous_dir: None,
+            recent_dirs: Vec::new(),
+            name: "fs-read-test".into(),
+        })),
+        active_chats: ActiveChatRegistry::default(),
+        mcp_registry: Arc::new(RwLock::new(Arc::new(McpRegistry::new()))),
+        mcp_cache: Arc::new(RwLock::new(HashMap::new())),
+        daemon_instance_id: Arc::from("fs-read-test-instance"),
+        shutdown_tx,
+        last_activity: Arc::new(std::sync::atomic::AtomicI64::new(now_unix_ms())),
+        active_connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        webui_tokens: auth_token::WebuiTokenStore::default(),
+        enforce_token: !no_auth,
+        webui_no_auth: no_auth,
+        pending_permissions: permission_bridge::PermissionResponders::new(),
+        pending_user_inputs: permission_bridge::UserInputResponders::new(),
+        bind_host: "127.0.0.1".into(),
+        bind_port: 13456,
+        webui_cookie_name: auth_token::webui_cookie_name(13456),
+    }
+}
+
+/// `/fs/list` and `/fs/search` used to take `State(_state)` -- the state was
+/// discarded, so neither the auth posture nor the session working directory was
+/// consulted and any absolute path could be enumerated. Both now go through
+/// [`authorize_fs_dir`]; these tests pin that at the handler level (the
+/// `fs_boundary` unit tests only cover the policy function).
+#[cfg(test)]
+mod fs_list_search_tests {
+    use super::*;
+
+    async fn call_list(state: AppState, path: &str) -> StatusCode {
+        fs_list(State(state), Query(FsListQuery { path: path.into() }))
+            .await
+            .into_response()
+            .status()
+    }
+
+    async fn call_search(state: AppState, path: &str) -> StatusCode {
+        fs_search(State(state), Query(FsSearchQuery { path: path.into(), q: String::new() }))
+            .await
+            .into_response()
+            .status()
+    }
+
+    fn fixture() -> tempfile::TempDir {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("ws").join("src")).unwrap();
+        d
+    }
+
+    #[tokio::test]
+    async fn allow_a_path_inside_the_working_dir() {
+        let d = fixture();
+        let ws = d.path().join("ws");
+        assert_eq!(call_list(test_app_state(&ws, false), ".").await, StatusCode::OK);
+        assert_eq!(
+            call_search(test_app_state(&ws, false), "src").await,
+            StatusCode::OK
+        );
+    }
+
+    /// Escaping the working directory is a malformed request (400), matching
+    /// `file_deny_status`.
+    #[tokio::test]
+    async fn refuse_a_path_outside_the_working_dir() {
+        let d = fixture();
+        let ws = d.path().join("ws");
+        assert_eq!(call_list(test_app_state(&ws, false), "..").await, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            call_search(test_app_state(&ws, false), "..").await,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            call_list(test_app_state(&ws, false), &d.path().to_string_lossy()).await,
+            StatusCode::BAD_REQUEST
+        );
+    }
+
+    /// Unauthenticated (no-auth) mode refuses outright (403) -- the enumeration
+    /// surface must not be reachable without a token.
+    #[tokio::test]
+    async fn refuse_when_the_server_runs_without_auth() {
+        let d = fixture();
+        let ws = d.path().join("ws");
+        assert_eq!(call_list(test_app_state(&ws, true), ".").await, StatusCode::FORBIDDEN);
+        assert_eq!(
+            call_search(test_app_state(&ws, true), "src").await,
+            StatusCode::FORBIDDEN
+        );
+    }
+}
+
 #[cfg(test)]
 mod fs_read_tests {
     use super::*;
 
     /// Minimal state whose project working directory is the containment root.
     fn state_for(working_dir: &std::path::Path, no_auth: bool) -> AppState {
-        let (shutdown_tx, _) = watch::channel(false);
-        AppState {
-            project: Arc::new(RwLock::new(ProjectState {
-                working_dir: working_dir.to_path_buf(),
-                previous_dir: None,
-                recent_dirs: Vec::new(),
-                name: "fs-read-test".into(),
-            })),
-            active_chats: ActiveChatRegistry::default(),
-            mcp_registry: Arc::new(RwLock::new(Arc::new(McpRegistry::new()))),
-            mcp_cache: Arc::new(RwLock::new(HashMap::new())),
-            daemon_instance_id: Arc::from("fs-read-test-instance"),
-            shutdown_tx,
-            last_activity: Arc::new(std::sync::atomic::AtomicI64::new(now_unix_ms())),
-            active_connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-            webui_tokens: auth_token::WebuiTokenStore::default(),
-            enforce_token: !no_auth,
-            webui_no_auth: no_auth,
-            pending_permissions: permission_bridge::PermissionResponders::new(),
-            pending_user_inputs: permission_bridge::UserInputResponders::new(),
-            bind_host: "127.0.0.1".into(),
-            bind_port: 13456,
-            webui_cookie_name: auth_token::webui_cookie_name(13456),
-        }
+        test_app_state(working_dir, no_auth)
     }
 
     fn query(path: &str) -> Query<FsReadQuery> {

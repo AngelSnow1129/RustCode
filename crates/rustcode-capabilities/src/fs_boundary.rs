@@ -15,10 +15,14 @@
 //! 1. **Canonicalize first, then compare prefixes.** A symlink inside the
 //!    workspace that points at `/etc/passwd` resolves to a path *outside* the
 //!    root, so a prefix test done before canonicalization is trivially bypassed.
-//! 2. **Content-exposing operations fail closed when auth is off.** With
-//!    `webui_no_auth` (or any `enforce_token == false` deployment) the daemon is
-//!    reachable by anyone who can route to the port, so `Read` / `Download` /
-//!    `Package` must refuse rather than degrade.
+//! 2. **Every operation that reaches the filesystem fails closed when auth is
+//!    off -- content AND enumeration.** With `webui_no_auth` (or any
+//!    `enforce_token == false` deployment) the daemon is reachable by anyone who
+//!    can route to the port, so `Read` / `Download` / `Package` must refuse
+//!    rather than degrade. `List` / `Search` refuse too: they hand back no bytes
+//!    but they DO hand back names and paths, and a full-tree walk of the host is
+//!    the reconnaissance step that turns any later content bug into a complete
+//!    read. See [`FileOp::requires_auth`].
 //!
 //! This module deliberately produces NO user-facing strings: L1 cannot depend on
 //! `rustcode-config`, so every [`FileDeny`] is a stable, machine-shaped variant
@@ -42,8 +46,15 @@ pub const DEFAULT_MAX_FILE_BYTES: u64 = 1024 * 1024;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileOp {
     /// `GET /fs/list`
+    ///
+    /// Returns NAMES, not bytes, but it is still an enumeration primitive: it is
+    /// confined to the session working directory and refuses when auth is off
+    /// (see [`FileOp::requires_auth`]).
     List,
     /// `GET /fs/search`
+    ///
+    /// Same posture as [`FileOp::List`], plus a recursive full-tree walk, so the
+    /// same confinement applies (see [`FileOp::requires_auth`]).
     Search,
     /// `POST /fs/mkdir`
     Mkdir,
@@ -67,6 +78,22 @@ impl FileOp {
     /// True for operations that write to the filesystem.
     pub fn is_write(self) -> bool {
         matches!(self, Self::Mkdir)
+    }
+
+    /// True for operations that must refuse outright when auth is off.
+    ///
+    /// Content exposure and writes are the obvious cases. `List` / `Search` join
+    /// them even though they return no bytes: an unauthenticated caller who can
+    /// route to the port must not be able to walk the host filesystem at all --
+    /// enumerating it is exactly how a later content bug becomes a full read, and
+    /// "only names" is still an information disclosure.
+    ///
+    /// Kept separate from [`Self::exposes_content`] on purpose: the two questions
+    /// ("does this hand back bytes?" and "may an unauthenticated caller do this
+    /// at all?") have different answers, and collapsing them is what let
+    /// `List` / `Search` sit behind an empty match arm.
+    pub fn requires_auth(self) -> bool {
+        self.exposes_content() || self.is_write() || matches!(self, Self::List | Self::Search)
     }
 }
 
@@ -218,8 +245,9 @@ fn authorize_inner(
     }
 
     // Checked before any filesystem work: with auth off there is no caller to
-    // blame, so the cheap decisive refusal goes first.
-    if (op.exposes_content() || op.is_write()) && policy.no_auth {
+    // blame, so the cheap decisive refusal goes first. Enumeration counts (see
+    // `FileOp::requires_auth`) -- no unauthenticated walk of the tree.
+    if op.requires_auth() && policy.no_auth {
         return Err(FileDeny::NoAuthMode);
     }
 
@@ -260,8 +288,17 @@ fn authorize_inner(
                 return Err(FileDeny::NotADirectory);
             }
         }
-        // List / Search / Mkdir are bounded by the root + sensitive checks above.
-        FileOp::List | FileOp::Search | FileOp::Mkdir => {}
+        // Both walk a directory tree, so requiring a directory is part of the
+        // boundary, not just a friendlier error: a non-directory here means the
+        // caller is probing, and `read_dir` on it would fail open into a 500.
+        FileOp::List | FileOp::Search => {
+            if !target.is_dir() {
+                return Err(FileDeny::NotADirectory);
+            }
+        }
+        // Mkdir's target usually does not exist yet; the daemon authorizes it via
+        // `authorize_directory_creation` instead. Bounded by the checks above.
+        FileOp::Mkdir => {}
     }
 
     Ok((target, Vec::new()))
@@ -438,8 +475,87 @@ mod tests {
             authorize_file_access(&ws, ".", FileOp::Mkdir, &no_auth),
             Err(FileDeny::NoAuthMode)
         );
-        // Metadata-only ops stay available with auth off (decision Q1).
-        assert!(authorize_file_access(&ws, ".", FileOp::List, &no_auth).is_ok());
+        // Enumeration ops refuse too: they hand back names/paths, and an
+        // unauthenticated caller must not be able to walk the tree at all.
+        assert_eq!(
+            authorize_file_access(&ws, ".", FileOp::List, &no_auth),
+            Err(FileDeny::NoAuthMode)
+        );
+        assert_eq!(
+            authorize_file_access(&ws, ".", FileOp::Search, &no_auth),
+            Err(FileDeny::NoAuthMode)
+        );
+        // `/fs/open` still only launches the host GUI opener and returns no
+        // content, so it keeps working with auth off.
+        std::fs::write(ws.join("a.txt"), "hi").unwrap();
+        assert!(authorize_file_access(&ws, "a.txt", FileOp::Open, &no_auth).is_ok());
+    }
+
+    /// `List` / `Search` return names, not bytes, but they are the reconnaissance
+    /// primitive for everything else on the file surface, so they get the exact
+    /// same three answers as `Read`: in-root yes, out-of-root no, sensitive no.
+    #[test]
+    fn list_and_search_are_confined_like_content_ops() {
+        let d = workspace();
+        let ws = d.path().join("ws");
+        std::fs::create_dir(ws.join("src")).unwrap();
+        std::fs::write(d.path().join("outside.txt"), "secret").unwrap();
+
+        // 1. Inside the working directory: allowed (both spellings).
+        let canon_ws = pathnorm::canonicalize(&ws).unwrap();
+        for op in [FileOp::List, FileOp::Search] {
+            assert_eq!(
+                authorize_file_access(&ws, ".", op, &policy()),
+                Ok(canon_ws.clone())
+            );
+            assert_eq!(
+                authorize_file_access(&ws, "src", op, &policy()),
+                Ok(pathnorm::canonicalize(&ws.join("src")).unwrap())
+            );
+        }
+
+        // 2. Outside the working directory: refused, for a relative climb and
+        //    for an absolute path alike.
+        for op in [FileOp::List, FileOp::Search] {
+            assert_eq!(
+                authorize_file_access(&ws, "..", op, &policy()),
+                Err(FileDeny::EscapesRoot)
+            );
+            assert_eq!(
+                authorize_file_access(
+                    &ws,
+                    &d.path().join("outside.txt").to_string_lossy(),
+                    op,
+                    &policy(),
+                ),
+                Err(FileDeny::EscapesRoot)
+            );
+        }
+
+        // 3. Sensitive: a directory whose final component is a secret file name
+        //    (`path_is_sensitive` matches on the name) is refused even in-root.
+        std::fs::create_dir(ws.join("id_rsa")).unwrap();
+        for op in [FileOp::List, FileOp::Search] {
+            assert_eq!(
+                authorize_file_access(&ws, "id_rsa", op, &policy()),
+                Err(FileDeny::Sensitive)
+            );
+        }
+
+        // 4. Fail closed: a non-directory cannot be listed or searched, and a
+        //    path that does not exist resolves to `EscapesRoot` (no existence
+        //    oracle for out-of-root probing).
+        std::fs::write(ws.join("a.txt"), "hi").unwrap();
+        for op in [FileOp::List, FileOp::Search] {
+            assert_eq!(
+                authorize_file_access(&ws, "a.txt", op, &policy()),
+                Err(FileDeny::NotADirectory)
+            );
+            assert_eq!(
+                authorize_file_access(&ws, "nope", op, &policy()),
+                Err(FileDeny::EscapesRoot)
+            );
+        }
     }
 
     #[test]
@@ -597,5 +713,11 @@ mod tests {
         assert!(!FileOp::Open.exposes_content());
         assert!(FileOp::Mkdir.is_write());
         assert!(!FileOp::Read.is_write());
+        // The auth gate is broader than "exposes content": enumeration refuses
+        // too. Only `/fs/open` (GUI opener, no content, no write) stays open.
+        assert!(FileOp::List.requires_auth());
+        assert!(FileOp::Search.requires_auth());
+        assert!(!FileOp::Open.requires_auth());
+        assert!(FileOp::Mkdir.requires_auth());
     }
 }
