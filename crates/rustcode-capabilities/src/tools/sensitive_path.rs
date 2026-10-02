@@ -234,7 +234,20 @@ pub fn path_is_sensitive(path: &Path) -> bool {
     ];
     #[cfg(target_os = "windows")]
     const SYSTEM_PROTECTED_EXCEPTIONS: &[&str] = &[];
-    const SECRET_HOME_DIRS: &[&str] = &[".ssh", ".aws", ".gnupg"];
+    /// Kept in step with [`SENSITIVE_MARKERS`]: every credential *directory* the raw-args
+    /// detector recognises must have a counterpart here, otherwise a resolved path slips
+    /// through the PATH-aware detector while the substring detector would have caught it.
+    /// Still anchored to the REAL home (see [`home_dir`]) -- a project-local `./.ssh/` is
+    /// benign and must not prompt.
+    const SECRET_HOME_DIRS: &[&str] = &[
+        ".ssh",
+        ".aws",
+        ".gnupg",
+        ".kube",
+        ".docker",
+        ".config/gcloud",
+        ".terraform.d",
+    ];
     const SECRET_FILE_NAMES: &[&str] = &[
         ".bashrc",
         ".bash_profile",
@@ -243,6 +256,8 @@ pub fn path_is_sensitive(path: &Path) -> bool {
         ".zshenv",
         ".npmrc",
         ".pypirc",
+        ".netrc",
+        ".git-credentials",
         ".env",
         ".env.local",
         "credentials",
@@ -251,7 +266,7 @@ pub fn path_is_sensitive(path: &Path) -> bool {
         "id_ecdsa",
         "id_ed25519",
     ];
-    const SECRET_EXTS: &[&str] = &["pem", "key", "p12", "pfx", "der", "crt", "cer"];
+    const SECRET_EXTS: &[&str] = &["pem", "key", "p12", "pfx", "der", "crt", "cer", "keystore"];
 
     let has_protected_prefix = SYSTEM_PROTECTED_PREFIXES
         .iter()
@@ -275,6 +290,19 @@ pub fn path_is_sensitive(path: &Path) -> bool {
         }
         for file in SECRET_FILE_NAMES {
             if path == home.join(file) {
+                return true;
+            }
+        }
+    }
+
+    // `.env.<variant>` (`.env.local`, `.env.production`, ...) is a real secret UNLESS the
+    // variant is a committed placeholder template. Mirrors
+    // `env_dot_reference_is_sensitive` so both detectors agree -- previously the raw-args
+    // form flagged `/proj/.env.production` while the resolved path did not.
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        if let Some(suffix) = name.strip_prefix(".env.") {
+            let keyword: String = suffix.chars().take_while(|c| c.is_alphanumeric()).collect();
+            if !keyword.is_empty() && !ENV_TEMPLATE_SUFFIXES.contains(&keyword.as_str()) {
                 return true;
             }
         }
@@ -404,6 +432,49 @@ mod tests {
     use super::*;
     use std::time::Duration;
     use tokio::sync::mpsc::unbounded_channel;
+
+    /// The resolved-path detector must recognise every credential store the raw-args
+    /// detector (`SENSITIVE_MARKERS`) recognises, otherwise the same target is flagged
+    /// in one code path and silently allowed in the other.
+    #[test]
+    fn resolved_paths_converge_with_the_marker_list() {
+        let home = home_dir().expect("home dir");
+        for dir in [".kube", ".docker", ".config/gcloud", ".terraform.d", ".aws"] {
+            assert!(
+                path_is_sensitive(&home.join(dir).join("config")),
+                "{dir} must be sensitive under home"
+            );
+        }
+        for file in [".netrc", ".git-credentials", "credentials"] {
+            assert!(
+                path_is_sensitive(&Path::new("/proj").join(file)),
+                "{file} must be sensitive by name"
+            );
+        }
+        assert!(path_is_sensitive(Path::new("/proj/deploy.keystore")));
+    }
+
+    /// `.env.<variant>` follows the same template rule as the raw-args form: a real
+    /// variant prompts, a committed placeholder does not.
+    #[test]
+    fn env_variants_follow_the_template_rule() {
+        assert!(path_is_sensitive(Path::new("/proj/.env.production")));
+        assert!(path_is_sensitive(Path::new("/proj/.env.local")));
+        for template in ENV_TEMPLATE_SUFFIXES {
+            assert!(
+                !path_is_sensitive(&Path::new("/proj").join(format!(".env.{template}"))),
+                ".env.{template} is a placeholder and must not prompt"
+            );
+        }
+    }
+
+    /// Home anchoring is deliberate: a project-local `.ssh/` is benign.
+    #[test]
+    fn project_local_ssh_dir_is_still_not_treated_as_the_real_keys() {
+        assert!(!path_is_sensitive(Path::new("/proj/.ssh/config")));
+        // ...but an actual key name is sensitive wherever it lives.
+        assert!(path_is_sensitive(Path::new("/proj/.ssh/id_rsa")));
+    }
 
     #[test]
     fn detects_credential_paths_not_ordinary_content() {
