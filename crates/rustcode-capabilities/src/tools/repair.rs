@@ -66,6 +66,15 @@ pub fn repair_tool_args(tool_name: &str, args: &str) -> String {
             }
         }
     }
+    // `team` carries the same free-text hazard as `task`, plus an action envelope
+    // that must be re-emitted for the internally-tagged `TeamArgs` enum to parse.
+    if tool_name.eq_ignore_ascii_case("team") {
+        if let Some(v) = extract_team_args(&pre) {
+            if let Ok(s) = serde_json::to_string(&v) {
+                return s;
+            }
+        }
+    }
     // Last resort: key-value field extraction. Only return this if it actually
     // recovered something -- an empty object is no better than the original garbage.
     let extracted = extract_json_fields(&pre);
@@ -976,6 +985,15 @@ const TASK_SUBTASK_KEYS: &[&str] = &[
     "scope",
 ];
 
+/// Known `team` task fields, in schema-declared order. `description`, `prompt`
+/// and `role` are required (no serde default); `subagent_type` (an accepted
+/// alias for the role's lane) and `scope` carry defaults.
+///
+/// Deliberately narrower than `TASK_SUBTASK_KEYS`: `team` has no
+/// `difficulty`/`model` concept, and anchoring on a key the schema doesn't
+/// declare would let prose invent a phantom field.
+const TEAM_SUBTASK_KEYS: &[&str] = &["description", "prompt", "role", "subagent_type", "scope"];
+
 /// Specialized salvage for `task` arguments when JSON parsing fails.
 ///
 /// Weak models routinely emit a subtask `prompt`/`description` containing raw
@@ -1004,7 +1022,7 @@ pub fn extract_task_args(raw: &str) -> Option<serde_json::Value> {
         None => raw,
     };
 
-    let anchors = find_task_key_anchors(region);
+    let anchors = find_key_anchors(region, TASK_SUBTASK_KEYS);
     if anchors.is_empty() {
         return None;
     }
@@ -1042,6 +1060,70 @@ pub fn extract_task_args(raw: &str) -> Option<serde_json::Value> {
     Some(serde_json::json!({ "tasks": tasks }))
 }
 
+/// Specialized salvage for `team` arguments when JSON parsing fails.
+///
+/// `team` carries the same hazard as `task` -- free-text `prompt`/`description`
+/// values that weak models leave with unescaped double-quotes -- but its payload
+/// is wrapped in an action envelope (`{"action":"delegate","tasks":[...]}`) and
+/// picks the lane by `role` instead of `subagent_type`. Without a team-specific
+/// extractor the call fell through to the generic `extract_json_fields`, which
+/// flattens the `tasks` array into a truncated string and loses every task; the
+/// whole batch then failed. This mirrors `extract_task_args` (same anchor /
+/// boundary rules, see its docs) and additionally re-emits the `delegate`
+/// envelope the envelope-tagged `TeamArgs` enum requires.
+///
+/// Returns `None` unless at least one task has a non-empty `description` AND
+/// `prompt`, so a hopeless payload (or a non-delegate `status`/`wait`/`result`/
+/// `stop` call, which carries no task keys at all) still surfaces the real parse
+/// error to the model instead of dispatching a garbled team.
+pub fn extract_team_args(raw: &str) -> Option<serde_json::Value> {
+    // Scope to the tasks array so a stray earlier key can't seed a phantom object.
+    // Unlike `task`, fall back to the whole payload when `tasks` has no `[` after
+    // it: the phrase can appear inside prose, and a bare task array or a single
+    // task object (both already accepted by `salvage_team_args`) has no `[` at
+    // all. Returning `None` here would drop a recoverable dispatch.
+    let region = raw
+        .find("\"tasks\"")
+        .and_then(|p| raw[p..].find('[').map(|b| &raw[p + b..]))
+        .unwrap_or(raw);
+
+    let anchors = find_key_anchors(region, TEAM_SUBTASK_KEYS);
+    if anchors.is_empty() {
+        return None;
+    }
+
+    let mut tasks: Vec<serde_json::Value> = Vec::new();
+    let mut current = serde_json::Map::new();
+
+    for (i, (_pos, key, val_start)) in anchors.iter().enumerate() {
+        // A repeated key means we've rolled into the next task object.
+        if current.contains_key(*key) {
+            if let Some(obj) = finish_task_object(std::mem::take(&mut current)) {
+                tasks.push(obj);
+            }
+        }
+
+        let val_end = anchors.get(i + 1).map(|a| a.0).unwrap_or(region.len());
+        let slice = &region[*val_start..val_end];
+
+        if *key == "scope" {
+            if let Some(arr) = parse_scope_slice(slice) {
+                current.insert((*key).to_string(), arr);
+            }
+        } else if let Some(s) = parse_task_string_slice(slice) {
+            current.insert((*key).to_string(), serde_json::Value::String(s));
+        }
+    }
+    if let Some(obj) = finish_task_object(current) {
+        tasks.push(obj);
+    }
+
+    if tasks.is_empty() {
+        return None;
+    }
+    Some(serde_json::json!({ "action": "delegate", "tasks": tasks }))
+}
+
 /// Keep only subtask objects that carry both required fields, so the salvaged
 /// JSON re-parses cleanly through serde downstream.
 fn finish_task_object(
@@ -1061,13 +1143,16 @@ fn finish_task_object(
 
 /// Locate `"<known_key>"` occurrences in key position within `region`. Returns
 /// `(byte pos of the opening quote, key, byte index just past the `:`)`.
-fn find_task_key_anchors(region: &str) -> Vec<(usize, &'static str, usize)> {
+///
+/// `keys` is the caller's field set (`TASK_SUBTASK_KEYS` for `task`,
+/// `TEAM_SUBTASK_KEYS` for `team`) so both extractors share one anchor rule.
+fn find_key_anchors(region: &str, keys: &[&'static str]) -> Vec<(usize, &'static str, usize)> {
     let bytes = region.as_bytes();
     let mut anchors = Vec::new();
     let mut idx = 0;
     while idx < region.len() {
         if bytes[idx] == b'"' {
-            if let Some((key, after)) = match_task_key_at(region, idx) {
+            if let Some((key, after)) = match_key_at(region, idx, keys) {
                 anchors.push((idx, key, after));
                 idx = after;
                 continue;
@@ -1080,7 +1165,7 @@ fn find_task_key_anchors(region: &str) -> Vec<(usize, &'static str, usize)> {
 
 /// If a known key begins at the opening quote `qpos` and sits in key position,
 /// return the key and the byte index just after its `:`.
-fn match_task_key_at(region: &str, qpos: usize) -> Option<(&'static str, usize)> {
+fn match_key_at(region: &str, qpos: usize, keys: &[&'static str]) -> Option<(&'static str, usize)> {
     let bytes = region.as_bytes();
     // Preceding non-whitespace char must open a value slot: `{`, `,`, or `[`
     // (or the very start of the region).
@@ -1100,7 +1185,7 @@ fn match_task_key_at(region: &str, qpos: usize) -> Option<(&'static str, usize)>
     }
 
     let rest = &region[qpos + 1..];
-    for key in TASK_SUBTASK_KEYS {
+    for key in keys {
         if let Some(after_key) = rest.strip_prefix(key) {
             if let Some(after_quote) = after_key.strip_prefix('"') {
                 let trimmed = after_quote.trim_start();
@@ -1448,6 +1533,40 @@ mod tests {
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0]["description"], "explain the \"prompt\" field");
         assert_eq!(tasks[0]["prompt"], "go");
+    }
+
+    // --- extract_team_args tests ---
+
+    #[test]
+    fn extract_team_args_recovers_unescaped_quote_and_emits_delegate_envelope() {
+        // `team` is an internally-tagged enum on `action`, so the salvage must
+        // re-emit the envelope, not just the tasks array.
+        let input = r#"{"action":"delegate","tasks":[{"description":"analyze","prompt":"Find all "TODO" comments","role":"explorer"}]}"#;
+        let v = extract_team_args(input).expect("should salvage team args");
+        assert_eq!(v["action"], "delegate");
+        let tasks = v["tasks"].as_array().expect("tasks is an array");
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0]["description"], "analyze");
+        assert_eq!(tasks[0]["prompt"], "Find all \"TODO\" comments");
+        assert_eq!(tasks[0]["role"], "explorer");
+    }
+
+    #[test]
+    fn extract_team_args_returns_none_without_required_fields() {
+        assert!(extract_team_args("garbage with no keys at all").is_none());
+        // `role` alone -- missing required description + prompt.
+        assert!(extract_team_args(r#"{"tasks":[{"role":"explorer"}]}"#).is_none());
+    }
+
+    #[test]
+    fn repair_tool_args_team_recovers_unescaped_quote() {
+        // End-to-end: the middleware path must route `team` to the team extractor.
+        let input = r#"{"action":"delegate","tasks":[{"description":"analyze","prompt":"Find all "TODO" comments","role":"explorer"}]}"#;
+        let out = repair_tool_args("team", input);
+        let v: serde_json::Value =
+            serde_json::from_str(&out).expect("repaired team args must be valid JSON");
+        assert_eq!(v["action"], "delegate");
+        assert_eq!(v["tasks"][0]["prompt"], "Find all \"TODO\" comments");
     }
 
     #[test]
