@@ -2,12 +2,13 @@
   "version": "v6.2.1",
   "ref": "dev",
   "source": {
-    "sha": "d03b014f1050a283a1a1fc2dea63bfb5d25e67fc",
+    "sha": "1d47d0d6c86c5a991e4aa063d20e23436e7c144f",
     "branch": "dev",
-    "dirty": true,
-    "built_at": "2026-09-28T23:53:46Z"
+    "dirty": false,
+    "built_at": "2026-10-02T23:34:21Z"
   },
   "binaries": {
+    "linux-arm64": { "file": "rustcode-v6.2.1-linux-arm64", "sha256": "de22373150f0f71deaa69a62c071595d791444d3ff7919f68d78c6e522d5a422", "size": 43233096 },
     "linux-x64": { "file": "rustcode-v6.2.1-linux-x64", "sha256": "7ac601c79efede611ecc41b1feb026cd9977c4901fdcfc3e087ef46881c77147", "size": 40333784 }
   }
 }
