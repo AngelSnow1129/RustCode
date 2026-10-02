@@ -167,6 +167,9 @@ ls -lh
 # --- publish to repo-backed release/ (offline / pipeline-down fallback source) ---
 echo ""
 echo "=== Publishing to release/ (repo fallback) ==="
-_SCRIPT_DIR_P="$(cd "$(dirname "$0")" && pwd)"
-"$_SCRIPT_DIR_P/release-publish.sh" "$_SCRIPT_DIR_P/../$DIST" "$VERSION" || \
+# NOTE: the checksum block above leaves the shell inside `$DIST`, so `$0` is no
+# longer resolvable relative to the repo root. Reuse the `SCRIPT_DIR` captured at
+# the top instead of re-deriving it from `$0` -- otherwise `dirname "$0"` resolves
+# to `scripts`, `cd` fails, and the release/ fallback is silently never populated.
+"$SCRIPT_DIR/release-publish.sh" "$SCRIPT_DIR/../$DIST" "$VERSION" || \
     echo "[WARN] publish to release/ failed; the CI/CD online release is still the primary source."
