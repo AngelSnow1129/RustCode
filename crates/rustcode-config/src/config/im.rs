@@ -44,8 +44,11 @@ pub enum ImPlatform {
     Dingtalk,
     /// Feishu / Lark (飞书). Long connection or webhook event subscription.
     Feishu,
-    /// WeCom (企业微信). Inbound is a webhook callback, so reaching it from
-    /// outside requires a public endpoint (e.g. the bundled reverse tunnel).
+    /// WeCom (企业微信). Inbound uses the smart-bot **long connection** (client
+    /// dials out over WebSocket to `wss://openws.work.weixin.qq.com`), so **no
+    /// public endpoint or tunnel is required** -- verified against the official
+    /// long-connection documentation. (An earlier config note claimed WeCom was a
+    /// webhook needing a public host; that was wrong.)
     Wecom,
 }
 
@@ -85,12 +88,13 @@ impl ImPlatform {
     /// Whether inbound traffic arrives over a client-initiated long connection
     /// (no public endpoint / tunnel needed) as opposed to a webhook callback.
     ///
-    /// Only DingTalk's Stream mode is currently verified against upstream
-    /// documentation; the other two are not yet confirmed and must not be
-    /// assumed. This predicate is advisory (it drives setup guidance only) and
-    /// never gates whether a channel may be enabled.
+    /// DingTalk's Stream mode and WeCom's smart-bot long connection are both
+    /// verified against upstream documentation; Feishu's long connection is
+    /// SDK-encapsulated (no raw protocol published) and still counts as
+    /// unverified here. This predicate is advisory (it drives setup guidance
+    /// only) and never gates whether a channel may be enabled.
     pub fn has_verified_long_connection(self) -> bool {
-        matches!(self, Self::Dingtalk)
+        matches!(self, Self::Dingtalk | Self::Wecom)
     }
 }
 
@@ -387,11 +391,12 @@ mod tests {
     }
 
     #[test]
-    fn only_dingtalk_is_marked_as_verified_long_connection() {
-        // The other two are unverified upstream; they must not claim it.
+    fn dingtalk_and_wecom_are_marked_as_verified_long_connections() {
+        // Feishu's long connection is SDK-encapsulated (no published raw
+        // protocol yet), so only DingTalk and WeCom may claim it.
         assert!(ImPlatform::Dingtalk.has_verified_long_connection());
+        assert!(ImPlatform::Wecom.has_verified_long_connection());
         assert!(!ImPlatform::Feishu.has_verified_long_connection());
-        assert!(!ImPlatform::Wecom.has_verified_long_connection());
     }
 
     #[test]

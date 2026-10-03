@@ -161,8 +161,8 @@ pub async fn run_im_command(
     project_filter: Option<&str>,
 ) -> anyhow::Result<i32> {
     use rustcode::im::{
-        dingtalk::DingTalkAdapter, resolve_project, serve_channels, ChannelSpec,
-        DEFAULT_MAX_IN_FLIGHT,
+        dingtalk::DingTalkAdapter, resolve_project, serve_channels, wecom::WeComAdapter,
+        ChannelSpec, DEFAULT_MAX_IN_FLIGHT,
     };
     use std::sync::Arc;
 
@@ -259,10 +259,38 @@ pub async fn run_im_command(
                     allow_senders: channel.allow_senders.clone(),
                 });
             }
+            rustcode_config::config::im::ImPlatform::Wecom => {
+                let bot_id = channel
+                    .credential("bot_id")
+                    .ok_or_else(|| anyhow::anyhow!("channel is missing `bot_id`"))?;
+                let secret = channel
+                    .credential("secret")
+                    .ok_or_else(|| anyhow::anyhow!("channel is missing `secret`"))?;
+
+                let mut adapter = WeComAdapter::new(bot_id, secret);
+                if let Ok(gateway) = std::env::var("RUSTCODE_WECOM_GATEWAY") {
+                    if !gateway.trim().is_empty() {
+                        adapter = adapter.with_gateway(gateway);
+                    }
+                }
+
+                println!(
+                    "[*] IM channel `wecom` serving project {} (long connection, no public endpoint needed)",
+                    project.display()
+                );
+
+                specs.push(ChannelSpec {
+                    adapter: Arc::new(adapter),
+                    runner: Arc::new(CliAgentRunner),
+                    project,
+                    max_in_flight: DEFAULT_MAX_IN_FLIGHT,
+                    allow_senders: channel.allow_senders.clone(),
+                });
+            }
             other => {
                 // Reported, not fatal: see the function note.
                 unsupported.push(format!(
-                    "platform `{}` is not implemented yet (only `dingtalk` Stream mode is)",
+                    "platform `{}` is not implemented yet (only `dingtalk` Stream mode and `wecom` long connection are)",
                     other.as_str()
                 ));
             }

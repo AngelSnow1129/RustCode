@@ -38,6 +38,7 @@ pub mod commands;
 pub mod dingtalk;
 pub mod dispatch;
 pub mod runner;
+pub mod wecom;
 
 pub use approval::{
     parse_approval_reply, ApprovalCard, ApprovalPort, ApprovalReply, ImApprovalRelay, APPROVAL_WAIT,
@@ -47,6 +48,7 @@ pub use commands::{answer_for, parse_chat_command, ChatCommand, CommandContext};
 pub use dispatch::{
     serve_channels, ChannelDispatch, ChannelSpec, ChatMailbox, DEFAULT_MAX_IN_FLIGHT,
 };
+pub use wecom::{WeComAdapter, DEFAULT_GATEWAY as WECOM_DEFAULT_GATEWAY};
 pub use runner::{handle_message, resolve_project, AgentRunner, AgentTurn, DispatchOutcome};
 
 /// Typed adapter failure. Kept separate from `anyhow` at the module boundary so
