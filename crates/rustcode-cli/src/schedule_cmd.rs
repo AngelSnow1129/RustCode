@@ -244,6 +244,11 @@ pub fn build_task(
         last_run_at: None,
         last_status: None,
         last_run_id: None,
+        // The P2.5 graph is opt-in: a freshly created task has no dependencies
+        // and listens to no events. They are edited in afterwards, once the
+        // referenced task ids are known to exist.
+        depends_on: Vec::new(),
+        triggers: Vec::new(),
     }
 }
 
@@ -1278,6 +1283,8 @@ mod tests {
             last_run_at: None,
             last_status: None,
             last_run_id: None,
+            depends_on: Vec::new(),
+            triggers: Vec::new(),
         }
     }
 

@@ -790,6 +790,8 @@ mod tests {
             last_run_at: None,
             last_status: None,
             last_run_id: None,
+            depends_on: Vec::new(),
+            triggers: Vec::new(),
         }
     }
 

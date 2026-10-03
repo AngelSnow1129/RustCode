@@ -5050,6 +5050,8 @@ mod schedule_list_text_tests {
             last_run_at: None,
             last_status: last_status.map(|s| s.to_string()),
             last_run_id: None,
+            depends_on: Vec::new(),
+            triggers: Vec::new(),
         }
     }
 

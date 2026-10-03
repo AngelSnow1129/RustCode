@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -34,6 +35,17 @@ pub struct ScheduleTask {
     /// so existing on-disk task JSON without the field still parses unchanged.
     #[serde(default)]
     pub last_run_id: Option<String>,
+    /// Ids of tasks that must have succeeded before this one may fire — the
+    /// P2.5 static DAG. Empty (the default) means "no dependencies", so every
+    /// task written before this field existed behaves exactly as it does today:
+    /// the graph is strictly opt-in.
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+    /// Event names that fire this task in addition to its own schedule (P2.5).
+    /// Empty means "schedule only". An event-driven task with no `schedule` is
+    /// pure event trigger; see [`tasks_triggered_by`].
+    #[serde(default)]
+    pub triggers: Vec<String>,
 }
 
 fn default_mode() -> String {
@@ -187,6 +199,9 @@ pub enum RunTrigger {
     OsScheduler,
     Daemon,
     Im,
+    /// Fired because a named event reached a task through the dependency graph
+    /// (P2.5), rather than because its own schedule came due.
+    Event,
 }
 
 /// One run of one task, persisted under `<task-id>/runs/<run_id>.json`.
@@ -406,6 +421,192 @@ pub fn within_catch_up_window(due_at: i64, now: i64, window_secs: u64) -> bool {
     now.saturating_sub(due_at) <= window_secs as i64
 }
 
+// ---------------------------------------------------------------------------
+// P2.5 static dependency graph + event triggers
+// ---------------------------------------------------------------------------
+
+/// A problem found while validating the dependency graph.
+///
+/// Every problem is reported rather than repaired: silently dropping an unknown
+/// dependency would let a user believe B runs after A when B never runs at all,
+/// and silently breaking a cycle would impose an arbitrary order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GraphError {
+    /// `depends_on` names a task that does not exist.
+    UnknownDependency { task: String, dep: String },
+    /// A task lists itself as a dependency.
+    SelfDependency { task: String },
+    /// A dependency cycle; the ids are the cycle itself, in order.
+    Cycle { tasks: Vec<String> },
+    /// Two tasks share one id, so a dependency edge is ambiguous.
+    DuplicateId { id: String },
+}
+
+impl std::fmt::Display for GraphError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownDependency { task, dep } => {
+                write!(f, "task `{task}` depends on `{dep}`, which does not exist")
+            }
+            Self::SelfDependency { task } => write!(f, "task `{task}` depends on itself"),
+            Self::Cycle { tasks } => write!(f, "dependency cycle: {}", tasks.join(" -> ")),
+            Self::DuplicateId { id } => write!(f, "duplicate task id `{id}`"),
+        }
+    }
+}
+
+impl std::error::Error for GraphError {}
+
+/// Validate the dependency graph. Empty means the graph is usable.
+///
+/// Pure — no IO, no mutation — so it can run at load time and in tests alike.
+/// Cycles are found with a three-colour DFS (unvisited / on-stack / done),
+/// which is what distinguishes a back edge (a real cycle) from a cross edge
+/// into an already-finished node (not one).
+pub fn validate_graph(tasks: &[ScheduleTask]) -> Vec<GraphError> {
+    use std::collections::HashMap;
+
+    let mut errors = Vec::new();
+    let mut by_id: HashMap<&str, usize> = HashMap::new();
+    for (idx, task) in tasks.iter().enumerate() {
+        if by_id.insert(task.id.as_str(), idx).is_some() {
+            errors.push(GraphError::DuplicateId {
+                id: task.id.clone(),
+            });
+        }
+    }
+
+    for task in tasks {
+        for dep in &task.depends_on {
+            if dep == &task.id {
+                errors.push(GraphError::SelfDependency {
+                    task: task.id.clone(),
+                });
+            } else if !by_id.contains_key(dep.as_str()) {
+                errors.push(GraphError::UnknownDependency {
+                    task: task.id.clone(),
+                    dep: dep.clone(),
+                });
+            }
+        }
+    }
+
+    // Walk known-good edges only: an unknown dependency has already been
+    // reported above and must not also be walked into a spurious cycle.
+    const UNVISITED: u8 = 0;
+    const ON_STACK: u8 = 1;
+    const DONE: u8 = 2;
+
+    fn walk(
+        idx: usize,
+        tasks: &[ScheduleTask],
+        by_id: &HashMap<&str, usize>,
+        state: &mut Vec<u8>,
+        stack: &mut Vec<usize>,
+        reported: &mut HashSet<Vec<String>>,
+        errors: &mut Vec<GraphError>,
+    ) {
+        match state[idx] {
+            DONE => return,
+            ON_STACK => {
+                // Back edge: the cycle is the current stack from `idx` on.
+                let start = stack.iter().position(|s| *s == idx).unwrap_or(0);
+                let mut cycle: Vec<String> =
+                    stack[start..].iter().map(|i| tasks[*i].id.clone()).collect();
+                // One cycle is reachable from each of its members; report it
+                // once, in a canonical rotation, so the error count is stable.
+                let mut shift = 0;
+                for (i, id) in cycle.iter().enumerate() {
+                    if id < &cycle[shift] {
+                        shift = i;
+                    }
+                }
+                cycle.rotate_left(shift);
+                if reported.insert(cycle.clone()) {
+                    errors.push(GraphError::Cycle { tasks: cycle });
+                }
+                return;
+            }
+            _ => {}
+        }
+        state[idx] = ON_STACK;
+        stack.push(idx);
+        for dep in &tasks[idx].depends_on {
+            // A self edge is already reported as `SelfDependency`; walking it
+            // would additionally report a one-element cycle, which is the same
+            // problem twice.
+            if dep == &tasks[idx].id {
+                continue;
+            }
+            if let Some(&next) = by_id.get(dep.as_str()) {
+                walk(next, tasks, by_id, state, stack, reported, errors);
+            }
+        }
+        stack.pop();
+        state[idx] = DONE;
+    }
+
+    let mut state = vec![UNVISITED; tasks.len()];
+    let mut stack: Vec<usize> = Vec::new();
+    let mut reported: HashSet<Vec<String>> = HashSet::new();
+    for idx in 0..tasks.len() {
+        walk(
+            idx,
+            tasks,
+            &by_id,
+            &mut state,
+            &mut stack,
+            &mut reported,
+            &mut errors,
+        );
+    }
+    errors
+}
+
+/// Whether every dependency of `task` has recorded a successful run.
+///
+/// Pure: the caller supplies the set of ids whose latest run ended in
+/// [`RunStatus::Success`]. A task with no dependencies is always ready — this
+/// is what keeps every pre-P2.5 task on exactly its existing behaviour.
+pub fn dependencies_ready(task: &ScheduleTask, succeeded: &HashSet<String>) -> bool {
+    task.depends_on.iter().all(|dep| succeeded.contains(dep))
+}
+
+/// Tasks that fire when `event` occurs, regardless of their own schedule.
+///
+/// Disabled tasks are excluded: an event must not resurrect a task the user
+/// switched off.
+pub fn tasks_triggered_by<'a>(tasks: &'a [ScheduleTask], event: &str) -> Vec<&'a ScheduleTask> {
+    tasks
+        .iter()
+        .filter(|t| t.enabled && t.triggers.iter().any(|e| e == event))
+        .collect()
+}
+
+/// Ids of tasks whose most recent run ended in [`RunStatus::Success`].
+///
+/// Only ids that some task actually names as a dependency are looked up, so a
+/// store full of dependency-free tasks costs no extra IO.
+fn succeeded_ids_in(root: &std::path::Path, tasks: &[ScheduleTask]) -> HashSet<String> {
+    let mut needed: Vec<&str> = Vec::new();
+    for task in tasks {
+        for dep in &task.depends_on {
+            if !needed.contains(&dep.as_str()) {
+                needed.push(dep.as_str());
+            }
+        }
+    }
+    let mut out = HashSet::new();
+    for dep in needed {
+        if let Some(record) = list_runs_in(root, dep).into_iter().next() {
+            if record.status == RunStatus::Success {
+                out.insert(dep.to_string());
+            }
+        }
+    }
+    out
+}
+
 /// Tasks whose next fire time has arrived, paired with that fire time.
 ///
 /// The "last fired" anchor is `last_run_at`, falling back to `created_at`, so a
@@ -417,10 +618,19 @@ pub fn within_catch_up_window(due_at: i64, now: i64, window_secs: u64) -> bool {
 /// `Interval` intentionally yields a single due instant no matter how long the
 /// task has been idle (a 30-minute task that has not run for two hours is due
 /// once, not four times).
+///
+/// P2.5: a task whose dependencies have not **all** succeeded is held back even
+/// once its own fire time arrives. Dependency-free tasks are unaffected, so
+/// this stays additive for every task written before the graph existed.
 pub fn due_tasks_in(root: &std::path::Path, now_epoch_secs: i64) -> Vec<(ScheduleTask, i64)> {
+    let tasks = list_in(root);
+    let succeeded = succeeded_ids_in(root, &tasks);
     let mut out = Vec::new();
-    for task in list_in(root) {
+    for task in tasks {
         if !task.enabled {
+            continue;
+        }
+        if !dependencies_ready(&task, &succeeded) {
             continue;
         }
         let anchor = task.last_run_at.unwrap_or(task.created_at);
@@ -804,6 +1014,8 @@ mod tests {
             last_run_at: None,
             last_status: None,
             last_run_id: None,
+            depends_on: Vec::new(),
+            triggers: Vec::new(),
         }
     }
 
@@ -1419,5 +1631,210 @@ mod tests {
         assert_eq!(run.summary.as_deref(), Some(STALE_RUN_SUMMARY));
         // Terminal records are left alone on the next pass.
         assert_eq!(reap_stale_running_in(root, "t1", NOW).unwrap(), 0);
+    }
+}
+
+#[cfg(test)]
+mod graph_tests {
+    use super::*;
+
+    fn task(id: &str, depends_on: &[&str], triggers: &[&str]) -> ScheduleTask {
+        ScheduleTask {
+            id: id.to_string(),
+            title: id.to_string(),
+            prompt: "p".into(),
+            cwd: "/tmp".into(),
+            schedule: Schedule::Interval { every_minutes: 1 },
+            permission_mode: "plan".into(),
+            notify: "important".into(),
+            enabled: true,
+            created_at: 0,
+            last_run_at: None,
+            last_status: None,
+            last_run_id: None,
+            depends_on: depends_on.iter().map(|s| s.to_string()).collect(),
+            triggers: triggers.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    fn succeeded(ids: &[&str]) -> HashSet<String> {
+        ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn dependency_free_graphs_are_valid() {
+        assert!(validate_graph(&[]).is_empty());
+        assert!(validate_graph(&[task("a", &[], &[]), task("b", &[], &[])]).is_empty());
+        // A well-formed chain is valid.
+        assert!(validate_graph(&[task("a", &[], &[]), task("b", &["a"], &[])]).is_empty());
+    }
+
+    #[test]
+    fn unknown_dependency_is_reported_not_ignored() {
+        let errors = validate_graph(&[task("a", &["ghost"], &[])]);
+        assert_eq!(
+            errors,
+            vec![GraphError::UnknownDependency {
+                task: "a".into(),
+                dep: "ghost".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn self_dependency_is_reported() {
+        let errors = validate_graph(&[task("a", &["a"], &[])]);
+        assert_eq!(
+            errors,
+            vec![GraphError::SelfDependency { task: "a".into() }]
+        );
+    }
+
+    #[test]
+    fn cycle_is_reported_exactly_once() {
+        // a -> b -> c -> a. The cycle is reachable from each member, but it is
+        // one cycle and must be reported once.
+        let tasks = vec![
+            task("a", &["b"], &[]),
+            task("b", &["c"], &[]),
+            task("c", &["a"], &[]),
+        ];
+        let errors = validate_graph(&tasks);
+        let cycles: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, GraphError::Cycle { .. }))
+            .collect();
+        assert_eq!(cycles.len(), 1, "one cycle must be reported once, got {errors:?}");
+    }
+
+    #[test]
+    fn duplicate_id_is_reported() {
+        let errors = validate_graph(&[task("a", &[], &[]), task("a", &[], &[])]);
+        assert_eq!(errors, vec![GraphError::DuplicateId { id: "a".into() }]);
+    }
+
+    #[test]
+    fn dependencies_ready_requires_every_dependency() {
+        let t = task("b", &["a", "c"], &[]);
+        assert!(dependencies_ready(&t, &succeeded(&["a", "c"])));
+        // One missing dependency holds the task: partial readiness is not ready.
+        assert!(!dependencies_ready(&t, &succeeded(&["a"])));
+        assert!(!dependencies_ready(&t, &HashSet::new()));
+    }
+
+    #[test]
+    fn a_task_without_dependencies_is_always_ready() {
+        // This is the backward-compatibility guarantee for every task written
+        // before the graph existed.
+        let t = task("a", &[], &[]);
+        assert!(dependencies_ready(&t, &HashSet::new()));
+    }
+
+    #[test]
+    fn tasks_triggered_by_matches_only_named_events() {
+        let tasks = vec![
+            task("a", &[], &["deploy"]),
+            task("b", &[], &["deploy", "rollback"]),
+            task("c", &[], &[]),
+        ];
+        let hit: Vec<&str> = tasks_triggered_by(&tasks, "deploy")
+            .iter()
+            .map(|t| t.id.as_str())
+            .collect();
+        assert_eq!(hit, vec!["a", "b"]);
+        assert!(tasks_triggered_by(&tasks, "nope").is_empty());
+    }
+
+    #[test]
+    fn a_disabled_task_is_never_event_triggered() {
+        let mut t = task("a", &[], &["deploy"]);
+        t.enabled = false;
+        assert!(tasks_triggered_by(&[t], "deploy").is_empty());
+    }
+
+    #[test]
+    fn a_due_task_is_held_until_its_dependency_succeeds() {
+        // The real wiring: `due_tasks_in` must hold a task back while its
+        // dependency has no successful run, then release it once it does.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let now = 1_000_000i64;
+
+        let mut a = task("a", &[], &[]);
+        a.created_at = now - 3_600;
+        let mut b = task("b", &["a"], &[]);
+        b.created_at = now - 3_600;
+        save_in(root, &a).unwrap();
+        save_in(root, &b).unwrap();
+
+        let due: Vec<String> = due_tasks_in(root, now)
+            .into_iter()
+            .map(|(t, _)| t.id)
+            .collect();
+        assert_eq!(due, vec!["a".to_string()], "`b` must wait for `a`");
+
+        // Record a *successful* run for `a`.
+        save_run_in(
+            root,
+            "a",
+            &RunRecord {
+                run_id: "1-000000000".into(),
+                task_id: "a".into(),
+                status: RunStatus::Success,
+                trigger: RunTrigger::Daemon,
+                started_at: now - 60,
+                finished_at: Some(now - 30),
+                exit_code: Some(0),
+                session_id: None,
+                summary: None,
+            },
+        )
+        .unwrap();
+
+        // Sorted: `list_in` walks a directory, whose order is not guaranteed.
+        let mut due: Vec<String> = due_tasks_in(root, now)
+            .into_iter()
+            .map(|(t, _)| t.id)
+            .collect();
+        due.sort();
+        assert_eq!(due, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn a_failed_dependency_does_not_release_the_task() {
+        // Only Success counts: an Error run must not unblock a dependent task.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let now = 1_000_000i64;
+
+        let mut a = task("a", &[], &[]);
+        a.created_at = now - 3_600;
+        let mut b = task("b", &["a"], &[]);
+        b.created_at = now - 3_600;
+        save_in(root, &a).unwrap();
+        save_in(root, &b).unwrap();
+
+        save_run_in(
+            root,
+            "a",
+            &RunRecord {
+                run_id: "1-000000000".into(),
+                task_id: "a".into(),
+                status: RunStatus::Error,
+                trigger: RunTrigger::Daemon,
+                started_at: now - 60,
+                finished_at: Some(now - 30),
+                exit_code: Some(1),
+                session_id: None,
+                summary: None,
+            },
+        )
+        .unwrap();
+
+        let due: Vec<String> = due_tasks_in(root, now)
+            .into_iter()
+            .map(|(t, _)| t.id)
+            .collect();
+        assert_eq!(due, vec!["a".to_string()], "a failed dependency must still hold `b`");
     }
 }
