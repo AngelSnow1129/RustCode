@@ -28,14 +28,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# ── 颜色 ─────────────────────────────────────────────────────────────────────
-C_RESET='\033[0m'; C_BOLD='\033[1m'
-C_GREEN='\033[0;32m'; C_YELLOW='\033[0;33m'; C_CYAN='\033[0;36m'; C_RED='\033[0;31m'
-info()    { echo -e "${C_CYAN}[env]${C_RESET} $*"; }
-success() { echo -e "${C_GREEN}[ok]${C_RESET}  $*"; }
-warn()    { echo -e "${C_YELLOW}[warn]${C_RESET} $*"; }
-error()   { echo -e "${C_RED}[error]${C_RESET} $*" >&2; exit 1; }
-step()    { echo -e "\n${C_BOLD}==> $*${C_RESET}"; }
+# ── 共享脚手架（颜色 + OS 探测）──
+# shellcheck source=dev-common.sh
+. "$SCRIPT_DIR/dev-common.sh"
+TAG=env
 
 WITH_RELEASE=0
 WITH_OPENCODE=0
@@ -48,8 +44,8 @@ done
 
 # ── 0. 前置检查 ─────────────────────────────────────────────────────────────
 step "环境探测"
-OS="$(uname -s)"; ARCH="$(uname -m)"
-case "$OS" in Linux) PLATFORM="linux" ;; *) error "仅支持 Linux，当前: $OS" ;; esac
+detect_platform
+[ "$PLATFORM" = "linux" ] || error "仅支持 Linux，当前: $OS"
 info "平台: $PLATFORM / $ARCH"
 info "项目: $PROJECT_ROOT"
 

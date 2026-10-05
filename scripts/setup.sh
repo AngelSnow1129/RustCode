@@ -17,28 +17,16 @@ for arg in "$@"; do
     esac
 done
 
-# ── Color helpers ────────────────────────────────────────────────────────────
-C_RESET='\033[0m'
-C_BOLD='\033[1m'
-C_GREEN='\033[0;32m'
-C_YELLOW='\033[0;33m'
-C_CYAN='\033[0;36m'
-C_RED='\033[0;31m'
-
-info()    { echo -e "${C_CYAN}[setup]${C_RESET} $*"; }
-success() { echo -e "${C_GREEN}[ok]${C_RESET}    $*"; }
-warn()    { echo -e "${C_YELLOW}[warn]${C_RESET}  $*"; }
-error()   { echo -e "${C_RED}[error]${C_RESET} $*" >&2; exit 1; }
-step()    { echo -e "\n${C_BOLD}==> $*${C_RESET}"; }
+# ── Shared dev scaffolding (color helpers + OS detection) ────────────────────
+# shellcheck source=dev-common.sh
+. "$SCRIPT_DIR/dev-common.sh"
+TAG=setup
 
 # ── OS detection ─────────────────────────────────────────────────────────────
-OS="$(uname -s)"
-ARCH="$(uname -m)"
-
-case "$OS" in
-    Darwin) PLATFORM="macos" ;;
-    Linux)  PLATFORM="linux" ;;
-    *)      error "Unsupported OS: $OS. Only macOS and Linux are supported." ;;
+detect_platform
+case "$PLATFORM" in
+    macos|linux) ;;
+    *) error "Unsupported OS: $OS. Only macOS and Linux are supported." ;;
 esac
 
 info "Platform: $PLATFORM / $ARCH"
