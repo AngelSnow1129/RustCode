@@ -92,14 +92,6 @@ jobs:
   test:
     name: cargo test --workspace
     runs-on: ubuntu-latest
-    env:
-      # Known-red allowlist -- see AGENTS.md:226.
-      # `project_trust_key` is computed with `std::collections::hash_map::DefaultHasher`,
-      # whose output is NOT guaranteed stable across toolchains, so this test is red
-      # by design. Do NOT edit the test or the golden value just to go green.
-      # The job passes only when every failing test is on this list; any NEW failure
-      # fails the job (no `continue-on-error`, no `#[ignore]` -- no silent degradation).
-      KNOWN_RED_TESTS: "mcp::registry::tests::trust_key_golden_matches_core_algorithm"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

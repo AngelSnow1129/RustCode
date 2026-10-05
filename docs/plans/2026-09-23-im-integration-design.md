@@ -142,13 +142,13 @@
 |------|------|---------|
 | 钉钉 | 支持 Stream 长连接，无需公网 | **已证实**（官方 SDK README 原文 + `stream.py` 的 `open_connection` 实现） |
 | 飞书 | **未验证** —— 是否存在长连接模式未知 | **两轮取证均未取得一手证据**（官方 SDK 的 `ws` 模块路径逐个 404、GitHub API 限流；飞书文档站纯 JS 渲染无正文；取证 agent 无网络工具）。代码侧仅有配置占位（`app_id`/`app_secret`、消息上限 4000），**不构成协议证据** |
-| 企业微信 | **未验证** —— 是否必须 webhook 回调未知 | **两轮取证均未取得一手证据**。仓库内唯一的企微 URL（`docs/webhook-guide.md` 的 `qyapi.weixin.qq.com/cgi-bin/webhook/send?key=XXX`）是**出站**群机器人通知，与入站机制无关，不可作为证据 |
+| 企业微信 | **已实现** —— WebSocket 长连接适配器（`im/wecom.rs`），无需公网/隧道 | **已证实**（仓库已实现 `im/wecom.rs` 长连接适配器并纳入 `im_runner.rs`；`docs/webhook-guide.md` 的 `qyapi.weixin.qq.com` 出站群机器人通知与入站机制无关） |
 
-> **[待办] 补齐飞书与企业微信的一手文档核实后，才可进入适配器实现。**
-> 本仓铁律：不臆断平台 API。在此之前二者维持**仅配置面**状态——
+> **[待办] 补齐飞书的一手文档核实后，才可进入适配器实现（企业微信已实现，不在待办内）。**
+> 本仓铁律：不臆断平台 API。飞书维持**仅配置面**状态——
 > 代码现状已与该结论一致：`ImPlatform::has_verified_long_connection()`
-> 仅对钉钉为真，`im_runner.rs` 对未实现平台显式报错，
-> daemon 的 test 路由对飞书/企微返回 `unsupported` 而非假装失败。
+> 对钉钉与企微为真，`im_runner.rs` 对未实现平台（飞书）显式报错，
+> daemon 的 test 路由对飞书返回 `unsupported` 而非假装失败。
 
 > **措辞修正说明（2026-09-23）**：本表原将二者记为「高置信」。第二次取证
 > 仍失败后，该措辞已无证据支撑——「高置信」会诱导后来者跳过取证直接实现。
@@ -206,7 +206,7 @@ app_id = "env:FEISHU_APP_ID"
 app_secret = "env:FEISHU_APP_SECRET"
 project = "/abs/path/to/workdir"
 
-[im.wecom]                           # 需公网/隧道，见 §1.6
+[im.wecom]                           # 已实现 WebSocket 长连接，无需公网/隧道（见 §1.6）
 enabled = false
 bot_id = "env:WECOM_BOT_ID"
 secret = "env:WECOM_SECRET"

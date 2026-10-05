@@ -518,8 +518,12 @@ OS 调度器路径产出可审计的记录。
 - **偏差 4**：设计要求的 `schedule add` 显式互斥警告与
   `schedule sync --unregister-os` 均已实现；后者刻意与 `handle_sync_with` 分离，
   因为 reconcile 会把刚卸下的任务立即重装。
-- **未做（属 P2.5/P3 范围）**：DAG / `schedule_task` 工具 / 事件触发（P2.5）、
-  可持久化唤醒（P3）。`OnFileChange` 的 O1 裁决（轮询 stat）仍待 P2.5 落地。
+- **未做（属 P2.5/P3 范围）**：`schedule_task` 工具（P2.5）、可持久化唤醒（P3）。
+  `OnFileChange` 的 O1 裁决（轮询 stat）仍待 P2.5 落地。
+  **已落地（P2.5，提交 `e6ba396e` / `9db5d18e`）**：静态 DAG 依赖图
+  （`validate_graph` 三色 DFS 环检测、`dependencies_ready`、`tasks_triggered_by`、
+  `due_tasks_in` 依赖就绪门控）+ 事件触发（任务成功 Exit 0 后按 `triggers` 级联
+  `cascade_fire`，worklist + visited 防触发环）。
 
 ---
 
