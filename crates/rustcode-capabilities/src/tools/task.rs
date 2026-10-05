@@ -86,7 +86,7 @@ impl ToolMiddleware for DenySensitivePaths {
     ) -> BeforeOutcome {
         if crate::tools::references_sensitive_path(&call.arguments) {
             return BeforeOutcome::deny_turn(format!(
-                "subagent may not touch sensitive paths (credentials / ~/.ssh / .env): {}",
+                "subagent may not touch sensitive paths (credentials / ~/.ssh / .env / .git): {}",
                 call.name
             ));
         }
@@ -3629,6 +3629,21 @@ mod tests {
 
         assert!(matches!(
             gate.before(&mut call, &tool, &rt).await,
+            BeforeOutcome::DenyTurn { .. }
+        ));
+
+        // `.git` metadata must also be hard-denied for a child: reading `.git/config`
+        // can exfiltrate a token-bearing remote URL / `[credential]` helper, and writing
+        // there can corrupt history. `DenySensitivePaths` keys off `references_sensitive_path`,
+        // which now recognises the `.git/` component.
+        let read_tool: Arc<dyn Tool> = Arc::new(super::super::read::ReadFileTool::default());
+        let mut git_call = ToolCall {
+            id: "sensitive-git".into(),
+            name: "read_file".into(),
+            arguments: serde_json::json!({ "file_path": "/repo/.git/config" }).to_string(),
+        };
+        assert!(matches!(
+            gate.before(&mut git_call, &read_tool, &rt).await,
             BeforeOutcome::DenyTurn { .. }
         ));
     }

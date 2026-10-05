@@ -12,6 +12,7 @@
 //!
 //! [`ApprovalMiddleware`]: super::approval::ApprovalMiddleware
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
@@ -51,6 +52,12 @@ const SENSITIVE_MARKERS: &[&str] = &[
     ".keystore",
     "/secrets/",
     "/.terraform.d",
+    // `.git/` is VCS metadata: `.git/config` can carry a token remote URL / `[credential]`
+    // helper, `.git/objects` holds full history (accidental secrets), `.git/hooks` are
+    // executable. A trailing slash keeps this from matching `.gitignore` / `.github` /
+    // `.gitmodules` (no `/` after `.git`). The resolved-path detector (write / /fs/open
+    // gate) matches at the path-COMPONENT level in `path_is_sensitive`.
+    ".git/",
 ];
 
 /// Placeholder-template `.env` variants committed to version control -- they hold only
@@ -308,6 +315,17 @@ pub fn path_is_sensitive(path: &Path) -> bool {
         }
     }
 
+    // A `.git` directory COMPONENT (anywhere in the resolved path) is VCS metadata:
+    // `.git/config` can carry a token-bearing remote URL or a `[credential]` helper,
+    // `.git/objects` holds full history (accidental secrets), `.git/hooks` are
+    // executable. Refusing reads/writes into it closes an exfiltration/corruption gap
+    // that `pathutil::SKIP_DIRS` leaves open (that list only governs walkers such as
+    // grep/glob, never a direct `read_file`/`write_file`/`/fs/open`). Matched at the
+    // path-COMPONENT level so `.gitignore` / `.github` / `.gitmodules` are NOT caught.
+    if path.components().any(|c| c.as_os_str() == OsStr::new(".git")) {
+        return true;
+    }
+
     if path
         .file_name()
         .and_then(|n| n.to_str())
@@ -466,6 +484,25 @@ mod tests {
                 ".env.{template} is a placeholder and must not prompt"
             );
         }
+    }
+
+    /// `.git/` is VCS metadata and must be gated/denied like any other secret store,
+    /// but sibling files (`.gitignore`, `.github`, `.gitmodules`) must NOT trip.
+    #[test]
+    fn git_metadata_is_sensitive_but_siblings_are_not() {
+        // Resolved-path detector (write / /fs/open gate).
+        assert!(path_is_sensitive(Path::new("/repo/.git/config")));
+        assert!(path_is_sensitive(Path::new("/repo/.git/objects/a/b")));
+        assert!(path_is_sensitive(Path::new("/repo/.git")));
+        // Component match, so these stay benign.
+        assert!(!path_is_sensitive(Path::new("/repo/.gitignore")));
+        assert!(!path_is_sensitive(Path::new("/repo/.github/workflows/ci.yml")));
+        assert!(!path_is_sensitive(Path::new("/repo/.gitmodules")));
+        // Raw-args detector (read gate + subagent hard-deny).
+        assert!(references_sensitive_path(r#"{"file_path":"/repo/.git/config"}"#));
+        assert!(references_sensitive_path(r#"{"file_path":"C:\\repo\\.git\\config"}"#));
+        assert!(!references_sensitive_path(r#"{"file_path":"/repo/.gitignore"}"#));
+        assert!(!references_sensitive_path(r#"{"pattern":"x","path":"/repo/.github"}"#));
     }
 
     /// Home anchoring is deliberate: a project-local `.ssh/` is benign.

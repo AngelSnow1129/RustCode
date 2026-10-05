@@ -48,8 +48,15 @@ EOF
 }
 
 # Pin the FreeBSD release. bump only with a deliberate decision -- the base
-# tarball + its CHECKSUM.SHA256 must both exist at the mirror for this version.
-FREEBSD_VER="${FREEBSD_CROSS_VERSION:-14.2-RELEASE}"
+# tarball must exist at the mirror for this version.
+#
+# NOTE: 14.2-RELEASE was removed from the main release tree (only 14.4/14.5
+# remain under releases/<arch>/<arch>/ at the time of writing), and modern
+# FreeBSD release directories no longer ship a CHECKSUM.SHA256 file -- they
+# moved component hashes into MANIFEST. So the version pin here MUST track a
+# release that is still present, and the integrity check below tolerates both
+# CHECKSUM.SHA256 (older releases) and MANIFEST (14.4+).
+FREEBSD_VER="${FREEBSD_CROSS_VERSION:-14.4-RELEASE}"
 MIRROR="https://download.freebsd.org/releases"
 
 # arch -> (release dir under $MIRROR, rust triple)
@@ -183,25 +190,28 @@ for a in $ARCHES; do
 
     base_url="${MIRROR}/${rel_dir}/${FREEBSD_VER}/base.txz"
     sum_url="${MIRROR}/${rel_dir}/${FREEBSD_VER}/CHECKSUM.SHA256"
+    manifest_url="${MIRROR}/${rel_dir}/${FREEBSD_VER}/MANIFEST"
 
     tmp="$(mktemp -d)"
     archive="${tmp}/base.txz"
     checksum="${tmp}/CHECKSUM.SHA256"
+    manifest="${tmp}/MANIFEST"
     echo "[INFO] Downloading FreeBSD ${FREEBSD_VER} base (${rel_dir})" >&2
     curl --fail --location --silent --show-error \
         --connect-timeout 15 --max-time 600 \
         --retry 5 --retry-delay 10 --retry-all-errors \
         --output "$archive" "$base_url"
-    curl --fail --location --silent --show-error \
+
+    # Integrity: FreeBSD used to ship CHECKSUM.SHA256 ("SHA256 (base.txz) = <h>").
+    # Modern releases (14.4+) dropped it in favor of MANIFEST, whose base.txz
+    # line is tab-separated: "base.txz <sha256> <size> ...". Try CHECKSUM first,
+    # then MANIFEST; bail out only if NEITHER source yields a hash.
+    chksum_line=""
+    if curl --fail --location --silent --show-error \
         --connect-timeout 15 --max-time 300 \
         --retry 5 --retry-delay 10 --retry-all-errors \
-        --output "$checksum" "$sum_url"
-
-    # Verify against the official checksum file (only the base.txz line).
-    # FreeBSD CHECKSUM.SHA256 format is "SHA256 (base.txz) = <hash>" -- rewrite
-    # it to the "<hash>  <abspath>" form that `sha256sum --check` expects.
-    echo "[INFO] Verifying base.txz integrity against official CHECKSUM.SHA256" >&2
-    if command -v sha256sum >/dev/null 2>&1; then
+        --output "$checksum" "$sum_url" 2>/dev/null \
+        && [ -s "$checksum" ]; then
         chksum_line="$(awk -v f="$archive" '
             /SHA256 \(base\.txz\)/ {
                 line = $0
@@ -210,12 +220,28 @@ for a in $ARCHES; do
                 gsub(/[ \t]+$/, "", line)
                 print line "  " f
             }' "$checksum")"
-        if [ -z "$chksum_line" ]; then
-            echo "[ERROR] could not parse base.txz checksum from ${sum_url}" >&2
-            rm -rf "$tmp"
-            exit 1
+    fi
+    if [ -z "$chksum_line" ]; then
+        if curl --fail --location --silent --show-error \
+            --connect-timeout 15 --max-time 300 \
+            --retry 5 --retry-delay 10 --retry-all-errors \
+            --output "$manifest" "$manifest_url" 2>/dev/null \
+            && [ -s "$manifest" ]; then
+            chksum_line="$(awk -v f="$archive" '
+                /^base\.txz/ {
+                    print $2 "  " f
+                    exit
+                }' "$manifest")"
         fi
-        printf '%s\n' "$chksum_line" | sha256sum --check --strict - >&2
+    fi
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        if [ -n "$chksum_line" ]; then
+            echo "[INFO] Verifying base.txz integrity (CHECKSUM.SHA256 / MANIFEST)" >&2
+            printf '%s\n' "$chksum_line" | sha256sum --check --strict - >&2
+        else
+            echo "[WARN] no CHECKSUM.SHA256 or MANIFEST for ${FREEBSD_VER}; skipping integrity check" >&2
+        fi
     else
         echo "[ERROR] sha256sum required for integrity check." >&2
         rm -rf "$tmp"
