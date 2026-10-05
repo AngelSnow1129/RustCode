@@ -629,7 +629,7 @@ enum RunAttempt {
 
 /// `rustcode schedule run <id>` — the OS scheduler's and the user's entry point.
 async fn run_task(id: &str) -> Result<i32> {
-    match run_task_with(id, RunTrigger::Manual).await? {
+    match run_task_with(id, RunTrigger::Manual, true).await? {
         RunAttempt::Ran(code) => Ok(code),
         RunAttempt::Busy => {
             println!("{}", t(Msg::CliSchedTickBusy { id }));
@@ -638,7 +638,7 @@ async fn run_task(id: &str) -> Result<i32> {
     }
 }
 
-async fn run_task_with(id: &str, trigger: RunTrigger) -> Result<RunAttempt> {
+async fn run_task_with(id: &str, trigger: RunTrigger, cascade: bool) -> Result<RunAttempt> {
     use rustcode_capabilities::session::manager::SessionOrigin;
     use rustcode_capabilities::session::SessionManager;
     use rustcode_coding::ProviderBootstrap;
@@ -840,7 +840,47 @@ async fn run_task_with(id: &str, trigger: RunTrigger) -> Result<RunAttempt> {
     record.summary = summary_from_capture(captured.as_deref());
     let _ = schedule::save_run(&task.id, &record);
 
+    // P2.5 event triggers: a successful run emits an event named after this
+    // task's id. Every task whose `triggers` lists that id is fired now, and the
+    // cascade continues through their successes. `cascade_fire` is bounded by a
+    // `visited` set -- a trigger cycle (`A` triggers `B` triggers `A`) can never
+    // loop forever -- and it is not async-recursive (which the compiler forbids):
+    // each child is run with `cascade = false`, so this loop is the only thing
+    // that drives the cascade.
+    if record.status == RunStatus::Success && cascade {
+        cascade_fire(&task.id).await;
+    }
+
     Ok(RunAttempt::Ran(exit_code))
+}
+
+/// P2.5: fire every task triggered by `root_id`'s success, then keep firing the
+/// tasks triggered by *their* successes, and so on.
+///
+/// The cascade is safe without async recursion (the compiler forbids a recursive
+/// `async fn`):
+/// * a single bounded `visited` set is threaded through the whole cascade, so a
+///   trigger cycle terminates instead of looping;
+/// * each child is run with `cascade = false`, i.e. the child itself never fires
+///   -- this loop is the sole driver, so there is exactly one worklist.
+async fn cascade_fire(root_id: &str) {
+    let mut frontier: Vec<String> = vec![root_id.to_string()];
+    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+    visited.insert(root_id.to_string());
+    while let Some(completed) = frontier.pop() {
+        for dep in schedule::tasks_triggered_by(&schedule::list(), &completed) {
+            if !visited.insert(dep.id.clone()) {
+                continue;
+            }
+            // Only successful runs propagate; `cascade = false` keeps the
+            // cascade single-threaded through this loop.
+            if let Ok(RunAttempt::Ran(0)) =
+                run_task_with(&dep.id, RunTrigger::Event, false).await
+            {
+                frontier.push(dep.id.clone());
+            }
+        }
+    }
 }
 
 // ── Tick (P2) ─────────────────────────────────────────────────────────────────
@@ -895,7 +935,7 @@ async fn tick_once() -> Result<i32> {
         // the next one. No-ops while a live runner holds the lock.
         let _ = schedule::reap_stale_running(&task.id, now);
 
-        match run_task_with(&task.id, RunTrigger::Daemon).await? {
+        match run_task_with(&task.id, RunTrigger::Daemon, true).await? {
             RunAttempt::Ran(code) => {
                 if code != 0 {
                     failed = true;
