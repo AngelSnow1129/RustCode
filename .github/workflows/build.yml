@@ -1,7 +1,7 @@
 name: build
 
-# 路径 B：在 GitHub Actions 上按 Tag 触发，构建 macOS / Linux / Windows 三个平台
-# （每平台 2 架构，共 6 个二进制），统一创建 GitHub Release 并上传全部产物
+# 路径 B：在 GitHub Actions 上按 Tag 触发，构建 macOS / Linux / Windows / FreeBSD
+# 四个平台（每平台 2 架构，共 8 个二进制），统一创建 GitHub Release 并上传全部产物
 # （零自定义 Secret，用默认 GITHUB_TOKEN + permissions: contents: write）。
 #
 # 原 GitCode 上传逻辑保留为「可选冗余」：仅当仓库配置了 RUSTCODE_RELEASE_ACCESS_TOKEN
@@ -18,7 +18,7 @@ name: build
 #   - github-release 的 if 另外带 !cancelled()：作业级 if 只写业务条件时会隐式
 #     叠加 success()，任一构建 job 失败仍会静默跳过；带上它才能让构建不全时
 #     仍然执行到产物守卫，把缺失平台变成显式失败。
-#   - 发布前有产物守卫：6 个期望产物缺任一即显式失败，不再静默跳过。
+#   - 发布前有产物守卫：8 个期望产物缺任一即显式失败，不再静默跳过。
 
 on:
   push:
@@ -281,8 +281,90 @@ jobs:
             --target-commitish="${GITHUB_SHA}" \
             --access-token="${RUSTCODE_RELEASE_ACCESS_TOKEN}"
 
+  build-freebsd:
+    runs-on: ubuntu-latest
+    # GitCode 冗余发布凭据（见 build-macos 说明）。
+    env:
+      RUSTCODE_RELEASE_ACCESS_TOKEN: ${{ secrets.RUSTCODE_RELEASE_ACCESS_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node (build embedded webui)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build webui
+        run: |
+          cd webui && npm ci && npm run build && cd ..
+
+      # Artifact-name single source of truth (see the action for the rationale).
+      - uses: ./.github/actions/resolve-release-tag
+
+      - name: Install FreeBSD cross toolchain
+        run: |
+          # Host clang + lld do the cross compilation; xz-utils unpacks the
+          # FreeBSD base tarball used as the sysroot. The sysroot + linker env
+          # are provisioned by the script below (single source of truth, also
+          # consumed by scripts/release.sh).
+          sudo apt-get update
+          sudo apt-get install -y clang lld xz-utils
+          bash scripts/install-freebsd-cross.sh --github-env
+
+      - name: Add FreeBSD targets
+        run: |
+          rustup target add x86_64-unknown-freebsd
+          rustup target add aarch64-unknown-freebsd
+
+      - name: Build (CLI embeds webui via rustcode-daemon)
+        run: |
+          cargo build --release -p rustcode --target x86_64-unknown-freebsd
+          cargo build --release -p rustcode --target aarch64-unknown-freebsd
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/x86_64-unknown-freebsd/release/rustcode dist/rustcode-${TAG_NAME}-freebsd-x64
+          cp target/aarch64-unknown-freebsd/release/rustcode dist/rustcode-${TAG_NAME}-freebsd-arm64
+          chmod +x dist/*
+          # Host strip handles FreeBSD ELF; never fail the build on a strip miss.
+          strip dist/rustcode-${TAG_NAME}-freebsd-x64 || true
+          strip dist/rustcode-${TAG_NAME}-freebsd-arm64 || true
+          tar -czf dist/rustcode-${TAG_NAME}-freebsd-x64.tar.gz -C dist rustcode-${TAG_NAME}-freebsd-x64
+          tar -czf dist/rustcode-${TAG_NAME}-freebsd-arm64.tar.gz -C dist rustcode-${TAG_NAME}-freebsd-arm64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: freebsd
+          # 裸二进制与 install.sh 的下载路径同名同格式（FreeBSD 无 .exe）。
+          path: |
+            dist/*.tar.gz
+            dist/rustcode-*-freebsd-x64
+            dist/rustcode-*-freebsd-arm64
+
+      - name: Upload to GitCode (optional; needs secret, tag or publish=true)
+        if: ${{ (github.ref_type == 'tag' || inputs.publish == true) && env.RUSTCODE_RELEASE_ACCESS_TOKEN != '' }}
+        run: |
+          python3 .github/workflows/create_tag_release.py \
+            --tag-name=${TAG_NAME} \
+            --file-name=rustcode-${TAG_NAME}-freebsd-x64 \
+            --file-path=dist/rustcode-${TAG_NAME}-freebsd-x64 \
+            --target-commitish="${GITHUB_SHA}" \
+            --access-token="${RUSTCODE_RELEASE_ACCESS_TOKEN}"
+          python3 .github/workflows/create_tag_release.py \
+            --tag-name=${TAG_NAME} \
+            --file-name=rustcode-${TAG_NAME}-freebsd-arm64 \
+            --file-path=dist/rustcode-${TAG_NAME}-freebsd-arm64 \
+            --target-commitish="${GITHUB_SHA}" \
+            --access-token="${RUSTCODE_RELEASE_ACCESS_TOKEN}"
+
   github-release:
-    needs: [build-macos, build-linux, build-windows]
+    needs: [build-macos, build-linux, build-windows, build-freebsd]
     # 发布判据与 GitCode 上传步骤共享同一条谓词：tag 推送必然发布，手动触发需显式
     # 勾 publish=true。**必须带 !cancelled()**：作业级 if 只写业务条件时会隐式叠加
     # success()，任一 build job 失败就又变成「静默跳过」——那正是本次要修的病灶。
@@ -313,7 +395,7 @@ jobs:
 
       # 产物守卫：把「缺平台的静默 skip」变成显式失败。刻意不加 continue-on-error
       # ——宁可红着失败，也不发布一个缺平台的 Release。
-      - name: Verify all 6 expected artifacts
+      - name: Verify all 8 expected artifacts
         run: |
           set -eu
           missing=0
@@ -323,7 +405,9 @@ jobs:
             "rustcode-${TAG_NAME}-linux-x64" \
             "rustcode-${TAG_NAME}-linux-arm64" \
             "rustcode-${TAG_NAME}-windows-x64.exe" \
-            "rustcode-${TAG_NAME}-windows-arm64.exe"; do
+            "rustcode-${TAG_NAME}-windows-arm64.exe" \
+            "rustcode-${TAG_NAME}-freebsd-x64" \
+            "rustcode-${TAG_NAME}-freebsd-arm64"; do
             if [ -f "artifacts/$f" ]; then
               echo "[OK] $f"
             else

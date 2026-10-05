@@ -75,7 +75,7 @@ detect_target_tag() {
     local os="${rest%%-*}"
     local arch="${rest#"$os"-}"
     case "$os" in
-        darwin|linux|ohos|windows) ;;
+        darwin|linux|ohos|windows|freebsd) ;;
         *) return 1 ;;
     esac
     case "$arch" in
@@ -289,6 +289,8 @@ self_test() {
     # Fake binaries (real ELF-ish bytes; not HTML, non-empty).
     printf 'ELF\x01\x00\x00\x00' > "$fake_dist/rustcode-v1.0.0-linux-x64"
     printf 'ELF\x01\x00\x00\x00' > "$fake_dist/rustcode-daemon-v1.0.0-linux-x64"
+    # FreeBSD must be recognized as a valid target (no .exe, ELF-like).
+    printf 'ELF\x01\x00\x00\x00' > "$fake_dist/rustcode-v1.0.0-freebsd-x64"
 
     publish_release "$fake_dist" "v1.0.0" "dev" || { echo "SELF-TEST FAIL: publish v1.0.0"; return 1; }
 
@@ -300,6 +302,7 @@ self_test() {
 
     [ -f "$RELEASE_PUBLISH_ROOT/release/v1.0.0/rustcode-v1.0.0-linux-x64" ] || { echo "SELF-TEST FAIL: linux clobbered"; return 1; }
     [ -f "$RELEASE_PUBLISH_ROOT/release/v1.0.0/rustcode-v1.0.0-windows-x64.exe" ] || { echo "SELF-TEST FAIL: windows missing"; return 1; }
+    [ -f "$RELEASE_PUBLISH_ROOT/release/v1.0.0/rustcode-v1.0.0-freebsd-x64" ] || { echo "SELF-TEST FAIL: freebsd not published"; return 1; }
 
     # Reject an invalid (HTML) binary — must not be published.
     local fake_dist3="$tmp/dist3"

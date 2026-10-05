@@ -71,6 +71,7 @@ ext=""  # binary filename suffix; ".exe" on Windows shells (set below)
 case "$uname_s" in
     Darwin) os="darwin" ;;
     Linux)  os="linux"  ;;
+    FreeBSD) os="freebsd" ;;
     HarmonyOS) os="ohos" ;;
     # MSYS2 / MinGW / Git-Bash / Cygwin: a Unix shell running ON Windows. `uname -s` looks
     # like MSYS_NT-10.0-26100 / MINGW64_NT-... / CYGWIN_NT-.... Install the native Windows

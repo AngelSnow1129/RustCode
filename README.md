@@ -24,12 +24,12 @@
   <img src="https://img.shields.io/badge/version-6.0.0-blue" alt="version">
   <img src="https://img.shields.io/badge/rust-1.88%2B-orange" alt="rust">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20HarmonyOS%20PC%20%7C%20Windows-lightgrey" alt="platform">
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20HarmonyOS%20PC%20%7C%20Windows%20%7C%20FreeBSD-lightgrey" alt="platform">
 </p>
 
 <h3 align="center">一键安装</h3>
 
-macOS / Linux / HarmonyOS PC（自动检测系统与架构）：
+macOS / Linux / HarmonyOS PC / FreeBSD（自动检测系统与架构）：
 
 ```bash
 curl -fsSL https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.sh?ref=dev | sh
@@ -243,6 +243,8 @@ PowerShell 侧同名参数为 `-Url` / `-Key` / `-Model` / `-Provider`。
 | `windows-x64.exe` | `x86_64-pc-windows-gnu` | Windows 10 / 11 x64 |
 | `darwin-x64` | `x86_64-apple-darwin` | Intel Mac(GitHub Actions 构建) |
 | `darwin-arm64` | `aarch64-apple-darwin` | Apple Silicon(GitHub Actions 构建) |
+| `freebsd-x64` | `x86_64-unknown-freebsd` | FreeBSD 13+ x64(GitHub Actions 交叉编译) |
+| `freebsd-arm64` | `aarch64-unknown-freebsd` | FreeBSD 13+ ARM64(GitHub Actions 交叉编译) |
 
 每个 Release 还附带 `sha256sums.txt` 校验文件。下载后建议校验:
 
@@ -312,15 +314,17 @@ scripts/build-webui.sh
 # 构建全部默认 target(linux-x64 / linux-arm64 / windows-x64):
 scripts/cross-build.sh
 
-# 或只构建单个 target:
+# 或只构建单个 target(FreeBSD 交叉编译需先下载 FreeBSD base 作为 sysroot):
 scripts/cross-build.sh linux-arm64
+scripts/cross-build.sh freebsd-x64
 
 # 产物输出到 dist/v<version>/,含 sha256sums.txt
 ```
 
 macOS 资产需在 macOS 上原生构建,使用 `scripts/macos-release-linux.sh`(Intel)或
 `scripts/macos-release-windows.sh`(Apple Silicon),或通过 GitHub Actions 的
-`macos-latest` runner。
+`macos-latest` runner。FreeBSD 资产由 GitHub Actions 在 `ubuntu-latest` 上交叉
+编译(工具链由 `scripts/install-freebsd-cross.sh` 提供)。
 
 ### 关于曾经可选的托管网关（已于 2026-09-09 移除）
 

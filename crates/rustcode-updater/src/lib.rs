@@ -183,6 +183,8 @@ fn target_tag(os: &str, arch: &str) -> Option<&'static str> {
         ("linux", "aarch64") => Some("linux-arm64"),
         ("windows", "x86_64") => Some("windows-x64"),
         ("windows", "aarch64") => Some("windows-arm64"),
+        ("freebsd", "x86_64") => Some("freebsd-x64"),
+        ("freebsd", "aarch64") => Some("freebsd-arm64"),
         _ => None,
     }
 }
@@ -1349,6 +1351,8 @@ mod tests {
         assert_eq!(target_tag("linux", "aarch64"), Some("linux-arm64"));
         assert_eq!(target_tag("windows", "x86_64"), Some("windows-x64"));
         assert_eq!(target_tag("windows", "aarch64"), Some("windows-arm64"));
+        assert_eq!(target_tag("freebsd", "x86_64"), Some("freebsd-x64"));
+        assert_eq!(target_tag("freebsd", "aarch64"), Some("freebsd-arm64"));
         assert_eq!(target_tag("linux", "arm"), None);
     }
 

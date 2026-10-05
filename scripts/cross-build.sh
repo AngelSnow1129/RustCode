@@ -9,6 +9,8 @@
 #   linux-x64       x86_64-unknown-linux-musl    (musl-gcc, static)
 #   linux-arm64     aarch64-unknown-linux-musl   (pinned musl cross gcc, static)
 #   windows-x64     x86_64-pc-windows-gnu        (x86_64-w64-mingw32-gcc, cross)
+#   freebsd-x64     x86_64-unknown-freebsd       (FreeBSD base sysroot + clang/lld)
+#   freebsd-arm64   aarch64-unknown-freebsd      (FreeBSD base sysroot + clang/lld)
 #
 # macOS targets (aarch64/x86_64-apple-darwin) require a native macOS runner
 # (or osxcross + proprietary SDK) and are intentionally NOT built here —
@@ -52,6 +54,13 @@ ALL_TARGETS=(
     # also exports the linker / cc / ar paths, hence the empty LINKER_ENV here.
     "linux-arm64|aarch64-unknown-linux-musl||aarch64-unknown-linux-musl-strip|eval \"\$(bash '${SCRIPT_DIR}/install-musl-cross.sh')\""
     "windows-x64|x86_64-pc-windows-gnu|CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc|x86_64-w64-mingw32-strip|sudo apt-get update && sudo apt-get install -y mingw-w64"
+    # FreeBSD has no distro cross compiler on Linux; scripts/install-freebsd-cross.sh
+    # downloads the official FreeBSD base tarball as a sysroot and drives host
+    # clang + ld.lld in cross mode. It exports RUSTCODE_FREEBSD_SYSROOT +
+    # CARGO_TARGET_*_LINKER + CC_*, hence the empty LINKER_ENV here. No FreeBSD
+    # strip on the Linux host, so STRIP_TOOL is empty (stripping is skipped).
+    "freebsd-x64|x86_64-unknown-freebsd||x86_64-unknown-freebsd-strip|eval \"\$(bash '${SCRIPT_DIR}/install-freebsd-cross.sh')\""
+    "freebsd-arm64|aarch64-unknown-freebsd||aarch64-unknown-freebsd-strip|eval \"\$(bash '${SCRIPT_DIR}/install-freebsd-cross.sh')\""
 )
 
 # ── Select targets ─────────────────────────────────────────────────────────
@@ -97,7 +106,7 @@ for REQUEST in $REQUESTED; do
     done
     if [ -z "$ENTRY" ]; then
         echo "[ERROR] Unknown target: ${REQUEST}" >&2
-        echo "  Available: linux-x64 linux-arm64 windows-x64" >&2
+        echo "  Available: linux-x64 linux-arm64 windows-x64 freebsd-x64 freebsd-arm64" >&2
         exit 1
     fi
 

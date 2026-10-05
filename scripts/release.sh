@@ -93,7 +93,7 @@ copy_daemon() {
 
 # --- macOS ARM (Apple Silicon) ---
 TARGET_ARM="aarch64-apple-darwin"
-echo "[1/6] Building ${TARGET_ARM}..."
+echo "[1/8] Building ${TARGET_ARM}..."
 rustup target add "$TARGET_ARM" 2>/dev/null || true
 cargo build --release --target "$TARGET_ARM" "${CARGO_PKG_ARGS[@]}"
 cp "target/${TARGET_ARM}/release/rustcode" "${DIST}/rustcode-${VERSION}-darwin-arm64"
@@ -102,7 +102,7 @@ copy_daemon "target/${TARGET_ARM}/release/rustcode-daemon" "${DIST}/rustcode-dae
 
 # --- macOS Intel ---
 TARGET_X86="x86_64-apple-darwin"
-echo "[2/6] Building ${TARGET_X86}..."
+echo "[2/8] Building ${TARGET_X86}..."
 rustup target add "$TARGET_X86" 2>/dev/null || true
 cargo build --release --target "$TARGET_X86" "${CARGO_PKG_ARGS[@]}"
 cp "target/${TARGET_X86}/release/rustcode" "${DIST}/rustcode-${VERSION}-darwin-x64"
@@ -111,7 +111,7 @@ copy_daemon "target/${TARGET_X86}/release/rustcode-daemon" "${DIST}/rustcode-dae
 
 # --- Linux x64 (cross-compile with musl) ---
 TARGET_LINUX="x86_64-unknown-linux-musl"
-echo "[3/6] Building ${TARGET_LINUX}..."
+echo "[3/8] Building ${TARGET_LINUX}..."
 rustup target add "$TARGET_LINUX" 2>/dev/null || true
 if command -v x86_64-linux-musl-gcc &>/dev/null; then
     export CC_x86_64_unknown_linux_musl=x86_64-linux-musl-gcc
@@ -126,7 +126,7 @@ fi
 
 # --- Linux ARM64 (cross-compile with musl) ---
 TARGET_LINUX_ARM="aarch64-unknown-linux-musl"
-echo "[4/6] Building ${TARGET_LINUX_ARM}..."
+echo "[4/8] Building ${TARGET_LINUX_ARM}..."
 rustup target add "$TARGET_LINUX_ARM" 2>/dev/null || true
 if command -v aarch64-linux-musl-gcc &>/dev/null; then
     export CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc
@@ -141,7 +141,7 @@ fi
 
 # --- Windows x64 (cross-compile) ---
 TARGET_WIN="x86_64-pc-windows-gnu"
-echo "[5/6] Building ${TARGET_WIN}..."
+echo "[5/8] Building ${TARGET_WIN}..."
 rustup target add "$TARGET_WIN" 2>/dev/null || true
 if command -v x86_64-w64-mingw32-gcc &>/dev/null; then
     cargo build --release --target "$TARGET_WIN" "${CARGO_PKG_ARGS[@]}"
@@ -154,7 +154,7 @@ fi
 
 # --- Windows ARM64 (cross-compile) ---
 TARGET_WIN_ARM="aarch64-pc-windows-gnullvm"
-echo "[6/6] Building ${TARGET_WIN_ARM}..."
+echo "[6/8] Building ${TARGET_WIN_ARM}..."
 rustup target add "$TARGET_WIN_ARM" 2>/dev/null || true
 if command -v aarch64-w64-mingw32-gcc &>/dev/null; then
     cargo build --release --target "$TARGET_WIN_ARM" "${CARGO_PKG_ARGS[@]}"
@@ -163,6 +163,38 @@ if command -v aarch64-w64-mingw32-gcc &>/dev/null; then
     copy_daemon "target/${TARGET_WIN_ARM}/release/rustcode-daemon" "${DIST}/rustcode-daemon-${VERSION}-windows-arm64" ".exe"
 else
     echo "  !! Skipped: llvm-mingw not installed (brew install llvm-mingw or see https://github.com/mstorsjo/llvm-mingw)"
+fi
+
+# --- FreeBSD x64 (cross-compile) ---
+# Requires a FreeBSD cross toolchain: a sysroot + linker. `scripts/install-freebsd-cross.sh`
+# downloads the FreeBSD base tarball as a sysroot and configures the linker, exporting
+# RUSTCODE_FREEBSD_SYSROOT + CARGO_TARGET_*_UNKNOWN_FREEBSD_LINKER. If those are absent we
+# skip (mirrors the musl / mingw conditional-skip so a host without the toolchain still builds).
+TARGET_FBSD="x86_64-unknown-freebsd"
+echo "[7/8] Building ${TARGET_FBSD}..."
+rustup target add "$TARGET_FBSD" 2>/dev/null || true
+if [ -n "${RUSTCODE_FREEBSD_SYSROOT:-}" ] \
+    && command -v "${CARGO_TARGET_X86_64_UNKNOWN_FREEBSD_LINKER:-x86_64-unknown-freebsd-gcc}" >/dev/null 2>&1; then
+    cargo build --release --target "$TARGET_FBSD" "${CARGO_PKG_ARGS[@]}"
+    cp "target/${TARGET_FBSD}/release/rustcode" "${DIST}/rustcode-${VERSION}-freebsd-x64"
+    echo "  -> ${DIST}/rustcode-${VERSION}-freebsd-x64"
+    copy_daemon "target/${TARGET_FBSD}/release/rustcode-daemon" "${DIST}/rustcode-daemon-${VERSION}-freebsd-x64" ""
+else
+    echo "  !! Skipped: FreeBSD cross toolchain not installed (run scripts/install-freebsd-cross.sh)"
+fi
+
+# --- FreeBSD ARM64 (cross-compile) ---
+TARGET_FBSD_ARM="aarch64-unknown-freebsd"
+echo "[8/8] Building ${TARGET_FBSD_ARM}..."
+rustup target add "$TARGET_FBSD_ARM" 2>/dev/null || true
+if [ -n "${RUSTCODE_FREEBSD_SYSROOT:-}" ] \
+    && command -v "${CARGO_TARGET_AARCH64_UNKNOWN_FREEBSD_LINKER:-aarch64-unknown-freebsd-gcc}" >/dev/null 2>&1; then
+    cargo build --release --target "$TARGET_FBSD_ARM" "${CARGO_PKG_ARGS[@]}"
+    cp "target/${TARGET_FBSD_ARM}/release/rustcode" "${DIST}/rustcode-${VERSION}-freebsd-arm64"
+    echo "  -> ${DIST}/rustcode-${VERSION}-freebsd-arm64"
+    copy_daemon "target/${TARGET_FBSD_ARM}/release/rustcode-daemon" "${DIST}/rustcode-daemon-${VERSION}-freebsd-arm64" ""
+else
+    echo "  !! Skipped: FreeBSD cross toolchain not installed (run scripts/install-freebsd-cross.sh)"
 fi
 
 # --- Sign macOS rustcode binaries (skip with RUSTCODE_SKIP_SIGN=1) ---
@@ -234,7 +266,9 @@ emit_entry() {
         "linux-arm64:rustcode-${VERSION}-linux-arm64" \
         "ohos-arm64:rustcode-${VERSION}-ohos-arm64" \
         "windows-x64:rustcode-${VERSION}-windows-x64.exe" \
-        "windows-arm64:rustcode-${VERSION}-windows-arm64.exe"
+        "windows-arm64:rustcode-${VERSION}-windows-arm64.exe" \
+        "freebsd-x64:rustcode-${VERSION}-freebsd-x64" \
+        "freebsd-arm64:rustcode-${VERSION}-freebsd-arm64"
     do
         target="${pair%%:*}"
         file="${pair#*:}"
