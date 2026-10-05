@@ -143,6 +143,141 @@ pub fn remove(id: &str) -> std::io::Result<()> {
     remove_in(&schedules_root(), id)
 }
 
+// ─────────────────────────── wakeup registry (P3) ───────────────────────────
+//
+// Persists "the next execution intent" so a `schedule_wakeup` survives a process
+// restart. Unlike the in-process `tokio::spawn` timer (the fast path in
+// `runtime.rs`), a registered wakeup is durable: on restart the daemon tick
+// claims due wakeups and fires them as runs. Lives under
+// `<schedules_root>/wakeups/<id>.json`, a sibling of the schedule/run/im trees,
+// reusing the same `valid_id` guard and file layout as tasks.
+
+pub fn wakeups_root() -> std::path::PathBuf {
+    schedules_root().join("wakeups")
+}
+
+/// A persisted "resume the loop with this prompt at/after `due_at`" intent.
+///
+/// `due_at` is an absolute epoch-seconds timestamp (NOT a relative delay): a
+/// relative delay is meaningless once the process exits, whereas `due_at`
+/// compares directly against wall-clock time on recovery. `generation` binds the
+/// wakeup to the runtime generation that created it so a stale wakeup from a
+/// replaced runtime can be dropped without side effects (see design §6).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ScheduledWakeup {
+    pub id: String,
+    /// Task this wakeup is tied to (P3). `None` when the wakeup was produced
+    /// outside a `schedule_task`-driven `/loop` (or before the `task_id`
+    /// injection chain was wired); such wakeups degrade to consume-only on
+    /// redemption (cannot start a run without a task context).
+    #[serde(default)]
+    pub task_id: Option<String>,
+    pub due_at: i64,
+    pub prompt: String,
+    pub reason: String,
+    pub created_at: i64,
+    #[serde(default)]
+    pub generation: Option<u64>,
+    #[serde(default)]
+    pub consumed: bool,
+}
+
+/// Mint a directory-safe id for a wakeup (lexical order tracks creation order),
+/// mirroring [`mint_run_id`].
+pub fn mint_wakeup_id(started_at_epoch_secs: i64, subsec_nanos: u32) -> String {
+    format!("{started_at_epoch_secs}-{subsec_nanos:09}")
+}
+
+/// Persist a wakeup. `wakeup.id` must pass [`valid_id`]; callers mint it via
+/// [`mint_wakeup_id`]. Best-effort like the rest of the store: a failure here
+/// must never fail the turn that scheduled the wakeup.
+pub fn register_wakeup(wakeup: &ScheduledWakeup) -> std::io::Result<()> {
+    register_wakeup_in(&wakeups_root(), wakeup)
+}
+
+fn register_wakeup_in(root: &std::path::Path, wakeup: &ScheduledWakeup) -> std::io::Result<()> {
+    let path = task_path_in(root, &wakeup.id)?;
+    std::fs::create_dir_all(root)?;
+    let bytes = serde_json::to_vec_pretty(wakeup)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(path, bytes)
+}
+
+fn list_wakeups_in(root: &std::path::Path) -> Vec<ScheduledWakeup> {
+    let mut out = Vec::new();
+    let Ok(rd) = std::fs::read_dir(root) else {
+        return out;
+    };
+    for entry in rd.flatten() {
+        let p = entry.path();
+        if p.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        if let Ok(bytes) = std::fs::read(&p) {
+            if let Ok(w) = serde_json::from_slice::<ScheduledWakeup>(&bytes) {
+                out.push(w); // corrupt files are skipped
+            }
+        }
+    }
+    out.sort_by_key(|w| w.created_at);
+    out
+}
+
+/// Wakeups whose `due_at` has arrived and that are not yet consumed. The caller
+/// decides whether to fire them (subject to the catch-up window) and must call
+/// [`consume_wakeup`] after a successful fire to guarantee exactly-once delivery
+/// across concurrent ticks (defense in depth on top of the run ledger's
+/// single-flight lock).
+pub fn claim_due_wakeups(now_epoch_secs: i64) -> Vec<ScheduledWakeup> {
+    list_wakeups_in(&wakeups_root())
+        .into_iter()
+        .filter(|w| !w.consumed && w.due_at <= now_epoch_secs)
+        .collect()
+}
+
+/// Every registered wakeup (consumed or not), for status display and recovery.
+pub fn list_wakeups() -> Vec<ScheduledWakeup> {
+    list_wakeups_in(&wakeups_root())
+}
+
+/// Mark a wakeup consumed (single delivery). Best-effort: a missing/corrupt file
+/// is treated as already-consumed and reported as success so a tick never loops
+/// on a dead entry.
+pub fn consume_wakeup(id: &str) -> std::io::Result<()> {
+    consume_wakeup_in(&wakeups_root(), id)
+}
+
+fn consume_wakeup_in(root: &std::path::Path, id: &str) -> std::io::Result<()> {
+    let bytes = match std::fs::read(task_path_in(root, id)?) {
+        Ok(b) => b,
+        Err(_) => return Ok(()),
+    };
+    let mut w: ScheduledWakeup = match serde_json::from_slice(&bytes) {
+        Ok(w) => w,
+        Err(_) => return Ok(()),
+    };
+    if w.consumed {
+        return Ok(());
+    }
+    w.consumed = true;
+    let path = task_path_in(root, id)?;
+    let bytes = serde_json::to_vec_pretty(&w)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(path, bytes)
+}
+
+/// Best-effort cleanup: drop consumed wakeups older than `older_than_epoch_secs`
+/// so the registry does not grow without bound. Never fails the caller.
+pub fn prune_wakeups(older_than_epoch_secs: i64) -> std::io::Result<()> {
+    let root = wakeups_root();
+    for w in list_wakeups_in(&root) {
+        if w.consumed && w.due_at < older_than_epoch_secs {
+            let _ = remove_in(&root, &w.id);
+        }
+    }
+    Ok(())
+}
+
 // ─────────────────────────── run ledger (P1) ───────────────────────────
 
 /// How many run records a task keeps by default when nothing else is configured.
@@ -202,6 +337,9 @@ pub enum RunTrigger {
     /// Fired because a named event reached a task through the dependency graph
     /// (P2.5), rather than because its own schedule came due.
     Event,
+    /// Fired by a persisted wakeup registry entry coming due (P3), rather than
+    /// by the task's own schedule, an event, or a manual/daemon invocation.
+    Wakeup,
 }
 
 /// One run of one task, persisted under `<task-id>/runs/<run_id>.json`.
@@ -1837,4 +1975,180 @@ mod graph_tests {
             .collect();
         assert_eq!(due, vec!["a".to_string()], "a failed dependency must still hold `b`");
     }
+}
+
+#[test]
+fn wakeup_register_claim_and_consume() {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let id_due = mint_wakeup_id(now, 1);
+    let id_future = mint_wakeup_id(now, 2);
+
+    register_wakeup(&ScheduledWakeup {
+        id: id_due.clone(),
+        task_id: None,
+        due_at: now - 10,
+        prompt: "resume".into(),
+        reason: "r".into(),
+        created_at: now,
+        generation: None,
+        consumed: false,
+    })
+    .unwrap();
+    register_wakeup(&ScheduledWakeup {
+        id: id_future.clone(),
+        task_id: None,
+        due_at: now + 10_000,
+        prompt: "later".into(),
+        reason: "r".into(),
+        created_at: now,
+        generation: None,
+        consumed: false,
+    })
+    .unwrap();
+
+    // A path-escape id must be rejected (valid_id guard), exactly like tasks.
+    let escaped = register_wakeup(&ScheduledWakeup {
+        id: "../escape".into(),
+        task_id: None,
+        due_at: now,
+        prompt: String::new(),
+        reason: String::new(),
+        created_at: now,
+        generation: None,
+        consumed: false,
+    });
+    assert!(escaped.is_err(), "wakeup id must not escape the wakeups dir");
+
+    // Only the due (not the future) wakeup is claimed.
+    let due: Vec<String> = claim_due_wakeups(now).into_iter().map(|w| w.id).collect();
+    assert!(due.contains(&id_due), "due wakeup must be claimable");
+    assert!(!due.contains(&id_future), "future wakeup must not be claimable yet");
+
+    // Consuming makes it disappear from the due set (exactly-once).
+    consume_wakeup(&id_due).unwrap();
+    let due2: Vec<String> = claim_due_wakeups(now).into_iter().map(|w| w.id).collect();
+    assert!(
+        !due2.contains(&id_due),
+        "consumed wakeup must not be re-claimed"
+    );
+    // Idempotent: consuming again is a no-op, not an error.
+    consume_wakeup(&id_due).unwrap();
+}
+
+#[test]
+fn wakeup_survives_process_restart() {
+    // The registry is file-backed with no in-memory cache, so a brand-new
+    // reader (simulating a process restart) must observe wakeups persisted by a
+    // previous "process". This is the P3 cross-restart durability guarantee.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let root = std::env::temp_dir().join(format!("rc_wakeup_rt_{}", mint_wakeup_id(now, 7)));
+    let _ = std::fs::create_dir_all(&root);
+
+    let due_id = mint_wakeup_id(now, 8);
+    let future_id = mint_wakeup_id(now, 9);
+    register_wakeup_in(
+        &root,
+        &ScheduledWakeup {
+            id: due_id.clone(),
+            task_id: None,
+            due_at: now - 5,
+            prompt: "resume".into(),
+            reason: "r".into(),
+            created_at: now,
+            generation: None,
+            consumed: false,
+        },
+    )
+    .unwrap();
+    register_wakeup_in(
+        &root,
+        &ScheduledWakeup {
+            id: future_id.clone(),
+            task_id: None,
+            due_at: now + 10_000,
+            prompt: "later".into(),
+            reason: "r".into(),
+            created_at: now,
+            generation: None,
+            consumed: false,
+        },
+    )
+    .unwrap();
+
+    // Fresh reader (a new "process") sees both entries on disk.
+    let all: Vec<String> = list_wakeups_in(&root).into_iter().map(|w| w.id).collect();
+    assert!(all.contains(&due_id), "due wakeup must survive restart");
+    assert!(
+        all.contains(&future_id),
+        "future wakeup must survive restart"
+    );
+
+    // And the due one is claimable by the fresh reader (restart-safe tick).
+    let claimable: Vec<String> = list_wakeups_in(&root)
+        .into_iter()
+        .filter(|w| !w.consumed && w.due_at <= now)
+        .map(|w| w.id)
+        .collect();
+    assert!(claimable.contains(&due_id));
+    assert!(!claimable.contains(&future_id));
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn wakeup_consumed_exactly_once() {
+    // Consuming a wakeup must remove it from the due set so a later tick (or a
+    // concurrent tick) cannot fire it twice. Idempotent re-consume is a no-op.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let root = std::env::temp_dir().join(format!("rc_wakeup_once_{}", mint_wakeup_id(now, 11)));
+    let _ = std::fs::create_dir_all(&root);
+
+    let id = mint_wakeup_id(now, 12);
+    register_wakeup_in(
+        &root,
+        &ScheduledWakeup {
+            id: id.clone(),
+            task_id: None,
+            due_at: now - 1,
+            prompt: "do".into(),
+            reason: "r".into(),
+            created_at: now,
+            generation: None,
+            consumed: false,
+        },
+    )
+    .unwrap();
+
+    let claimable: Vec<String> = list_wakeups_in(&root)
+        .into_iter()
+        .filter(|w| !w.consumed && w.due_at <= now)
+        .map(|w| w.id)
+        .collect();
+    assert!(claimable.contains(&id), "due wakeup must be claimable");
+
+    consume_wakeup_in(&root, &id).unwrap();
+
+    let claimable2: Vec<String> = list_wakeups_in(&root)
+        .into_iter()
+        .filter(|w| !w.consumed && w.due_at <= now)
+        .map(|w| w.id)
+        .collect();
+    assert!(
+        !claimable2.contains(&id),
+        "consumed wakeup must not be re-claimable"
+    );
+
+    // Idempotent: consuming again is a no-op, not an error.
+    consume_wakeup_in(&root, &id).unwrap();
+
+    let _ = std::fs::remove_dir_all(&root);
 }

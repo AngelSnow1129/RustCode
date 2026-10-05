@@ -186,6 +186,7 @@ async fn start_native_runtime_with_session_bootstrap(
         // Installing the same adapter here covers both without double-processing
         // inputs whose images were already stripped upstream.
         image_preprocessor,
+        task_id: None,
     };
     let runtime = match imported_lease {
         Some(lease) => {

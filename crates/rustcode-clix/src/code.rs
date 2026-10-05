@@ -250,6 +250,7 @@ pub async fn code(args: CodeArgs) -> Result<()> {
         ))),
         plugin_hooks: Arc::new(StaticPluginHookSource::default()),
         image_preprocessor: None,
+        task_id: None,
     })
     .await
     .context(t(Msg::ClixRuntimeStartFailed))?;

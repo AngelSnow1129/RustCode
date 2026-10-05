@@ -13,7 +13,7 @@ use rustcode_kernel::message::{Message, Role};
 use rustcode_kernel::provider::{ChatOptions, LlmProvider, ToolChoice};
 use rustcode_kernel::stream::{StreamEvent, TokenUsage};
 use rustcode_kernel::tool::{Tool, ToolContext, ToolResult};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
@@ -97,11 +97,18 @@ pub struct LoopProgress {
     pub last_reason: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WakeupRequest {
     pub delay_seconds: u32,
     pub prompt: String,
     pub reason: String,
+    /// Registry id linking this in-process request to the persisted
+    /// `ScheduledWakeup` (P3). `None` for requests never registered
+    /// (legacy/test paths). When `Some`, the runtime consumes the registry entry
+    /// after the in-process timer fires, so the daemon tick does not fire it
+    /// again (exactly-once across fast-path + tick).
+    #[serde(default)]
+    pub id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -898,11 +905,23 @@ struct WakeupArgs {
 pub(crate) struct ScheduleWakeupTool {
     tx: UnboundedSender<WakeupRequest>,
     active: Arc<AtomicBool>,
+    /// Task this `/loop` belongs to (P3). `None` until the `task_id` injection
+    /// chain (CodingRuntimeStart/RuntimeResources) is wired; populated at
+    /// creation from the runtime's task context.
+    task_id: Option<String>,
 }
 
 impl ScheduleWakeupTool {
-    pub fn new(tx: UnboundedSender<WakeupRequest>, active: Arc<AtomicBool>) -> Self {
-        Self { tx, active }
+    pub fn new(
+        tx: UnboundedSender<WakeupRequest>,
+        active: Arc<AtomicBool>,
+        task_id: Option<String>,
+    ) -> Self {
+        Self {
+            tx,
+            active,
+            task_id,
+        }
     }
 }
 
@@ -938,10 +957,53 @@ impl Tool for ScheduleWakeupTool {
             }
         };
         let delay_seconds = args.delay_seconds.clamp(60, 3600);
+
+        // P3: persist the wakeup so it survives a process restart. The daemon
+        // tick fires due wakeups even when no /loop is active (fixes G3: a
+        // wakeup could previously only "continue" a loop, never start one).
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let wakeup_id = rustcode_config::schedule::mint_wakeup_id(now, nanos);
+        let registered = rustcode_config::schedule::register_wakeup(
+            &rustcode_config::schedule::ScheduledWakeup {
+            id: wakeup_id.clone(),
+            task_id: self.task_id.clone(),
+            due_at: now + delay_seconds as i64,
+            prompt: args.prompt.clone(),
+            reason: args.reason.clone(),
+            created_at: now,
+            generation: None,
+            consumed: false,
+            },
+        )
+        .is_ok();
+
+        if !self.active.load(Ordering::Acquire) {
+            // No active /loop: the tool is still only legal inside a loop, but
+            // instead of erroring we register the intent and let the scheduler
+            // tick fire it (cannot send on an absent loop channel).
+            return ToolResult {
+                call_id: String::new(),
+                content: format!(
+                    "Registered persistent wakeup (due in {delay_seconds}s); no active /loop, so the scheduler tick will fire it.{}",
+                    if registered { "" } else { " (warning: persistence failed)" }
+                ),
+                is_error: false,
+                images: vec![],
+            };
+        }
+
         let request = WakeupRequest {
             delay_seconds,
             prompt: args.prompt,
             reason: args.reason.clone(),
+            id: if registered { Some(wakeup_id) } else { None },
         };
         match self.tx.send(request) {
             Ok(()) => ToolResult {

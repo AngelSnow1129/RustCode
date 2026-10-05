@@ -3271,6 +3271,27 @@ fn execute_slash_command_impl(
                             crate::i18n::t(crate::i18n::Msg::LoopNoActive).into_owned(),
                         ));
                     }
+                    // P3: surface registered persistent wakeups (survive a
+                    // restart; fired by the daemon tick). Read-only + best-effort;
+                    // a missing/empty registry adds no lines.
+                    let pending: Vec<_> = rustcode_config::schedule::list_wakeups()
+                        .into_iter()
+                        .filter(|w| !w.consumed)
+                        .collect();
+                    if !pending.is_empty() {
+                        renderer.render(UiLine::CommandOutput(
+                            crate::i18n::t(crate::i18n::Msg::LoopWakeups {
+                                count: pending.len(),
+                            })
+                            .into_owned(),
+                        ));
+                        for w in &pending {
+                            renderer.render(UiLine::CommandOutput(format!(
+                                "    · {} @ {} — {}\n",
+                                w.prompt, w.due_at, w.reason
+                            )));
+                        }
+                    }
                     renderer.flush();
                 }
                 LoopArg::Stop => {

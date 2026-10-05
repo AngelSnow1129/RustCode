@@ -89,6 +89,7 @@ pub async fn spawn_session(
         provider_factory,
         plugin_hooks: Arc::new(StaticPluginHookSource::default()),
         image_preprocessor: None,
+        task_id: None,
     })
     .await
 }

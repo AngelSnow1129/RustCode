@@ -798,6 +798,10 @@ pub struct CodingRuntimeStart {
     /// paths that either can't send images to a non-vision model or already
     /// preprocess upstream (the daemon today).
     pub image_preprocessor: Option<Arc<dyn ImagePreprocessor>>,
+    /// Task this runtime's `/loop` belongs to (P3). `None` when the runtime is
+    /// started outside a `schedule_task` task context (e.g. ad-hoc `/loop` or
+    /// tests); populated on the production path that boots a task run.
+    pub task_id: Option<String>,
 }
 
 struct RuntimeResources {
@@ -809,6 +813,9 @@ struct RuntimeResources {
     wakeup_tx: mpsc::UnboundedSender<WakeupRequest>,
     loop_active: Arc<std::sync::atomic::AtomicBool>,
     image_preprocessor: Option<Arc<dyn ImagePreprocessor>>,
+    /// Task this runtime's `/loop` belongs to (P3). Mirrors
+    /// [`CodingRuntimeStart::task_id`].
+    task_id: Option<String>,
 }
 
 struct NextPromptSuggestionOutcome {
@@ -1963,6 +1970,7 @@ impl CodingRuntime {
             provider_factory,
             plugin_hooks,
             image_preprocessor,
+            task_id,
         } = input;
         if let Some(config) = agent.subagent_config.clone() {
             crate::provider_factory::install_subagent_tiers(
@@ -1985,6 +1993,7 @@ impl CodingRuntime {
         parts.register_extra_tool(Arc::new(ScheduleWakeupTool::new(
             wakeup_tx.clone(),
             Arc::clone(&loop_active),
+            task_id.clone(),
         )));
         let session_id = parts.session.as_ref().map(|binding| binding.id.as_str());
         let session = parts.session.as_ref().map(|binding| RuntimeSessionInfo {
@@ -2048,6 +2057,7 @@ impl CodingRuntime {
                 wakeup_tx,
                 loop_active,
                 image_preprocessor,
+                task_id: task_id.clone(),
             }),
             Some(wakeup_rx),
         );
@@ -4888,6 +4898,7 @@ fn spawn_runtime_owner_with_optional_agent(
                                 // Preserve the injected VL hook across reprepare
                                 // (/model swap, reconfigure).
                                 image_preprocessor: runtime.image_preprocessor.clone(),
+                                task_id: runtime.task_id.clone(),
                             },
                             Err(error) => {
                                 controls.state.store(
@@ -7351,6 +7362,7 @@ fn assemble_runtime_resources(runtime: &mut RuntimeResources) -> Result<AgentHan
         .register_extra_tool(Arc::new(ScheduleWakeupTool::new(
             runtime.wakeup_tx.clone(),
             Arc::clone(&runtime.loop_active),
+            runtime.task_id.clone(),
         )));
     let session_id = runtime
         .parts
@@ -9205,6 +9217,7 @@ mod tests {
             }),
             plugin_hooks: Arc::new(crate::StaticPluginHookSource::default()),
             image_preprocessor: None,
+            task_id: None,
         }
     }
 
@@ -9418,6 +9431,7 @@ mod tests {
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
+            task_id: None,
         };
         let adapter = spawn_runtime_owner_with_protocol(
             agent,
@@ -10072,6 +10086,7 @@ mod tests {
             wakeup_tx: wakeup_tx.clone(),
             loop_active: loop_active.clone(),
             image_preprocessor: None,
+            task_id: None,
         };
         let adapter = spawn_runtime_owner_with_protocol(
             agent,
@@ -10173,6 +10188,7 @@ mod tests {
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
+            task_id: None,
         };
         let adapter = spawn_runtime_owner_with_protocol(
             agent,
@@ -10321,6 +10337,7 @@ mod tests {
             wakeup_tx,
             loop_active,
             image_preprocessor: None,
+            task_id: None,
         };
         let _adapter = spawn_runtime_owner_with_protocol(
             agent,
@@ -10411,6 +10428,7 @@ mod tests {
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
+            task_id: None,
         };
         let _adapter = spawn_runtime_owner_with_protocol(
             agent,
@@ -11170,6 +11188,7 @@ mod tests {
                     delay_seconds: 0,
                     reason: format!("round {attempt}"),
                     prompt: "check CI".into(),
+                    id: None,
                 })
                 .unwrap();
             tokio::time::timeout(std::time::Duration::from_secs(2), async {
@@ -11261,6 +11280,7 @@ mod tests {
                 delay_seconds: 0,
                 reason: "retry".into(),
                 prompt: "check CI".into(),
+                id: None,
             })
             .unwrap();
         let _ = runtime_events.recv().await;
@@ -11378,6 +11398,7 @@ mod tests {
                 delay_seconds: 60,
                 reason: "wait for CI".into(),
                 prompt: "check CI".into(),
+                id: None,
             })
             .unwrap();
         let _ = runtime_events.recv().await;
@@ -11746,6 +11767,7 @@ mod tests {
                 delay_seconds: 60,
                 reason: "wait for CI".into(),
                 prompt: "check CI".into(),
+                id: None,
             })
             .unwrap();
         assert!(matches!(
@@ -13026,6 +13048,7 @@ mod tests {
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
+            task_id: None,
         };
         let _adapter = spawn_runtime_owner_with_protocol(
             agent,
@@ -13210,6 +13233,7 @@ mod tests {
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: pp,
+            task_id: None,
         };
         let adapter = spawn_runtime_owner_with_protocol(
             agent,
@@ -13616,6 +13640,7 @@ mod tests {
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
+            task_id: None,
         };
         let _adapter = spawn_runtime_owner_with_protocol(
             agent,
@@ -13711,6 +13736,7 @@ mod tests {
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
+            task_id: None,
         };
         let _adapter = spawn_runtime_owner_with_protocol(
             agent,
@@ -13774,6 +13800,7 @@ mod tests {
             wakeup_tx: wakeup_tx.clone(),
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
+            task_id: None,
         };
         let _adapter = spawn_runtime_owner_with_protocol(
             agent,
@@ -13807,6 +13834,7 @@ mod tests {
                 delay_seconds: 60,
                 reason: "wait for CI".into(),
                 prompt: "check CI".into(),
+                id: None,
             })
             .unwrap();
         assert!(matches!(
@@ -13896,6 +13924,7 @@ mod tests {
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
+            task_id: None,
         };
         let _adapter = spawn_runtime_owner_with_protocol(
             agent,
@@ -14005,6 +14034,7 @@ mod tests {
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
+            task_id: None,
         };
         let _adapter = spawn_runtime_owner_with_protocol(
             agent,
@@ -14073,6 +14103,7 @@ mod tests {
             wakeup_tx: wakeup_tx.clone(),
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
+            task_id: None,
         };
         let _adapter = spawn_runtime_owner_with_protocol(
             agent,
@@ -14097,6 +14128,7 @@ mod tests {
                 delay_seconds: 60,
                 reason: "wait for CI".into(),
                 prompt: "check CI".into(),
+                id: None,
             })
             .unwrap();
         let _ = runtime_events.recv().await;
@@ -14175,6 +14207,7 @@ mod tests {
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
+            task_id: None,
         };
         let _adapter = spawn_runtime_owner_with_protocol(
             agent,
@@ -14273,6 +14306,7 @@ mod tests {
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
+            task_id: None,
         };
         let _adapter = spawn_runtime_owner_with_protocol(
             agent,
@@ -14452,6 +14486,7 @@ mod tests {
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor: None,
+            task_id: None,
         };
         let adapter = spawn_runtime_owner_with_protocol(
             agent,
@@ -15993,6 +16028,7 @@ mod tests {
             provider_factory,
             plugin_hooks,
             image_preprocessor,
+            task_id,
         } = native_start(false);
         agent.working_dir = project.path().to_path_buf();
         prepare.session = crate::SessionMode::Resume(id.into());
@@ -16009,6 +16045,7 @@ mod tests {
             wakeup_tx,
             loop_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             image_preprocessor,
+            task_id: None,
         };
 
         let mut truncated = original_snapshot.clone();

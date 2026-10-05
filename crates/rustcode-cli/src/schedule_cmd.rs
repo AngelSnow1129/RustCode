@@ -751,6 +751,7 @@ async fn run_task_with(id: &str, trigger: RunTrigger, cascade: bool) -> Result<R
         false,
         false,
         rustcode_coding::RuntimeMode::Build,
+        Some(task.id.clone()),
     )
     .await?;
 
@@ -875,7 +876,7 @@ async fn cascade_fire(root_id: &str) {
             // Only successful runs propagate; `cascade = false` keeps the
             // cascade single-threaded through this loop.
             if let Ok(RunAttempt::Ran(0)) =
-                run_task_with(&dep.id, RunTrigger::Event, false).await
+                Box::pin(run_task_with(&dep.id, RunTrigger::Event, false)).await
             {
                 frontier.push(dep.id.clone());
             }
@@ -946,6 +947,40 @@ async fn tick_once() -> Result<i32> {
             }
         }
     }
+
+    // P3: fire due persisted wakeups (survive a process restart). Each is
+    // claimed by `claim_due_wakeups` so a concurrent tick cannot double-fire,
+    // and consumed after resolution so the tick never re-fires it.
+    for wakeup in schedule::claim_due_wakeups(now) {
+        if !schedule::within_catch_up_window(wakeup.due_at, now, cfg.catch_up_window_secs) {
+            // Too old to fire at boot: drop the intent and record a skip so the
+            // same instant is not re-evaluated on every tick.
+            let _ = schedule::consume_wakeup(&wakeup.id);
+            println!(
+                "{}",
+                t(Msg::CliSchedTickSkippedWindow {
+                    id: &wakeup.id,
+                    due: &format_epoch(wakeup.due_at),
+                })
+            );
+            continue;
+        }
+        if let Some(task_id) = &wakeup.task_id {
+            match run_task_with(task_id, RunTrigger::Wakeup, false).await? {
+                RunAttempt::Ran(code) => {
+                    if code != 0 {
+                        failed = true;
+                    }
+                }
+                RunAttempt::Busy => {
+                    println!("{}", t(Msg::CliSchedTickBusy { id: task_id }));
+                }
+            }
+        }
+        // Consume regardless of Ran/Busy/None so the tick never re-fires it.
+        let _ = schedule::consume_wakeup(&wakeup.id);
+    }
+
     Ok(if failed { 1 } else { 0 })
 }
 

@@ -63,6 +63,7 @@ impl AgentRunner for CliAgentRunner {
             false, // fork_on_session_in_use
             false, // round_cap_checkpoint (no interactive UI to answer it)
             rustcode_coding::RuntimeMode::Build,
+            None,
         )
         .await
         .map_err(|e| ImError::Transport(format!("could not start the agent runtime: {e:#}")))?;

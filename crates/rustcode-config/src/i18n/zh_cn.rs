@@ -2315,6 +2315,8 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
             format!("  ↻ loop：{} . 第 {} 轮 . {}分 {}秒\n", label, round, mins, secs).into(),
         Msg::LoopNoActive =>
             "  当前没有进行中的 /loop。\n  用法：/loop <间隔> <命令>  或  /loop <任务>\n".into(),
+        Msg::LoopWakeups { count } =>
+            format!("  已登记持久唤醒（{} 个）：\n", count).into(),
         Msg::LoopCleared => "  已停止 /loop。\n".into(),
         Msg::LoopRound { round, stats } =>
             format!("[*] loop 第 {} 轮 . {}", round, stats).into(),

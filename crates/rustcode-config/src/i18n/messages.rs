@@ -3730,6 +3730,11 @@ pub enum Msg<'a> {
     },
     /// `/loop status` (or bare `/loop`) when no loop is active.
     LoopNoActive,
+    /// Header line appended by `/loop status` (or bare `/loop`) when one or
+    /// more persistent wakeups are registered with the scheduler. These survive
+    /// a process restart and are fired by the daemon tick (P3). `count` is the
+    /// number of pending (not-yet-consumed) wakeups.
+    LoopWakeups { count: usize },
     /// Confirmation line after `/loop stop` (and its aliases).
     LoopCleared,
     /// Mid-loop turn-separator banner: `[*] loop round N . stats`.

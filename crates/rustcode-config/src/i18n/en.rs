@@ -2408,6 +2408,8 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
             format!("  ↻ loop: {} . round {} . {}m {}s\n", label, round, mins, secs).into(),
         Msg::LoopNoActive =>
             "  No active /loop.\n  Usage: /loop <interval> <cmd>  or  /loop <prompt>\n".into(),
+        Msg::LoopWakeups { count } =>
+            format!("  Registered persistent wakeups ({}):\n", count).into(),
         Msg::LoopCleared => "  /loop stopped.\n".into(),
         Msg::LoopRound { round, stats } =>
             format!("[*] loop round {} . {}", round, stats).into(),

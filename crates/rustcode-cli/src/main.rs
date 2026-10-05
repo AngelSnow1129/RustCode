@@ -3336,6 +3336,7 @@ async fn run() -> Result<i32> {
         // error. Headless (`-p`) keeps the fail-closed hard error (no picker).
         !is_headless,
         initial_mode,
+        None,
     )
     .await?;
     // The active session id (fresh or resumed) for the on-exit resume hint,
@@ -3933,6 +3934,10 @@ pub(crate) async fn spawn_native_cli_runtime(
     // `--dangerously-skip-permissions`). Applied to the live runtime right
     // after startup; `Build` is the fail-closed default.
     initial_mode: rustcode_coding::RuntimeMode,
+    // Schedule task this runtime is executing (if any). Threaded into the
+    // runtime so wakeups registered during the run (e.g. a self-paced `/loop`)
+    // carry the task id and can be redeemed as a re-run by the daemon tick (P3).
+    task_id: Option<String>,
 ) -> anyhow::Result<(
     rustcode_coding::CodingRuntime,
     rustcode_coding::CodingAgentConfig,
@@ -4025,6 +4030,7 @@ pub(crate) async fn spawn_native_cli_runtime(
                 agent.clone(),
             ),
         )),
+        task_id,
     };
     let runtime = match imported_lease {
         Some(lease) => {
