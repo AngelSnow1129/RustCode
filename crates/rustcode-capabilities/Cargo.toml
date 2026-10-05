@@ -172,6 +172,9 @@ egress-blocking = ["egress", "reqwest/blocking"]
 # Real neutral coding Tools (fs read/write/edit/list + bash + grep/glob) + a generic
 # approval middleware. Pulls fs/process/io tokio features + the search stack.
 tools = ["dep:ignore", "dep:regex", "dep:grep", "dep:globset", "dep:encoding_rs", "dep:chardetng", "dep:tokio-util", "dep:similar", "dep:tree-sitter", "dep:tree-sitter-bash", "dep:sha2", "dep:dirs", "tokio/fs", "tokio/process", "tokio/io-util"]
+# Agent 自主派生定时任务（P2.5 schedule_task 工具）：直写 schedule store，需 config leaf。
+# Opt-in（NOT default）—— lean tools-only embedder 不编译此工具，避免拖入 config 传递依赖。
+schedule = ["dep:rustcode-config", "tools"]
 # Network tools (web_fetch / web_search). Opt-in on top of `tools` — pulls the HTTP stack
 # (reqwest + url + tokio/net for SSRF DNS checks). NOT in default: a tools-only embedder
 # that wants no network egress skips it.

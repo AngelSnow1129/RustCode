@@ -47,6 +47,9 @@ pub mod list;
 /// Model-facing memory tool (remember / forget / list). Opt-in `memory` feature.
 #[cfg(feature = "memory")]
 mod memory;
+/// Agent 自主派生定时任务（P2.5）。Opt-in `schedule` feature — 直写 schedule store。
+#[cfg(feature = "schedule")]
+pub mod schedule_task;
 pub mod open_file;
 pub mod output_artifact;
 pub mod parallel_edit;
@@ -67,6 +70,8 @@ pub mod write;
 pub mod write_approval;
 #[cfg(feature = "memory")]
 pub use memory::MemoryTool;
+#[cfg(feature = "schedule")]
+pub use schedule_task::ScheduleTaskTool;
 
 pub use approval::{
     parse_permission_decision, request_approval_decision, ApprovalMiddleware, ApprovalRequest,
@@ -118,10 +123,31 @@ pub fn coding_tool_names() -> &'static [&'static str] {
     // but the name MUST be in this allowlist or the registered tool never reaches the
     // model's API `tools` array (registered != mounted).
     //
-    // `memory` is feature-gated on the register side (`#[cfg(feature = "memory")]`
-    // around `MemoryTool`), so its name is gated here too -- without this gate the
-    // default-features `cargo test` would assert a never-registered tool is mounted.
-    #[cfg(feature = "memory")]
+    // `memory` and `schedule_task` are feature-gated on the register side
+    // (`#[cfg(feature = "memory")]` / `#[cfg(feature = "schedule")]`), so their names
+    // are gated here too -- without these gates the default-features `cargo test`
+    // would assert a never-registered tool is mounted.
+    #[cfg(all(feature = "memory", feature = "schedule"))]
+    {
+        &[
+            "read_file",
+            "write_file",
+            "edit_file",
+            "list_directory",
+            "open_file",
+            "bash",
+            "grep",
+            "glob",
+            "search_replace",
+            "ast_grep",
+            "todowrite",
+            "fetch_output",
+            "memory",
+            "request_user_input",
+            "schedule_task",
+        ]
+    }
+    #[cfg(all(feature = "memory", not(feature = "schedule")))]
     {
         &[
             "read_file",
@@ -140,7 +166,26 @@ pub fn coding_tool_names() -> &'static [&'static str] {
             "request_user_input",
         ]
     }
-    #[cfg(not(feature = "memory"))]
+    #[cfg(all(not(feature = "memory"), feature = "schedule"))]
+    {
+        &[
+            "read_file",
+            "write_file",
+            "edit_file",
+            "list_directory",
+            "open_file",
+            "bash",
+            "grep",
+            "glob",
+            "search_replace",
+            "ast_grep",
+            "todowrite",
+            "fetch_output",
+            "request_user_input",
+            "schedule_task",
+        ]
+    }
+    #[cfg(all(not(feature = "memory"), not(feature = "schedule")))]
     {
         &[
             "read_file",
@@ -200,6 +245,11 @@ pub fn register_coding_tools_with_vision(reg: &mut ToolRegistry, vision: bool) {
         // `{action}` shape (merged -- was a separate `todo` tool). One tool = no plan-vs-patch
         // tool-choice confusion for the model; the reducer distinguishes by arg SHAPE.
         reg.register(Arc::new(TodoTool::new()));
+    }
+    // Agent 自主派生定时任务（P2.5）。Opt-in `schedule` feature；工具直写 schedule store。
+    #[cfg(feature = "schedule")]
+    {
+        reg.register(Arc::new(crate::tools::schedule_task::ScheduleTaskTool::new()));
     }
     // Gate on RUSTCODE_REQUEST_USER_INPUT (default ON -- opt-out via 0/false/off/empty).
     // Register UNLESS the env var is explicitly set to a falsy value.
@@ -697,9 +747,13 @@ mod tests {
             "coding_tool_names() must include 'fetch_output'"
         );
         // No stale or duplicate names beyond EXPECTED_TOOL_NAMES + the gated extras.
-        #[cfg(feature = "memory")]
+        #[cfg(all(feature = "memory", feature = "schedule"))]
+        let extras: &[&str] = &["memory", "request_user_input", "fetch_output", "schedule_task"];
+        #[cfg(all(feature = "memory", not(feature = "schedule")))]
         let extras: &[&str] = &["memory", "request_user_input", "fetch_output"];
-        #[cfg(not(feature = "memory"))]
+        #[cfg(all(not(feature = "memory"), feature = "schedule"))]
+        let extras: &[&str] = &["request_user_input", "fetch_output", "schedule_task"];
+        #[cfg(all(not(feature = "memory"), not(feature = "schedule")))]
         let extras: &[&str] = &["request_user_input", "fetch_output"];
         let expected_full: Vec<&str> = EXPECTED_TOOL_NAMES
             .iter()
