@@ -491,9 +491,18 @@ case ":$PATH:" in
             echo "    source $RC"
             echo ""
         else
+            # No supported interactive rc detected (e.g. FreeBSD tcsh/sh, or a
+            # non-interactive shell). Print a shell-appropriate manual line so
+            # the user can add PATH themselves — the bash/zsh auto-add above
+            # does not cover tcsh/csh, whose PATH syntax differs.
+            SH_BN="$(basename "${SHELL:-sh}")"
+            case "$SH_BN" in
+                tcsh|csh) MANUAL="set path = ($PREFIX \$path)" ;;
+                *)        MANUAL="export PATH=\"$PREFIX:\$PATH\"" ;;
+            esac
             echo ""
             echo "Note: $PREFIX is not in your PATH. Add this line to your shell rc:"
-            echo "    $LINE"
+            echo "    $MANUAL"
         fi
         ;;
 esac
