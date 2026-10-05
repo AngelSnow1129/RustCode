@@ -544,23 +544,23 @@ impl OnboardingWizard {
             // ANSI Shadow style) broke in fonts that draw `█` at
             // 100% cell coverage while keeping `╔═` at line weight,
             // leaving the shadow outline floating disjointly from
-            // the letter bodies. Each row is 49 cells; logo_pad
-            // centres the 49-wide logo inside draw_panel's content area.
-            let logo_pad = " ".repeat(cell_w.saturating_sub(49) / 2);
+            // the letter bodies. Each row is 47 cells; logo_pad
+            // centres the 47-wide logo inside draw_panel's content area.
+            let logo_pad = " ".repeat(cell_w.saturating_sub(47) / 2);
             content.push(format!(
-                "{logo_pad}███  █████  ███  █     █  ████  ███  ████  █████"
+                "{logo_pad}███   █   █ █████   ███ █████ █████ █   █ █████"
             ));
             content.push(format!(
-                "{logo_pad}█   █   █   █   █ ██   ██ █     █   █ █   █ █    "
+                "{logo_pad}█  █  █   █ █        █  █     █   █ █   █ █    "
             ));
             content.push(format!(
-                "{logo_pad}█████   █   █   █ █ █ █ █ █     █   █ █   █ ████ "
+                "{logo_pad}█████ █   █ █████    █  █     █   █ █   █ █████"
             ));
             content.push(format!(
-                "{logo_pad}█   █   █   █   █ █  █  █ █     █   █ █   █ █    "
+                "{logo_pad}█  █  █   █     █    █  █     █   █ █   █ █   █"
             ));
             content.push(format!(
-                "{logo_pad}█   █   █    ███  █     █  ████  ███  ████  █████"
+                "{logo_pad}█   █ █████ █████   ███ █████ █████ █████ █████"
             ));
             content.push(String::new());
             content.push(
@@ -1259,9 +1259,10 @@ mod tests {
             .map(|s| strip_sgr(s))
             .collect::<Vec<_>>()
             .join("\n");
-        // ASCII logo signature: M's row 3 collapses to alternating
-        // `█ █ █ █`, unique to the new pure-block design.
-        assert!(joined.contains("█ █ █ █"), "logo missing: {joined}");
+        // ASCII logo signature: the wordmark's first two letters (R top
+        // bar + u top-left) form `███   █   █`, unique to the corrected
+        // pure-block "RustCode" design.
+        assert!(joined.contains("███   █   █"), "logo missing: {joined}");
         assert!(joined.contains("Version "));
         assert!(joined.contains("Multi-step agent loop"));
         assert!(joined.contains("Connects to any OpenAI"));
