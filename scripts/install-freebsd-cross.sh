@@ -198,10 +198,24 @@ for a in $ARCHES; do
         --output "$checksum" "$sum_url"
 
     # Verify against the official checksum file (only the base.txz line).
+    # FreeBSD CHECKSUM.SHA256 format is "SHA256 (base.txz) = <hash>" -- rewrite
+    # it to the "<hash>  <abspath>" form that `sha256sum --check` expects.
     echo "[INFO] Verifying base.txz integrity against official CHECKSUM.SHA256" >&2
     if command -v sha256sum >/dev/null 2>&1; then
-        grep -E "\(base\.txz\)|base\.txz" "$checksum" | sed -E 's/\(base\.txz\)//' \
-            | sha256sum --check --strict - >&2
+        chksum_line="$(awk -v f="$archive" '
+            /SHA256 \(base\.txz\)/ {
+                line = $0
+                sub(/^SHA256 \(base\.txz\) = /, "", line)
+                sub(/\r/, "", line)
+                gsub(/[ \t]+$/, "", line)
+                print line "  " f
+            }' "$checksum")"
+        if [ -z "$chksum_line" ]; then
+            echo "[ERROR] could not parse base.txz checksum from ${sum_url}" >&2
+            rm -rf "$tmp"
+            exit 1
+        fi
+        printf '%s\n' "$chksum_line" | sha256sum --check --strict - >&2
     else
         echo "[ERROR] sha256sum required for integrity check." >&2
         rm -rf "$tmp"
