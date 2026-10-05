@@ -219,6 +219,49 @@ fi
 
 echo "==> Candidate versions: $CANDIDATES"
 
+# --- FreeBSD: no prebuilt binary exists; build from source instead ---
+# The release matrix publishes only linux-{x64,arm64} and windows-x64, so a
+# FreeBSD download would always 404. When the Rust toolchain is present we build
+# the CLI from the resolved tag; otherwise we print the exact steps and exit.
+if [ "$os" = "freebsd" ]; then
+    build_freebsd_from_source() {
+        VER="${LATEST_VER:-$(echo "$CANDIDATES" | awk '{print $1}')}"
+        echo "==> FreeBSD has no prebuilt binary; building '$VER' from source"
+        if ! command -v git >/dev/null 2>&1; then
+            echo "Error: git not found. Install it: pkg install -y git" >&2
+            exit 1
+        fi
+        if ! command -v cargo >/dev/null 2>&1; then
+            echo "Error: cargo not found. Install the Rust toolchain, then re-run:" >&2
+            echo "       pkg install -y rust     # or:  curl https://sh.rustup.rs -sSf | sh" >&2
+            exit 1
+        fi
+        SRC="$TMP/src"
+        echo "==> Cloning https://gitcode.com/SecLab/RustCode (tag $VER)"
+        if ! git clone --depth 1 --branch "$VER" "https://gitcode.com/SecLab/RustCode" "$SRC" 2>/dev/null \
+            && ! git clone --depth 1 "https://gitcode.com/SecLab/RustCode" "$SRC" 2>/dev/null; then
+            echo "Error: git clone failed (need network access to gitcode.com)." >&2
+            exit 1
+        fi
+        echo "==> cargo build --release -p rustcode"
+        if ! ( cd "$SRC" && cargo build --release -p rustcode ) 2>&1; then
+            echo "Error: cargo build failed. For the WebUI frontend you also need" >&2
+            echo "       Node >= 22.6:  cd $SRC/webui && npm ci && npm run build" >&2
+            exit 1
+        fi
+        SRC_BIN="$SRC/target/release/rustcode"
+        if [ ! -f "$SRC_BIN" ]; then
+            echo "Error: built binary not found at $SRC_BIN" >&2
+            exit 1
+        fi
+        cp "$SRC_BIN" "$DEST"
+        # NOTE: /webui serves 404 unless the frontend is built separately (Node>=22.6).
+        echo "    -> built $SRC_BIN (WebUI needs a separate 'npm run build' to be served)"
+    }
+    build_freebsd_from_source
+    DOWNLOADED=1
+fi
+
 # --- download with multi-source / multi-version fallback (concurrent race) ---
 # Candidate URLs keep the documented priority order (online Release first,
 # then the repo-committed release/ raw URL; newest version first), but they
@@ -228,6 +271,9 @@ echo "==> Candidate versions: $CANDIDATES"
 # latency improves, and a single stalled source can no longer block the
 # rest (each attempt carries a hard timeout).
 # RUSTCODE_DOWNLOAD_CONCURRENCY=1 restores strictly sequential attempts.
+# FreeBSD builds from source (handled above) and sets DOWNLOADED=1, so the
+# download race below is skipped for it.
+if [ "$DOWNLOADED" != "1" ]; then
 ATTEMPTED=""
 DOWNLOADED=0
 
@@ -299,6 +345,7 @@ while [ "$DOWNLOADED" != 1 ] && [ "$WAVE_START" -le "$NUML" ]; do
     wait 2>/dev/null || :
     WAVE_START=$((WAVE_END + 1))
 done
+fi
 
 if [ "$DOWNLOADED" != "1" ]; then
     echo "Error: could not download a usable rustcode binary." >&2
