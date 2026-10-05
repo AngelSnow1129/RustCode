@@ -2682,7 +2682,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode"
-version = "6.2.1"
+version = "6.2.2"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -2728,7 +2728,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-capabilities"
-version = "6.2.1"
+version = "6.2.2"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2793,7 +2793,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-clix"
-version = "6.2.1"
+version = "6.2.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2813,7 +2813,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-coding"
-version = "6.2.1"
+version = "6.2.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2836,7 +2836,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-config"
-version = "6.2.1"
+version = "6.2.2"
 dependencies = [
  "anyhow",
  "dirs",
@@ -2854,7 +2854,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-daemon"
-version = "6.2.1"
+version = "6.2.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2887,7 +2887,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-kernel"
-version = "6.2.1"
+version = "6.2.2"
 dependencies = [
  "async-trait",
  "futures",
@@ -2899,7 +2899,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-review"
-version = "6.2.1"
+version = "6.2.2"
 dependencies = [
  "async-trait",
  "futures",
@@ -2915,7 +2915,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-tuix"
-version = "6.2.1"
+version = "6.2.2"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2961,7 +2961,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-tunnel"
-version = "6.2.1"
+version = "6.2.2"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -2973,7 +2973,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-updater"
-version = "6.2.1"
+version = "6.2.2"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2990,7 +2990,7 @@ dependencies = [
 
 [[package]]
 name = "rustcode-wiki"
-version = "6.2.1"
+version = "6.2.2"
 dependencies = [
  "ignore",
  "serde",
