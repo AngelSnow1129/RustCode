@@ -291,10 +291,11 @@ fi
 # rest (each attempt carries a hard timeout).
 # RUSTCODE_DOWNLOAD_CONCURRENCY=1 restores strictly sequential attempts.
 # FreeBSD builds from source (handled above) and sets DOWNLOADED=1, so the
-# download race below is skipped for it.
+# download race below is skipped for it. Initialize for non-FreeBSD paths:
+# under `set -u` an unset DOWNLOADED would abort before the first reference.
+: "${DOWNLOADED:=0}"
 if [ "$DOWNLOADED" != "1" ]; then
 ATTEMPTED=""
-DOWNLOADED=0
 
 MAXPAR="${RUSTCODE_DOWNLOAD_CONCURRENCY:-4}"
 case "$MAXPAR" in ''|*[!0-9]*|0) MAXPAR=4 ;; esac
