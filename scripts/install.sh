@@ -223,6 +223,10 @@ echo "==> Candidate versions: $CANDIDATES"
 # The release matrix publishes only linux-{x64,arm64} and windows-x64, so a
 # FreeBSD download would always 404. When the Rust toolchain is present we build
 # the CLI from the resolved tag; otherwise we print the exact steps and exit.
+# rust-embed uses allow_missing, so a CLI-only build is fully usable (the TUI
+# works); the WebUI is embedded only if Node>=22 is present (built before
+# cargo build). With no Node the binary is CLI-only and `rustcode webui` prints
+# a self-explanatory "not built" message.
 if [ "$os" = "freebsd" ]; then
     build_freebsd_from_source() {
         VER="${LATEST_VER:-$(echo "$CANDIDATES" | awk '{print $1}')}"
@@ -243,10 +247,26 @@ if [ "$os" = "freebsd" ]; then
             echo "Error: git clone failed (need network access to gitcode.com)." >&2
             exit 1
         fi
+        # Build the WebUI first (if Node>=22 is available) so rust-embed captures
+        # webui/dist into the binary; otherwise CLI is built without it.
+        if command -v node >/dev/null 2>&1; then
+            NODE_MAJOR=$(node --version 2>/dev/null | tr -d 'v' | cut -d. -f1)
+            if [ "${NODE_MAJOR:-0}" -ge 22 ]; then
+                echo "==> Building WebUI frontend (node $NODE_MAJOR present)"
+                if ( cd "$SRC/webui" && npm ci && npm run build ) 2>&1; then
+                    echo "    -> WebUI built; it will be embedded into the binary"
+                else
+                    echo "Warning: WebUI build failed; binary will be CLI-only." >&2
+                fi
+            else
+                echo "==> Node $NODE_MAJOR < 22; skipping WebUI build (CLI-only)." >&2
+            fi
+        else
+            echo "==> Node not found; building CLI only (WebUI not embedded)." >&2
+        fi
         echo "==> cargo build --release -p rustcode"
         if ! ( cd "$SRC" && cargo build --release -p rustcode ) 2>&1; then
-            echo "Error: cargo build failed. For the WebUI frontend you also need" >&2
-            echo "       Node >= 22.6:  cd $SRC/webui && npm ci && npm run build" >&2
+            echo "Error: cargo build failed. Check the Rust toolchain and network, then re-run." >&2
             exit 1
         fi
         SRC_BIN="$SRC/target/release/rustcode"
@@ -255,8 +275,7 @@ if [ "$os" = "freebsd" ]; then
             exit 1
         fi
         cp "$SRC_BIN" "$DEST"
-        # NOTE: /webui serves 404 unless the frontend is built separately (Node>=22.6).
-        echo "    -> built $SRC_BIN (WebUI needs a separate 'npm run build' to be served)"
+        echo "    -> installed $DEST (FreeBSD build from source)"
     }
     build_freebsd_from_source
     DOWNLOADED=1
