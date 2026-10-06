@@ -801,13 +801,6 @@ async fn prepare_with_plugin_hooks_reusing_lease(
     let team_runner = subagent_provider.as_ref().map(|slot| {
         use rustcode_capabilities::team::{TeamDifficulty, TeamPermission};
 
-        let mut child_registry = rustcode_kernel::tool::ToolRegistry::new();
-        rustcode_capabilities::tools::register_coding_tools_with_vision(&mut child_registry, false);
-        // Clone the registry for the tools closure BEFORE registering the child
-        // TeamTool below. ToolRegistry wraps an Arc<RwLock<BTreeMap>>, so the
-        // clone shares the underlying tool map -- a later register on the
-        // original is visible to the closure's mount().
-        let tools_registry = child_registry.clone();
         let provider_slot = slot.clone();
         let fast_cell = cfg.subagent_fast_provider.clone();
         let capable_cell = cfg.subagent_capable_provider.clone();
@@ -824,93 +817,111 @@ async fn prepare_with_plugin_hooks_reusing_lease(
                     .expect("team provider slot filled at assemble before any turn")
             })
         });
-        let max_depth = team_manager.max_depth();
-        let can_sub_dispatch = 1u8 < max_depth;
-        let tools = Arc::new(move |permission| {
-            let mut names: Vec<&str> = match permission {
-                TeamPermission::Explore => vec!["read_file", "grep", "glob", "list_directory"],
-                // Bash is intentionally absent. DenyTeamBash remains a second
-                // fail-closed gate if this registry is broadened later.
-                TeamPermission::Worker => vec![
-                    "read_file",
-                    "edit_file",
-                    "write_file",
-                    "grep",
-                    "glob",
-                    "search_replace",
-                    "list_directory",
-                ],
-            };
-            if can_sub_dispatch {
-                names.push("team");
+
+        // F3-HIGH-1 / F3-HIGH-2: build a manager chain of length max_depth+1 via
+        // `child_manager`. Each tier's TeamTool mounts the NEXT tier's TeamTool
+        // into its members' tool set, so dispatch depth increments strictly and
+        // the deepest tier carries no `team` tool (double fail-closed with the
+        // delegate guard). Cancellation / generation / event-sender cascade
+        // through the chain `child_manager` registered in the root.
+        let mut chain: Vec<crate::team::TeamRunManager> = vec![team_manager.clone()];
+        while let Some(child) = chain.last().unwrap().child_manager() {
+            chain.push(child);
+        }
+
+        // Build per-depth runners + tools bottom-up so a parent can mount its
+        // child tool. The wiring mirrors the legacy single-runner path exactly
+        // (design R1).
+        let mut team_tools: Vec<Option<Arc<crate::team::TeamTool>>> = vec![None; chain.len()];
+        let mut root_runner = None;
+        for d in (0..chain.len()).rev() {
+            let child_tool = (d + 1 < chain.len()).then(|| team_tools[d + 1].clone().unwrap());
+            // Clone the registry seed BEFORE registering the child tool so the
+            // tools closure sees it (ToolRegistry shares the underlying map by Arc).
+            let mut seeded_registry = rustcode_kernel::tool::ToolRegistry::new();
+            rustcode_capabilities::tools::register_coding_tools_with_vision(&mut seeded_registry, false);
+            if let Some(ct) = &child_tool {
+                let child_as_tool: Arc<dyn rustcode_kernel::tool::Tool> = ct.clone();
+                seeded_registry.register(child_as_tool);
             }
-            tools_registry.mount(&names)
-        });
-        let runner = crate::team::TeamRunnerFactory::new(providers, tools, cfg.working_dir.clone())
-            .with_runtime_policy(
-                (subagent_max_rounds > 0).then_some(subagent_max_rounds),
-                cfg.tool_loop_policy,
-                Some(cfg.stream_timeout),
-                cfg.request_timeout,
-            )
-            .with_credential_shell_policy(cfg.credential_shell_policy)
-            .with_credential_shell_bypass(bypass_mode.clone())
-            .with_worker_middleware(turn_execution_policy.clone());
-        // FR-6.2 / FR-6.3: members get the same explicit fallback chain `task` uses.
-        // Without this a `team` member is a single-attempt agent, so one flaky
-        // model fails the whole delegation even though the user configured a
-        // backup. Resolved HERE (the layer that owns `Config`) exactly like the
-        // `task` wiring above -- `capabilities` stays free of `rustcode-config`
-        // on its `tools` feature.
-        let runner = match cfg.subagent_config.clone() {
-            Some(registry_config) => {
-                let chain_models = cfg.subagent_model_providers.clone();
-                let (fast_key, capable_key) = crate::subagent_tiers::tier_chain_keys(
-                    &registry_config,
-                    &cfg.model,
-                    &cfg.provider_name,
-                );
-                runner.with_chain_providers(move |difficulty| {
-                    let key = match difficulty {
-                        TeamDifficulty::Hard => &capable_key,
-                        TeamDifficulty::Simple => &fast_key,
-                    };
-                    registry_config
-                        .model_fallback_chain(key)
-                        .into_iter()
-                        .filter_map(|id| {
-                            chain_models
-                                .as_ref()
-                                .and_then(|models| models.get(&id).ok().flatten())
-                        })
-                        .collect()
-                })
-            }
-            None => runner,
-        };
-        // Register a child TeamTool (depth=1) in the child registry so sub-agents
-        // at depth 1 can hierarchically dispatch to depth 2. The child manager's
-        // delegate() enforces the max_depth gate. Because tools_registry shares
-        // the internal map, the tools closure's mount() will see this tool.
-        if can_sub_dispatch {
-            let child_team_config = crate::team::TeamRuntimeConfig {
-                max_depth,
-                ..Default::default()
+            let tools_registry = seeded_registry.clone();
+            let sub_dispatch = child_tool.is_some();
+            let tools = Arc::new(move |permission| {
+                let mut names: Vec<&str> = match permission {
+                    TeamPermission::Explore => vec!["read_file", "grep", "glob", "list_directory"],
+                    // Bash is intentionally absent. DenyTeamBash remains a second
+                    // fail-closed gate if this registry is broadened later.
+                    TeamPermission::Worker => vec![
+                        "read_file",
+                        "edit_file",
+                        "write_file",
+                        "grep",
+                        "glob",
+                        "search_replace",
+                        "list_directory",
+                    ],
+                };
+                if sub_dispatch {
+                    names.push("team");
+                }
+                tools_registry.mount(&names)
+            });
+            let runner = crate::team::TeamRunnerFactory::new(providers.clone(), tools, cfg.working_dir.clone())
+                .with_runtime_policy(
+                    (subagent_max_rounds > 0).then_some(subagent_max_rounds),
+                    cfg.tool_loop_policy,
+                    Some(cfg.stream_timeout),
+                    cfg.request_timeout,
+                    Some(cfg.first_token_timeout),
+                )
+                .with_credential_shell_policy(cfg.credential_shell_policy)
+                .with_credential_shell_bypass(bypass_mode.clone())
+                .with_worker_middleware(turn_execution_policy.clone());
+            // FR-6.2 / FR-6.3: members get the same explicit fallback chain `task` uses.
+            // Without this a `team` member is a single-attempt agent, so one flaky
+            // model fails the whole delegation even though the user configured a
+            // backup. Resolved HERE (the layer that owns `Config`) exactly like the
+            // `task` wiring above -- `capabilities` stays free of `rustcode-config`
+            // on its `tools` feature.
+            let runner = match cfg.subagent_config.clone() {
+                Some(registry_config) => {
+                    let chain_models = cfg.subagent_model_providers.clone();
+                    let (fast_key, capable_key) = crate::subagent_tiers::tier_chain_keys(
+                        &registry_config,
+                        &cfg.model,
+                        &cfg.provider_name,
+                    );
+                    runner.with_chain_providers(move |difficulty| {
+                        let key = match difficulty {
+                            TeamDifficulty::Hard => &capable_key,
+                            TeamDifficulty::Simple => &fast_key,
+                        };
+                        registry_config
+                            .model_fallback_chain(key)
+                            .into_iter()
+                            .filter_map(|id| {
+                                chain_models
+                                    .as_ref()
+                                    .and_then(|models| models.get(&id).ok().flatten())
+                            })
+                            .collect()
+                    })
+                }
+                None => runner,
             };
-            let child_team_manager = crate::team::TeamRunManager::with_depth(1, child_team_config);
-            child_registry.register(Arc::new(crate::team::TeamTool::new(
-                child_team_manager,
+            team_tools[d] = Some(Arc::new(crate::team::TeamTool::new(
+                chain[d].clone(),
                 runner.job_factory(),
                 runner.model_factory(),
             )));
+            if d == 0 {
+                root_runner = Some(runner);
+            }
         }
-        registry.register(Arc::new(crate::team::TeamTool::new(
-            team_manager.clone(),
-            runner.job_factory(),
-            runner.model_factory(),
-        )));
+
+        registry.register(team_tools[0].clone().unwrap());
         names.push("team".to_string());
-        runner
+        root_runner.unwrap()
     });
 
     // Build the context hook once so skill-catalog ranking and later context

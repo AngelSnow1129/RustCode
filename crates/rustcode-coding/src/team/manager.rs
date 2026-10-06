@@ -117,6 +117,11 @@ struct Inner {
     run_counter: AtomicU64,
     /// Dispatch depth of this manager (0 = root, 1 = child, 2 = grandchild).
     depth: u8,
+    /// Cascading chain: child managers built via [`TeamRunManager::child_manager`].
+    /// Holding strong refs keeps the whole subtree alive while the root lives, and
+    /// lets `stop_all`/`begin_generation`/`set_event_sender` recurse downward so
+    /// cancellation and generation switches reach every tier (F3-HIGH-2).
+    children: Mutex<Vec<Arc<Inner>>>,
 }
 
 impl Drop for Inner {
@@ -156,6 +161,7 @@ impl TeamRunManager {
                 config,
                 run_counter: AtomicU64::new(1),
                 depth,
+                children: Mutex::new(Vec::new()),
             }),
         }
     }
@@ -170,12 +176,31 @@ impl TeamRunManager {
 
     /// Create a child TeamRunManager for sub-dispatch at depth+1.
     /// Returns None if depth+1 > max_depth.
+    ///
+    /// The child's cancellation root is a [`CancellationToken::child_token`] of the
+    /// parent's *current* generation root, so cancelling or regenerating the parent
+    /// cascades down (F3-HIGH-2). The child is also registered in the parent's
+    /// `children` chain so `stop_all`/`begin_generation`/`set_event_sender` can
+    /// recurse. The event channel is bridged so child events reach the same
+    /// consumer.
     pub fn child_manager(&self) -> Option<Self> {
         let next_depth = self.inner.depth + 1;
         if next_depth > self.inner.config.max_depth {
             return None;
         }
         let child = Self::with_depth(next_depth, self.inner.config.clone());
+        // Cancel-cascade: child root is a child token of the parent's live root.
+        let parent_root = self
+            .inner
+            .generation_root
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        *child
+            .inner
+            .generation_root
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = parent_root.child_token();
         // Bridge event channel so child events propagate to the same consumer.
         if let Some(tx) = self
             .inner
@@ -191,6 +216,12 @@ impl TeamRunManager {
                 .unwrap_or_else(|p| p.into_inner())
                 .insert(tx.clone());
         }
+        // Register in the parent's cascade chain.
+        self.inner
+            .children
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(Arc::clone(&child.inner));
         Some(child)
     }
 
@@ -206,25 +237,85 @@ impl TeamRunManager {
             .inner
             .event_tx
             .write()
-            .unwrap_or_else(|p| p.into_inner()) = Some(sender);
+            .unwrap_or_else(|p| p.into_inner()) = Some(sender.clone());
+        // Cascade to child managers so every tier emits to the same consumer
+        // (F3-HIGH-2).
+        let children = self
+            .inner
+            .children
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        for child in children {
+            *child
+                .event_tx
+                .write()
+                .unwrap_or_else(|p| p.into_inner()) = Some(sender.clone());
+        }
     }
 
     /// Starts a new runtime generation. Existing work is first made ineligible to
     /// publish, then cancelled; callers must await [`stop_all`] before replacement.
     pub fn begin_generation(&self, generation: u64) {
         self.inner.generation.store(generation, Ordering::Release);
-        let mut root = self
-            .inner
-            .generation_root
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        root.cancel();
-        *root = CancellationToken::new();
+        let new_root = {
+            let mut root = self
+                .inner
+                .generation_root
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            root.cancel();
+            let new_root = CancellationToken::new();
+            *root = new_root.clone();
+            new_root
+        };
         self.inner
             .external_runs
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .clear();
+        // Cascade: re-derive every child's root from the new parent root so a
+        // generation switch invalidates all tiers and re-hooks them to the live
+        // generation (F3-HIGH-2).
+        self.renew_child_roots(&new_root, generation);
+    }
+
+    /// Recursively re-derive `child.generation_root` as a child token of
+    /// `parent_root` and propagate the event sender. Called by `begin_generation`
+    /// so the cancellation tree and event channel reach every tier.
+    fn renew_child_roots(&self, parent_root: &CancellationToken, generation: u64) {
+        let sender = self
+            .inner
+            .event_tx
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        let children = self
+            .inner
+            .children
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        for child in children {
+            child
+                .generation
+                .store(generation, Ordering::Release);
+            let child_new_root = parent_root.child_token();
+            *child
+                .generation_root
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = child_new_root.clone();
+            if let Some(tx) = &sender {
+                *child
+                    .event_tx
+                    .write()
+                    .unwrap_or_else(|p| p.into_inner()) = Some(tx.clone());
+            }
+            TeamRunManager {
+                inner: Arc::clone(&child),
+            }
+            .renew_child_roots(&child_new_root, generation);
+        }
     }
 
     /// Accept a typed lifecycle event from the synchronous `task` tool. The
@@ -286,6 +377,18 @@ impl TeamRunManager {
                  subagents at this depth cannot further dispatch",
                 self.inner.config.max_depth, self.inner.depth
             ));
+        }
+        // F2-MINOR-1: normalize scope like legacy `workers_missing_scope` -- trim
+        // each entry and drop empties so a whitespace-only scope fails the
+        // non-empty check, and a padded prefix never reaches the path gate.
+        let mut tasks = tasks;
+        for task in &mut tasks {
+            task.scope = task
+                .scope
+                .iter()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
         }
         validate_tasks(&tasks)?;
         let generation = self.generation();
@@ -450,6 +553,24 @@ impl TeamRunManager {
             .cancel();
         let members = self.cancel_members(None).unwrap_or_default();
         self.finish_cancelled_after_grace(members).await;
+        // Cascade: stop every child tier so sub-dispatched members cannot outlive
+        // a root `stop_all` (F3-HIGH-2). Children are dropped from the lock before
+        // awaiting to avoid holding it across the recursion.
+        let children = self
+            .inner
+            .children
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        for child in children {
+            Box::pin(
+                TeamRunManager {
+                    inner: Arc::clone(&child),
+                }
+                .stop_all(),
+            )
+            .await;
+        }
     }
 
     pub fn snapshot(&self, run_id: Option<&TeamRunId>) -> Option<TeamSnapshot> {
@@ -775,7 +896,9 @@ fn validate_tasks(tasks: &[TeamTaskSpec]) -> Result<(), String> {
                 task.role, profile.permission
             ));
         }
-        if task.permission == TeamPermission::Worker && task.scope.is_empty() {
+        if task.permission == TeamPermission::Worker
+            && task.scope.iter().all(|s| s.trim().is_empty())
+        {
             return Err(format!(
                 "team worker role {} requires a non-empty scope",
                 task.role
@@ -1101,6 +1224,19 @@ mod tests {
         ];
         let error = validate_tasks(&tasks).unwrap_err();
         assert!(error.contains("worker scopes overlap"), "{error}");
+    }
+
+    #[test]
+    fn worker_scope_rejects_whitespace_only_lane() {
+        // F2-MINOR-1: whitespace-only scope must fail the non-empty check,
+        // matching legacy `workers_missing_scope` trim semantics.
+        let tasks = vec![task(
+            TeamRoleId::Implementer,
+            TeamPermission::Worker,
+            vec!["  ".into(), "\t".into()],
+        )];
+        let error = validate_tasks(&tasks).unwrap_err();
+        assert!(error.contains("non-empty scope"), "{error}");
     }
 
     #[test]
@@ -1617,5 +1753,100 @@ mod tests {
             },
         ));
         assert!(rx.try_recv().is_err());
+    }
+
+    /// Build a manager chain of length max_depth+1 via `child_manager`, mirroring
+    /// the production assembly in `parts.rs`.
+    fn build_chain(max_depth: u8) -> Vec<TeamRunManager> {
+        let cfg = TeamRuntimeConfig {
+            max_depth,
+            ..TeamRuntimeConfig::default()
+        };
+        let mut chain = vec![TeamRunManager::new(cfg)];
+        while let Some(c) = chain.last().unwrap().child_manager() {
+            chain.push(c);
+        }
+        chain
+    }
+
+    #[test]
+    fn manager_chain_caps_dispatch_depth() {
+        // F3-HIGH-1: the manager chain is exactly max_depth+1 long, and the deepest
+        // tier cannot spawn a deeper one -- dispatch depth increments strictly so
+        // there is no infinite fan-out.
+        let chain = build_chain(2);
+        assert_eq!(chain.len(), 3, "chain length must equal max_depth + 1");
+        assert!(
+            chain.last().unwrap().child_manager().is_none(),
+            "deepest manager must not fan out further"
+        );
+    }
+
+    #[test]
+    fn begin_generation_cascades_to_children() {
+        // F3-HIGH-2: a generation switch on the root re-derives every child's
+        // generation, so stale-tier members are invalidated across the whole tree.
+        let chain = build_chain(2);
+        assert_eq!(chain[1].generation(), 0);
+        assert_eq!(chain[2].generation(), 0);
+        chain[0].begin_generation(42);
+        assert_eq!(chain[0].generation(), 42);
+        assert_eq!(chain[1].generation(), 42);
+        assert_eq!(chain[2].generation(), 42);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn deepest_manager_rejects_further_dispatch() {
+        // F3-HIGH-1: the deepest tier's `delegate` is blocked by the max_depth
+        // guard even though its members carry a `team` tool.
+        let chain = build_chain(2);
+        let deepest = chain.last().unwrap().clone();
+        let factory: TeamJobFactory =
+            Arc::new(|_, _, _| Box::pin(async { TeamMemberOutcome::completed("ok") }));
+        let models: TeamModelFactory = Arc::new(|_| "m".to_string());
+        let err = deepest
+            .delegate(
+                vec![task(TeamRoleId::Explorer, TeamPermission::Explore, vec![])],
+                factory,
+                models,
+            )
+            .await
+            .unwrap_err();
+        assert!(err.contains("depth limit reached"), "{err}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stop_all_cascades_to_child_members() {
+        // F3-HIGH-2: cancelling the root also stops members dispatched on a child
+        // tier -- a child member must never outlive a root stop_all.
+        let chain = build_chain(2);
+        let root = &chain[0];
+        let child = &chain[1];
+        let factory: TeamJobFactory = Arc::new(|_, cancel, _| {
+            Box::pin(async move {
+                cancel.cancelled().await;
+                TeamMemberOutcome::stopped("cancelled")
+            })
+        });
+        let models: TeamModelFactory = Arc::new(|_| "m".to_string());
+        let run_id = child
+            .delegate(
+                vec![task(TeamRoleId::Explorer, TeamPermission::Explore, vec![])],
+                factory,
+                models,
+            )
+            .await
+            .unwrap();
+        tokio::task::yield_now().await;
+        root.stop_all().await;
+        let terminal = child
+            .wait(&run_id, Duration::from_secs(5))
+            .await
+            .unwrap()
+            .terminal;
+        assert!(
+            terminal,
+            "child run must become terminal after root stop_all cascades"
+        );
     }
 }
