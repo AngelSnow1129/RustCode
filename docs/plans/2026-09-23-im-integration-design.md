@@ -609,6 +609,19 @@ ticket 不入判定）；cli `im::` 45 个；webui 253/0。
 
 ---
 
+### 5.6 已实现增量（2026-09-29 ~ 2026-10-03）
+
+> 来源：`.codebuddy/artifacts/2026-10-03-roadmap/HANDOFF-DOC-INVENTORY.md` P3-10。下列事实均已 `git log` 复核；**不要回改 §5.5 的「1s/5s 两档」措辞**（那是当时的准确记录，仅被本节增量取代）。
+
+- **单通道并发调度 + 聊天命令（`8bf07f52`）**：`im/dispatch.rs` 多通道并行 serve 与每通道指数退避 1s→60s（取代旧的 1s/5s 两档）；`im/commands.rs` 聊天命令（`/help`/`/status`/`/project`/`/new`；`/stop`/`/cd` 刻意未做）；渠道级 `allow_senders` 边缘拒绝（validate 拒空/重、不回显 sender id）。
+- **IM 消息级运行台账（`2551d043`）**：`RunTrigger` 新增 `Im` 变体；`im/runner.rs::handle_message` 在 turn 前写 Running、终态回写，`im/runs/<platform>-<sha256(chat_id) 前16hex>/runs/<run_id>.json`，best-effort 不影响回合退出路径；台账与 schedule 台账共用 `RunRecord`/`save_run` 形状。
+- **CLI 白名单入口（`eb12c64e`）**：`rustcode im add/setup` 支持 `--allow-senders`（逗号分隔）。
+- **WebUI 白名单管理面（`42a1bc55`）**：`ImChannelsDialog` 的 `allow_senders` 录入/回显。
+- **会话来源 wire 传导 + WebUI IM 栏目增强（`7613f187`）**：`SessionMeta.origin` 新增 wire 字段传导；WebUI IM 栏目/徽标增强。
+- **企微适配器（`bebac3e8`）**：裸实现 `crates/rustcode-cli/src/im/wecom.rs`，走长连接、无需公网；`config/im.rs` 断言 `Wecom.has_verified_long_connection()` 为真、飞书为假（推翻早先「企微为 webhook 需公网」设想）。**飞书适配器仍阻塞**（长连接协议被官方 SDK 封装、一手文档不暴露原始 WS 端点/帧格式）。
+
+---
+
 ## 6. 风险与失败语义
 
 | 风险 | 严重度 | 缓解 |
