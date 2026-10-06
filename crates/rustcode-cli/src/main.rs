@@ -1315,6 +1315,14 @@ enum IdeCli {
         #[arg(long)]
         all: bool,
     },
+    /// Interactively detect installed IDEs and offer to install the
+    /// RustCode extension into each. Confirmation required — never silent.
+    Setup {
+        /// Install into all detected IDEs that support CLI install without
+        /// per-IDE prompting. Only meaningful in an interactive shell.
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 /// Supported IDE kinds for detection and install.
@@ -1597,6 +1605,115 @@ fn run_ide_install(all: bool, ide: Option<&str>) -> Result<()> {
     if had_failure {
         anyhow::bail!("one or more ide installs failed");
     }
+    Ok(())
+}
+
+/// Handle `rustcode ide setup` — a guided, opt-in extension install.
+///
+/// Detects installed IDEs, then for each VS Code-family IDE that lacks the
+/// extension asks for confirmation before installing. It never installs
+/// silently: in a non-interactive context (no TTY) it refuses unless `--yes`
+/// is given, so automated runs never mutate the user's editor behind their
+/// back. IDEs without a CLI install path (e.g. JetBrains) get manual
+/// marketplace guidance instead.
+fn run_ide_setup(yes: bool) -> Result<()> {
+    use std::io::{BufRead, IsTerminal, Write};
+    let t = rustcode_config::i18n::t;
+    let ides = detect_ides();
+    if ides.is_empty() {
+        println!("{}", t(rustcode_config::i18n::Msg::CliIdeNoneDetected));
+        return Ok(());
+    }
+    println!("{}", t(rustcode_config::i18n::Msg::CliIdeSetupHeader));
+
+    for (kind, path) in &ides {
+        let name = kind.display_name();
+
+        // JetBrains has no `--install-extension` path; point at the marketplace.
+        if !kind.supports_cli_install() {
+            println!(
+                "{}",
+                t(rustcode_config::i18n::Msg::CliIdeManualRequired {
+                    ide: name,
+                    marketplace_url: kind.marketplace_url(),
+                })
+                .into_owned()
+            );
+            continue;
+        }
+
+        // Already installed — nothing to do.
+        if vscode_extension_installed(path, kind.extension_id()) {
+            println!(
+                "{}",
+                t(rustcode_config::i18n::Msg::CliIdeInstallOk { ide: name })
+            );
+            continue;
+        }
+
+        // Ask before installing.
+        let confirmed = if yes {
+            true
+        } else if !std::io::stdin().is_terminal() {
+            eprintln!(
+                "[WARN] {name} 检测到但未安装 RustCode 扩展；非交互环境请加 --yes 以确认安装。"
+            );
+            false
+        } else {
+            eprint!(
+                "{}",
+                t(rustcode_config::i18n::Msg::CliIdeSetupPrompt {
+                    ide: name,
+                    path: &path.display().to_string(),
+                })
+                .into_owned()
+            );
+            let _ = std::io::stdout().flush();
+            let mut line = String::new();
+            match std::io::stdin().lock().read_line(&mut line) {
+                Ok(_) => {
+                    let l = line.trim().to_ascii_lowercase();
+                    matches!(l.as_str(), "y" | "yes" | "是")
+                }
+                Err(_) => false,
+            }
+        };
+
+        if !confirmed {
+            println!(
+                "{}",
+                t(rustcode_config::i18n::Msg::CliIdeSetupSkipped { ide: name })
+            );
+            continue;
+        }
+
+        // Install (re-resolve the exe path the same way `run_ide_install` does).
+        match kind.exe_names().iter().find_map(|exe| which(exe)) {
+            Some(exe) => match install_vscode_extension(&exe, kind.extension_id()) {
+                Ok(()) => println!(
+                    "{}",
+                    t(rustcode_config::i18n::Msg::CliIdeInstallOk { ide: name })
+                ),
+                Err(e) => {
+                    let err_str = e.to_string();
+                    println!(
+                        "{}",
+                        t(rustcode_config::i18n::Msg::CliIdeInstallFailed {
+                            ide: name,
+                            error: &err_str,
+                        })
+                        .into_owned()
+                    );
+                }
+            },
+            None => println!(
+                "{}",
+                t(rustcode_config::i18n::Msg::CliIdeNotFound { ide: name })
+            ),
+        }
+    }
+
+    println!("{}", t(rustcode_config::i18n::Msg::CliIdeSetupDone));
     Ok(())
 }
 
@@ -4902,6 +5019,7 @@ async fn handle_command(cmd: Commands) -> Result<()> {
         Commands::Ide(sub) => match sub {
             IdeCli::List => run_ide_list(),
             IdeCli::Install { ide, all } => run_ide_install(all, ide.as_deref()),
+            IdeCli::Setup { yes } => run_ide_setup(yes),
         },
         Commands::Hooks(subcmd) => handle_hooks(subcmd).await,
         Commands::Schedule(_) => {

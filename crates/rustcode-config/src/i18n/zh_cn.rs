@@ -2546,6 +2546,14 @@ Msg::CmdDescBackground => "在隔离的后台上下文中运行一次性任务�
         Msg::CliIdeUnknown { ide } => format!(
             "[!] 未知的 IDE \"{ide}\"。支持：vscode、cursor、vscodium、jetbrains。"
         ).into(),
+        Msg::CliIdeSetupHeader => "IDE 扩展安装引导 —— 检测并安装：".into(),
+        Msg::CliIdeSetupPrompt { ide, path } => format!(
+            "[?] 已在 {path} 检测到 {ide}，但未安装 RustCode 扩展。是否现在安装？[y/N] "
+        ).into(),
+        Msg::CliIdeSetupSkipped { ide } => format!(
+            "[-] 已跳过 {ide}。稍后可运行 `rustcode ide install` 安装。"
+        ).into(),
+        Msg::CliIdeSetupDone => "IDE 扩展安装引导完成。".into(),
 
         // ── rustcodex 独立 CLI（rustcode-clix）──
         Msg::ClixAbout => "RustCode 独立命令行（新栈）".into(),

@@ -4132,6 +4132,21 @@ pub enum Msg<'a> {
     CliIdeUnknown {
         ide: &'a str,
     },
+    /// `rustcode ide setup`: header line before the per-IDE prompts.
+    CliIdeSetupHeader,
+    /// `rustcode ide setup`: prompt to install into a detected IDE that lacks
+    /// the extension. `ide` is the display name, `path` is the executable path.
+    CliIdeSetupPrompt {
+        ide: &'a str,
+        path: &'a str,
+    },
+    /// `rustcode ide setup`: user declined (or non-interactive without `--yes`);
+    /// skipped this IDE. `ide` is the display name.
+    CliIdeSetupSkipped {
+        ide: &'a str,
+    },
+    /// `rustcode ide setup`: summary line when the guided flow finishes.
+    CliIdeSetupDone,
     /// `rustcode ide install`: `--all` flag help.
     CliHelpIdeInstallAll,
     /// `rustcode ide install <ide>`: positional help.

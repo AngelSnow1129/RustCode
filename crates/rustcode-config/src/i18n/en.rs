@@ -2643,6 +2643,14 @@ Msg::CmdDescBackground => "Run a one-shot task in an isolated background context
         Msg::CliIdeUnknown { ide } => format!(
             "[!] Unknown IDE \"{ide}\". Supported: vscode, cursor, vscodium, jetbrains."
         ).into(),
+        Msg::CliIdeSetupHeader => "IDE extension setup — detect and install:".into(),
+        Msg::CliIdeSetupPrompt { ide, path } => format!(
+            "[?] Detected {ide} at {path} without the RustCode extension. Install now? [y/N] "
+        ).into(),
+        Msg::CliIdeSetupSkipped { ide } => format!(
+            "[-] Skipped {ide}. Install later with: rustcode ide install"
+        ).into(),
+        Msg::CliIdeSetupDone => "IDE extension setup complete.".into(),
 
         // ── rustcodex standalone CLI (rustcode-clix) ──
         // clap `about` strings mirror the pre-i18n derive docs byte-for-byte.
