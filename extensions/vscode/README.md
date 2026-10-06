@@ -46,6 +46,21 @@ RustCode 提供面向开发流程的辅助能力，包括代码理解、上下�
 
 ---
 
+## 安装 RustCode 扩展
+
+扩展需先安装到编辑器，Activity Bar 才会出现 RustCode 面板。推荐用 RustCode CLI 引导安装：
+
+| 命令 | 说明 |
+|------|------|
+| `rustcode ide list` | 检测 PATH 上的 IDE 及扩展安装状态 |
+| `rustcode ide setup` | 检测 IDE 并逐项确认后安装扩展（推荐） |
+| `rustcode ide setup --yes` | 跳过确认，直接为所有支持的 IDE 安装 |
+| `rustcode ide install [ide]` | 手动安装到指定 IDE（vscode / cursor / vscodium / jetbrains） |
+
+- VS Code 系（VS Code / Cursor / VSCodium）通过 `code --install-extension` 安装，扩展 id 为 `rustcode-tools.rustcode`。
+- JetBrains IDEA 等不支持命令行安装，请前往插件市场手动安装（插件 id：`com.rustcode.jetbrains`）。
+- 出于安全与最小惊讶原则，RustCode **不会**在后台静默安装扩展；安装是你需要显式触发的动作，引导命令也会先征求确认再执行。
+
 ## 命令
 
 | 命令 | 说明 |
