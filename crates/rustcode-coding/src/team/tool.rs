@@ -261,6 +261,13 @@ impl Tool for TeamTool {
     }
 
     fn parameters_schema(&self) -> Value {
+        // Derive the `role` enum from BUILT_IN_ROLES so the advertised schema can
+        // never drift from the single source of truth (F1-W1). The legacy `task`
+        // tool derives its lane-filtered enums the same way via `role_ids_for_lane`.
+        let role_enum: Vec<Value> = rustcode_capabilities::team::built_in_roles()
+            .iter()
+            .map(|r| json!(r.id.as_str()))
+            .collect();
         json!({
             "type": "object",
             "oneOf": [
@@ -274,7 +281,7 @@ impl Tool for TeamTool {
                                 "properties": {
                                     "description": {"type": "string"},
                                     "prompt": {"type": "string"},
-                                    "role": {"type": "string", "enum": ["planner", "architect", "explorer", "implementer", "rust", "tui_ux", "reviewer", "tester", "debugger", "security", "performance", "docs_writer", "release_manager", "migration_compat"]},
+                                    "role": {"type": "string", "enum": role_enum},
                                     "subagent_type": {"type": "string", "enum": ["explore", "worker"], "description": "Optional alias: must agree with `role`'s lane (read-only roles -> \"explore\", write roles -> \"worker\"). `role` alone is enough."},
                                     "scope": {"type": "array", "items": {"type": "string"}, "description": "Required for worker roles; ignored for read-only roles."}
                                 },
@@ -720,5 +727,24 @@ mod tests {
             .map(|v| v.as_str().unwrap())
             .collect();
         assert_eq!(enum_values, vec!["explore", "worker"]);
+    }
+
+    #[test]
+    fn team_schema_role_enum_matches_built_in_roles() {
+        // F1-W1: the advertised `role` enum must derive from the single source of
+        // truth so a lane add/remove cannot silently desync the schema.
+        let schema = tool(100).parameters_schema();
+        let items = &schema["oneOf"][0]["properties"]["tasks"]["items"];
+        let advertised: Vec<String> = items["properties"]["role"]["enum"]
+            .as_array()
+            .expect("role enum")
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        let expected: Vec<String> = rustcode_capabilities::team::built_in_roles()
+            .iter()
+            .map(|r| r.id.as_str().to_string())
+            .collect();
+        assert_eq!(advertised, expected);
     }
 }

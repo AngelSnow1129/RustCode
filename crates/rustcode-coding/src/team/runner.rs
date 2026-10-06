@@ -41,6 +41,7 @@ pub struct TeamRunnerFactory {
     tool_loop_policy: Option<ToolLoopPolicy>,
     stream_timeout: Option<Duration>,
     request_timeout: Option<Duration>,
+    first_token_timeout: Option<Duration>,
     inherited_worker_middlewares: Vec<Arc<dyn ToolMiddleware>>,
     credential_shell_policy: rustcode_capabilities::tools::CredentialShellPolicy,
     /// Parent's live Auto-mode flag, cloned into every member's credential gate.
@@ -66,6 +67,7 @@ impl TeamRunnerFactory {
             tool_loop_policy: None,
             stream_timeout: None,
             request_timeout: None,
+            first_token_timeout: None,
             inherited_worker_middlewares: Vec::new(),
             credential_shell_policy: Default::default(),
             credential_shell_bypass: None,
@@ -94,11 +96,13 @@ impl TeamRunnerFactory {
         tool_loop_policy: Option<ToolLoopPolicy>,
         stream_timeout: Option<Duration>,
         request_timeout: Option<Duration>,
+        first_token_timeout: Option<Duration>,
     ) -> Self {
         self.max_rounds = max_rounds.filter(|rounds| *rounds > 0);
         self.tool_loop_policy = tool_loop_policy;
         self.stream_timeout = stream_timeout;
         self.request_timeout = request_timeout;
+        self.first_token_timeout = first_token_timeout;
         self
     }
 
@@ -195,6 +199,9 @@ impl TeamRunnerFactory {
         }
         if let Some(timeout) = self.request_timeout {
             builder = builder.request_timeout(timeout);
+        }
+        if let Some(timeout) = self.first_token_timeout {
+            builder = builder.first_token_timeout(timeout);
         }
         builder.build()
     }
