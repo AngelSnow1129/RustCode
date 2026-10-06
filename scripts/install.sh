@@ -67,6 +67,11 @@ RELEASE_LATEST_API="${RUSTCODE_RELEASE_LATEST_API:-https://api.gitcode.com/api/v
 uname_s=$(uname -s)
 uname_m=$(uname -m)
 ext=""  # binary filename suffix; ".exe" on Windows shells (set below)
+# Declared empty on purpose: the `case` arms below assign them, and the
+# fail-closed checks right after make a NEW arm that forgets to assign surface
+# as a clear message instead of an "os: parameter not set" crash under `set -u`.
+os=""
+arch=""
 
 case "$uname_s" in
     Darwin) os="darwin" ;;
@@ -80,24 +85,59 @@ case "$uname_s" in
     *) echo "Unsupported OS: $uname_s (Windows users: download the zip from the release page)"; exit 1 ;;
 esac
 
+# Belt-and-braces: reached only if an arm above was added without assigning `os`.
+if [ -z "$os" ]; then
+    echo "Error: OS detection failed (uname -s = '$uname_s'); add it to the case above." >&2
+    exit 1
+fi
+
 case "$uname_m" in
     arm64|aarch64) arch="arm64" ;;
     x86_64|amd64)  arch="x64"   ;;
     *) echo "Unsupported arch: $uname_m"; exit 1 ;;
 esac
 
+# Belt-and-braces: reached only if an arm above was added without assigning `arch`.
+if [ -z "$arch" ]; then
+    echo "Error: arch detection failed (uname -m = '$uname_m'); add it to the case above." >&2
+    exit 1
+fi
+
 # --- pick install dir ---
+# `$HOME` is NOT exported everywhere this script runs (`env -i`, cron, systemd units,
+# `docker exec sh -c 'curl…|sh'`, some CI runners). Under `set -u` a bare `$HOME`
+# then aborts with "HOME: parameter not set" -- an opaque crash, same failure class
+# as the DOWNLOADED bug fixed in 6c0b0a91. Fail closed with an actionable message
+# instead: guess a fallback dir (e.g. `/tmp`) would install into the WRONG prefix,
+# which is worse than refusing. Only call this where HOME is truly required -- the
+# root /usr/local/bin branch and an explicit RUSTCODE_PREFIX need no HOME.
+# `${HOME:-}` is nounset-safe (default-value expansion), so the probe itself never
+# triggers `set -u`.
+# $1 = the path that could not be resolved (single-quoted at the call sites so
+#      the literal `$HOME/...` is shown), $2 = optional extra context line.
+require_home() {
+    [ -n "${HOME:-}" ] && return 0
+    echo "Error: HOME is not set in this environment; cannot resolve $1." >&2
+    echo "       Export HOME (e.g. export HOME=/home/you) and re-run, or install" >&2
+    echo "       as root (uses /usr/local/bin, needs no HOME), or pass an explicit" >&2
+    echo "       install dir: RUSTCODE_PREFIX=/opt/bin sh install.sh" >&2
+    [ -z "${2:-}" ] || echo "       $2" >&2
+    exit 1
+}
+
 if [ -n "${RUSTCODE_PREFIX:-}" ]; then
     PREFIX="$RUSTCODE_PREFIX"
 elif [ "$os" = "ohos" ] || [ "$os" = "windows" ]; then
     # Windows shells (MSYS/Git-Bash/Cygwin) have no sudo and a system /usr/local/bin under
     # the MSYS root; install into the user's home instead (always writable, no elevation).
+    require_home '$HOME/.local/bin'
     PREFIX="$HOME/.local/bin"
 elif [ -w /usr/local/bin ] 2>/dev/null; then
     PREFIX="/usr/local/bin"
 elif [ "$(id -u)" -eq 0 ]; then
     PREFIX="/usr/local/bin"
 else
+    require_home '$HOME/.local/bin'
     PREFIX="$HOME/.local/bin"
 fi
 
@@ -118,6 +158,10 @@ DEST="$TMP/rustcode${ext}"
 # not pin its slot for the whole race.
 DOWN_TIMEOUT="${RUSTCODE_DOWNLOAD_TIMEOUT:-300}"
 case "$DOWN_TIMEOUT" in ''|*[!0-9]*) DOWN_TIMEOUT=300 ;; esac
+# Declared empty on purpose: a new download-tool branch that forgets to set one
+# of them must fail closed here, not with "_down: parameter not set" under `set -u`.
+_fetch=""
+_down=""
 if command -v curl >/dev/null 2>&1; then
     _fetch="curl -sL --connect-timeout 5 --max-time 10"
     # --speed-limit/--speed-time: abort when stalled (<1KB/s for 30s) instead of
@@ -128,6 +172,13 @@ elif command -v wget >/dev/null 2>&1; then
     _down="wget -q --timeout=$DOWN_TIMEOUT --read-timeout=30 --tries=1 -O"
 else
     echo "Error: need curl or wget." >&2
+    exit 1
+fi
+
+# Belt-and-braces: reached only if a branch above was added without assigning
+# both helpers. Downloading through an empty command must never happen silently.
+if [ -z "$_fetch" ] || [ -z "$_down" ]; then
+    echo "Error: download tool not configured (curl/wget branch did not set it)." >&2
     exit 1
 fi
 
@@ -413,7 +464,13 @@ echo "Installed: $TARGET"
 write_custom_provider() {
     [ -n "$PROVIDER_URL$PROVIDER_KEY$PROVIDER_MODEL" ] || return 0
     NAME="${PROVIDER_NAME:-custom}"
-    CFG_DIR="${RUSTCODE_HOME:-$HOME/.rustcode}"
+    # An explicit RUSTCODE_HOME needs no HOME at all; only the default path does.
+    if [ -n "${RUSTCODE_HOME:-}" ]; then
+        CFG_DIR="$RUSTCODE_HOME"
+    else
+        require_home '$HOME/.rustcode'
+        CFG_DIR="$HOME/.rustcode"
+    fi
     CFG="$CFG_DIR/config.toml"
     mkdir -p "$CFG_DIR"
 
@@ -466,8 +523,10 @@ case ":$PATH:" in
         LINE="export PATH=\"$PREFIX:\$PATH\""
         RC=""
         if [ -n "${ZSH_VERSION:-}" ] || [ "$(basename "${SHELL:-}")" = "zsh" ]; then
+            require_home '$HOME/.zshrc'
             RC="$HOME/.zshrc"
         elif [ -n "${BASH_VERSION:-}" ] || [ "$(basename "${SHELL:-}")" = "bash" ]; then
+            require_home '$HOME/.bashrc'
             RC="$HOME/.bashrc"
         fi
 
@@ -482,7 +541,10 @@ case ":$PATH:" in
             else
                 echo "" >> "$RC"
                 echo "# Added by RustCode installer" >> "$RC"
-                echo "$LINE" >> "$RC"
+                # `printf`, not `echo`: dash's builtin echo interprets backslash
+                # escapes (XSI semantics, bash does not by default), so an install
+                # path containing e.g. `\t` would be silently rewritten in the rc.
+                printf '%s\n' "$LINE" >> "$RC"
                 echo ""
                 echo "Added $PREFIX to PATH in $RC"
             fi

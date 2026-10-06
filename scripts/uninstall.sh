@@ -47,6 +47,23 @@ if [ "$DO_PURGE" = 1 ] && [ "$DO_KEEP" = 1 ]; then
     echo "--purge and --keep-data conflict" >&2; exit 2
 fi
 
+# ---- environment guard (fail closed) ----
+# Every path resolved below (binary candidates, RUSTCODE_HOME default, shell rc
+# files) is derived from $HOME. Under `set -u`, a HOME-less environment — cron,
+# systemd unit, `docker exec`, `env -i`, some CI runners — would abort with a bare
+# "HOME: parameter not set". Falling back to a guessed directory is worse: it would
+# make the uninstaller inspect and delete the wrong tree. Refuse instead, before
+# touching anything.
+require_home() {
+    if [ -z "${HOME:-}" ]; then
+        echo "Error: HOME is not set — cannot resolve the paths to remove." >&2
+        echo "  Refusing to guess a fallback directory (it would inspect/remove the wrong tree)." >&2
+        echo "  Export HOME to the account that owns the install: HOME=/home/you sh scripts/uninstall.sh" >&2
+        exit 2
+    fi
+}
+require_home
+
 # ---- detect binary ----
 BIN=$(command -v rustcode 2>/dev/null || true)
 if [ -z "$BIN" ]; then
