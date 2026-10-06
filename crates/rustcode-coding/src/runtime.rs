@@ -16028,7 +16028,7 @@ mod tests {
             provider_factory,
             plugin_hooks,
             image_preprocessor,
-            task_id,
+            task_id: _,
         } = native_start(false);
         agent.working_dir = project.path().to_path_buf();
         prepare.session = crate::SessionMode::Resume(id.into());
