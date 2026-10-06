@@ -13,10 +13,25 @@ set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [ -z "$ROOT" ]; then
-  ROOT="$(pwd)"
+  # Fail CLOSED. Falling back to $PWD makes the `-f` checks below fail, which
+  # silently skips BOTH the auto-release step AND the release artifact gate while
+  # reporting only a [WARN] -- i.e. the hook passes without enforcing anything.
+  # A hook that cannot locate the repo must refuse, not pass.
+  echo "[ERROR] Cannot determine repository root (git rev-parse --show-toplevel failed)." >&2
+  echo "        Refusing to push: the release artifact gate would be skipped." >&2
+  exit 1
 fi
 
-while read -r local_ref local_sha remote_ref remote_sha; do
+# Slurp every ref up-front. The child processes spawned below (release-auto.sh,
+# which cross-builds / commits / tags, and prepush-release-check.sh) inherit this
+# stdin; if any of them reads it, the remaining ref lines are consumed and this
+# while loop ends early -- silently skipping checks for every later ref. Reading
+# all lines first (plus </dev/null on the children) makes each ref independent.
+refs_input="$(cat)"
+
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  read -r local_ref local_sha remote_ref remote_sha <<< "$line"
   if [[ "$remote_ref" == "refs/heads/main" ]]; then
     # main is an upstream mirror: the ONLY allowed source of change is
     # upstream/main. Any commit on main that upstream does not contain is a
@@ -40,6 +55,17 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 
     # Count commits on local main that upstream does not contain
     ahead=$(git rev-list --count "$upstream_ref".."$local_sha" 2>/dev/null || echo "0")
+
+    # A non-numeric result (git failure, empty output) must never reach `-gt`:
+    # that raises "integer expression expected" and, worse, would leave main
+    # effectively unchecked. Refuse instead -- main protection is fail-closed.
+    case "$ahead" in
+      '' | *[!0-9]*)
+        echo "[ERROR] Cannot determine how far main is ahead of upstream/main (got '$ahead')." >&2
+        echo "        Refusing to push: fail-closed." >&2
+        exit 1
+        ;;
+    esac
 
     if [ "$ahead" -gt 0 ]; then
       echo "" >&2
@@ -76,8 +102,17 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   #
   # NOTE: this builds, so it can take minutes and is skipped off-dev /
   # RUSTCODE_AUTO_RELEASE=off. The artifact gate below still verifies the result.
-  if [ "$remote_ref" != "refs/heads/main" ] && [ -f "$ROOT/scripts/release-auto.sh" ]; then
-    if ! bash "$ROOT/scripts/release-auto.sh"; then
+  # Only real branch updates may trigger a build. Tags (refs/tags/*) and ref
+  # deletions (all-zero local_sha) must not: the artifact gate below already
+  # skips deletions, and auto-release has to agree with it instead of firing a
+  # full cross-build on `git push origin v6.3.0` or `git push --delete`.
+  auto_release_ok=1
+  case "$remote_ref" in refs/heads/*) ;; *) auto_release_ok=0 ;; esac
+  case "$local_sha" in "" | 0000000000000000000000000000000000000000) auto_release_ok=0 ;; esac
+
+  if [ "$remote_ref" != "refs/heads/main" ] && [ "$auto_release_ok" -eq 1 ] \
+      && [ -f "$ROOT/scripts/release-auto.sh" ]; then
+    if ! bash "$ROOT/scripts/release-auto.sh" </dev/null; then
       echo "" >&2
       echo "[ERROR] auto-release failed; aborting push. Fix the build, then push again." >&2
       exit 1
@@ -107,7 +142,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
           ;;
         *)
           if [ -f "$ROOT/scripts/prepush-release-check.sh" ]; then
-            if ! bash "$ROOT/scripts/prepush-release-check.sh" --sha "$local_sha" --root "$ROOT"; then
+            if ! bash "$ROOT/scripts/prepush-release-check.sh" --sha "$local_sha" --root "$ROOT" </dev/null; then
               echo "" >&2
               echo "[ERROR] Push rejected by the release artifact gate." >&2
               exit 1
@@ -119,6 +154,6 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       esac
       ;;
   esac
-done
+done <<< "$refs_input"
 
 exit 0
