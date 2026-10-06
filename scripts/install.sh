@@ -345,6 +345,118 @@ fi
 # download race below is skipped for it. Initialize for non-FreeBSD paths:
 # under `set -u` an unset DOWNLOADED would abort before the first reference.
 : "${DOWNLOADED:=0}"
+
+# --- integrity: verify a downloaded binary against the repo-committed manifest ---
+# `release/<ver>/manifest.json` records the expected sha256 + size for every target
+# and IS committed to the repo, so it stays fetchable even when the binary itself is
+# served from an online Release asset. Without this check the installer accepts any
+# payload that is merely non-empty and not obviously HTML -- a truncated, corrupt or
+# wrong-architecture file would be installed silently.
+#
+# Policy: verify whenever the expected values can be determined. If the manifest (or a
+# sha256 tool) is unavailable we say so loudly rather than silently trusting the download
+# -- project rule: no silent degradation. Set RUSTCODE_REQUIRE_MANIFEST=1 to make
+# "cannot verify" fatal for installs that must not proceed unverified.
+MF_REQUIRED="${RUSTCODE_REQUIRE_MANIFEST:-0}"
+
+mf_path() {
+    # $1 = version -> cached manifest path on stdout, or empty when unfetchable
+    _v="$1"
+    _mf="$TMP/manifest-$_v.json"
+    if [ -s "$_mf" ]; then
+        printf '%s\n' "$_mf"
+        return 0
+    fi
+    # `${_fetch:-false}` keeps this nounset-safe: the downloader command is always
+    # resolved earlier (curl/wget, else the script exits), but if it were ever unset
+    # a bare `$_fetch` would reintroduce the exact failure class fixed in 6c0b0a91.
+    if ${_fetch:-false} "$RELEASE_RAW_BASE/release/$_v/manifest.json?ref=$RELEASE_RAW_REF" > "$_mf" 2>/dev/null \
+        && [ -s "$_mf" ] && grep -q '"binaries"' "$_mf"; then
+        printf '%s\n' "$_mf"
+        return 0
+    fi
+    rm -f "$_mf"
+    return 0
+}
+
+mf_field() {
+    # $1 = manifest, $2 = target (e.g. linux-x64), $3 = "sha256" | "size"
+    _mf="$1"; _t="$2"; _k="$3"
+    if command -v jq >/dev/null 2>&1; then
+        _out=$(jq -r --arg t "$_t" --arg k "$_k" '.binaries[$t][$k] // empty' "$_mf" 2>/dev/null) || _out=""
+        [ -n "$_out" ] && { printf '%s\n' "$_out"; return 0; }
+    fi
+    # POSIX fallback: the generator emits one compact target per line, e.g.
+    #   "linux-x64": { "file": "...", "sha256": "<64 hex>", "size": 40333784 },
+    _line=$(grep "\"$_t\"" "$_mf" 2>/dev/null | head -n 1)
+    [ -n "$_line" ] || return 0
+    case "$_k" in
+        sha256) printf '%s\n' "$_line" | sed -n 's/.*"sha256"[[:space:]]*:[[:space:]]*"\([0-9a-fA-F]\{64\}\)".*/\1/p' ;;
+        size)   printf '%s\n' "$_line" | sed -n 's/.*"size"[[:space:]]*:[[:space:]]*"\{0,1\}\([0-9]\{1,\}\)"\{0,1\}.*/\1/p' ;;
+    esac
+    return 0
+}
+
+sha256_of() {
+    # $1 = file -> lowercase hex sha256 on stdout, empty when no hash tool exists
+    _f="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$_f" 2>/dev/null | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$_f" 2>/dev/null | awk '{print $1}'
+    elif command -v sha256 >/dev/null 2>&1; then
+        sha256 -q "$_f" 2>/dev/null
+    fi
+    return 0
+}
+
+verify_against_manifest() {
+    # $1 = freshly downloaded file, $2 = version, $3 = target (os-arch)
+    # 0 = accept (verified, or unverifiable but allowed) | 1 = REJECT on mismatch
+    _f="$1"; _v="$2"; _t="$3"
+    _mf=$(mf_path "$_v")
+    if [ -z "$_mf" ]; then
+        if [ "$MF_REQUIRED" = "1" ]; then
+            echo "    !! no release/$_v/manifest.json and RUSTCODE_REQUIRE_MANIFEST=1; refusing unverified download" >&2
+            return 1
+        fi
+        echo "    !! WARNING: could not fetch release/$_v/manifest.json -- installing UNVERIFIED" >&2
+        return 0
+    fi
+    _want_sha=$(mf_field "$_mf" "$_t" sha256)
+    if [ -z "$_want_sha" ]; then
+        if [ "$MF_REQUIRED" = "1" ]; then
+            echo "    !! manifest has no sha256 for $_t on $_v; refusing unverified download" >&2
+            return 1
+        fi
+        echo "    !! WARNING: manifest has no entry for $_t on $_v -- installing UNVERIFIED" >&2
+        return 0
+    fi
+    _got_sha=$(sha256_of "$_f")
+    if [ -z "$_got_sha" ]; then
+        if [ "$MF_REQUIRED" = "1" ]; then
+            echo "    !! no sha256 tool (need sha256sum/shasum/sha256); refusing unverified download" >&2
+            return 1
+        fi
+        echo "    !! WARNING: no sha256 tool available -- installing UNVERIFIED" >&2
+        return 0
+    fi
+    _want_size=$(mf_field "$_mf" "$_t" size)
+    if [ -n "$_want_size" ]; then
+        _got_size=$(wc -c < "$_f" | tr -d '[:space:]')
+        if [ "$_got_size" != "$_want_size" ]; then
+            echo "    !! REJECTED: $3 size $_got_size != manifest $_want_size" >&2
+            return 1
+        fi
+    fi
+    if [ "$_got_sha" != "$_want_sha" ]; then
+        echo "    !! REJECTED: $3 sha256 mismatch (got $_got_sha, want $_want_sha)" >&2
+        return 1
+    fi
+    echo "    -> verified against release/$_v/manifest.json (sha256 + size ok)"
+    return 0
+}
+
 if [ "$DOWNLOADED" != "1" ]; then
 ATTEMPTED=""
 
@@ -399,10 +511,17 @@ while [ "$DOWNLOADED" != 1 ] && [ "$WAVE_START" -le "$NUML" ]; do
     while IFS=" " read -r SLOT PID BIN; do
         if wait "$PID" && [ -s "$TMP/dl.$SLOT" ] \
             && ! head -c 4 "$TMP/dl.$SLOT" | grep -q "<" 2>/dev/null; then
-            mv "$TMP/dl.$SLOT" "$DEST"
-            echo "    -> got $BIN ($(stat -c%s "$DEST" 2>/dev/null || stat -f%z "$DEST") bytes)"
-            DOWNLOADED=1
-            break
+            # Recover the version this candidate belongs to: BIN is built as
+            # "rustcode-<ver>-<os>-<arch><ext>" when URLFILE is flattened above.
+            SLOT_VER=${BIN#rustcode-}
+            SLOT_SUFFIX="-${os}-${arch}${ext}"
+            SLOT_VER=${SLOT_VER%$SLOT_SUFFIX}
+            if verify_against_manifest "$TMP/dl.$SLOT" "$SLOT_VER" "${os}-${arch}"; then
+                mv "$TMP/dl.$SLOT" "$DEST"
+                echo "    -> got $BIN ($(stat -c%s "$DEST" 2>/dev/null || stat -f%z "$DEST") bytes)"
+                DOWNLOADED=1
+                break
+            fi
         fi
         rm -f "$TMP/dl.$SLOT"
     done < "$PIDSFILE"
@@ -458,7 +577,18 @@ fi
 # --- done ---
 echo ""
 echo "Installed: $TARGET"
-"$TARGET" --version 2>/dev/null || true
+# Smoke test the installed binary. This used to be `2>/dev/null || true`, which hid
+# real failures: a wrong-architecture download or a missing shared library would be
+# reported as a successful install. Surface it instead.
+if ! VER_OUT=$("$TARGET" --version 2>&1); then
+    echo "Error: $TARGET failed its --version smoke test." >&2
+    echo "       Output was: $VER_OUT" >&2
+    echo "       Usually this means the wrong architecture was installed, or a" >&2
+    echo "       required shared library is missing. The file was still written;" >&2
+    echo "       remove it and re-run with RUSTCODE_VERSION / the right target." >&2
+    exit 1
+fi
+printf '%s\n' "$VER_OUT"
 
 # --- write custom provider config (optional --url/--key/--model) ---
 write_custom_provider() {
