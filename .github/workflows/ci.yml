@@ -212,3 +212,64 @@ jobs:
             exit 1
           fi
           echo "[OK] no stale atomcode references in docs/architecture.md"
+
+  # Portability gate for the `curl | sh` distribution scripts. They run under
+  # /bin/sh (dash on Debian/Ubuntu) with `set -eu`, so reading one uninitialised
+  # variable aborts the installer with an opaque "parameter not set" -- the exact
+  # failure class fixed in 6c0b0a91 (DOWNLOADED). A syntax check cannot see it,
+  # hence the runtime smoke: assert the script fails CLOSED with a readable
+  # error instead of crashing on nounset.
+  shell-scripts:
+    name: shell scripts - dash / nounset portability
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check (sh / dash / bash)
+        run: |
+          set -eu
+          for f in scripts/install.sh scripts/uninstall.sh; do
+            sh -n "$f"
+            echo "[OK] sh -n $f"
+            if command -v dash >/dev/null 2>&1; then
+              dash -n "$f"
+              echo "[OK] dash -n $f"
+            else
+              echo "[skip] dash not installed"
+            fi
+            bash -n "$f"
+            echo "[OK] bash -n $f"
+          done
+      - name: shellcheck (sh dialect; skipped when unavailable)
+        run: |
+          set -eu
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            echo "[skip] shellcheck not installed"
+            exit 0
+          fi
+          shellcheck --shell=sh scripts/install.sh scripts/uninstall.sh
+          echo "[OK] shellcheck clean"
+      - name: Runtime smoke - install.sh must fail closed, not nounset-crash
+        run: |
+          set -eu
+          mkdir -p /tmp/rc-probe
+          set +e
+          env -i PATH="$PATH" HOME="$HOME" SHELL=/bin/sh \
+            RUSTCODE_VERSION=v6.2.1 \
+            RUSTCODE_RELEASE_LATEST_API= \
+            RUSTCODE_RELEASE_BASE=http://127.0.0.1:1/nope \
+            RUSTCODE_RELEASE_RAW_BASE=http://127.0.0.1:1/nope \
+            RUSTCODE_PREFIX=/tmp/rc-probe \
+            RUSTCODE_DOWNLOAD_TIMEOUT=5 \
+            sh scripts/install.sh >/tmp/probe.log 2>&1
+          code=$?
+          set -e
+          cat /tmp/probe.log
+          if grep -q 'parameter not set' /tmp/probe.log; then
+            echo "::error::install.sh aborted on an unset variable (nounset crash)"
+            exit 1
+          fi
+          if [ "$code" -ne 1 ]; then
+            echo "::error::expected exit 1 on the unreachable-source path, got $code"
+            exit 1
+          fi
+          echo "[OK] install.sh fails closed without a nounset crash"
