@@ -156,6 +156,37 @@ pub fn wakeups_root() -> std::path::PathBuf {
     schedules_root().join("wakeups")
 }
 
+/// Monotonic "runtime generation" that binds a [`ScheduledWakeup`] to the runtime
+/// instance that created it. On the next tick, a wakeup whose `generation` does
+/// not match the current one is stale (its creating runtime was replaced) and is
+/// skipped so it can never fire. The counter is persisted beside the schedule
+/// store so the registering runtime and the `schedule tick` subprocess observe
+/// the same value. Defaults to 0 when absent, which keeps `generation: None`
+/// wakeups (legacy / unbound) claimable for backward compatibility.
+pub fn current_generation() -> u64 {
+    generation_path()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(0)
+}
+
+/// Advance and persist the runtime generation. Called once per coding runtime
+/// instance start (see `ScheduleWakeupTool`); returns the new value.
+pub fn bump_generation() -> u64 {
+    let next = current_generation().saturating_add(1);
+    if let Some(p) = generation_path() {
+        if let Some(dir) = p.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(&p, next.to_string());
+    }
+    next
+}
+
+fn generation_path() -> Option<std::path::PathBuf> {
+    Some(schedules_root().join("runtime_generation"))
+}
+
 /// A persisted "resume the loop with this prompt at/after `due_at`" intent.
 ///
 /// `due_at` is an absolute epoch-seconds timestamp (NOT a relative delay): a
@@ -228,10 +259,25 @@ fn list_wakeups_in(root: &std::path::Path) -> Vec<ScheduledWakeup> {
 /// [`consume_wakeup`] after a successful fire to guarantee exactly-once delivery
 /// across concurrent ticks (defense in depth on top of the run ledger's
 /// single-flight lock).
-pub fn claim_due_wakeups(now_epoch_secs: i64) -> Vec<ScheduledWakeup> {
-    list_wakeups_in(&wakeups_root())
+pub fn claim_due_wakeups(now_epoch_secs: i64, current_generation: u64) -> Vec<ScheduledWakeup> {
+    claim_due_wakeups_in(&wakeups_root(), now_epoch_secs, current_generation)
+}
+
+fn claim_due_wakeups_in(
+    root: &std::path::Path,
+    now_epoch_secs: i64,
+    current_generation: u64,
+) -> Vec<ScheduledWakeup> {
+    list_wakeups_in(root)
         .into_iter()
         .filter(|w| !w.consumed && w.due_at <= now_epoch_secs)
+        // Drop wakeups from a previous runtime generation: they were created by a
+        // runtime that has since been replaced, so firing them would pollute the
+        // current session. Legacy `None` wakeups are unbound and always claimed.
+        .filter(|w| match w.generation {
+            None => true,
+            Some(g) => g == current_generation,
+        })
         .collect()
 }
 
@@ -2023,13 +2069,13 @@ fn wakeup_register_claim_and_consume() {
     assert!(escaped.is_err(), "wakeup id must not escape the wakeups dir");
 
     // Only the due (not the future) wakeup is claimed.
-    let due: Vec<String> = claim_due_wakeups(now).into_iter().map(|w| w.id).collect();
+    let due: Vec<String> = claim_due_wakeups(now, 0).into_iter().map(|w| w.id).collect();
     assert!(due.contains(&id_due), "due wakeup must be claimable");
     assert!(!due.contains(&id_future), "future wakeup must not be claimable yet");
 
     // Consuming makes it disappear from the due set (exactly-once).
     consume_wakeup(&id_due).unwrap();
-    let due2: Vec<String> = claim_due_wakeups(now).into_iter().map(|w| w.id).collect();
+    let due2: Vec<String> = claim_due_wakeups(now, 0).into_iter().map(|w| w.id).collect();
     assert!(
         !due2.contains(&id_due),
         "consumed wakeup must not be re-claimed"
@@ -2149,6 +2195,82 @@ fn wakeup_consumed_exactly_once() {
 
     // Idempotent: consuming again is a no-op, not an error.
     consume_wakeup_in(&root, &id).unwrap();
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn stale_generation_wakeup_is_dropped_without_side_effect() {
+    // A wakeup stamped with a generation that no longer matches the current
+    // runtime generation (its creating runtime was replaced) must be dropped by
+    // claim_due_wakeups: not returned for firing, and left on disk untouched
+    // (never consumed, never fired) so it can never cause a run.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let root =
+        std::env::temp_dir().join(format!("rc_wakeup_gen_{}", mint_wakeup_id(now, 21)));
+    let _ = std::fs::create_dir_all(&root);
+
+    // Stale wakeup: created by generation 5, but current generation is 0.
+    let stale_id = mint_wakeup_id(now, 22);
+    register_wakeup_in(
+        &root,
+        &ScheduledWakeup {
+            id: stale_id.clone(),
+            task_id: None,
+            due_at: now - 1,
+            prompt: "stale".into(),
+            reason: "r".into(),
+            created_at: now,
+            generation: Some(5),
+            consumed: false,
+        },
+    )
+    .unwrap();
+
+    // Current-generation wakeup: must still be claimable.
+    let live_id = mint_wakeup_id(now, 23);
+    register_wakeup_in(
+        &root,
+        &ScheduledWakeup {
+            id: live_id.clone(),
+            task_id: None,
+            due_at: now - 1,
+            prompt: "live".into(),
+            reason: "r".into(),
+            created_at: now,
+            generation: Some(0),
+            consumed: false,
+        },
+    )
+    .unwrap();
+
+    // Claim with current generation 0: stale dropped, live claimed.
+    let claimed: Vec<String> = claim_due_wakeups_in(&root, now, 0)
+        .into_iter()
+        .map(|w| w.id)
+        .collect();
+    assert!(
+        !claimed.contains(&stale_id),
+        "stale wakeup must be dropped from the claim set"
+    );
+    assert!(
+        claimed.contains(&live_id),
+        "current-generation wakeup must be claimed"
+    );
+
+    // Dropping must be side-effect-free: the stale entry stays on disk and
+    // is not consumed, so a later tick cannot fire or re-evaluate it.
+    let stale_path = root.join(format!("{stale_id}.json"));
+    assert!(
+        stale_path.exists(),
+        "stale wakeup file must remain on disk (no side effect on drop)"
+    );
+    let stale: ScheduledWakeup =
+        serde_json::from_slice(&std::fs::read(&stale_path).unwrap()).unwrap();
+    assert!(!stale.consumed, "stale wakeup must not be consumed on drop");
 
     let _ = std::fs::remove_dir_all(&root);
 }

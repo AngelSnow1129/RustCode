@@ -2036,6 +2036,10 @@ impl CodingRuntime {
         let (handle, controls) = coding_runtime_control_channel();
         let (raw_event_tx, _raw_events) = mpsc::unbounded_channel();
         let (tagged_event_tx, mut tagged_events) = mpsc::unbounded_channel();
+        // New runtime instance: advance the generation so wakeups bound to a
+        // previous (now-replaced) runtime are dropped as stale on the next tick.
+        // Single production-only bump site; reprepare paths below do not bump.
+        let _ = rustcode_config::schedule::bump_generation();
         let adapter = spawn_runtime_owner_with_optional_agent(
             kernel_agent,
             controls,

@@ -978,7 +978,9 @@ impl Tool for ScheduleWakeupTool {
             prompt: args.prompt.clone(),
             reason: args.reason.clone(),
             created_at: now,
-            generation: None,
+            // Bind the wakeup to the current runtime generation so a wakeup from a
+            // replaced runtime is dropped as stale on the next tick (anti-pollution).
+            generation: Some(rustcode_config::schedule::current_generation()),
             consumed: false,
             },
         )

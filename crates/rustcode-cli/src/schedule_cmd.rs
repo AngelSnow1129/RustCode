@@ -951,7 +951,7 @@ async fn tick_once() -> Result<i32> {
     // P3: fire due persisted wakeups (survive a process restart). Each is
     // claimed by `claim_due_wakeups` so a concurrent tick cannot double-fire,
     // and consumed after resolution so the tick never re-fires it.
-    for wakeup in schedule::claim_due_wakeups(now) {
+    for wakeup in schedule::claim_due_wakeups(now, schedule::current_generation()) {
         if !schedule::within_catch_up_window(wakeup.due_at, now, cfg.catch_up_window_secs) {
             // Too old to fire at boot: drop the intent and record a skip so the
             // same instant is not re-evaluated on every tick.
