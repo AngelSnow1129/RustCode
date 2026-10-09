@@ -17,7 +17,10 @@ jobs:
   branch-protection:
     name: main upstream-only protection
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # Canonical-repo only. This job and `release-gate` below guard the GitCode
+    # release flow; on the GitHub mirror (`github.repository` differs) they are
+    # meaningless and must be skipped rather than run red.
+    if: github.repository == 'SecLab/RustCode' && github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -49,7 +52,9 @@ jobs:
     # dev only, deliberately. main is an upstream mirror and must never receive a
     # fork-authored change -- including an artifact-only one -- so this gate is
     # never widened to main. Sync path stays: upstream/main -> main only.
-    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+    # Gated to the canonical repo: on the GitHub mirror dev never carries a
+    # release artifact, so this job would always fail -- skip it there.
+    if: github.repository == 'SecLab/RustCode' && github.ref == 'refs/heads/dev' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
         with:
