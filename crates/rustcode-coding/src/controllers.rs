@@ -972,16 +972,16 @@ impl Tool for ScheduleWakeupTool {
         let wakeup_id = rustcode_config::schedule::mint_wakeup_id(now, nanos);
         let registered = rustcode_config::schedule::register_wakeup(
             &rustcode_config::schedule::ScheduledWakeup {
-            id: wakeup_id.clone(),
-            task_id: self.task_id.clone(),
-            due_at: now + delay_seconds as i64,
-            prompt: args.prompt.clone(),
-            reason: args.reason.clone(),
-            created_at: now,
-            // Bind the wakeup to the current runtime generation so a wakeup from a
-            // replaced runtime is dropped as stale on the next tick (anti-pollution).
-            generation: Some(rustcode_config::schedule::current_generation()),
-            consumed: false,
+                id: wakeup_id.clone(),
+                task_id: self.task_id.clone(),
+                due_at: now + delay_seconds as i64,
+                prompt: args.prompt.clone(),
+                reason: args.reason.clone(),
+                created_at: now,
+                // Bind the wakeup to the current runtime generation so a wakeup from a
+                // replaced runtime is dropped as stale on the next tick (anti-pollution).
+                generation: Some(rustcode_config::schedule::current_generation()),
+                consumed: false,
             },
         )
         .is_ok();

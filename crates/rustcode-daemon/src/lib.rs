@@ -6527,9 +6527,9 @@ async fn authorize_fs_dir(
     .await;
     match authorized {
         Ok(Ok(dir)) => Ok(rustcode_capabilities::pathnorm::strip_verbatim_path(&dir)),
-        Ok(Err(deny)) => Err(
-            json_error(file_deny_status(deny), file_deny_message(deny)).into_response()
-        ),
+        Ok(Err(deny)) => {
+            Err(json_error(file_deny_status(deny), file_deny_message(deny)).into_response())
+        }
         Err(error) => Err(json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             t(Msg::DaemonApiFileResolveFailed {
@@ -6541,10 +6541,7 @@ async fn authorize_fs_dir(
     }
 }
 
-async fn fs_list(
-    State(state): State<AppState>,
-    Query(q): Query<FsListQuery>,
-) -> impl IntoResponse {
+async fn fs_list(State(state): State<AppState>, Query(q): Query<FsListQuery>) -> impl IntoResponse {
     let dir = match authorize_fs_dir(
         &state,
         &q.path,
@@ -7460,10 +7457,16 @@ mod fs_list_search_tests {
     }
 
     async fn call_search(state: AppState, path: &str) -> StatusCode {
-        fs_search(State(state), Query(FsSearchQuery { path: path.into(), q: String::new() }))
-            .await
-            .into_response()
-            .status()
+        fs_search(
+            State(state),
+            Query(FsSearchQuery {
+                path: path.into(),
+                q: String::new(),
+            }),
+        )
+        .await
+        .into_response()
+        .status()
     }
 
     fn fixture() -> tempfile::TempDir {
@@ -7476,7 +7479,10 @@ mod fs_list_search_tests {
     async fn allow_a_path_inside_the_working_dir() {
         let d = fixture();
         let ws = d.path().join("ws");
-        assert_eq!(call_list(test_app_state(&ws, false), ".").await, StatusCode::OK);
+        assert_eq!(
+            call_list(test_app_state(&ws, false), ".").await,
+            StatusCode::OK
+        );
         assert_eq!(
             call_search(test_app_state(&ws, false), "src").await,
             StatusCode::OK
@@ -7489,7 +7495,10 @@ mod fs_list_search_tests {
     async fn refuse_a_path_outside_the_working_dir() {
         let d = fixture();
         let ws = d.path().join("ws");
-        assert_eq!(call_list(test_app_state(&ws, false), "..").await, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            call_list(test_app_state(&ws, false), "..").await,
+            StatusCode::BAD_REQUEST
+        );
         assert_eq!(
             call_search(test_app_state(&ws, false), "..").await,
             StatusCode::BAD_REQUEST
@@ -7506,7 +7515,10 @@ mod fs_list_search_tests {
     async fn refuse_when_the_server_runs_without_auth() {
         let d = fixture();
         let ws = d.path().join("ws");
-        assert_eq!(call_list(test_app_state(&ws, true), ".").await, StatusCode::FORBIDDEN);
+        assert_eq!(
+            call_list(test_app_state(&ws, true), ".").await,
+            StatusCode::FORBIDDEN
+        );
         assert_eq!(
             call_search(test_app_state(&ws, true), "src").await,
             StatusCode::FORBIDDEN

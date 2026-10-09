@@ -47,9 +47,6 @@ pub mod list;
 /// Model-facing memory tool (remember / forget / list). Opt-in `memory` feature.
 #[cfg(feature = "memory")]
 mod memory;
-/// Agent 自主派生定时任务（P2.5）。Opt-in `schedule` feature — 直写 schedule store。
-#[cfg(feature = "schedule")]
-pub mod schedule_task;
 pub mod open_file;
 pub mod output_artifact;
 pub mod parallel_edit;
@@ -57,6 +54,9 @@ pub mod read;
 pub mod repair;
 pub mod report_finding;
 pub mod request_user_input;
+/// Agent 自主派生定时任务（P2.5）。Opt-in `schedule` feature — 直写 schedule store。
+#[cfg(feature = "schedule")]
+pub mod schedule_task;
 pub mod search_replace;
 pub mod sensitive_path;
 pub mod task;
@@ -249,7 +249,9 @@ pub fn register_coding_tools_with_vision(reg: &mut ToolRegistry, vision: bool) {
     // Agent 自主派生定时任务（P2.5）。Opt-in `schedule` feature；工具直写 schedule store。
     #[cfg(feature = "schedule")]
     {
-        reg.register(Arc::new(crate::tools::schedule_task::ScheduleTaskTool::new()));
+        reg.register(Arc::new(
+            crate::tools::schedule_task::ScheduleTaskTool::new(),
+        ));
     }
     // Gate on RUSTCODE_REQUEST_USER_INPUT (default ON -- opt-out via 0/false/off/empty).
     // Register UNLESS the env var is explicitly set to a falsy value.
@@ -748,7 +750,12 @@ mod tests {
         );
         // No stale or duplicate names beyond EXPECTED_TOOL_NAMES + the gated extras.
         #[cfg(all(feature = "memory", feature = "schedule"))]
-        let extras: &[&str] = &["memory", "request_user_input", "fetch_output", "schedule_task"];
+        let extras: &[&str] = &[
+            "memory",
+            "request_user_input",
+            "fetch_output",
+            "schedule_task",
+        ];
         #[cfg(all(feature = "memory", not(feature = "schedule")))]
         let extras: &[&str] = &["memory", "request_user_input", "fetch_output"];
         #[cfg(all(not(feature = "memory"), feature = "schedule"))]

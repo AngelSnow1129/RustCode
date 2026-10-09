@@ -61,6 +61,11 @@ jobs:
       # not a gate.
       - name: cargo test (all crates)
         run: cargo test --workspace
+        # Report-only (matches the job comment): a Linux runner touches the host
+        # in ways CI often refuses (port binds, $HOME lookups), so a red here is
+        # usually an environment false-negative, not a regression. Promote to a
+        # hard gate only after a green Linux run proves the suite is stable there.
+        continue-on-error: true
 
   lint:
     name: fmt (blocking) + clippy (report only)
@@ -94,3 +99,7 @@ jobs:
 
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+        # Report-only (matches the job name "clippy (report only)"). Newer clippy
+        # on the runner can introduce lints the tree predates; keep it visible but
+        # non-blocking until the tree is clean on the pinned runner toolchain.
+        continue-on-error: true

@@ -839,7 +839,10 @@ async fn prepare_with_plugin_hooks_reusing_lease(
             // Clone the registry seed BEFORE registering the child tool so the
             // tools closure sees it (ToolRegistry shares the underlying map by Arc).
             let mut seeded_registry = rustcode_kernel::tool::ToolRegistry::new();
-            rustcode_capabilities::tools::register_coding_tools_with_vision(&mut seeded_registry, false);
+            rustcode_capabilities::tools::register_coding_tools_with_vision(
+                &mut seeded_registry,
+                false,
+            );
             if let Some(ct) = &child_tool {
                 let child_as_tool: Arc<dyn rustcode_kernel::tool::Tool> = ct.clone();
                 seeded_registry.register(child_as_tool);
@@ -866,17 +869,21 @@ async fn prepare_with_plugin_hooks_reusing_lease(
                 }
                 tools_registry.mount(&names)
             });
-            let runner = crate::team::TeamRunnerFactory::new(providers.clone(), tools, cfg.working_dir.clone())
-                .with_runtime_policy(
-                    (subagent_max_rounds > 0).then_some(subagent_max_rounds),
-                    cfg.tool_loop_policy,
-                    Some(cfg.stream_timeout),
-                    cfg.request_timeout,
-                    Some(cfg.first_token_timeout),
-                )
-                .with_credential_shell_policy(cfg.credential_shell_policy)
-                .with_credential_shell_bypass(bypass_mode.clone())
-                .with_worker_middleware(turn_execution_policy.clone());
+            let runner = crate::team::TeamRunnerFactory::new(
+                providers.clone(),
+                tools,
+                cfg.working_dir.clone(),
+            )
+            .with_runtime_policy(
+                (subagent_max_rounds > 0).then_some(subagent_max_rounds),
+                cfg.tool_loop_policy,
+                Some(cfg.stream_timeout),
+                cfg.request_timeout,
+                Some(cfg.first_token_timeout),
+            )
+            .with_credential_shell_policy(cfg.credential_shell_policy)
+            .with_credential_shell_bypass(bypass_mode.clone())
+            .with_worker_middleware(turn_execution_policy.clone());
             // FR-6.2 / FR-6.3: members get the same explicit fallback chain `task` uses.
             // Without this a `team` member is a single-attempt agent, so one flaky
             // model fails the whole delegation even though the user configured a

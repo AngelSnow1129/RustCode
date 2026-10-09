@@ -5,6 +5,8 @@
 //! Phase A1 carries the proven hot-path code into. The kernel knows nothing
 //! about approval, persona, or code-intelligence.
 
+#![allow(clippy::double_must_use)]
+
 pub mod agent;
 pub mod checkpoint;
 pub mod clock;

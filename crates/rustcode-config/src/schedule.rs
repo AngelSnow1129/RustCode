@@ -695,8 +695,10 @@ pub fn validate_graph(tasks: &[ScheduleTask]) -> Vec<GraphError> {
             ON_STACK => {
                 // Back edge: the cycle is the current stack from `idx` on.
                 let start = stack.iter().position(|s| *s == idx).unwrap_or(0);
-                let mut cycle: Vec<String> =
-                    stack[start..].iter().map(|i| tasks[*i].id.clone()).collect();
+                let mut cycle: Vec<String> = stack[start..]
+                    .iter()
+                    .map(|i| tasks[*i].id.clone())
+                    .collect();
                 // One cycle is reachable from each of its members; report it
                 // once, in a canonical rotation, so the error count is stable.
                 let mut shift = 0;
@@ -1888,7 +1890,11 @@ mod graph_tests {
             .iter()
             .filter(|e| matches!(e, GraphError::Cycle { .. }))
             .collect();
-        assert_eq!(cycles.len(), 1, "one cycle must be reported once, got {errors:?}");
+        assert_eq!(
+            cycles.len(),
+            1,
+            "one cycle must be reported once, got {errors:?}"
+        );
     }
 
     #[test]
@@ -2019,7 +2025,11 @@ mod graph_tests {
             .into_iter()
             .map(|(t, _)| t.id)
             .collect();
-        assert_eq!(due, vec!["a".to_string()], "a failed dependency must still hold `b`");
+        assert_eq!(
+            due,
+            vec!["a".to_string()],
+            "a failed dependency must still hold `b`"
+        );
     }
 }
 
@@ -2066,16 +2076,28 @@ fn wakeup_register_claim_and_consume() {
         generation: None,
         consumed: false,
     });
-    assert!(escaped.is_err(), "wakeup id must not escape the wakeups dir");
+    assert!(
+        escaped.is_err(),
+        "wakeup id must not escape the wakeups dir"
+    );
 
     // Only the due (not the future) wakeup is claimed.
-    let due: Vec<String> = claim_due_wakeups(now, 0).into_iter().map(|w| w.id).collect();
+    let due: Vec<String> = claim_due_wakeups(now, 0)
+        .into_iter()
+        .map(|w| w.id)
+        .collect();
     assert!(due.contains(&id_due), "due wakeup must be claimable");
-    assert!(!due.contains(&id_future), "future wakeup must not be claimable yet");
+    assert!(
+        !due.contains(&id_future),
+        "future wakeup must not be claimable yet"
+    );
 
     // Consuming makes it disappear from the due set (exactly-once).
     consume_wakeup(&id_due).unwrap();
-    let due2: Vec<String> = claim_due_wakeups(now, 0).into_iter().map(|w| w.id).collect();
+    let due2: Vec<String> = claim_due_wakeups(now, 0)
+        .into_iter()
+        .map(|w| w.id)
+        .collect();
     assert!(
         !due2.contains(&id_due),
         "consumed wakeup must not be re-claimed"
@@ -2209,8 +2231,7 @@ fn stale_generation_wakeup_is_dropped_without_side_effect() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs() as i64;
-    let root =
-        std::env::temp_dir().join(format!("rc_wakeup_gen_{}", mint_wakeup_id(now, 21)));
+    let root = std::env::temp_dir().join(format!("rc_wakeup_gen_{}", mint_wakeup_id(now, 21)));
     let _ = std::fs::create_dir_all(&root);
 
     // Stale wakeup: created by generation 5, but current generation is 0.

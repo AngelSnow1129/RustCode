@@ -137,10 +137,13 @@ impl WeComAdapter {
                 return Ok(());
             }
         }
-        let (ws, _resp) = tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(&self.gateway))
-            .await
-            .map_err(|_| ImError::Transport("timed out connecting to the WeCom gateway".into()))?
-            .map_err(|e| ImError::Transport(format!("WeCom WebSocket connect failed: {e}")))?;
+        let (ws, _resp) = tokio::time::timeout(
+            CONNECT_TIMEOUT,
+            tokio_tungstenite::connect_async(&self.gateway),
+        )
+        .await
+        .map_err(|_| ImError::Transport("timed out connecting to the WeCom gateway".into()))?
+        .map_err(|e| ImError::Transport(format!("WeCom WebSocket connect failed: {e}")))?;
 
         let req_id = new_req_id();
         let subscribe = build_subscribe(&self.bot_id, &self.secret, &req_id);
@@ -178,8 +181,14 @@ impl WeComAdapter {
         self.send_raw(&build_ping(&req_id)).await
     }
 
-    async fn send_welcome(&self, req_id: &str, chatid: &str, chattype: &str) -> Result<(), ImError> {
-        self.send_raw(&build_welcome(req_id, chatid, chattype)).await
+    async fn send_welcome(
+        &self,
+        req_id: &str,
+        chatid: &str,
+        chattype: &str,
+    ) -> Result<(), ImError> {
+        self.send_raw(&build_welcome(req_id, chatid, chattype))
+            .await
     }
 }
 
@@ -199,7 +208,11 @@ fn new_req_id() -> String {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Inbound {
     /// `aibot_subscribe` response. `code != 0` is an auth failure.
-    SubscribeAck { req_id: String, code: i64, msg: String },
+    SubscribeAck {
+        req_id: String,
+        code: i64,
+        msg: String,
+    },
     /// `aibot_msg_callback` -- the message we route to the agent.
     Message {
         req_id: String,
@@ -406,7 +419,9 @@ impl ImAdapter for WeComAdapter {
                     }
                     Some(Err(e)) => {
                         *guard = None;
-                        return Err(ImError::Transport(format!("WeCom WebSocket read failed: {e}")));
+                        return Err(ImError::Transport(format!(
+                            "WeCom WebSocket read failed: {e}"
+                        )));
                     }
                     Some(Ok(msg)) => match msg {
                         Message::Text(t) => t.to_string(),
@@ -493,13 +508,9 @@ impl ImAdapter for WeComAdapter {
         // The reply must carry the req_id of the inbound frame it answers; without
         // it WeCom cannot correlate the response, so a missing token is a hard
         // failure (silently dropping the reply would leave the user with no answer).
-        let req_id = reply_token
-            .filter(|t| !t.is_empty())
-            .ok_or_else(|| {
-                ImError::Protocol(
-                    "cannot reply: the WeCom message carried no req_id".into(),
-                )
-            })?;
+        let req_id = reply_token.filter(|t| !t.is_empty()).ok_or_else(|| {
+            ImError::Protocol("cannot reply: the WeCom message carried no req_id".into())
+        })?;
         let ctx = self
             .chat_meta
             .lock()

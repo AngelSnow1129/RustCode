@@ -322,7 +322,10 @@ pub fn path_is_sensitive(path: &Path) -> bool {
     // that `pathutil::SKIP_DIRS` leaves open (that list only governs walkers such as
     // grep/glob, never a direct `read_file`/`write_file`/`/fs/open`). Matched at the
     // path-COMPONENT level so `.gitignore` / `.github` / `.gitmodules` are NOT caught.
-    if path.components().any(|c| c.as_os_str() == OsStr::new(".git")) {
+    if path
+        .components()
+        .any(|c| c.as_os_str() == OsStr::new(".git"))
+    {
         return true;
     }
 
@@ -496,13 +499,23 @@ mod tests {
         assert!(path_is_sensitive(Path::new("/repo/.git")));
         // Component match, so these stay benign.
         assert!(!path_is_sensitive(Path::new("/repo/.gitignore")));
-        assert!(!path_is_sensitive(Path::new("/repo/.github/workflows/ci.yml")));
+        assert!(!path_is_sensitive(Path::new(
+            "/repo/.github/workflows/ci.yml"
+        )));
         assert!(!path_is_sensitive(Path::new("/repo/.gitmodules")));
         // Raw-args detector (read gate + subagent hard-deny).
-        assert!(references_sensitive_path(r#"{"file_path":"/repo/.git/config"}"#));
-        assert!(references_sensitive_path(r#"{"file_path":"C:\\repo\\.git\\config"}"#));
-        assert!(!references_sensitive_path(r#"{"file_path":"/repo/.gitignore"}"#));
-        assert!(!references_sensitive_path(r#"{"pattern":"x","path":"/repo/.github"}"#));
+        assert!(references_sensitive_path(
+            r#"{"file_path":"/repo/.git/config"}"#
+        ));
+        assert!(references_sensitive_path(
+            r#"{"file_path":"C:\\repo\\.git\\config"}"#
+        ));
+        assert!(!references_sensitive_path(
+            r#"{"file_path":"/repo/.gitignore"}"#
+        ));
+        assert!(!references_sensitive_path(
+            r#"{"pattern":"x","path":"/repo/.github"}"#
+        ));
     }
 
     /// Home anchoring is deliberate: a project-local `.ssh/` is benign.

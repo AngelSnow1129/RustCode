@@ -3734,7 +3734,9 @@ pub enum Msg<'a> {
     /// more persistent wakeups are registered with the scheduler. These survive
     /// a process restart and are fired by the daemon tick (P3). `count` is the
     /// number of pending (not-yet-consumed) wakeups.
-    LoopWakeups { count: usize },
+    LoopWakeups {
+        count: usize,
+    },
     /// Confirmation line after `/loop stop` (and its aliases).
     LoopCleared,
     /// Mid-loop turn-separator banner: `[*] loop round N . stats`.

@@ -138,7 +138,7 @@ fi
 # ---- execute (state → credentials → rc → binary) ----
 if [ "$DO_G3" = 1 ]; then
     for f in $RUSTCODE_GROUP3_FILES; do rm -f "$DATA/$f"; done
-    for d in $RUSTCODE_GROUP3_DIRS;  do rm -rf "$DATA/$d"; done
+    for d in $RUSTCODE_GROUP3_DIRS; do rm -rf "${DATA:?}/$d"; done
     for p in $RUSTCODE_GROUP3_PREFIXES; do rm -f "$DATA/$p"*; done
 fi
 if [ "$DO_G2" = 1 ]; then

@@ -48,8 +48,8 @@ pub use commands::{answer_for, parse_chat_command, ChatCommand, CommandContext};
 pub use dispatch::{
     serve_channels, ChannelDispatch, ChannelSpec, ChatMailbox, DEFAULT_MAX_IN_FLIGHT,
 };
-pub use wecom::{WeComAdapter, DEFAULT_GATEWAY as WECOM_DEFAULT_GATEWAY};
 pub use runner::{handle_message, resolve_project, AgentRunner, AgentTurn, DispatchOutcome};
+pub use wecom::{WeComAdapter, DEFAULT_GATEWAY as WECOM_DEFAULT_GATEWAY};
 
 /// Typed adapter failure. Kept separate from `anyhow` at the module boundary so
 /// a caller can distinguish "transport died, retry" from "config is wrong, do

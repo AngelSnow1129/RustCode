@@ -76,10 +76,9 @@ fn build_schedule(v: &serde_json::Value) -> Result<Schedule, String> {
         .get("when")
         .and_then(|w| w.as_object())
         .ok_or_else(|| "schedule_task: 缺少 `when` 对象".to_string())?;
-    let kind = when
-        .get("kind")
-        .and_then(|k| k.as_str())
-        .ok_or_else(|| "schedule_task: `when.kind` 必填 (daily|weekly|hourly|interval|cron)".to_string())?;
+    let kind = when.get("kind").and_then(|k| k.as_str()).ok_or_else(|| {
+        "schedule_task: `when.kind` 必填 (daily|weekly|hourly|interval|cron)".to_string()
+    })?;
     match kind {
         "hourly" => Ok(Schedule::Hourly),
         "daily" => {
@@ -245,10 +244,7 @@ impl Tool for ScheduleTaskTool {
         all.push(task.clone());
         let errors = validate_graph(&all);
         if !errors.is_empty() {
-            return err(format!(
-                "schedule_task: 依赖图校验失败: {:?}",
-                errors
-            ));
+            return err(format!("schedule_task: 依赖图校验失败: {:?}", errors));
         }
         for dep in &task.depends_on {
             if !all.iter().any(|t| &t.id == dep) {

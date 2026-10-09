@@ -247,10 +247,7 @@ impl TeamRunManager {
             .unwrap_or_else(|p| p.into_inner())
             .clone();
         for child in children {
-            *child
-                .event_tx
-                .write()
-                .unwrap_or_else(|p| p.into_inner()) = Some(sender.clone());
+            *child.event_tx.write().unwrap_or_else(|p| p.into_inner()) = Some(sender.clone());
         }
     }
 
@@ -297,19 +294,14 @@ impl TeamRunManager {
             .unwrap_or_else(|p| p.into_inner())
             .clone();
         for child in children {
-            child
-                .generation
-                .store(generation, Ordering::Release);
+            child.generation.store(generation, Ordering::Release);
             let child_new_root = parent_root.child_token();
             *child
                 .generation_root
                 .lock()
                 .unwrap_or_else(|p| p.into_inner()) = child_new_root.clone();
             if let Some(tx) = &sender {
-                *child
-                    .event_tx
-                    .write()
-                    .unwrap_or_else(|p| p.into_inner()) = Some(tx.clone());
+                *child.event_tx.write().unwrap_or_else(|p| p.into_inner()) = Some(tx.clone());
             }
             TeamRunManager {
                 inner: Arc::clone(&child),
