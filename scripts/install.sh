@@ -250,11 +250,11 @@ else
             *) CANDIDATES="$LATEST_VER${CANDIDATES:+ $CANDIDATES}" ;;
         esac
     fi
-    CANDIDATES=$(printf '%s\n' $CANDIDATES | sort_versions_desc | tr '\n' ' ' | sed 's/ *$//')
+    CANDIDATES=$(printf '%s\n' "$CANDIDATES" | sort_versions_desc | tr '\n' ' ' | sed 's/ *$//')
 
     # Diagnostics: a stale API answer used to silently win. Say so instead.
     if [ -n "$LATEST_VER" ] && [ -n "$IDX_VERS" ]; then
-        IDX_TOP=$(printf '%s\n' $IDX_VERS | sort_versions_desc | head -1)
+        IDX_TOP=$(printf '%s\n' "$IDX_VERS" | sort_versions_desc | head -1)
         if [ "$IDX_TOP" != "$LATEST_VER" ]; then
             echo "==> Note: latest-version API reports $LATEST_VER, repo index has $IDX_TOP; installing $IDX_TOP" >&2
         fi
