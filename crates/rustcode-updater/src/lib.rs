@@ -130,6 +130,30 @@ pub struct BinaryEntry {
     pub size: u64,
 }
 
+/// Parsed `release/index.json`. Emitted newest-version-first by
+/// `scripts/release.sh`, so `versions[0]` is always the newest release.
+/// Extra top-level fields (`updated_at`, `ref`, ...) are intentionally ignored.
+#[derive(Debug, Clone, serde::Deserialize)]
+struct ReleaseIndex {
+    versions: Vec<IndexEntry>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct IndexEntry {
+    version: String,
+    targets: Vec<String>,
+}
+
+/// A fully-resolved upgrade target: which version to install, where to fetch
+/// its binary, and how to verify the download.
+#[derive(Debug, Clone)]
+pub struct ResolvedTarget {
+    version: String,
+    sha256: String,
+    size: u64,
+    urls: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct UpgradeSummary {
     pub version: String,
@@ -323,6 +347,179 @@ fn truncate(s: &str, max_chars: usize) -> String {
         let head: String = s.chars().take(max_chars).collect();
         format!("{}...", head)
     }
+}
+
+// ---------------------------------------------------------------------------
+// Multi-version release index (`release/index.json`) support.
+//
+// `latest.json` only ever advertised a single version, so a platform a given
+// release dropped (e.g. a version that stopped shipping darwin) was
+// unreachable: the updater refused with `UpgradeNoTarget`. The release index
+// lists every published version with the targets it ships, so the updater can
+// fall back to the newest version that DOES build for the current platform
+// instead of giving up.
+// ---------------------------------------------------------------------------
+
+/// Parse a `release/index.json` body (network-free; the body is fetched by
+/// [`fetch_index`]).
+fn parse_release_index(body: &str) -> Result<ReleaseIndex> {
+    serde_json::from_str(body).with_context(|| {
+        format!(
+            "parsing release/index.json (body: {:?})",
+            truncate(body, 200)
+        )
+    })
+}
+
+/// Fetch `rel` (relative to a download base, e.g. `index.json` or
+/// `v6.2.1/manifest.json`) from the configured download bases in order.
+///
+/// The first base that answers with an HTTP 2xx yields its body. A non-2xx or
+/// network error on one base is skipped and the next base is tried; only when
+/// every base fails do we return an error carrying the last one seen.
+async fn fetch_text_from_bases(rel: &str) -> Result<String> {
+    let client = apply_proxy_policy(reqwest::Client::builder())
+        .timeout(std::time::Duration::from_secs(30))
+        .user_agent(RUSTCODE_USER_AGENT)
+        .build()?;
+    let mut last_err: Option<anyhow::Error> = None;
+    for base in rustcode_config::endpoints::update_download_bases() {
+        let url = format!(
+            "{}/{}",
+            base.trim_end_matches('/'),
+            rel.trim_start_matches('/')
+        );
+        match client.get(&url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                return resp
+                    .text()
+                    .await
+                    .with_context(|| format!("reading {url} body"));
+            }
+            Ok(resp) => {
+                last_err = Some(anyhow!(
+                    "{}",
+                    t(Msg::UpgradeManifestHttp {
+                        status: resp.status().as_u16()
+                    })
+                ));
+            }
+            Err(e) => {
+                // Network-level failure (DNS, TLS, timeout): fall through to
+                // the next mirror rather than failing the whole upgrade.
+                last_err = Some(e.into());
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow!("no release mirror responded for {rel}")))
+}
+
+/// Fetch and parse `release/index.json` from the configured download bases.
+async fn fetch_index() -> Result<ReleaseIndex> {
+    let body = fetch_text_from_bases("index.json").await?;
+    parse_release_index(&body)
+}
+
+/// Fetch and parse a single version's `manifest.json`
+/// (`<version>/manifest.json`) from the configured download bases.
+async fn fetch_version_manifest(version: &str) -> Result<Manifest> {
+    let rel = format!("{}/manifest.json", version.trim_start_matches('/'));
+    let body = fetch_text_from_bases(&rel).await?;
+    serde_json::from_str(&body).with_context(|| {
+        format!(
+            "parsing {}/manifest.json (body: {:?})",
+            version,
+            truncate(&body, 200)
+        )
+    })
+}
+
+/// Pure platform-aware selection: walk `index.versions` (newest-first) and
+/// return the **newest** version whose `targets` contains `target`.
+///
+/// This is the platform-fallback promise: if the newest release (e.g.
+/// `v6.2.1`) does not ship a build for `target` (e.g. `darwin-arm64`), we fall
+/// back to the newest *published* version that does (e.g. `v5.1.0`) rather than
+/// refusing with `UpgradeNoTarget`.
+///
+/// `current` is accepted for signature symmetry; the "newer than the running
+/// build" comparison is applied by [`resolve_upgrade_version`] so `--force`
+/// can still drive a reinstall.
+fn select_upgrade_version(index: &ReleaseIndex, target: &str, _current: &str) -> Option<String> {
+    for entry in &index.versions {
+        if entry.targets.iter().any(|t| t == target) {
+            return Some(entry.version.clone());
+        }
+    }
+    None
+}
+
+/// Build the `ALREADY_LATEST` sentinel error. `top` is the newest version in
+/// the index (used as the "latest is Y" hint); when the index is empty we fall
+/// back to `current` so the message stays readable.
+fn already_latest_error(current: &str, top: Option<&str>) -> anyhow::Error {
+    let top = top.unwrap_or(current);
+    anyhow!(
+        "{}: already on {} (latest is {}). Pass --force to reinstall.",
+        ALREADY_LATEST,
+        current,
+        top
+    )
+}
+
+/// Pure resolution: select the newest platform build via
+/// [`select_upgrade_version`], then enforce "newer than `current`" (unless
+/// `force`). Returns the chosen version or the `ALREADY_LATEST` sentinel.
+fn resolve_upgrade_version(
+    index: &ReleaseIndex,
+    current: &str,
+    target: &str,
+    force: bool,
+) -> Result<String> {
+    let top = index.versions.first().map(|e| e.version.as_str());
+    let Some(version) = select_upgrade_version(index, target, current) else {
+        return Err(already_latest_error(current, top));
+    };
+    if !force && !is_newer(&version, current) {
+        return Err(already_latest_error(current, top));
+    }
+    Ok(version)
+}
+
+/// Resolve the actual upgrade target for `target` given the running `current`
+/// version.
+///
+/// 1. Fetch `release/index.json`.
+/// 2. Select the newest version that ships `target` and is newer than
+///    `current` (or any such version when `force`), reporting `ALREADY_LATEST`
+///    when none exists (the platform is unsupported / nothing newer to fall
+///    back to).
+/// 3. Resolve the per-version manifest for that version and read its
+///    `binaries[target]` entry for sha256/size; build the candidate URLs via
+///    [`binary_urls`].
+pub async fn resolve_upgrade_target(current: &str, target: &str) -> Result<ResolvedTarget> {
+    resolve_upgrade_target_inner(current, target, false).await
+}
+
+async fn resolve_upgrade_target_inner(
+    current: &str,
+    target: &str,
+    force: bool,
+) -> Result<ResolvedTarget> {
+    let index = fetch_index().await?;
+    let version = resolve_upgrade_version(&index, current, target, force)?;
+    let urls = binary_urls(&version, target);
+    let manifest = fetch_version_manifest(&version).await?;
+    let entry = manifest
+        .binaries
+        .get(target)
+        .ok_or_else(|| anyhow!("{}", t(Msg::UpgradeNoTarget { target })))?;
+    Ok(ResolvedTarget {
+        version,
+        sha256: entry.sha256.clone(),
+        size: entry.size,
+        urls,
+    })
 }
 
 /// Download `url` to `dest`, streaming SHA256 as bytes arrive.
@@ -700,31 +897,17 @@ pub async fn run_upgrade(
     let exe = current_exe_path()?;
     ensure_writable(&exe)?;
 
-    let manifest = fetch_manifest().await?;
+    let resolved = resolve_upgrade_target_inner(current_version, target, force).await?;
     let _ = tx.send(UpgradeEvent::ManifestFetched {
-        version: manifest.version.clone(),
+        version: resolved.version.clone(),
     });
-
-    if !force && !is_newer(&manifest.version, current_version) {
-        return Err(anyhow!(
-            "{}: already on {} (latest is {}). Pass --force to reinstall.",
-            ALREADY_LATEST,
-            current_version,
-            manifest.version
-        ));
-    }
-
-    let entry = manifest
-        .binaries
-        .get(target)
-        .ok_or_else(|| anyhow!("{}", t(Msg::UpgradeNoTarget { target })))?;
 
     let download = download_path(&exe);
     let mut last_err: Option<anyhow::Error> = None;
     let mut tried = false;
-    for url in binary_urls(&manifest.version, target) {
+    for url in &resolved.urls {
         tried = true;
-        match download_and_verify(&url, &entry.sha256, entry.size, &download, &tx).await {
+        match download_and_verify(url, &resolved.sha256, resolved.size, &download, &tx).await {
             Ok(()) => {
                 last_err = None;
                 break;
@@ -764,13 +947,13 @@ pub async fn run_upgrade(
     // instead of the original `rustcode.exe`, so we must pass this saved
     // value through to `re_exec_self`.
     let _ = tx.send(UpgradeEvent::Done {
-        version: manifest.version.clone(),
+        version: resolved.version.clone(),
         backup: backup.clone(),
         exe: exe.clone(),
     });
 
     Ok(UpgradeSummary {
-        version: manifest.version,
+        version: resolved.version,
         backup,
         exe,
     })
@@ -2009,6 +2192,170 @@ mod tests {
     #[test]
     fn is_package_managed_tracks_feature() {
         assert_eq!(super::is_package_managed(), cfg!(feature = "distro-pm"));
+    }
+
+    // ── release/index.json multi-version resolution (platform fallback) ──
+
+    /// A representative `release/index.json`: v6.2.1 ships only the tier-1
+    /// desktop targets, while the older v5.1.0 still published darwin builds.
+    fn sample_release_index() -> ReleaseIndex {
+        serde_json::from_str(
+            r#"{
+                "updated_at": "2026-10-02T23:45:44Z",
+                "ref": "v6.2.1",
+                "versions": [
+                    { "version": "v6.2.1", "targets": ["linux-x64", "linux-arm64", "windows-x64"] },
+                    { "version": "v5.1.0", "targets": ["linux-x64", "linux-arm64", "windows-x64", "darwin-arm64", "darwin-x64"] }
+                ]
+            }"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn release_index_parses_and_keeps_newest_first() {
+        let index = sample_release_index();
+        assert_eq!(index.versions.len(), 2);
+        assert_eq!(index.versions[0].version, "v6.2.1");
+        assert_eq!(
+            index.versions[0].targets,
+            vec!["linux-x64", "linux-arm64", "windows-x64"]
+        );
+        assert!(index.versions[1]
+            .targets
+            .iter()
+            .any(|t| t == "darwin-arm64"));
+    }
+
+    #[test]
+    fn version_manifest_parses_binaries_for_target() {
+        // Shape of `release/v6.2.1/manifest.json`.
+        let json = r#"{
+            "version": "v6.2.1",
+            "released_at": "2026-10-02T23:45:44Z",
+            "binaries": {
+                "linux-x64": { "sha256": "7ac601c79efede611ecc41b1feb026cd9977c4901fdcfc3e087ef46881c77147", "size": 40333784 }
+            }
+        }"#;
+        let m: Manifest = serde_json::from_str(json).unwrap();
+        assert_eq!(m.version, "v6.2.1");
+        let entry = &m.binaries["linux-x64"];
+        assert_eq!(
+            entry.sha256,
+            "7ac601c79efede611ecc41b1feb026cd9977c4901fdcfc3e087ef46881c77147"
+        );
+        assert_eq!(entry.size, 40333784);
+    }
+
+    #[test]
+    fn select_picks_newest_build_for_platform() {
+        let index = sample_release_index();
+        // linux-x64 is present in the newest release -> that one is chosen.
+        assert_eq!(
+            select_upgrade_version(&index, "linux-x64", "v6.2.0"),
+            Some("v6.2.1".to_string())
+        );
+    }
+
+    #[test]
+    fn select_falls_back_to_older_version_for_missing_platform() {
+        let index = sample_release_index();
+        // v6.2.1 dropped darwin; the newest *darwin* build is v5.1.0, so the
+        // selector falls back to it instead of refusing with UpgradeNoTarget.
+        assert_eq!(
+            select_upgrade_version(&index, "darwin-arm64", "v6.2.1"),
+            Some("v5.1.0".to_string())
+        );
+    }
+
+    #[test]
+    fn select_returns_none_when_platform_has_no_published_build() {
+        let index = sample_release_index();
+        assert_eq!(
+            select_upgrade_version(&index, "freebsd-x64", "v0.0.1"),
+            None
+        );
+    }
+
+    #[test]
+    fn resolve_picks_newer_platform_build() {
+        let index = sample_release_index();
+        // linux-x64 @6.2.0 -> newest linux build v6.2.1, which is newer -> Ok.
+        assert_eq!(
+            resolve_upgrade_version(&index, "v6.2.0", "linux-x64", false).unwrap(),
+            "v6.2.1"
+        );
+    }
+
+    #[test]
+    fn resolve_reports_already_latest_when_current_is_top_version() {
+        let index = sample_release_index();
+        // Running v6.2.1 (the top published version) on linux-x64: the best
+        // available build is not newer -> ALREADY_LATEST.
+        let err = resolve_upgrade_version(&index, "v6.2.1", "linux-x64", false).unwrap_err();
+        assert!(err.to_string().contains(super::ALREADY_LATEST));
+    }
+
+    #[test]
+    fn resolve_reports_already_latest_when_index_top_equals_current() {
+        let index = sample_release_index();
+        // current == index top (v6.2.1) with no older version to fall back to
+        // for this platform -> ALREADY_LATEST.
+        let err = resolve_upgrade_version(&index, "v6.2.1", "linux-x64", false).unwrap_err();
+        assert!(err.to_string().contains(super::ALREADY_LATEST));
+    }
+
+    #[test]
+    fn resolve_force_bypasses_already_latest() {
+        let index = sample_release_index();
+        // With --force, even the already-latest build is selected (reinstall).
+        assert_eq!(
+            resolve_upgrade_version(&index, "v6.2.1", "linux-x64", true).unwrap(),
+            "v6.2.1"
+        );
+    }
+
+    #[test]
+    fn resolve_falls_back_to_newer_platform_build_for_darwin() {
+        let index = sample_release_index();
+        // A darwin user on an OLDER build (< v5.1.0, the newest darwin release)
+        // is offered the newest *darwin* build via platform fallback.
+        assert_eq!(
+            resolve_upgrade_version(&index, "v5.0.0", "darwin-arm64", false).unwrap(),
+            "v5.1.0"
+        );
+    }
+
+    #[test]
+    fn resolve_reports_already_latest_for_darwin_user_newer_than_newest_platform_build() {
+        let index = sample_release_index();
+        // A darwin user whose build is NEWER than the newest darwin release
+        // (v5.1.0) must NOT be downgraded to it -- they stay on ALREADY_LATEST.
+        // This guards against the platform-fallback accidentally downgrading
+        // users who built/sideloaded a newer cross-platform version.
+        let err = resolve_upgrade_version(&index, "v6.2.1", "darwin-arm64", false).unwrap_err();
+        assert!(err.to_string().contains(super::ALREADY_LATEST));
+    }
+
+    #[test]
+    fn resolve_picks_newer_platform_build_for_windows() {
+        let index = sample_release_index();
+        // windows-x64 is present in v6.2.1; a user on an older build is offered it.
+        assert_eq!(
+            resolve_upgrade_version(&index, "v6.2.0", "windows-x64", false).unwrap(),
+            "v6.2.1"
+        );
+    }
+
+    #[test]
+    fn resolve_reports_already_latest_when_platform_unsupported() {
+        let index = sample_release_index();
+        // A target no published version ever shipped (freebsd-x64) must resolve to
+        // ALREADY_LATEST -- NOT the hard UpgradeNoTarget failure -- so an
+        // unsupported platform is told "nothing for you", not "broken".
+        let err = resolve_upgrade_version(&index, "v1.0.0", "freebsd-x64", false).unwrap_err();
+        assert!(err.to_string().contains(super::ALREADY_LATEST));
+        assert!(!err.to_string().contains("UpgradeNoTarget"));
     }
 
     #[cfg(feature = "distro-pm")]

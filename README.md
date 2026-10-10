@@ -252,6 +252,16 @@ PowerShell 侧同名参数为 `-Url` / `-Key` / `-Model` / `-Provider`。
 sha256sum -c sha256sums.txt --ignore-missing
 ```
 
+### 应用内升级（/upgrade）
+
+`/upgrade` 会把 rustcode 升级到最新版（子命令 `rollback` 可回退）。升级时读取 `release/index.json`，当**最新版本不含当前平台二进制**时，自动**回退到仍含该平台的最新版本**（对齐 `install.sh` 的版本游走回退语义），而不是报失败：
+
+- linux-x64 / windows-x64 用户升级到最新的 `v6.2.1`；
+- darwin / ohos 在 `v6.2.1` 暂无产物：低于其最新平台构建（v5.1.0）的用户回退升级到 `v5.1.0`；已是最新平台构建或更高的用户（如自行构建的 v6.2.1）保持 `ALREADY_LATEST`，**不会降级**；
+- 没有任何已发布版本包含当前平台（如 freebsd）时，提示「无可用更新」而非硬失败。
+
+升级下载走 `update_download_bases` 多源回退（主下载源 + `RUSTCODE_RELEASE_MIRRORS` 镜像 + 仓库 raw 兜底），任一源可用即成功。
+
 ### 从源码构建
 
 ```bash

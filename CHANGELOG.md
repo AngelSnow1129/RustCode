@@ -6,6 +6,94 @@
 
 ## [Unreleased]
 
+### 发布链一致性（2026-10-11，用户可见运行时行为 + 发布数据修复）
+
+> 本特性修复「发布链不一致」：`latest.json` 钉在 v5.1.0 而真实当前版本是 6.2.1；in-app updater 原只认 `latest.json` 单版本、`binaries.get(target)` 缺失即 `UpgradeNoTarget`、不回退旧版本。修复 = updater 平台感知回退（消费 `release/index.json` 选 newest-first 中首个含本平台且比当前新的版本，取其 `manifest.json` 的 sha/size 下载）+ `latest.json` 升到 v6.2.1。完整交接件见 `.codebuddy/artifacts/2026-10-11-release-chain-consistency/`，验证证据见其 `05-test-report.md`（G5 verdict=proceed）。
+
+#### 1. 行为变化
+
+| 项 | 变更 | 用户/调用方可感知效果 |
+|---|---|---|
+| `crates/rustcode-updater/src/lib.rs` | `run_upgrade` 改用 `resolve_upgrade_target_inner` 替换原 `fetch_manifest()` + `binaries.get(target)`；新增 `ReleaseIndex`/`IndexEntry`/`ResolvedTarget`、`fetch_text_from_bases`/`fetch_index`/`fetch_version_manifest`/`select_upgrade_version`/`resolve_upgrade_version`/`resolve_upgrade_target(_inner)` | 升级路径改为**平台感知回退**：从 `release/index.json` 取 `versions`（newest-first），选首个 `targets ∋ 本平台` 且 `is_newer(V, current)` 的版本，再取其 `manifest.json` 的 sha/size 下载。 |
+| `latest.json` | 升到 `v6.2.1`，`binaries` 仅含真实 3 平台（linux-arm64 / linux-x64 / windows-x64） | 所有 ≥6.x 用户不再被误判 `ALREADY_LATEST`（消除 P1 数据不一致）。 |
+| `release/index.json` | 新增 v5.1.0 条目（6 平台齐全，置于列表末尾/最旧） | 提供 darwin/ohos 的「最新平台构建」回退锚点（消除 P2 平台刚性）。 |
+| `release/v5.1.0/manifest.json` | 新建（sha/size 取自原 `latest.json`，因 v5.1.0 二进制未提交进仓） | updater 平台回退能解析到 v5.1.0 作为 darwin/ohos 的回退目标。 |
+| `crates/rustcode-config/src/endpoints.rs` | **删除**孤儿 `update_index_url()`（实现用 `fetch_text_from_bases` 多源遍历，未使用它；无外部调用方） | 无行为影响（仅消除死代码与重复 URL 构造）。 |
+
+**各平台升级结果**
+
+- **linux-x64 / windows-x64 用户（current ≤ 6.2.0）**：`/upgrade` 升级到 **6.2.1**（与 install.sh 一致）。
+- **darwin-arm64 / darwin-x64 / ohos-arm64 用户**：
+  - 若版本**低于**最新平台构建 v5.1.0 → 回退**升级**到 **v5.1.0**，不再报 `UpgradeNoTarget`（优雅回退，非回归）；
+  - 若已在 v5.1.0 或更高（如源码/sideload 的 v6.2.1）→ 收为 `ALREADY_LATEST`，**不降级**（由 `resolve_upgrade_version` 的 `is_newer(version, current)` 门控保证）。
+- 无任一版本含本平台（如 freebsd-x64）→ `ALREADY_LATEST`（而非 `UpgradeNoTarget` 硬失败）。
+
+**迁移 / 对接说明（无退役接口，仅行为 + 数据调整）**
+
+- 无对外 API / 协议 / 持久化格式变更。`run_upgrade` 公开签名不变（`current_version: String, force: bool, tx`），下游 `rustcode-tuix` / `rustcode-cli` 两处调用形态不变。
+- **后台 / deferred 升级路径（未改，已知缺口）**：`prepare_deferred_upgrade` 仍消费单版本 `latest.json`，未受益本次平台回退修复；`latest.json` 升 6.2.1 后，darwin/ohos 后台自动升级由「可用」变 `UpgradeNoTarget` 硬失败，而手动 `run_upgrade` 则优雅 `ALREADY_LATEST`。属设计 §2.3 明确划线范围，列为已知缺口（恢复路径见下方回滚/恢复）。
+
+#### 2. 风险
+
+- **v5.1.0 实际二进制未提交进仓**：`release/v5.1.0/manifest.json` 仅元数据（sha/size 取自原 `latest.json`），darwin/ohos 回退到 v5.1.0 的**最终下载**依赖线上托管端点仍 serving `v5.1.0/<binary>`；若托管未同步该产物，解析到 v5.1.0 但下载失败（与 install.sh 多源回退语义一致，属部署数据准备，不在本仓代码范围）。
+- **latest.json 同步延迟不影响升级路径**：若线上托管端点未及时同步最新 `latest.json`，`resolve_upgrade_target` 走 `update_download_bases`（含 repo-raw 回退），仍可读到 `release/index.json` 与 `release/v6.2.1/manifest.json`，升级路径不依赖线上 `latest.json` 即时生效。
+- **deferred 路径不一致（已知缺口）**：见 §1 末，darwin/ohos 后台升级在 `latest.json` bump 后可能 `UpgradeNoTarget`；建议后续将 `prepare_deferred_upgrade` 也过 `resolve_upgrade_target_inner`。
+- **多源回退的 200-HTML 限制（已知限制，非阻断）**：`fetch_text_from_bases` 首个 HTTP 2xx 即返回 body，即使 body 是 CDN 404 HTML 页面（后续 serde 解析失败才报错），此时不会尝试下一镜像——与既有 `fetch_manifest` 失败语义一致，契约 §3 已声明。后续可加固为「解析失败则继续下一源」。
+- **回滚代价低**：回退到旧 `latest.json` 即恢复旧单版本行为，可立即止血（见 §6）。
+
+#### 3. 验证结果
+
+> 以下结论引用 `.codebuddy/artifacts/2026-10-11-release-chain-consistency/05-test-report.md`（G5，verdict=proceed，§8.4 复跑证据），不重写数据。
+
+**实际执行的验证命令与结论（主会话代执行，本交付环境未重跑）**
+
+- `cargo test -p rustcode-updater --all-targets` → **54 passed; 0 failed**（含本轮新增 13 个测试：实现提交 9 个 + G4/G5 复核补 4 个，命名清单见 05-test-report.md §3 与 §8.2–§8.4）。
+- `cargo check -p rustcode-config --all-targets` → Finished（clean；删除孤儿 `update_index_url` 为减法，additive）。
+- `cargo clippy -p rustcode-updater --all-targets` → clean（已修 `ResolvedTarget` 可见性警告）。
+- **未执行**：`cargo check --workspace --all-targets`（见 §4，4GiB OOM 风险，且本变更为 additive）。
+
+**测试覆盖到的入口**
+
+- 运行时入口：`/upgrade`（CLI `rustcode-cli/src/main.rs` 与 TUI `rustcode-tuix/src/event_loop/commands.rs` 均经 `run_upgrade`）。
+- 解析/选择逻辑：`release_index_parses_and_keeps_newest_first`、`version_manifest_parses_binaries_for_target`（index/manifest 解析）；`select_picks_newest_build_for_platform`、`select_falls_back_to_older_version_for_missing_platform`、`select_returns_none_when_platform_has_no_published_build`（纯选择层）；`resolve_picks_newer_platform_build`、`resolve_picks_newer_platform_build_for_windows`、`resolve_falls_back_to_newer_platform_build_for_darwin`、`resolve_reports_already_latest_*`×3、`resolve_force_bypasses_already_latest`（解析层含 is_newer 门控 + force 绕过 + darwin 不降级语义）。
+
+#### 4. 已知未验证范围
+
+| 项 | 原因 | 负责人 / 替代证据 |
+|---|---|---|
+| `cargo check --workspace --all-targets` | 4GiB cgroup 链接阶段 OOM，**禁止本地跑**；本变更为 additive（run_upgrade 签名不变、新符号无外部调用方、config 仅删孤儿 API），下游两处 `run_upgrade` 调用形态不变，编译中断风险低 | 建议在 ≥8GiB 环境补跑以彻底闭合 G5「跨 crate 变更补 workspace 检查」；下游两处调用者 grep 确认形态不变 |
+| darwin / ohos 回退端到端下载 | 依赖线上托管端点仍 serving `v5.1.0` 二进制（部署侧），本地无 v5.1.0 副本、未做下载实证 | 解析层已验证（选中 v5.1.0 且 is_newer 门通过）；最终下载属部署数据准备，设计 §6 已记录恢复路径 |
+| 公开 `resolve_upgrade_target` 与多源回退 HTTP 注入测试 | 依赖真实网络边界，未做 wiremock 注入（Gap-4，结构性遗留） | 纯逻辑已由 `resolve_upgrade_version` 用例覆盖；crate 已含 `wiremock` dev-dep，建议后续补集成用例 |
+| 后台 / deferred 升级路径（darwin/ohos `UpgradeNoTarget`） | 设计 §2.3 明确划线不改，本特性未覆盖 | 列为已知缺口，建议 follow-up 将 `prepare_deferred_upgrade` 过 `resolve_upgrade_target_inner` |
+| `fetch_text_from_bases` 的 200-HTML 源不尝试下一源 | 与既有 `fetch_manifest` 一致，契约已声明，非阻断 | 建议后续加固（解析失败继续下一源） |
+
+#### 5. 文档更新清单
+
+| 文件路径 | 变更类型 | 摘要 |
+|---|---|---|
+| `CHANGELOG.md` | 新增 | 本小节：在 `## [Unreleased]` 下新增「发布链一致性（2026-10-11）」四段式说明（行为变化/风险/验证/未验证范围 + 文档清单 + 回滚 + 术语检查）。 |
+| `README.md` | 修订 | 在「安装」下新增「应用内升级（/upgrade）」小节，说明缺失平台版本时回退到仍含该平台的版本（对齐 install.sh）。 |
+| `.codebuddy/artifacts/2026-10-11-release-chain-consistency/06-delivery.md` | 新增 | 本特性的协议交付记录（四段式 + 文档清单 + 回滚方案 + 术语检查）。 |
+
+> 注：本特性含用户可见运行时行为变化，按 orchestrator 指示一并记入 CHANGELOG；版本化发布说明仍以 `release/` 目录为准。
+
+#### 6. 回滚方案
+
+- **判定时机**：若 darwin/ohos 回退下载失败（线上未 serving v5.1.0 二进制）或 `latest.json` 同步异常导致升级异常，应回滚以立即恢复旧单版本行为。
+- **步骤（二选一）**：
+  1. **整特性回退**：`git revert` 本特性提交（涵盖 `lib.rs` / `endpoints.rs` / `latest.json` / `release/index.json` / `release/v5.1.0/`）。因回退到旧 `latest.json`（v5.1.0）即恢复旧单版本行为，可立即止血。
+  2. **数据 + 代码最小回退**：`latest.json` 退回 v5.1.0 + 删除 `release/index.json` 的 v5.1.0 条目 + 删除 `release/v5.1.0/` 目录 + 还原 `crates/rustcode-updater/src/lib.rs` 与 `crates/rustcode-config/src/endpoints.rs` 到 revert 前状态。
+- **恢复路径（彻底消除 darwin/ohos 回退）**：在 macOS runner 上构建并发布 6.2.1（或更新版本）的 darwin/ohos 产物，使 `release/index.json` 中最新版本即含该平台，darwin/ohos 用户不再需要回退到 v5.1.0。
+
+#### 7. 术语与命名一致性检查结论
+
+- 发布链术语统一：`latest.json` / `release/index.json` / `manifest.json` / `run_upgrade` / `ALREADY_LATEST` / `UpgradeNoTarget` / `resolve_upgrade_target` / `ResolvedTarget` / `ReleaseIndex` / `IndexEntry` 在交付说明、CHANGELOG、README（新增小节）、需求/设计/实现/测试报告中命名一致。
+- 架构边界一致：`rustcode-updater` 维持 leaf crate（不引 `rustcode-core`），与 `AGENTS.md:216` 及设计 §2.1/§4 表述一致；新增依赖仅既有 `serde`/`serde_json`，无新反向依赖。
+- 已退役/历史概念（bridge、v1/v2 开关、core 磁盘 session 模型）未出现在本次文档中；`update_index_url` 已作为孤儿删除，文档不再描述为可用 API。
+- 代码符号保持英文原样，符合项目约定。
+
+---
+
 ### CI 门禁整改（2026-10-09，非发布版本，仅 CI 配置与脚本变更）
 
 本小节合并记录两个连续完成的 CI 整改特性（GitHub 镜像仓 `AngelSnow1129/RustCode` 均全绿）：
