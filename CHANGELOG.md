@@ -94,6 +94,78 @@
 
 ---
 
+### B 线 P2.5：定时任务 CLI 人类侧 DAG 编排与图校验（2026-10-11）
+
+> 本特性补齐「设计 §5.4.4 交互面补齐 G13」中人类侧编排缺口：此前只有 agent 侧 `schedule_task` 工具能写依赖图，人类用 CLI `schedule add` 无法声明 `depends_on`/`triggers`，也无命令把 `GraphError` 暴露给人类。P2.5 核心 DAG 算法（`validate_graph` 三色 DFS、事件级联）已随 e6ba396e/9db5d18e 先行落地；本次仅扩展 `rustcode-cli` 的 schedule 子命令，不改 `ScheduleTask` 字段定义与持久化格式。完整交接件见 `.codebuddy/artifacts/2026-10-11-b-p25-dag-schedule/`，验证证据见其 `05-test-report.md`（G5 verdict=proceed）。
+
+#### 1. 行为变化
+
+- **`rustcode schedule add` 新增 `--depends-on <ID[,ID…]>` 与 `--triggers <EVENT[,EVENT…]>`**：人类现可用 CLI 声明任务依赖图与事件触发源（此前仅 agent 侧 `schedule_task` 工具能写）。逗号分隔或重复传参均可（`value_delimiter = ','`）。
+- **`rustcode schedule add` 保存前图校验（fail-closed）**：对「现有全部任务 + 新任务」跑 `validate_graph` 三色 DFS 环检测；环 / 悬空边 / 自依赖 / 重复 id 一律拒绝保存，`eprintln` 报告每条 `GraphError` 且**不落盘**、退出码 2。
+- **新增 `rustcode schedule validate`**：只读校验当前 store 依赖图，无错打印「依赖图校验通过」退 0；有错逐条打印 `GraphError` 退 1（可被脚本 `wc -l` 消费）。
+- **`rustcode schedule list` 追加依赖展示**：对含依赖 / 触发的任务追加只读 `deps=... triggers=...` 行。
+
+**迁移 / 对接说明（无退役接口，仅 CLI 能力扩展）**
+
+- 仅扩展 CLI 子命令标志，**不改 `ScheduleTask` 字段定义**（`depends_on`/`triggers` 早已 `#[serde(default)]`），旧任务文件（无这两个字段）照常解析为 `Vec::new()`。
+- 纯时间任务行为不变：`depends_on`/`triggers` 默认空等价于仅时间触发，既有 `schedule` 命令退出码 / 输出不受影响（AC6 additive 兼容）。
+
+#### 2. 风险
+
+- **不改持久化格式**：`ScheduleTask.depends_on`/`triggers` 已 `#[serde(default)]`；即便新写入带依赖的任务文件，旧版本代码也能解析（仅忽略这两个字段），不会破坏加载。
+- **add 图非法不落盘（退出码 2）**：人肉拼出环不自知时由 `validate_graph` 在 add/validate 两处拦截（fail-closed，不静默降级）；悬空边让后继误以为「无前驱」照跑的问题，add 与 validate 均报 `UnknownDependency` 拒绝，杜绝静默忽略。
+- **validate 有错退 1**：只读命令，不影响 store；退出码 1 专为脚本化门禁设计（逐条打印可被 `wc -l` 计数）。
+- **仅改 `rustcode-cli` 单 crate**：P2.5 核心算法（`validate_graph`/`due_tasks_in`/`cascade_fire`）与 `ScheduleTask` 字段定义未触碰；不引入新依赖、不横向依赖 TUI/WebUI。
+- **设计 `files_owned` 与实际 diff 偏差（已知 minor，不阻断 G6）**：G4 审查的 `git diff HEAD` 报告 `crates/rustcode-cli/src/main.rs` (+11) 亦在改动集内，而设计 `files_owned` 仅列 `schedule_cmd.rs`；当前磁盘 main.rs 的 schedule 子命令构建器未见 `validate` 子命令块，疑似 review diff 含预存 / 无关改动或设计漏列。建议合并前由 implementer 确认 main.rs 实际改动，避免 `files_owned` 与实际不符（行为以 schedule_cmd.rs 落地内容为准）。
+
+#### 3. 验证结果
+
+> 以下结论引用 `.codebuddy/artifacts/2026-10-11-b-p25-dag-schedule/05-test-report.md`（G5，verdict=proceed），不重写数据。
+
+- `cargo test -p rustcode` → **141 passed; 0 failed**（含 acp_end_to_end 13 / setup / uninstall / script_parity 等集成测试，全部 0 failed）。
+- `cargo test -p rustcode schedule_cmd` → `32 passed; 0 failed`。
+- `cargo clippy -p rustcode --all-targets` → 零警告。
+- `cargo fmt -p rustcode -- --check` → exit 0。
+- 另含基线预存测试隔离 flake 修复（`headless_...` 测试泄漏 En locale 使 completion 测试非确定性误红），与功能无关。
+
+**测试覆盖到的入口**
+
+- CLI `rustcode schedule add`（`--depends-on`/`--triggers` 落盘回读）、`schedule validate`（无错图退 0 / 坏图退 1 且打印）、`schedule list`（追加 `deps=/triggers=` 且 additive）均由 `crates/rustcode-cli/src/schedule_cmd.rs` 新增 6 单测覆盖（纯逻辑 + 子进程自举捕获 stdout）。
+
+#### 4. 已知未验证范围
+
+| 项 | 原因 | 负责人 / 替代证据 |
+|---|---|---|
+| TUI `/schedule` 写操作（add/remove/enable/disable/run） | 设计 §5.4.4 G13 子项，需把共享逻辑下沉 `rustcode-capabilities` 解 L3↔L3 横向依赖约束，不在本次最小可用范围 | 留待后续；本特性未改动 TUI |
+| WebUI 只读 `/schedule` 路由 | 同上，属 G13 子项 | 留待后续 |
+| `OnFileChange` 文件变更触发 | 设计 §5.4.3 标记为 P2.5 内可选子项，未实现时加载期报错 | 不在本次；列为已知缺口 |
+| `cargo check --workspace --all-targets` | 单 crate 单文件改动，`rustcode` 已全绿；本交付环境未重跑 workspace 全量（4GiB OOM 约束） | 受影响 crate 仅 `rustcode`，`cargo test -p rustcode` 全绿可作替代证据 |
+
+#### 5. 文档更新清单
+
+| 文件路径 | 变更类型 | 摘要 |
+|---|---|---|
+| `CHANGELOG.md` | 新增 | 本小节：`## [Unreleased]` 下新增「B 线 P2.5：定时任务 CLI 人类侧 DAG 编排与图校验（2026-10-11）」四段式说明。 |
+| `README.md` | 修订 | 在「功能特性」新增「定时任务（schedule）」小节，补充人类侧 `schedule add --depends-on/--triggers` 与 `schedule validate` 用法。 |
+| `docs/features.md` | 修订 | §8 定时任务子命令枚举补 `validate`，并补充 CLI 人类侧声明依赖图/事件触发源的说明。 |
+| `AGENTS.md` | 修订 | 持续任务/调度求值现状条目更正：P2.5（DAG + agent 派生 + 事件触发）已落地，删除「仍未开工」误述；TUI/WebUI G13 子项仍属未开工。 |
+| `.codebuddy/artifacts/2026-10-11-b-p25-dag-schedule/06-delivery.md` | 新增 | 本特性的协议交付记录（四段式 + 门禁一览 + 已知缺口与恢复路径）。 |
+
+#### 6. 回滚方案
+
+- **判定时机**：若 `schedule add` 图校验误杀合法图（误报环/悬空边）或 `validate` 退出码语义与脚本契约不符，应回滚以恢复旧 CLI 行为。
+- **步骤（按提交逆向）**：`git revert` 本特性提交（涵盖 `crates/rustcode-cli/src/schedule_cmd.rs` 及 G4 review 报告的 `main.rs` 改动）。因 `depends_on`/`triggers` 均为 `#[serde(default)]`，旧版本代码解析带依赖的任务文件仅忽略这两个字段，store 数据无损，无需数据迁移。
+- **恢复路径**：本特性为纯 CLI 加性扩展，撤回两个 CLI 标志 + `validate` 臂即恢复旧行为，store 数据无损。
+
+#### 7. 术语与命名一致性检查结论
+
+- 调度术语统一：`schedule add` / `--depends-on` / `--triggers` / `schedule validate` / `schedule list` / `validate_graph` / `GraphError` / `Cycle` / `UnknownDependency` / `SelfDependency` / `DuplicateId` / 退出码（0/1/2）在交付说明、CHANGELOG、README、features.md、AGENTS.md 与需求/设计/实现/测试报告中命名一致。
+- 架构边界一致：仅 `rustcode-cli → rustcode-config::schedule` 既有依赖，方向不变；未引入新依赖、未横向依赖 `rustcode-tuix`/`rustcode-daemon`；core-free 约束保持。
+- 已退役/历史概念（bridge、v1/v2 开关、core 磁盘 session 模型）未出现在本次文档中；`ScheduleTask` 字段未改，文档未描述为新增能力。
+- 代码符号保持英文原样，符合项目约定。
+
+---
+
 ### CI 门禁整改（2026-10-09，非发布版本，仅 CI 配置与脚本变更）
 
 本小节合并记录两个连续完成的 CI 整改特性（GitHub 镜像仓 `AngelSnow1129/RustCode` 均全绿）：

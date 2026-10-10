@@ -527,7 +527,7 @@ project,回答回发同一会话。首发平台**钉钉 Stream 长连接**(客�
   它**刻意不走 reconcile**(走 reconcile 会把刚卸下的任务立刻重装回去)。
 - 门禁(config `--lib` **383/0**、cli `--bins` **131/0**、daemon `--lib` **320/0**、
   `cargo fmt --check` 三 crate 干净、clippy 对本次改动文件 0 新增命中)。
-  **P2.5(DAG + agent 派生 + 事件触发)/ P3(可持久化唤醒)仍未开工**。
+  **P2.5(DAG + agent 派生 + 事件触发) 已落地**(核心算法随 e6ba396e/9db5d18e 落地；2026-10-11 补齐人类侧 CLI 编排：`schedule add --depends-on/--triggers` 保存前环检测、`schedule validate` 只读校验、`schedule list` 显示依赖；TUI `/schedule` 写操作与 WebUI 只读路由仍属 G13 其余子项，未开工)；P3(可持久化唤醒) 仍未开工。
 
 ## 架构方向
 

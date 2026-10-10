@@ -206,7 +206,7 @@ MCP 配置:
 
 ### 8. 定时任务与持续工作（schedule）
 
-- `rustcode schedule add/list/enable/disable/remove/sync/run/history` 管理持久化的定时任务；任务定义落在 `$RUSTCODE_HOME/schedules/<id>.json`，每次运行的台账落在 `<id>/runs/<run_id>.json`（`schedule history <id>` 可查，`status` 为 `running` / `success` / `error` / `cancelled` / `skipped` 机器 token，不翻译）。
+- `rustcode schedule add/list/enable/disable/remove/sync/run/history/validate` 管理持久化的定时任务；任务定义落在 `$RUSTCODE_HOME/schedules/<id>.json`，每次运行的台账落在 `<id>/runs/<run_id>.json`（`schedule history <id>` 可查，`status` 为 `running` / `success` / `error` / `cancelled` / `skipped` 机器 token，不翻译）。`schedule add` 支持人类侧声明依赖图与事件触发源（`--depends-on <ID[,ID…]>` / `--triggers <EVENT[,EVENT…]>`），保存前对「全部任务 + 新任务」跑 `validate_graph` 三色 DFS 环检测，图非法（环 / 悬空边 / 自依赖 / 重复 id）不落盘并退出码 2；`schedule validate` 只读校验当前依赖图，无错退 0、有错逐条打印并退 1（可被 `wc -l` 消费）；`schedule list` 对含依赖 / 触发的任务多打印一行 `deps=... triggers=...`。
 - **两种触发方式，默认只用第一种**：
   1. 系统调度器（launchd / systemd timer / schtasks）冷启动 `rustcode schedule run <id>`——`schedule add` 即注册，`schedule sync` 对账；无需常驻进程，但每次都是**全新会话**。
   2. daemon tick（P2，默认关闭）——常驻 `rustcode daemon` 每 `tick_interval_secs` 检查到期任务并执行，或前台 `rustcode schedule tick [--once]`（`--once` 供外部 cron 调用）。开关是 `[schedule]` 的 `enabled` + `daemon_tick`。

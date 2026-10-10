@@ -140,6 +140,16 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 - **`/webui stop`** 停止进程内 server（之后再次 `/webui` 会重新启动）
 - **免密访问（可选，默认关闭）** —— 正常情况要带一次性 token（URL 里的 `?token=`）。想在可信网络里「打开即用、不输密码」，三选一：环境变量 `RUSTCODE_WEBUI_NO_AUTH=1`（`=0` 强制关闭，优先级最高，可临时压过配置）、命令行 `--no-auth`（`rustcode webui` / `rustcode daemon`）、配置 `webui_no_auth = true`。免密 = 该端口上全部能力（含 shell 工具）对任何能连到它的人开放，**不支持热加载**，收紧必须改回并重启；`/tunnel`（经中继暴露到公网）刻意不受此开关影响，始终要求 token。完整注释见 `docs/config.example.toml`
 
+### 定时任务（schedule）
+
+用 `rustcode schedule` 管理持久化的定时任务（任务定义落在 `~/.rustcode/schedules/<id>.json`）。除既有的时间触发外，人类现在可以直接用 CLI 声明任务之间的依赖图与事件触发源：
+
+- `rustcode schedule add <title> ... --depends-on a,b --triggers ev1` —— 新建任务并声明它依赖任务 `a`、`b` 完成、且可被事件 `ev1` 触发；保存前自动对「全部任务 + 新任务」跑环检测，图非法（环 / 悬空边 / 自依赖 / 重复 id）则**不落盘**并以退出码 2 报错。
+- `rustcode schedule validate` —— 只读校验当前依赖图，无错打印「依赖图校验通过」并退 0，有错逐条打印并退 1（可被 `wc -l` 消费，适合脚本化门禁）。
+- `rustcode schedule list` —— 含依赖 / 触发的任务会多打印一行 `deps=... triggers=...`。
+
+`--depends-on` / `--triggers` 均为可选；不传时退化为纯时间任务，既有行为不变。TUI `/schedule` 写操作与 WebUI 只读路由属于后续 G13 子项，本次未涉及。
+
 ### 安全性
 
 - **破坏性命令检测** —— `rm -rf`、`git push --force`、`DROP TABLE` 等需要显式确认

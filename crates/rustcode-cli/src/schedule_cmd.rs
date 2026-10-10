@@ -13,6 +13,11 @@ use rustcode_config::schedule::{self, RunRecord, RunStatus, RunTrigger, Schedule
 
 // ── CLI enum ──────────────────────────────────────────────────────────────────
 
+// `Add` carries many fields (incl. the P2.5 `depends_on`/`triggers` Vecs), so it
+// is far larger than the other single-field variants. Boxing it would complicate
+// the clap derive (a `Box<Args>` tuple variant does not flatten transparently)
+// and the enum is never allocated in a hot path, so the size gap is benign.
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 pub enum ScheduleCli {
     /// Add a new scheduled task.
@@ -56,6 +61,14 @@ pub enum ScheduleCli {
         /// Notify level: off | important | all.
         #[arg(long, default_value = "important")]
         notify: String,
+
+        /// 本任务触发前必须全部成功的任务 id（构成 DAG，可空）。
+        #[arg(long, value_name = "ID", value_delimiter = ',')]
+        depends_on: Vec<String>,
+
+        /// 除自身 schedule 外，可被这些事件名触发的事件源（可空）。
+        #[arg(long, value_name = "EVENT", value_delimiter = ',')]
+        triggers: Vec<String>,
     },
 
     /// List all scheduled tasks.
@@ -97,6 +110,9 @@ pub enum ScheduleCli {
         #[arg(long)]
         unregister_os: bool,
     },
+
+    /// 校验全部定时任务的依赖图（P2.5）：打印环/悬空边/自依赖/重复 id，有错退 1。
+    Validate,
 
     /// Run the due-task tick: execute every task whose time has arrived (--once
     /// for a single pass; `[schedule].enabled` must be true).
@@ -212,6 +228,15 @@ fn parse_schedule(
     anyhow::bail!("{}", t(Msg::CliSchedFrequencyRequired))
 }
 
+/// P2.5 DAG wiring for a scheduled task: the predecessor ids that must all
+/// succeed before it fires, and the event names that also fire it (beyond its
+/// own schedule).
+#[derive(Clone, Default)]
+pub(crate) struct TaskDag {
+    pub depends_on: Vec<String>,
+    pub triggers: Vec<String>,
+}
+
 /// Build a [`ScheduleTask`] from raw CLI arguments.  Pure function -- no I/O.
 ///
 /// `id` = `slug(title)-<first 6 chars of a new UUIDv4>`.
@@ -222,6 +247,7 @@ pub fn build_task(
     sched: Schedule,
     permission_mode: &str,
     notify: &str,
+    dag: &TaskDag,
 ) -> ScheduleTask {
     let slug = slug(title);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
@@ -247,8 +273,8 @@ pub fn build_task(
         // The P2.5 graph is opt-in: a freshly created task has no dependencies
         // and listens to no events. They are edited in afterwards, once the
         // referenced task ids are known to exist.
-        depends_on: Vec::new(),
-        triggers: Vec::new(),
+        depends_on: dag.depends_on.clone(),
+        triggers: dag.triggers.clone(),
     }
 }
 
@@ -465,6 +491,8 @@ pub async fn handle_schedule(cli: ScheduleCli) -> Result<i32> {
             cron,
             mode,
             notify,
+            depends_on,
+            triggers,
         } => {
             let sched = parse_schedule(
                 daily.as_deref(),
@@ -479,7 +507,27 @@ pub async fn handle_schedule(cli: ScheduleCli) -> Result<i32> {
                     .to_string_lossy()
                     .into_owned()
             });
-            let task = build_task(&title, &prompt, &cwd, sched, &mode, &notify);
+            let task = build_task(
+                &title,
+                &prompt,
+                &cwd,
+                sched,
+                &mode,
+                &notify,
+                &TaskDag {
+                    depends_on,
+                    triggers,
+                },
+            );
+            let mut all = schedule::list();
+            all.push(task.clone());
+            let errors = schedule::validate_graph(&all);
+            if !errors.is_empty() {
+                for e in &errors {
+                    eprintln!("schedule: 依赖图校验失败: {e}");
+                }
+                return Ok(2);
+            }
             schedule::save(&task).with_context(|| {
                 t(Msg::CliSchedSaveFailed {
                     id: &format!("{:?}", task.id),
@@ -545,6 +593,13 @@ pub async fn handle_schedule(cli: ScheduleCli) -> Result<i32> {
                         reg: &reg,
                     })
                 );
+                if !task.depends_on.is_empty() || !task.triggers.is_empty() {
+                    println!(
+                        "    deps={} triggers={}",
+                        task.depends_on.join(","),
+                        task.triggers.join(",")
+                    );
+                }
             }
             Ok(0)
         }
@@ -584,6 +639,19 @@ pub async fn handle_schedule(cli: ScheduleCli) -> Result<i32> {
                 handle_sync_with(os.as_ref())?
             };
             Ok(if errors > 0 { 1 } else { 0 })
+        }
+
+        ScheduleCli::Validate => {
+            let errors = schedule::validate_graph(&schedule::list());
+            if errors.is_empty() {
+                println!("schedule: 依赖图校验通过（无环、无悬空边）");
+                Ok(0)
+            } else {
+                for e in errors {
+                    println!("schedule: {e}");
+                }
+                Ok(1)
+            }
         }
     }
 }
@@ -1169,7 +1237,15 @@ mod tests {
         let sched = Schedule::Daily {
             time: "09:00".into(),
         };
-        let t = build_task("Brief", "summarize", "/tmp/p", sched, "plan", "important");
+        let t = build_task(
+            "Brief",
+            "summarize",
+            "/tmp/p",
+            sched,
+            "plan",
+            "important",
+            &TaskDag::default(),
+        );
         assert_eq!(t.title, "Brief");
         assert_eq!(t.prompt, "summarize");
         assert_eq!(t.cwd, "/tmp/p");
@@ -1289,6 +1365,7 @@ mod tests {
                 },
                 "plan",
                 "important",
+                &TaskDag::default(),
             );
             rustcode_config::schedule::save(&t).unwrap();
             let all = rustcode_config::schedule::list();
@@ -1544,5 +1621,225 @@ mod tests {
             None => "unknown",
         };
         assert_eq!(reg, "unknown");
+    }
+
+    // ── P2.5 DAG / graph validation (B-line) ───────────────────────────────────
+
+    // 覆盖点 1: `build_task` 把 `TaskDag` 的 depends_on/triggers 写入 ScheduleTask，
+    // 经 `schedule::save` 落盘后 `schedule::load` 能回读相同内容（JSON 往返）。
+    #[test]
+    fn build_task_carries_dag_refs() {
+        with_temp_home(|| {
+            let t = build_task(
+                "DagTask",
+                "do dag",
+                "/tmp/p",
+                Schedule::Daily {
+                    time: "07:30".into(),
+                },
+                "plan",
+                "important",
+                &TaskDag {
+                    depends_on: vec!["prereq-1".into(), "prereq-2".into()],
+                    triggers: vec!["evt-start".into()],
+                },
+            );
+            // build_task 必须在内存中保留 dag 引用。
+            assert_eq!(t.depends_on, vec!["prereq-1", "prereq-2"]);
+            assert_eq!(t.triggers, vec!["evt-start"]);
+
+            // 落盘 + 回读：JSON 往返不得丢失 dag 字段。
+            rustcode_config::schedule::save(&t).unwrap();
+            let loaded = rustcode_config::schedule::load(&t.id).unwrap();
+            assert_eq!(loaded.depends_on, vec!["prereq-1", "prereq-2"]);
+            assert_eq!(loaded.triggers, vec!["evt-start"]);
+        });
+    }
+
+    // 覆盖点 2: `Add` 臂在 save 前用 `validate_graph` 校验；引入环（B depends_on A
+    // 且 A depends_on B）时必须以非空错误拒绝。
+    //
+    // 不在此直接跑 `handle_schedule(Add)`：其 Add 臂会 spawn 真实运行/OS。此处以纯
+    // 函数组合 `make_task`(确定性 id) + `schedule::validate_graph` 覆盖 Add 臂的
+    // save 前校验逻辑（其退出码 2 分支见 schedule_cmd.rs Add 臂源码注释）。
+    #[test]
+    fn schedule_add_graph_validation_rejects_cycle() {
+        with_temp_home(|| {
+            let mut a = make_task("dag-a-abc123", true);
+            let mut b = make_task("dag-b-abc123", true);
+            // 环: A -> B -> A
+            a.depends_on = vec![b.id.clone()];
+            b.depends_on = vec![a.id.clone()];
+            rustcode_config::schedule::save(&a).unwrap();
+            rustcode_config::schedule::save(&b).unwrap();
+
+            // 复刻 Add 臂的 save 前校验：先 list 再 validate_graph。
+            let all = rustcode_config::schedule::list();
+            let errors = schedule::validate_graph(&all);
+            assert!(
+                !errors.is_empty(),
+                "cyclic graph must be rejected by validate_graph (the Add arm's pre-save guard)"
+            );
+            assert!(
+                errors
+                    .iter()
+                    .any(|e| matches!(e, schedule::GraphError::Cycle { .. })),
+                "expected a Cycle error, got {errors:?}"
+            );
+        });
+    }
+
+    // 覆盖点 2/3: 悬空边（depends_on 指向不存在的 id）必须被 `validate_graph` 检出。
+    // 此处用 CLI 的 `build_task` 构造任务，验证 CLI 输入形态下的图校验。
+    #[test]
+    fn validate_graph_reports_dangling_edge() {
+        with_temp_home(|| {
+            let t = build_task(
+                "Dangling",
+                "p",
+                "/tmp",
+                Schedule::Daily {
+                    time: "09:00".into(),
+                },
+                "plan",
+                "important",
+                &TaskDag {
+                    depends_on: vec!["ghost-task-that-does-not-exist".into()],
+                    triggers: vec![],
+                },
+            );
+            let errors = schedule::validate_graph(std::slice::from_ref(&t));
+            assert_eq!(
+                errors.len(),
+                1,
+                "exactly one error expected for a dangling edge, got {errors:?}"
+            );
+            match &errors[0] {
+                schedule::GraphError::UnknownDependency { task, dep } => {
+                    assert_eq!(task, &t.id, "error must name the dependent task");
+                    assert_eq!(dep, "ghost-task-that-does-not-exist");
+                }
+                other => panic!("expected UnknownDependency, got {other:?}"),
+            }
+        });
+    }
+
+    // 覆盖点 3: `schedule validate` 对无错误图退 0 并打印通过信息（ok）。
+    //
+    // Validate 臂很薄（仅跑 `validate_graph` + 打印），不 spawn 运行/OS。为断言其
+    // 可观测 stdout，在子进程（仅本测试、独立 RUSTCODE_HOME）中跑该臂并打印，由父进程
+    // 捕获断言。退 0 契约另由 `validate_graph` 单元测试 + 下方断言覆盖。
+    #[test]
+    fn validate_command_passes_clean_graph() {
+        if std::env::var("RUSTCODE_SUBPROC_TEST").is_ok() {
+            // 子进程模式：构造合法图并跑 Validate 臂（打印由父进程捕获）。
+            with_temp_home(|| {
+                let a = make_task("val-a-abc123", true);
+                let mut b = make_task("val-b-abc123", true);
+                b.depends_on = vec![a.id.clone()]; // 合法链，无环/悬空边
+                rustcode_config::schedule::save(&a).unwrap();
+                rustcode_config::schedule::save(&b).unwrap();
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                let _ = rt.block_on(handle_schedule(ScheduleCli::Validate));
+            });
+            return;
+        }
+        let out = capture_arm_stdout("validate_command_passes_clean_graph");
+        assert!(
+            out.contains("依赖图校验通过"),
+            "validate should print the ok line for a clean graph, got: {out}"
+        );
+    }
+
+    // 覆盖点 3: `schedule validate` 对坏图（环）退 1 且逐条打印 GraphError（cycle）。
+    #[test]
+    fn validate_command_fails_on_cycle() {
+        if std::env::var("RUSTCODE_SUBPROC_TEST").is_ok() {
+            with_temp_home(|| {
+                let mut a = make_task("valc-a-abc123", true);
+                let mut b = make_task("valc-b-abc123", true);
+                a.depends_on = vec![b.id.clone()];
+                b.depends_on = vec![a.id.clone()];
+                rustcode_config::schedule::save(&a).unwrap();
+                rustcode_config::schedule::save(&b).unwrap();
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                let _ = rt.block_on(handle_schedule(ScheduleCli::Validate));
+            });
+            return;
+        }
+        let out = capture_arm_stdout("validate_command_fails_on_cycle");
+        assert!(
+            out.contains("cycle"),
+            "validate should print the cycle error, got: {out}"
+        );
+    }
+
+    // 覆盖点 4: `List` 只读展示。含依赖/触发的任务行后追加 `deps=... triggers=...`；
+    // 无依赖任务输出不变（additive）。
+    //
+    // List 臂只读 store + 打印，不 spawn 运行/OS。为断言其可观测 stdout（deps/triggers
+    // 行），在子进程（仅本测试、独立 RUSTCODE_HOME）中跑该臂并打印，父进程捕获断言。
+    #[test]
+    fn list_shows_dag_refs_when_present() {
+        if std::env::var("RUSTCODE_SUBPROC_TEST").is_ok() {
+            with_temp_home(|| {
+                let mut with_deps = make_task("list-deps-abc123", true);
+                with_deps.depends_on = vec!["list-pre-abc123".into()];
+                with_deps.triggers = vec!["evt-go".into()];
+                let no_deps = make_task("list-plain-abc123", true);
+                rustcode_config::schedule::save(&with_deps).unwrap();
+                rustcode_config::schedule::save(&no_deps).unwrap();
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                let _ = rt.block_on(handle_schedule(ScheduleCli::List));
+            });
+            return;
+        }
+        let out = capture_arm_stdout("list_shows_dag_refs_when_present");
+        // 含依赖/触发的任务应渲染 deps=/triggers= 行（追加在其行后）。
+        assert!(
+            out.contains("deps=list-pre-abc123"),
+            "list output missing deps line: {out}"
+        );
+        assert!(
+            out.contains("triggers=evt-go"),
+            "list output missing triggers line: {out}"
+        );
+        // additive: 无依赖任务（list-plain）不得追加任何 deps 行。
+        assert!(
+            !out.contains("deps=list-plain-abc123"),
+            "additive: no-deps task must not get a deps line: {out}"
+        );
+    }
+
+    /// Re-run THIS test binary as a subprocess, filtered to `test_name`, with
+    /// `RUSTCODE_SUBPROC_TEST` set so the test executes its `handle_schedule`
+    /// arm (instead of recursing) and prints its observable stdout, which the
+    /// parent captures here.
+    ///
+    /// This sidesteps a libtest limitation: an in-process `dup2` redirect of fd
+    /// 1 is unreliable inside the parallel harness because Rust's global
+    /// `Stdout` caches its file descriptor on first use, so the redirect only
+    /// "wins" when the test happens to run first. Spawning a *fresh* single-test
+    /// subprocess makes the arm's `println!` output land on a clean pipe the
+    /// parent reads. The subprocess uses its own isolated `RUSTCODE_HOME`.
+    fn capture_arm_stdout(test_name: &str) -> String {
+        let exe = std::env::current_exe().expect("current_exe");
+        let output = std::process::Command::new(&exe)
+            .env("RUSTCODE_SUBPROC_TEST", "1")
+            .arg("--nocapture")
+            .arg("--test-threads=1")
+            .arg(test_name)
+            .output()
+            .expect("spawn test subprocess");
+        String::from_utf8_lossy(&output.stdout).into_owned()
     }
 }

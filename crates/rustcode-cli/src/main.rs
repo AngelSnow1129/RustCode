@@ -6056,6 +6056,13 @@ mod tests {
 
     #[test]
     fn completion_scripts_cover_all_supported_shells() {
+        // Pin the locale so this test is deterministic. Completions are generated
+        // from i18n strings; another test may have touched the global locale. Under
+        // the default ZhCn the `im register` description is Chinese ("登录自启") and
+        // contains no ASCII "login" substring, which is exactly the state the
+        // managed-login guard below was written against.
+        let _g = rustcode_config::i18n::test_lock();
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::ZhCn);
         for shell in [
             Shell::Bash,
             Shell::Zsh,
@@ -6292,6 +6299,10 @@ mod tests {
         let resolved = runtime_config_from(&cfg, &wd, None, false, false);
         assert!(headless_missing_provider_message(&resolved, None).is_none());
         assert!(headless_missing_provider_message(&resolved, Some("p")).is_none());
+        // Restore the default locale: this test pins En via `test_lock` but must
+        // not leak it to siblings (e.g. the completion-script test, which reads
+        // i18n strings and would otherwise see English "login" copy and false-fail).
+        rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::ZhCn);
     }
 
     #[test]
