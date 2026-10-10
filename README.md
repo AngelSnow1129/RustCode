@@ -831,6 +831,26 @@ cargo clippy
 cargo install --path crates/rustcode-cli
 ```
 
+### CI 门禁设计（预合并与推送）
+
+本仓库有两套 GitHub Actions 门禁，最终状态如下（变更历史与完整风险说明见 `CHANGELOG.md` 的「CI 门禁整改」小节）：
+
+- **`check.yml`（预合并门禁）**：触发于 `pull_request` 与 `push` 到 `main` / `dev` / `release/**`。
+  - `fmt` 为**硬门禁**（`cargo fmt --all -- --check`）。
+  - `clippy` 在钉死 `toolchain: '1.93.0'` 下为**硬门禁**（`cargo clippy --workspace --all-targets -- -D warnings`）。
+  - `test` 为**报告项**（report-only，`continue-on-error`），环境假红不阻断 PR。
+- **`ci.yml`（推送门禁）**：触发于 `main` / `dev` 的 `push` 与 `pull_request`。
+  - `release artifact gate` 与 `main upstream-only protection` 两个作业仅在规范仓 `SecLab/RustCode` 运行，GitHub 镜像仓自动跳过。
+  - `clippy` 钉 `1.93.0` 为**硬门禁**；`fmt` 为硬门禁；`test` 为**报告项**（CI 端口冲突假红已知）。
+  - G4 headless smoke、G5 ACP smoke、G6 无 telemetry SDK、G7/G8 无陈旧命名、shell 脚本可移植性检查等均为硬门禁。
+
+**贡献者本地 PR 前建议运行**（匹配 CI 钉版 `1.93.0`）：
+
+```bash
+cargo fmt --all
+cargo clippy --workspace --all-targets -- -D warnings   # 使用 rustc 1.93.0
+```
+
 ## 打赏
 
 ---
