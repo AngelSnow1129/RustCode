@@ -68,7 +68,7 @@ jobs:
         continue-on-error: true
 
   lint:
-    name: fmt (blocking) + clippy (report only)
+    name: fmt (blocking) + clippy
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -78,6 +78,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: '1.93.0'
           components: clippy, rustfmt
 
       - name: Cache cargo
@@ -99,7 +100,3 @@ jobs:
 
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
-        # Report-only (matches the job name "clippy (report only)"). Newer clippy
-        # on the runner can introduce lints the tree predates; keep it visible but
-        # non-blocking until the tree is clean on the pinned runner toolchain.
-        continue-on-error: true
