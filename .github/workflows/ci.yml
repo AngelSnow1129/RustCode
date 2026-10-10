@@ -98,6 +98,10 @@ jobs:
   test:
     name: cargo test --workspace
     runs-on: ubuntu-latest
+    # Report-only: CI runner port binds cause flaky false-reds (run 37907335105
+    # failed on first attempt, passed on rerun). A red here is usually an
+    # environment false-negative, not a regression. Promote to a hard gate only
+    # after port isolation is proven stable on the Linux runner.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
