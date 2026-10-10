@@ -148,7 +148,15 @@ RustCode 是一款住在你终端里的 AI 编码助手。用自然语言给它�
 - `rustcode schedule validate` —— 只读校验当前依赖图，无错打印「依赖图校验通过」并退 0，有错逐条打印并退 1（可被 `wc -l` 消费，适合脚本化门禁）。
 - `rustcode schedule list` —— 含依赖 / 触发的任务会多打印一行 `deps=... triggers=...`。
 
-`--depends-on` / `--triggers` 均为可选；不传时退化为纯时间任务，既有行为不变。TUI `/schedule` 写操作与 WebUI 只读路由属于后续 G13 子项，本次未涉及。
+`--depends-on` / `--triggers` 均为可选；不传时退化为纯时间任务，既有行为不变。
+
+**在 TUI 内**（无需切到 CLI 二进制）：
+
+- `/schedule add` —— 打开 `ScheduleEditor` 全字段表单 modal（收集 id/title/prompt/cwd/schedule/depends_on/triggers），提交时跑 `validate_graph` 校验，图合法才保存落盘；`Esc` 取消不落盘、`Ctrl-S` 保存，校验失败（环 / 悬空边 / 自依赖 / 重复 id）保持编辑器打开并显示错误（fail-closed）。`schedule` 字段支持与 CLI 一致的 5 种写法：`daily HH:MM` / `weekly N@HH:MM` / `interval Nm` / `hourly` / `cron <expr>`。
+- `/schedule validate` —— 在 TUI 内本地校验当前依赖图，无错回显「依赖图校验通过」，有错逐条渲染 `GraphError`（只读，不动持久化）。
+- `/schedule`（空 / `list`）—— 保持既有只读列表行为，不回归。
+
+WebUI 只读 `/schedule` 路由仍属 G13 其余子项，尚未实现。
 
 ### 安全性
 

@@ -28,7 +28,8 @@ use super::{
 use crate::custom_commands::ArgsRequirement;
 use crate::i18n::{t, Msg};
 use crate::modals::{
-    ConfigPanel, DiffViewer, DirPicker, FileViewer, LanguagePicker, Modal, ModelPicker, ProxyPicker,
+    ConfigPanel, DiffViewer, DirPicker, FileViewer, LanguagePicker, Modal, ModelPicker,
+    ProxyPicker, ScheduleEditor,
 };
 use crate::render::{Renderer, UiLine};
 use crate::session::{Session, SessionId};
@@ -1660,17 +1661,50 @@ fn execute_slash_command_impl(
             }
         }
         "schedule" => {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-            let tasks = rustcode_config::schedule::list();
-            let text = build_schedule_list_text(&tasks, now);
-            if matches!(state.phase, crate::state::UiPhase::Streaming) {
-                state.footer_command_output = Some(text);
-            } else {
-                renderer.render(UiLine::CommandOutput(text));
+            // First word of `arg` selects the subcommand; everything else is the
+            // subcommand's own argument string (unused by `add`/`validate`).
+            let sub = arg
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if sub == "add" {
+                // Open the full-field editor modal (Idle-phase form). The modal
+                // owns all form state and only persists via `schedule::save`
+                // when its submit passes `validate_graph` (fail-closed).
+                *active_modal = Some(Box::new(ScheduleEditor::open(ctx.working_dir.clone())));
+                renderer.render(UiLine::CommandOutput(
+                    "已打开调度任务编辑器（Esc 取消，Ctrl-S 保存）".into(),
+                ));
                 renderer.flush();
+            } else if sub == "validate" {
+                // Read-only graph validation: report every problem, never mutate.
+                let errs =
+                    rustcode_config::schedule::validate_graph(&rustcode_config::schedule::list());
+                if errs.is_empty() {
+                    renderer.render(UiLine::CommandOutput(
+                        "schedule: 依赖图校验通过（无环、无悬空边）".into(),
+                    ));
+                } else {
+                    for e in &errs {
+                        renderer.render(UiLine::Error(format!("schedule: {e}")));
+                    }
+                }
+                renderer.flush();
+            } else {
+                // empty / "list" / unknown -> existing read-only list (no regression)
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                let tasks = rustcode_config::schedule::list();
+                let text = build_schedule_list_text(&tasks, now);
+                if matches!(state.phase, crate::state::UiPhase::Streaming) {
+                    state.footer_command_output = Some(text);
+                } else {
+                    renderer.render(UiLine::CommandOutput(text));
+                    renderer.flush();
+                }
             }
         }
         "context" => {

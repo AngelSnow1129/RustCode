@@ -166,6 +166,44 @@
 
 ---
 
+### B 线 P2.5：定时任务 TUI `/schedule` 写操作（2026-10-11）
+
+> 本特性补齐 B 线 P2.5 G13 子项：在 TUI（rustcode-tuix，L3）内补齐 `/schedule add`（全字段表单 modal）与 `/schedule validate`（图校验）。复用 `rustcode_config::schedule` 公共 API，未依赖 `rustcode-cli`（满足 L3↔L3 硬约束）。完整交接件见 `.codebuddy/artifacts/2026-10-11-b-p25-tui-schedule-write/`，验证证据见其 `05-test-report.md`（G5 verdict=proceed）。
+
+#### 1. 行为变化
+
+- **`/schedule add` 打开 `ScheduleEditor` 全字段表单 modal**：收集 `id`/`title`/`prompt`/`cwd`/`schedule`/`depends_on`/`triggers`，提交时先 `validate_graph`（含候选）校验，图合法才 `schedule::save` 落盘，否则保持编辑器打开并显示错误（fail-closed）；`Esc` 取消不落盘。
+- **`/schedule validate` 本地校验依赖图**：运行 `validate_graph(&list())`，无错回显「依赖图校验通过」，有错逐条渲染 `GraphError`；只读，不动持久化。
+- **`/schedule`（空 / `list`）保持既有只读列表**，不回归。
+- 无退役接口、无对外 API / 协议 / 持久化格式变更；旧任务文件（`depends_on`/`triggers` 已 `serde(default)`）照常解析。
+
+#### 2. 风险
+
+- **仅在 Idle 相位打开 modal**：与既有 `ConfigPanel` 等 modal 行为一致，沿用 `active_modal` 单一所有权；未对 `Streaming` 相位特判（非目标边界）。
+- **未改动持久化格式**：仅调用既有 `schedule::save` 落盘，不写新字段、不引入新依赖；不触碰 CLI 二进制（TUI 对 `rustcode-cli` 零新增依赖，满足 L3↔L3 硬约束）。
+- **回滚代价低**：纯 TUI crate 内新增 modal + 命令分发分支，撤回即恢复只读列表，store 无损。
+
+#### 3. 验证结果
+
+> 以下结论引用 `.codebuddy/artifacts/2026-10-11-b-p25-tui-schedule-write/05-test-report.md`（G5，verdict=proceed），不重写数据。
+
+- `cargo test -p rustcode-tuix` → **2040 passed; 0 failed** + `plugin_integration` **1 passed**。
+- `cargo clippy -p rustcode-tuix --all-targets` → 零警告；`cargo fmt --check` → 干净。
+- 新增 **10 个单元测试用例**（覆盖 `parse_schedule` 全分支、`split_csv`、`submit` 的 fail-closed 与成功落盘回读）。
+
+**测试覆盖到的入口**：TUI `/schedule add` 模态写操作（解析、依赖图 fail-closed、成功落盘与回读）、TUI `/schedule validate`（内核 `validate_graph` 由 `rustcode-config` 自带单测覆盖，TUI 仅透传渲染）。
+
+#### 4. 已知未验证范围
+
+| 项 | 原因 | 负责人 / 替代证据 |
+|---|---|---|
+| TUI 表单的 PTY 实际光标 / 高亮渲染 | 逻辑层已核对 `selected = focus+1` 无越界、与 `ConfigPanel` 同构，但真实伪终端交互未实测 | G4 审查建议伪终端下快照验证；逻辑层已确认无越界 |
+| `/schedule validate` 命令臂渲染与 `handle_key` 路由 | 未单独单测（需完整 `LoopCtx` 上下文）；内核 `validate_graph` 已在 `rustcode-config` 单测覆盖，TUI 仅透传兜底 | 维持「`validate_graph` 单元 + TUI 透传」现状 |
+| TUI `/schedule remove`/`enable`/`disable` | 设计明确非目标，本次仅 add + validate | 留待后续 G13 子项 |
+| WebUI 只读 `/schedule` 路由、OnFileChange 触发 | 属 G13 其余子项 | 留待后续 |
+
+---
+
 ### CI 门禁整改（2026-10-09，非发布版本，仅 CI 配置与脚本变更）
 
 本小节合并记录两个连续完成的 CI 整改特性（GitHub 镜像仓 `AngelSnow1129/RustCode` 均全绿）：

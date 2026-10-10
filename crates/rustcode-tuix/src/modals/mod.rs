@@ -87,6 +87,7 @@ pub mod provider_panel;
 pub mod proxy_picker;
 mod qr;
 pub mod rewind;
+pub mod schedule_editor;
 pub mod session_picker;
 pub use config_panel::ConfigPanel;
 pub use diff_viewer::DiffViewer;
@@ -99,6 +100,7 @@ pub use plugin_manager::PluginManager;
 pub use provider_panel::ProviderPanel;
 pub use proxy_picker::ProxyPicker;
 pub use rewind::RewindModal;
+pub use schedule_editor::ScheduleEditor;
 pub use session_picker::SessionPicker;
 
 /// Render one tab-bar chip with palette-independent styling, shared by every
