@@ -467,6 +467,14 @@ fn already_latest_error(current: &str, top: Option<&str>) -> anyhow::Error {
     )
 }
 
+/// True when `e` carries the [`ALREADY_LATEST`] sentinel rather than being a
+/// real failure. The deferred/background upgrade poll maps this to a quiet
+/// no-op so a platform with no newer published build stays silent instead of
+/// erroring -- mirroring the manual `/upgrade` path's calm behavior.
+fn is_already_latest(e: &anyhow::Error) -> bool {
+    e.to_string().contains(ALREADY_LATEST)
+}
+
 /// Pure resolution: select the newest platform build via
 /// [`select_upgrade_version`], then enforce "newer than `current`" (unless
 /// `force`). Returns the chosen version or the `ALREADY_LATEST` sentinel.
@@ -1141,45 +1149,46 @@ pub async fn prepare_deferred_upgrade(
         )
     })?;
 
-    let manifest = fetch_manifest().await?;
-
-    if !is_newer(&manifest.version, current_version) {
-        return Ok(None);
-    }
+    // Platform-aware resolution, identical to the manual `/upgrade` path
+    // (`resolve_upgrade_target`): pick the newest published version that ships
+    // `target` and is strictly newer than `current`. This is what keeps a
+    // darwin/ohos user from hard-failing with `UpgradeNoTarget` once the newest
+    // release (v6.2.1) stops shipping their platform -- they fall back to the
+    // newest build that has it (or ALREADY_LATEST when nothing newer exists).
+    let resolved = match resolve_upgrade_target(current_version, target).await {
+        Ok(resolved) => resolved,
+        // "Nothing newer for this platform" is a normal no-op for a background
+        // poll, not a failure -- mirror the manual path's calm ALREADY_LATEST.
+        Err(e) if is_already_latest(&e) => return Ok(None),
+        Err(e) => return Err(e),
+    };
 
     let _ = tx.send(UpgradeEvent::ManifestFetched {
-        version: manifest.version.clone(),
+        version: resolved.version.clone(),
     });
 
     // If a staged upgrade for this exact version already exists and the
-    // on-disk bytes still match the manifest's sha256, reuse it. Saves a
+    // on-disk bytes still match the resolved sha256/size, reuse it. Saves a
     // redownload when two sessions both polled and landed here.
     if let Ok(Some(existing)) = read_pending() {
-        if existing.version == manifest.version && existing.staged_path.exists() {
-            if let Some(entry) = manifest.binaries.get(target) {
-                if existing.sha256.eq_ignore_ascii_case(&entry.sha256)
-                    && existing.size == entry.size
-                {
-                    return Ok(Some(existing));
-                }
-            }
+        if existing.version == resolved.version
+            && existing.staged_path.exists()
+            && existing.sha256.eq_ignore_ascii_case(&resolved.sha256)
+            && existing.size == resolved.size
+        {
+            return Ok(Some(existing));
         }
     }
-
-    let entry = manifest
-        .binaries
-        .get(target)
-        .ok_or_else(|| anyhow!("{}", t(Msg::UpgradeNoTarget { target })))?;
 
     let dir = staged_dir();
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
 
-    let staged_path = staged_binary_path(&manifest.version, target);
+    let staged_path = staged_binary_path(&resolved.version, target);
     let mut last_err: Option<anyhow::Error> = None;
     let mut tried = false;
-    for url in binary_urls(&manifest.version, target) {
+    for url in &resolved.urls {
         tried = true;
-        match download_and_verify(&url, &entry.sha256, entry.size, &staged_path, &tx).await {
+        match download_and_verify(url, &resolved.sha256, resolved.size, &staged_path, &tx).await {
             Ok(()) => {
                 last_err = None;
                 break;
@@ -1192,10 +1201,10 @@ pub async fn prepare_deferred_upgrade(
     }
 
     let pending = PendingUpgrade {
-        version: manifest.version.clone(),
+        version: resolved.version.clone(),
         staged_path: staged_path.clone(),
-        sha256: entry.sha256.clone(),
-        size: entry.size,
+        sha256: resolved.sha256.clone(),
+        size: resolved.size,
         created_at: chrono::Utc::now().to_rfc3339(),
         attempts: 0,
     };
@@ -2356,6 +2365,17 @@ mod tests {
         let err = resolve_upgrade_version(&index, "v1.0.0", "freebsd-x64", false).unwrap_err();
         assert!(err.to_string().contains(super::ALREADY_LATEST));
         assert!(!err.to_string().contains("UpgradeNoTarget"));
+    }
+
+    #[test]
+    fn is_already_latest_detects_only_the_sentinel() {
+        // The deferred/background poll relies on this to turn "nothing newer
+        // for this platform" into a quiet Ok(None) instead of a hard failure.
+        let sentinel = super::already_latest_error("v6.2.1", Some("v6.2.1"));
+        assert!(super::is_already_latest(&sentinel));
+        assert!(!super::is_already_latest(&anyhow::anyhow!(
+            "network timeout"
+        )));
     }
 
     #[cfg(feature = "distro-pm")]
