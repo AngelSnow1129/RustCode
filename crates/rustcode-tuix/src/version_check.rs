@@ -31,6 +31,20 @@ pub fn parse_and_compare(current: &str, body: &str) -> Option<String> {
     }
 }
 
+/// Version-compare + platform gate for the passive startup hint.
+///
+/// Returns the newer version only when the advertised top version actually
+/// ships a build for `target`. A platform the newest release dropped (e.g.
+/// darwin/ohos after v6.2.1) yields `None`, so the banner never advertises an
+/// upgrade the user cannot install. `/upgrade` remains the authoritative,
+/// index-based platform-fallback path; suppressing the passive hint is the
+/// conservative, never-misleading choice.
+fn surface_hint(current: &str, body: &str, target: &str) -> Option<String> {
+    let version = parse_and_compare(current, body)?;
+    let manifest: Manifest = serde_json::from_str(body).ok()?;
+    manifest.binaries.contains_key(target).then_some(version)
+}
+
 fn parse_version_line(s: &str) -> Option<(u64, u64, u64)> {
     let trimmed = s.trim();
     if trimmed.len() > 32 {
@@ -76,7 +90,14 @@ pub async fn check_latest(current: &str) -> Option<String> {
         return None;
     }
     let body = resp.text().await.ok()?;
-    parse_and_compare(current, &body)
+    // Platform gate: only surface the hint when the advertised top version
+    // actually ships a build for THIS platform. Otherwise a darwin/ohos user
+    // is told "vX available" for a release that dropped their platform and can
+    // never be installed -- `/upgrade` stays the authoritative, index-based
+    // fallback, so suppressing the passive hint is the conservative,
+    // never-misleading choice. An undetectable target also yields no hint.
+    let target = rustcode_updater::detect_target()?;
+    surface_hint(current, &body, target)
 }
 
 #[cfg(test)]
@@ -238,6 +259,29 @@ mod tests {
             "signature": "future-field",
             "binaries": {"darwin-arm64": {"sha256": "abcd", "size": 1024}}
         }"#;
+        assert_eq!(
+            parse_and_compare("v4.15.3", body),
+            Some("v4.16.0".to_string())
+        );
+    }
+
+    #[test]
+    fn hint_shown_when_top_version_ships_this_platform() {
+        let body = r#"{"version":"v4.16.0","binaries":{"darwin-arm64":{"sha256":"a","size":1}}}"#;
+        assert_eq!(
+            surface_hint("v4.15.3", body, "darwin-arm64"),
+            Some("v4.16.0".to_string())
+        );
+    }
+
+    #[test]
+    fn hint_suppressed_when_top_version_dropped_this_platform() {
+        // The newest release dropped darwin/ohos; a darwin user must NOT be
+        // nudged toward a release they cannot install. `parse_and_compare`
+        // alone would say "newer"; the platform gate suppresses the hint.
+        let body = r#"{"version":"v4.16.0","binaries":{"linux-x64":{"sha256":"a","size":1}}}"#;
+        assert_eq!(surface_hint("v4.15.3", body, "darwin-arm64"), None);
+        // Sanity: the pure version compare still sees it as newer.
         assert_eq!(
             parse_and_compare("v4.15.3", body),
             Some("v4.16.0".to_string())
