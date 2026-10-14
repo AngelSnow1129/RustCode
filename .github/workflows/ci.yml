@@ -269,6 +269,7 @@ jobs:
             RUSTCODE_RELEASE_LATEST_API= \
             RUSTCODE_RELEASE_BASE=http://127.0.0.1:1/nope \
             RUSTCODE_RELEASE_RAW_BASE=http://127.0.0.1:1/nope \
+            RUSTCODE_RELEASE_GH_BASE= \
             RUSTCODE_PREFIX=/tmp/rc-probe \
             RUSTCODE_DOWNLOAD_TIMEOUT=5 \
             sh scripts/install.sh >/tmp/probe.log 2>&1

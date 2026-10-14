@@ -4,11 +4,13 @@
 #   curl -fsSL https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.sh?ref=dev | sh
 #
 # Detects OS and architecture automatically, downloads the latest release
-# binary from GitCode, and installs it to PATH.
+# binary (GitCode primary + GitHub Release mirror), and installs it to PATH.
 #
 # Env overrides (optional):
 #   RUSTCODE_RELEASE_BASE        override download root
 #   RUSTCODE_RELEASE_LATEST_API  override latest-version API endpoint
+#   RUSTCODE_RELEASE_GH_BASE     GitHub Release mirror root (default on; set
+#                                empty to disable the GitHub fallback)
 #   RUSTCODE_VERSION             pin a specific release tag (default: latest)
 #   RUSTCODE_PREFIX              install dir (default: /usr/local/bin if writable,
 #                                  else ~/.local/bin)
@@ -62,6 +64,12 @@ fi
 # zero-config. Override via env for alternative distribution channels.
 RELEASE_BASE="${RUSTCODE_RELEASE_BASE:-https://gitcode.com/SecLab/RustCode/releases/download}"
 RELEASE_LATEST_API="${RUSTCODE_RELEASE_LATEST_API:-https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest}"
+# GitHub Release mirror, raced AFTER the GitCode primary + repo-raw so a platform
+# GitCode lacks (darwin / freebsd, which land only on GitHub via build.yml) is
+# still installable zero-config. `${VAR-default}` (single dash) is nounset-safe
+# AND lets RUSTCODE_RELEASE_GH_BASE= (set-empty) disable the mirror. NOTE: owner
+# is the current GitHub mirror; repoint via env when a canonical org repo exists.
+RELEASE_GH_BASE="${RUSTCODE_RELEASE_GH_BASE-https://github.com/AngelSnow1129/RustCode/releases/download}"
 
 # --- detect platform ---
 uname_s=$(uname -s)
@@ -472,6 +480,11 @@ for VER in $CANDIDATES; do
     # Primary sources (online Release + repo-committed raw fallback).
     printf '%s\n' "${RELEASE_BASE%/}/${VER}/${BIN}" >> "$URLFILE"
     printf '%s\n' "${RELEASE_RAW_BASE%/}/release/${VER}/${BIN}?ref=${RELEASE_RAW_REF}" >> "$URLFILE"
+    # Default GitHub Release mirror: covers platforms GitCode lacks (darwin,
+    # freebsd). Skipped when disabled (RUSTCODE_RELEASE_GH_BASE set empty).
+    if [ -n "$RELEASE_GH_BASE" ]; then
+        printf '%s\n' "${RELEASE_GH_BASE%/}/${VER}/${BIN}" >> "$URLFILE"
+    fi
     # Optional mirror acceleration: RUSTCODE_RELEASE_MIRRORS is an ordered,
     # space/comma-separated list of full download bases. Each is raced ahead of
     # the next so a fast mirror wins before a slow primary. Unset = no change.
