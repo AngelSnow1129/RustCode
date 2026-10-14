@@ -3,11 +3,13 @@
 #   irm https://gitcode.com/api/v5/repos/SecLab/RustCode/raw/scripts/install.ps1?ref=dev | iex
 #
 # Detects architecture automatically, downloads the latest release binary
-# from GitCode, and installs it to PATH.
+# (GitCode primary + GitHub Release mirror), and installs it to PATH.
 #
 # Env overrides (optional):
 #   $env:RUSTCODE_RELEASE_BASE        override download root
 #   $env:RUSTCODE_RELEASE_LATEST_API  override latest-version API endpoint
+#   $env:RUSTCODE_RELEASE_GH_BASE     GitHub Release mirror root (default on; set
+#                                    empty to disable the GitHub fallback)
 #   $env:RUSTCODE_VERSION             pin a specific release tag (default: latest)
 #   $env:RUSTCODE_PREFIX              install dir (default: %LOCALAPPDATA%\RustCode)
 # IMPORTANT: when changing install paths, registry edits, or filenames here,
@@ -43,6 +45,18 @@ if ((-not $ProviderModel) -and ($ProviderUrl -or $ProviderKey)) {
 # zero-config. Override via env for alternative distribution channels.
 $RepoBase = if ($env:RUSTCODE_RELEASE_BASE) { $env:RUSTCODE_RELEASE_BASE } else { "https://gitcode.com/SecLab/RustCode/releases/download" }
 $RepoLatestApi = if ($env:RUSTCODE_RELEASE_LATEST_API) { $env:RUSTCODE_RELEASE_LATEST_API } else { "https://api.gitcode.com/api/v5/repos/SecLab/RustCode/releases/latest" }
+# GitHub Release mirror, tried AFTER the GitCode primary + repo-raw so a build
+# GitCode lacks is still installable zero-config. Mirrors install.sh's
+# `${VAR-default}` semantics: an UNSET var uses the default URL, a set-EMPTY var
+# DISABLES the mirror, a non-empty var overrides it. Detect "unset" via $null --
+# a set-empty env var is '' (NOT $null), which is exactly how the mirror is
+# disabled. NOTE: owner is the current GitHub mirror; repoint via env when a
+# canonical org repo exists.
+$RepoGhBase = if ($null -eq $env:RUSTCODE_RELEASE_GH_BASE) {
+    "https://github.com/AngelSnow1129/RustCode/releases/download"
+} else {
+    $env:RUSTCODE_RELEASE_GH_BASE
+}
 
 # --- detect arch ---
 # Prefer PROCESSOR_ARCHITEW6432 (set only when a 32-bit process runs on a 64-bit
@@ -104,7 +118,8 @@ $RepoRawRef  = if ($env:RUSTCODE_RELEASE_RAW_REF)  { $env:RUSTCODE_RELEASE_RAW_R
 # --- candidate version list ---
 # Layer 1 (online Release) is tried first; Layer 2 is the repo-committed
 # release/ directory (raw file URL), which does NOT depend on the CI/CD
-# pipeline, so a pipeline failure never blocks a download.
+# pipeline, so a pipeline failure never blocks a download. Layer 3 is the
+# GitHub Release mirror (covers a build GitCode lacks; see $RepoGhBase above).
 $Candidates = @()
 if ($env:RUSTCODE_VERSION) {
     $Candidates = @($env:RUSTCODE_VERSION)
@@ -153,7 +168,11 @@ foreach ($Ver in $Candidates) {
     $Bin = "rustcode-$Ver-windows-$ArchTag.exe"
     $SrcOnline = "$($RepoBase.TrimEnd('/'))/$Ver/$Bin"
     $SrcRepo   = "$($RepoRawBase.TrimEnd('/'))/release/$Ver/$Bin?ref=$RepoRawRef"
-    foreach ($Src in @($SrcOnline, $SrcRepo)) {
+    # GitHub Release mirror: last default source, covers a build GitCode lacks.
+    # Skipped when disabled ($env:RUSTCODE_RELEASE_GH_BASE set empty).
+    $Sources = @($SrcOnline, $SrcRepo)
+    if ($RepoGhBase) { $Sources += "$($RepoGhBase.TrimEnd('/'))/$Ver/$Bin" }
+    foreach ($Src in $Sources) {
         $Attempted += $Src
         Write-Host "==> Trying $Src"
         try {
