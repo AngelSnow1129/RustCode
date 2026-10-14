@@ -1,0 +1,36 @@
+#!/bin/sh
+# .githooks/post-commit — keep the GitHub mirror's baseline in sync.
+#
+# After every local `git commit`, fast-forward push the current branch to the
+# `github` remote so github/<branch> (the live baseline that runs CI) never
+# drifts from local — no more remembering `git push --no-verify github dev`.
+#
+# Safety / behaviour:
+#   * Pushes ONLY to `github` (never origin/GitCode — that path is release-gated
+#     via the pre-push hook + release-auto, and must stay a deliberate act).
+#   * --no-verify: the pre-push release gate is for origin RELEASES, not the
+#     mirror; without it every WIP dev push would be refused for lacking a
+#     release artifact.
+#   * Fast-forward only: NEVER auto-force. After `commit --amend` / rebase the
+#     push is rejected (non-ff) and reported — force-push by hand only if that
+#     history rewrite was intended.
+#   * Opt out per commit:   RUSTCODE_NO_AUTOPUSH=1 git commit ...
+#   * Skipped when there is no `github` remote (fresh clone) or on detached HEAD.
+#   * Never fails/undoes the commit: a push failure is reported to stderr so you
+#     can push manually; the hook always exits 0.
+set -u
+
+[ "${RUSTCODE_NO_AUTOPUSH:-0}" = "1" ] && exit 0
+
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+[ -n "$branch" ] && [ "$branch" != "HEAD" ] || exit 0   # detached HEAD
+
+git remote get-url github >/dev/null 2>&1 || exit 0    # no mirror configured
+
+printf '[auto-push] %s -> github/%s ...\n' "$branch" "$branch"
+if git push --no-verify github "$branch" 2>&1; then
+    printf '[auto-push] github/%s up to date.\n' "$branch"
+else
+    printf '[auto-push] FAILED — push manually: git push --no-verify github %s\n' "$branch" >&2
+fi
+exit 0
