@@ -805,6 +805,10 @@ base_url 和 api_key，或使用 --provider <name> 运行 rustcode。\n"
             format!("警告：{path} 中的部分 provider 配置段无法加载：\n{warnings}").into(),
         Msg::CliConfigLoadFailed { path, error } =>
             format!("警告：加载 {path} 失败（{error}）；改用默认配置。").into(),
+        Msg::CliConfigNotFound { path } =>
+            format!("配置文件不存在：{path}").into(),
+        Msg::CliConfigParseFailed { path, error } =>
+            format!("解析配置文件 {path} 失败：{error}").into(),
         Msg::CliResumeHint { cmd } => format!("继续此会话，运行：{cmd}").into(),
         // 同 en：不使用 `\` 续行（Rust 会吞掉下一行前导空格，破坏缩进）。
         Msg::CliWindowsCodePage { input, output } =>

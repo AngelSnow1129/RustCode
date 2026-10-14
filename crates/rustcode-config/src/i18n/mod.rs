@@ -403,6 +403,35 @@ mod tests {
     }
 
     #[test]
+    fn explicit_config_hard_failures_render_in_both_locales() {
+        // Explicit `--config` hard-fail keys (headless/ACP fail-fast) must
+        // render non-empty in both locales and carry the path / error detail.
+        for locale in [Locale::En, Locale::ZhCn] {
+            let missing = t_with(
+                locale,
+                Msg::CliConfigNotFound {
+                    path: "/x/config.toml",
+                },
+            );
+            assert!(
+                missing.contains("/x/config.toml"),
+                "{locale:?} missing-path render: {missing}"
+            );
+            let bad = t_with(
+                locale,
+                Msg::CliConfigParseFailed {
+                    path: "/x/config.toml",
+                    error: "boom",
+                },
+            );
+            assert!(
+                bad.contains("/x/config.toml") && bad.contains("boom"),
+                "{locale:?} parse-failed render: {bad}"
+            );
+        }
+    }
+
+    #[test]
     fn turn_summary_appends_cached_pct_only_when_present() {
         let with = t_with(
             Locale::En,

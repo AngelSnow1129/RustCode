@@ -841,6 +841,10 @@ base_url and api_key, or run rustcode with --provider <name>.\n"
             format!("Warning: Some provider sections in {path} could not be loaded:\n{warnings}").into(),
         Msg::CliConfigLoadFailed { path, error } =>
             format!("Warning: Failed to load {path} ({error}); using default configuration.").into(),
+        Msg::CliConfigNotFound { path } =>
+            format!("config file not found: {path}").into(),
+        Msg::CliConfigParseFailed { path, error } =>
+            format!("failed to parse config file {path}: {error}").into(),
         Msg::CliResumeHint { cmd } => format!("To resume this session, run: {cmd}").into(),
         // NOTE: no `\` line-continuations here -- Rust strips the newline AND
         // the following line's leading whitespace, which would defeat the

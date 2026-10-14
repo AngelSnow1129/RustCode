@@ -1170,6 +1170,15 @@ pub enum Msg<'a> {
         path: &'a str,
         error: &'a str,
     },
+    /// Explicit `--config <path>` does not exist (hard exit, headless/ACP).
+    CliConfigNotFound {
+        path: &'a str,
+    },
+    /// Explicit `--config <path>` failed to parse (hard exit, headless/ACP).
+    CliConfigParseFailed {
+        path: &'a str,
+        error: &'a str,
+    },
     /// On-exit "how to resume this session" hint; `cmd` is the pre-rendered
     /// command line (`rustcode -p "..." --resume <id>` or `rustcode resume <id>`).
     CliResumeHint {

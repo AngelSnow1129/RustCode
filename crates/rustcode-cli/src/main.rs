@@ -2579,6 +2579,38 @@ fn merge_startup_notices(
     }
 }
 
+/// Fail-fast for an **explicitly** passed `--config <path>` on unattended
+/// launches (headless `-p` and ACP): a typo'd or malformed path must not
+/// silently degrade to the default config and send traffic to the wrong
+/// endpoint (or mask that the intended config never loaded).
+///
+/// Only the explicit path is gated. The default path (flag absent) returns
+/// `Ok(())` so first-run onboarding still tolerates a missing config, and the
+/// interactive TUI launch deliberately does not call this at all.
+fn validate_explicit_config(explicit: &Option<PathBuf>) -> anyhow::Result<()> {
+    let Some(path) = explicit.as_deref() else {
+        return Ok(());
+    };
+    if !path.exists() {
+        anyhow::bail!(
+            "{}",
+            rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliConfigNotFound {
+                path: &path.display().to_string(),
+            })
+        );
+    }
+    if let Err(error) = Config::load(path) {
+        anyhow::bail!(
+            "{}",
+            rustcode_config::i18n::t(rustcode_config::i18n::Msg::CliConfigParseFailed {
+                path: &path.display().to_string(),
+                error: &error.to_string(),
+            })
+        );
+    }
+    Ok(())
+}
+
 async fn async_main() {
     let process_start = std::time::Instant::now();
     // Wire `tracing::` diagnostics to `<config_dir>/logs/rustcode.log` (file-only,
@@ -3006,6 +3038,11 @@ async fn run() -> Result<i32> {
                 // Load config the same way the TUI path does so provider/model resolution
                 // is identical (honors --provider, --model, and config.toml).
                 let config_path = cli.config.clone().unwrap_or_else(Config::default_path);
+                // ACP is unattended automation: an explicit `--config` typo or a
+                // malformed file must fail here -- the returned Err is printed to
+                // stderr by async_main (stdout stays a clean JSON-RPC channel) --
+                // never silently fall back to defaults and hit the wrong endpoint.
+                validate_explicit_config(&cli.config)?;
                 let mut config = if config_path.exists() {
                     Config::load(&config_path).unwrap_or_default()
                 } else {
@@ -3255,6 +3292,11 @@ async fn run() -> Result<i32> {
 
     // Default: start TUI
 
+    // Determine if we're running in headless mode BEFORE loading config (it
+    // only depends on `-p` / `--prompt-file`). Headless mode requires MCP
+    // tools immediately; TUI can load them in background.
+    let is_headless = cli.prompt.is_some() || cli.prompt_file.is_some();
+
     let config_path = cli.config.clone().unwrap_or_else(Config::default_path);
 
     // FIRST-RUN seed for offline / managed deploys (e.g. a government intranet
@@ -3297,6 +3339,15 @@ async fn run() -> Result<i32> {
         }
         // AlreadyConfigured / NoSource -> nothing to do, stay quiet.
         _ => {}
+    }
+
+    // Validate an explicitly passed `--config` AFTER seeding (so a first-run
+    // `--seed-config` that materializes the explicit path is not preempted) but
+    // BEFORE the load: unattended (headless) runs must fail fast on a bad
+    // explicit path instead of silently falling back to defaults. The TUI (no
+    // `-p`) stays tolerant so first-run onboarding is unaffected.
+    if is_headless {
+        validate_explicit_config(&cli.config)?;
     }
 
     let config_load_start = std::time::Instant::now();
@@ -3376,10 +3427,6 @@ async fn run() -> Result<i32> {
     apply_cli_runtime_overrides(&mut config, cli.provider.as_deref(), cli.model.as_deref());
 
     let working_dir = resolve_working_dir(cli.dir.clone());
-
-    // Determine if we're running in headless mode BEFORE loading MCP.
-    // Headless mode requires MCP tools immediately; TUI can load them in background.
-    let is_headless = cli.prompt.is_some() || cli.prompt_file.is_some();
 
     // Continue the previous session only when the user explicitly opts
     // in via `-c` / `--continue`. Bare `rustcode` starts a fresh
@@ -5884,8 +5931,8 @@ mod tests {
         is_completion_invocation, merge_startup_notices, print_shell_completion,
         resolve_in_catalog, resolve_wiki_llm_selection, resolve_working_dir, resume_hint_line,
         runtime_config_from, rustcode_log_path, should_fork_busy_continue, truncate_log_line,
-        wiki_removed_lines, wiki_run_is_up_to_date, Cli, Commands, HeadlessOutputFormat, WikiArgs,
-        DEFAULT_LOG_DIRECTIVES,
+        validate_explicit_config, wiki_removed_lines, wiki_run_is_up_to_date, Cli, Commands,
+        HeadlessOutputFormat, WikiArgs, DEFAULT_LOG_DIRECTIVES,
     };
     use clap::Parser;
     use clap_complete::Shell;
@@ -6303,6 +6350,37 @@ mod tests {
         // not leak it to siblings (e.g. the completion-script test, which reads
         // i18n strings and would otherwise see English "login" copy and false-fail).
         rustcode_config::i18n::set_locale(rustcode_config::i18n::Locale::ZhCn);
+    }
+
+    #[test]
+    fn validate_explicit_config_gates_only_the_explicit_path() {
+        // No flag (default path) stays tolerant -- first-run onboarding must
+        // not break when ~/.rustcode/config.toml does not exist yet.
+        assert!(validate_explicit_config(&None).is_ok());
+
+        // Explicit but missing: hard error naming the path.
+        let missing = PathBuf::from("/definitely/not/here/rustcode-config.toml");
+        let err = validate_explicit_config(&Some(missing))
+            .expect_err("missing explicit --config must fail fast");
+        assert!(
+            format!("{err:#}").contains("rustcode-config.toml"),
+            "error should name the path: {err:#}"
+        );
+
+        let dir = tempfile::tempdir().expect("temp dir");
+
+        // Explicit but malformed: hard error, no silent fallback to defaults.
+        let bad = dir.path().join("bad.toml");
+        std::fs::write(&bad, "this is [not valid toml").expect("write malformed config");
+        assert!(
+            validate_explicit_config(&Some(bad)).is_err(),
+            "malformed explicit --config must fail fast"
+        );
+
+        // Explicit and parseable: Ok.
+        let good = dir.path().join("good.toml");
+        std::fs::write(&good, "").expect("write empty config");
+        assert!(validate_explicit_config(&Some(good)).is_ok());
     }
 
     #[test]
