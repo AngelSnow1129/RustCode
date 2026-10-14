@@ -6,6 +6,7 @@ import json
 import os
 import ssl
 import sys
+import time
 from urllib import error, parse, request
 
 # Release-target configuration. This build ships no compiled-in release host or
@@ -110,6 +111,29 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _urlopen_with_retry(req, timeout: int, what: str, attempts: int = 3):
+    """urlopen with retry on transient network errors. Cross-border uploads from
+    a GitHub runner to the GitCode API routinely hit write timeouts on ~40MB
+    assets, so the asset PUT gets a long timeout AND a few retries. The release
+    create is idempotent server-side ("Release already exists"), so retrying is
+    safe."""
+    ssl_context = ssl._create_unverified_context()
+    last: Exception | None = None
+    for i in range(attempts):
+        try:
+            return request.urlopen(req, timeout=timeout, context=ssl_context)
+        except (error.URLError, TimeoutError, ConnectionError) as exc:
+            last = exc
+            if i < attempts - 1:
+                wait = 5 * (i + 1)
+                print(
+                    f"[retry {i + 1}/{attempts}] {what}: {exc}; retrying in {wait}s",
+                    file=sys.stderr,
+                )
+                time.sleep(wait)
+    raise last  # type: ignore[misc]
+
+
 def send_request(url: str, method: str = "GET", payload: dict | None = None) -> dict:
     data = None
     headers = {}
@@ -123,9 +147,7 @@ def send_request(url: str, method: str = "GET", payload: dict | None = None) -> 
         headers=headers,
         method=method,
     )
-    ssl_context = ssl._create_unverified_context()
-
-    with request.urlopen(req, timeout=30, context=ssl_context) as resp:
+    with _urlopen_with_retry(req, 120, "api request") as resp:
         body = resp.read().decode("utf-8")
         return json.loads(body) if body else {}
 
@@ -192,9 +214,7 @@ def upload_release_asset(upload_url_result: dict, file_path: str) -> dict:
         headers=upload_headers,
         method="PUT",
     )
-    ssl_context = ssl._create_unverified_context()
-
-    with request.urlopen(req, timeout=60, context=ssl_context) as resp:
+    with _urlopen_with_retry(req, 600, "asset upload") as resp:
         response_body = resp.read().decode("utf-8", errors="replace").strip()
         return {
             "status_code": resp.status,
