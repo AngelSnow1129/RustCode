@@ -33,6 +33,31 @@ pub fn parse_connect_mode(arg: &str) -> ConnectMode {
     }
 }
 
+/// Resolve the effective connect mode for `/openrouter [arg]`.
+///
+/// A bare `/openrouter` (OAuth mode) reuses an already-saved key when the
+/// `openrouter` provider account has one, so re-running the command after a
+/// successful authorization does not force a fresh browser round-trip. An
+/// explicit key argument always wins; a stale/invalid saved key simply falls
+/// through to the existing `Failed` event path (`fetch_top_free_models`
+/// rejects it) instead of silently succeeding.
+pub fn resolve_connect_mode(arg: &str, config: &Config) -> ConnectMode {
+    match parse_connect_mode(arg) {
+        ConnectMode::Oauth => {
+            let saved = config
+                .provider_accounts
+                .get(OPENROUTER_ACCOUNT_ID)
+                .and_then(|a| a.api_key.as_deref())
+                .filter(|k| !k.is_empty());
+            match saved {
+                Some(key) => ConnectMode::ProvidedKey(key.to_string()),
+                None => ConnectMode::Oauth,
+            }
+        }
+        provided => provided,
+    }
+}
+
 /// Event sent from the background connect thread to the main loop select! arm.
 pub enum OpenRouterConnectEvent {
     /// OAuth auth URL opened in browser; surfaced so the user can copy-paste
@@ -215,6 +240,31 @@ mod tests {
             ConnectMode::ProvidedKey(k) => assert_eq!(k, "sk-or-v1-abc"),
             _ => panic!("expected ProvidedKey"),
         }
+    }
+
+    #[test]
+    fn bare_arg_reuses_saved_key_without_oauth() {
+        let mut c = Config::default();
+        // No saved key yet -> OAuth browser flow.
+        assert!(matches!(resolve_connect_mode("", &c), ConnectMode::Oauth));
+
+        provision_openrouter(&mut c, "sk-or-v1-saved", &models());
+        // Bare (or whitespace) arg with a saved key -> ProvidedKey, no browser.
+        match resolve_connect_mode("  ", &c) {
+            ConnectMode::ProvidedKey(k) => assert_eq!(k, "sk-or-v1-saved"),
+            _ => panic!("expected ProvidedKey with the saved key"),
+        }
+        // An explicit key argument always wins over the saved one.
+        match resolve_connect_mode("sk-or-v1-explicit", &c) {
+            ConnectMode::ProvidedKey(k) => assert_eq!(k, "sk-or-v1-explicit"),
+            _ => panic!("expected ProvidedKey with the explicit key"),
+        }
+        // An empty stored key counts as absent -> back to OAuth.
+        c.provider_accounts
+            .get_mut("openrouter")
+            .expect("provisioned account")
+            .api_key = Some(String::new());
+        assert!(matches!(resolve_connect_mode("", &c), ConnectMode::Oauth));
     }
 
     #[test]

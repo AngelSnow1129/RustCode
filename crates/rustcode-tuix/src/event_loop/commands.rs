@@ -4430,9 +4430,12 @@ fn handle_worktree(arg: &str, ctx: &mut LoopCtx, renderer: &mut dyn Renderer) ->
         }
         Some("openrouter") => {
             use crate::event_loop::openrouter_connect::{
-                parse_connect_mode, spawn_openrouter_connect,
+                resolve_connect_mode, spawn_openrouter_connect,
             };
-            let mode = parse_connect_mode(arg);
+            // Bare `/openrouter` reuses a saved key when the account already has
+            // one (idempotent upsert), so re-running it does not spawn a fresh
+            // OAuth browser flow every time.
+            let mode = resolve_connect_mode(arg, &ctx.config);
             let cancel = ctx.openrouter_cancel.clone();
             cancel.store(false, std::sync::atomic::Ordering::Relaxed);
             ctx.openrouter_cancel = cancel.clone();
