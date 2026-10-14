@@ -794,6 +794,16 @@ fn open_browser(url: &str) -> Result<()> {
     Ok(())
 }
 
+// FreeBSD and any other non-macOS/Linux/Windows target: no known one-shot
+// browser command. Both call sites do `let _ = open_browser(...)` and print the
+// authorize URL for manual copy-paste, so a hard error here just means "no
+// auto-open" -- never a silent fake success. Mirrors daemon/util.rs's fallback;
+// without it the FreeBSD cross-build fails with E0425 (this fn not in scope).
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+fn open_browser(_url: &str) -> Result<()> {
+    bail!("opening a browser is not supported on this platform")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
