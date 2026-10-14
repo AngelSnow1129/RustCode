@@ -905,9 +905,13 @@ struct WakeupArgs {
 pub(crate) struct ScheduleWakeupTool {
     tx: UnboundedSender<WakeupRequest>,
     active: Arc<AtomicBool>,
-    /// Task this `/loop` belongs to (P3). `None` until the `task_id` injection
-    /// chain (CodingRuntimeStart/RuntimeResources) is wired; populated at
-    /// creation from the runtime's task context.
+    /// Task this runtime's `/loop` belongs to (P3). Threaded from
+    /// `CodingRuntimeStart.task_id` -- set by `spawn_native_cli_runtime` on the
+    /// scheduled-task path (`Some(task.id)`) -- through `RuntimeResources` into
+    /// this tool, so a wakeup registered during the run carries the task id and
+    /// can be redeemed as a re-run by the daemon tick. `None` outside a
+    /// `schedule_task` context (ad-hoc `/loop`, tests, daemon-hosted sessions
+    /// that have no task to re-run).
     task_id: Option<String>,
 }
 
@@ -1092,6 +1096,54 @@ mod tests {
         assert!(
             note.contains("继续对话"),
             "should tell the user how to continue: {note}"
+        );
+    }
+
+    #[tokio::test]
+    #[serial_test::serial(rustcode_home)]
+    async fn schedule_wakeup_persists_the_runtime_task_id() {
+        // P3 injection-chain lock: a wakeup registered during a run MUST carry
+        // the runtime's task_id (CodingRuntimeStart.task_id -> ScheduleWakeupTool
+        // -> register_wakeup) so the daemon tick can redeem it as a re-run via
+        // run_task_with(RunTrigger::Wakeup). This chain is otherwise untested;
+        // when it was unwired the field was always None and such wakeups were
+        // consumed-but-never-fired (the G3 path was dead).
+        let home = tempfile::tempdir().expect("tempdir");
+        std::env::set_var("RUSTCODE_HOME", home.path());
+
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        // active = true: the tool is only legal inside a live /loop (the top guard
+        // errors otherwise). It then persists the wakeup -- carrying the runtime's
+        // task_id, the path the daemon tick relies on -- and also signals the loop
+        // channel. Keep `_rx` alive so the channel send succeeds.
+        let tool =
+            ScheduleWakeupTool::new(tx, Arc::new(AtomicBool::new(true)), Some("task-abc".into()));
+        let ctx = ToolContext {
+            working_dir: std::env::temp_dir(),
+            cancel: CancellationToken::new(),
+            progress: rustcode_kernel::tool::ProgressSink::noop(),
+            requester: None,
+        };
+        let args = serde_json::json!({
+            "delay_seconds": 120,
+            "reason": "waiting on ci",
+            "prompt": "resume the task"
+        })
+        .to_string();
+
+        let result = tool.execute(&args, &ctx).await;
+        assert!(
+            !result.is_error,
+            "wakeup registration should succeed: {}",
+            result.content
+        );
+
+        let wakeups = rustcode_config::schedule::list_wakeups();
+        assert_eq!(wakeups.len(), 1, "exactly one wakeup should be persisted");
+        assert_eq!(
+            wakeups[0].task_id.as_deref(),
+            Some("task-abc"),
+            "persisted wakeup must carry the runtime task_id so the tick can re-run it"
         );
     }
 
