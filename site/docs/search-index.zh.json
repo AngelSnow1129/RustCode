@@ -3,17 +3,17 @@
     "slug": "index",
     "title": "使用指南",
     "group": "概览",
-    "lede": "住在终端里的 AI 编码助手。给它一个自然语言任务，它会自主读取、编辑、运行并自我验证。本文档带你从零开始，逐步掌握 AtomCode 的每一项能力。",
+    "lede": "住在终端里的 AI 编码助手。给它一个自然语言任务，它会自主读取、编辑、运行并自我验证。本文档带你从零开始，逐步掌握 RustCode 的每一项能力。",
     "sections": [
       {
-        "id": "atomcode-使用指南",
-        "heading": "AtomCode 使用指南",
-        "body": "住在终端里的 AI 编码助手。给它一个自然语言任务，它会自主读取、编辑、运行并自我验证。本文档带你从零开始，逐步掌握 AtomCode 的每一项能力。 v5.1.0 许可证 MIT 语言 Rust 1.88+ 平台 macOS · Linux · HarmonyOS PC · Windows 100% AI 生成"
+        "id": "rustcode-使用指南",
+        "heading": "RustCode 使用指南",
+        "body": "住在终端里的 AI 编码助手。给它一个自然语言任务，它会自主读取、编辑、运行并自我验证。本文档带你从零开始，逐步掌握 RustCode 的每一项能力。 v6.2.3 许可证 MIT 语言 Rust 1.88+ 平台 macOS · Linux · HarmonyOS PC · Windows 100% AI 生成"
       },
       {
         "id": "三步开始",
         "heading": "三步开始",
-        "body": "安装 —— 一条 curl 命令或者从源码构建，参见 快速开始 。 登录或配置模型 —— AtomGit OAuth 一键登录最省事，也支持任意 OpenAI 兼容 API Key，参见 登录方式 和 配置文件 。 开始提问 —— 在项目目录下运行 atomcode ，用自然语言描述你的任务即可。 Tip 如果只是想快速体验，跑一条命令即可： atomcode -p \"简要介绍一下这个仓库\" ，一次性执行并把结果输出到 stdout。"
+        "body": "安装 —— 一条 curl 命令或者从源码构建，参见 快速开始 。 配置模型 —— 用 /provider 或 ~/.rustcode/config.toml 为任一第三方供应商(Claude、OpenAI、DeepSeek、GLM、Qwen、Ollama,或任意 OpenAI 兼容接口)填入你自己的 API Key。这是默认方式,无需注册账号。参见 供应商凭据 和 配置文件 。 开始提问 —— 在项目目录下运行 rustcode ，用自然语言描述你的任务即可。 Tip 如果只是想快速体验，跑一条命令即可： rustcode -p \"简要介绍一下这个仓库\" ，一次性执行并把结果输出到 stdout。"
       },
       {
         "id": "文档导览",
@@ -23,17 +23,17 @@
       {
         "id": "快速开始",
         "heading": "快速开始",
-        "body": "安装方式、首次运行的 3 步启动向导、完成第一个任务,以及 atomcode uninstall 卸载流程。"
+        "body": "安装方式、首次运行的 3 步启动向导、完成第一个任务,以及 rustcode uninstall 卸载流程。"
       },
       {
         "id": "配置文件",
         "heading": "配置文件",
-        "body": "~/.atomcode/config.toml 字段说明、各家 provider 配置示例,含视觉预处理器(非视觉模型也能问图)。"
+        "body": "~/.rustcode/config.toml 字段说明、各家 provider 配置示例,含视觉预处理器(非视觉模型也能问图)。"
       },
       {
-        "id": "登录方式",
-        "heading": "登录方式",
-        "body": "AtomGit OAuth 一键登录(自动持久化)与 API Key 配置对比。"
+        "id": "供应商凭据",
+        "heading": "供应商凭据",
+        "body": "自带 API Key(默认)—— 用 /provider 或 ~/.rustcode/config.toml 配置第三方 provider。"
       },
       {
         "id": "基本使用",
@@ -63,7 +63,7 @@
       {
         "id": "项目指令文件",
         "heading": "项目指令文件",
-        "body": "用 .atomcode.md 给 AtomCode 定制项目级规范。"
+        "body": "用 .rustcode.md 给 RustCode 定制项目级规范。"
       },
       {
         "id": "skills-扩展",
@@ -88,7 +88,7 @@
       {
         "id": "反馈与参与",
         "heading": "反馈与参与",
-        "body": "AtomCode 是开源项目,欢迎提交 issue 或 PR: 开源仓库: https://atomgit.com/atomgit_atomcode/atomcode Issue：执行 /login 后，直接让 AtomCode 使用内置 AtomGit 工具创建，也可以前往仓库的 Issues 页面 许可证:MIT © 2026 AtomCode · MIT 报告问题"
+        "body": "RustCode 是开源项目,源码、问题跟踪与 PR 均由你的发行渠道提供: 源码:请从你的发行渠道获取仓库,例如 https://example.com/<your-org>/rustcode Issue:请通过你安装 rustcode 的发行渠道的问题跟踪系统反馈。 许可证:MIT © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   },
@@ -96,12 +96,12 @@
     "slug": "getting-started",
     "title": "快速开始",
     "group": "开始",
-    "lede": "几分钟内完成安装、首次运行和第一个任务,体验 AtomCode 的完整流程。",
+    "lede": "几分钟内完成安装、首次运行和第一个任务,体验 RustCode 的完整流程。",
     "sections": [
       {
         "id": "快速开始",
         "heading": "快速开始",
-        "body": "几分钟内完成安装、首次运行和第一个任务,体验 AtomCode 的完整流程。"
+        "body": "几分钟内完成安装、首次运行和第一个任务,体验 RustCode 的完整流程。"
       },
       {
         "id": "系统要求",
@@ -116,47 +116,47 @@
       {
         "id": "方式-1一键安装推荐",
         "heading": "方式 1:一键安装(推荐)",
-        "body": "在 macOS 或 Linux 或 HarmonyOS PC 终端执行: curl -fsSL https://raw.atomgit.com/atomgit_atomcode/atomcode/raw/main/scripts/install.sh | sh 脚本会自动下载对应平台的预编译二进制,并放置到 ~/.local/bin/atomcode 。请确保该目录在 PATH 中。 在 Windows PowerShell 中执行: irm https://raw.atomgit.com/atomgit_atomcode/atomcode/raw/main/scripts/install.ps1 | iex 脚本会自动下载 Windows x64 预编译二进制,并完成 PATH 配置,新开终端即可使用 atomcode 命令。"
+        "body": "在 macOS 或 Linux 或 HarmonyOS PC 终端执行: curl -fsSL https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.sh | sh 脚本会自动下载对应平台的预编译二进制,并放置到 ~/.local/bin/rustcode 。请确保该目录在 PATH 中。 在 Windows PowerShell 中执行: irm https://raw.gitcode.com/SecLab/RustCode/raw/main/scripts/install.ps1 | iex 脚本会自动下载 Windows x64 预编译二进制,并完成 PATH 配置,新开终端即可使用 rustcode 命令。"
       },
       {
         "id": "方式-2通过-npm",
         "heading": "方式 2:通过 npm",
-        "body": "已安装 Node.js 18+ 时,可以直接走 npm 全局安装: npm install -g @atomgit.com/atomcode 包会按当前平台从 optionalDependencies 自动解析对应的预编译二进制(macOS x64 / arm64、Linux x64 / arm64、Windows x64、HarmonyOS arm64),一行命令搞定跨平台安装。"
+        "body": "已安装 Node.js 18+ 时,可以直接走 npm 全局安装: npm install -g @atomgit.com/rustcode 包会按当前平台从 optionalDependencies 自动解析对应的预编译二进制(macOS x64 / arm64、Linux x64 / arm64、Windows x64、HarmonyOS arm64),一行命令搞定跨平台安装。"
       },
       {
         "id": "方式-3通过-homebrew",
         "heading": "方式 3:通过 Homebrew",
-        "body": "已安装 Homebrew 时,可以通过 cask 安装(支持 macOS x64 / arm64、Linux x64 / arm64): brew install --cask atomcode Homebrew 会自动下载对应平台的预编译二进制并配置 PATH 。"
+        "body": "已安装 Homebrew 时,可以通过 cask 安装(支持 macOS x64 / arm64、Linux x64 / arm64): brew install --cask rustcode Homebrew 会自动下载对应平台的预编译二进制并配置 PATH 。"
       },
       {
         "id": "方式-4从源码构建",
         "heading": "方式 4:从源码构建",
-        "body": "git clone https://atomgit.com/atomgit_atomcode/atomcode.git cd atomcode cargo build --release cp target/release/atomcode ~/.local/bin/ Release 构建编译时间较长,但生成的二进制体积小、运行速度快。开发调试时用 cargo build 即可。"
+        "body": "git clone https://gitcode.com/SecLab/RustCode.git cd rustcode cargo build --release cp target/release/rustcode ~/.local/bin/ Release 构建编译时间较长,但生成的二进制体积小、运行速度快。开发调试时用 cargo build 即可。"
       },
       {
         "id": "验证安装",
         "heading": "验证安装",
-        "body": "atomcode --version 你应该看到类似 atomcode 5.0.x (build-id) 的输出。"
+        "body": "rustcode --version 你应该看到类似 rustcode 5.0.x (build-id) 的输出。"
       },
       {
         "id": "shell-补全可选",
         "heading": "Shell 补全（可选）",
-        "body": "AtomCode 可以为常用 Shell 生成命令与参数补全脚本： atomcode completion zsh atomcode completion bash atomcode completion fish atomcode completion powershell 请按所用 Shell 的方式加载生成结果。这只影响终端命令补全；TUI 中 Tab 用于补全，Shift+Tab 用于切换执行模式。"
+        "body": "RustCode 可以为常用 Shell 生成命令与参数补全脚本： rustcode completion zsh rustcode completion bash rustcode completion fish rustcode completion powershell 请按所用 Shell 的方式加载生成结果。这只影响终端命令补全；TUI 中 Tab 用于补全，Shift+Tab 用于切换执行模式。"
       },
       {
         "id": "首次运行",
         "heading": "首次运行",
-        "body": "直接在任意目录运行: atomcode 第一次启动会自动弹出 3 步首次启动向导 (也可以随时用 /welcome 重新打开):"
+        "body": "直接在任意目录运行: rustcode 第一次启动会自动弹出 3 步首次启动向导 (也可以随时用 /welcome 重新打开):"
       },
       {
         "id": "第-13-步-欢迎",
         "heading": "第 1/3 步 · 欢迎",
-        "body": "███ █████ ███ █ █ ████ ███ ████ █████ █ █ █ █ █ ██ ██ █ █ █ █ █ █ █████ █ █ █ █ █ █ █ █ █ █ █ █ ████ █ █ █ █ █ █ █ █ █ █ █ █ █ █ █ █ █ ███ █ █ ████ ███ ████ █████ AtomCode 版本 5.1.0 · 在终端里运行的 AI 编程代理 • 多步骤 agent loop · 内置代码图工具 • 兼容所有 OpenAI 风格 API • 通过 CodingPlan 获取免费额度 按 Enter 继续。 Ctrl+C 可随时退出。"
+        "body": "███ █████ ███ █ █ ████ ███ ████ █████ █ █ █ █ █ ██ ██ █ █ █ █ █ █ █████ █ █ █ █ █ █ █ █ █ █ █ █ ████ █ █ █ █ █ █ █ █ █ █ █ █ █ █ █ █ █ ███ █ █ ████ ███ ████ █████ RustCode 版本 5.1.0 · 在终端里运行的 AI 编程代理 • 多步骤 agent loop · 内置代码图工具 • 兼容所有 OpenAI 风格 API • 通过 CodingPlan 获取免费额度 按 Enter 继续。 Ctrl+C 可随时退出。"
       },
       {
         "id": "第-23-步-语言-choose-your-language-选择语言",
         "heading": "第 2/3 步 · 语言 (Choose your language / 选择语言)",
-        "body": "1. 自动检测 (LC_ALL / LANG) 2. English 3. 简体中文 (Simplified Chinese) 1-3 选择 · Enter 确认 · ← 返回 · Esc 跳过 选完会立即应用,并写回 ~/.atomcode/config.toml 的 locale 字段。之后任意时刻可以用 /language 再改。"
+        "body": "1. 自动检测 (LC_ALL / LANG) 2. English 3. 简体中文 (Simplified Chinese) 1-3 选择 · Enter 确认 · ← 返回 · Esc 跳过 选完会立即应用,并写回 ~/.rustcode/config.toml 的 locale 字段。之后任意时刻可以用 /language 再改。"
       },
       {
         "id": "第-33-步-配置-想怎么开始",
@@ -166,105 +166,70 @@
       {
         "id": "第一个任务",
         "heading": "第一个任务",
-        "body": "进入一个你熟悉的项目目录,启动 atomcode,然后直接描述你想做的事: cd ~/projects/my-web-app atomcode > 简要介绍一下这个项目的目录结构和技术栈 AtomCode 会自主地: 运行 list_directory 、 read_file 等工具探索代码 识别关键描述文件( package.json / Cargo.toml 等) 给出结构化的总结 Tip 不确定要问什么?试试:\" 修复 README 里所有的拼写错误 \"、\" 把 src/utils.ts 里的函数加上 TypeScript 类型 \"、\" 跑一下测试并修复失败用例 \"。"
+        "body": "进入一个你熟悉的项目目录,启动 rustcode,然后直接描述你想做的事: cd ~/projects/my-web-app rustcode > 简要介绍一下这个项目的目录结构和技术栈 RustCode 会自主地: 运行 list_directory 、 read_file 等工具探索代码 识别关键描述文件( package.json / Cargo.toml 等) 给出结构化的总结 Tip 不确定要问什么?试试:\" 修复 README 里所有的拼写错误 \"、\" 把 src/utils.ts 里的函数加上 TypeScript 类型 \"、\" 跑一下测试并修复失败用例 \"。"
       },
       {
         "id": "卸载",
         "heading": "卸载",
-        "body": "不再需要 AtomCode 时,用内置的 uninstall 子命令一步清理。它会按组询问你是否删除以下三类内容:二进制本身 + 安装脚本写入的 PATH 编辑、 ~/.atomcode/auth.toml 等凭据、 ~/.atomcode/sessions/ 等运行状态。"
+        "body": "不再需要 RustCode 时,用内置的 uninstall 子命令一步清理。它会按组询问你是否删除以下三类内容:二进制本身 + 安装脚本写入的 PATH 编辑、 ~/.rustcode/auth.toml 等凭据、 ~/.rustcode/sessions/ 等运行状态。"
       },
       {
         "id": "交互式推荐",
         "heading": "交互式(推荐)",
-        "body": "atomcode uninstall 每个组单独询问 y/N,按当前默认决策(二进制=是、凭据=否、状态=是)预填 — 直接回车也是合理选择。"
+        "body": "rustcode uninstall 每个组单独询问 y/N,按当前默认决策(二进制=是、凭据=否、状态=是)预填 — 直接回车也是合理选择。"
       },
       {
         "id": "非交互式",
         "heading": "非交互式",
-        "body": "# 全自动:按默认决策走,不弹任何提示 atomcode uninstall --yes # 一键全清(包括 ~/.atomcode/ 整个目录) atomcode uninstall --purge # 只删二进制和 PATH 编辑,~/.atomcode/ 完整保留 atomcode uninstall --keep-data # 只打印执行计划,什么都不做 atomcode uninstall --dry-run 注意 --purge 会连带删除 所有会话历史、记忆、自定义 provider 配置、OAuth token ;不可逆。如果以后还可能用 AtomCode,优先用默认交互式或 --keep-data 。"
+        "body": "# 全自动:按默认决策走,不弹任何提示 rustcode uninstall --yes # 一键全清(包括 ~/.rustcode/ 整个目录) rustcode uninstall --purge # 只删二进制和 PATH 编辑,~/.rustcode/ 完整保留 rustcode uninstall --keep-data # 只打印执行计划,什么都不做 rustcode uninstall --dry-run 注意 --purge 会连带删除 所有会话历史、记忆、自定义 provider 配置、OAuth token ;不可逆。如果以后还可能用 RustCode,优先用默认交互式或 --keep-data 。"
       },
       {
         "id": "下一步",
         "heading": "下一步",
-        "body": "配置文件 —— 学会管理多个 provider 和模型。 基本使用 —— 熟悉 CLI 参数和描述任务的最佳实践。 斜杠命令 —— 掌握 /resume 、 /undo 、 /diff 等高频命令。 © 2026 AtomCode · MIT 报告问题"
+        "body": "配置文件 —— 学会管理多个 provider 和模型。 基本使用 —— 熟悉 CLI 参数和描述任务的最佳实践。 斜杠命令 —— 掌握 /resume 、 /undo 、 /diff 等高频命令。 © 2026 RustCode · MIT 报告问题"
       }
     ]
   },
   {
     "slug": "login",
-    "title": "登录方式",
+    "title": "供应商凭据",
     "group": "开始",
-    "lede": "AtomCode 支持两种方式接入 LLM:AtomGit CodingPlan(含免费额度)和传统 API Key。本页帮你选对方式,并完成绑定。",
+    "lede": "RustCode 默认采用自带密钥(BYO)方式:填入任一第三方 LLM provider 的 API Key 即可使用 —— 不需要账号,也不需要登录,更没有外部平台。凭据保存在本地 ~/.rustcode/config.toml (部分基于 OAuth 的 provider 存在 ~/.rustcode/auth.toml )。本页说明如何配置。",
     "sections": [
       {
-        "id": "登录方式",
-        "heading": "登录方式",
-        "body": "AtomCode 支持两种方式接入 LLM:AtomGit CodingPlan(含免费额度)和传统 API Key。本页帮你选对方式,并完成绑定。"
-      },
-      {
-        "id": "两种方式速览",
-        "heading": "两种方式速览",
-        "body": "方式 命令 适合人群 AtomGit CodingPlan /login 推荐 — 一条命令完成 OAuth + 申领免费额度 + 自动配好 provider 和 model API Key /provider 或手动编辑配置 使用自有 OpenAI / Claude / DeepSeek Key 的用户 v4.25.0 起 /codingplan 已折进 /login ;旧的「纯 OAuth 不申领额度」入口已移除。"
-      },
-      {
-        "id": "atomgit-codingplan推荐",
-        "heading": "AtomGit CodingPlan(推荐)",
-        "body": "AtomGit 是 CSDN / 开放原子开源基金会旗下的开源代码托管平台,AtomCode 原生集成了它的 OAuth 和 CodingPlan。 /login 是新用户最省事的入口,一次操作完成登录 → 申领免费 token 额度 → 自动根据额度内的模型列表写好 provider 配置。用完这条命令,直接就能开始聊天。已登录后再跑会幂等地同步最新模型列表,不会重复申领。"
-      },
-      {
-        "id": "codingplan-权益体系",
-        "heading": "CodingPlan 权益体系",
-        "body": "CodingPlan 目前提供三档方案,系统自动发放当前可获得的最高权益;调用额度按 5 小时滚动窗口计量: 方案 有效期 说明 支持模型 Lite 30 天 免费领取,限量 1000 人/日 deepseek-v4-flash、Qwen/Qwen3-VL-8B-Instruct Pro 体验版 7 天 免费领取,每日 10:00 限量 100 人 额外支持 GLM-5.2 Pro 30 天 免费领取,需在活动仓库合入 PR 额外支持 GLM-5.2 领取 Pro 及以上套餐后,在 AtomCode 中执行 /login 即可同步最新模型列表。更多详情请访问 CodingPlan 页面 。"
-      },
-      {
-        "id": "从首次运行启动向导接入",
-        "heading": "从首次运行启动向导接入",
-        "body": "首次启动 atomcode ,会自动弹出 3 步启动向导。 第 1 步(欢迎)按 Enter,第 2 步(语言)按 1 / 2 / 3 选语言。 第 3 步(配置)选 用 AtomGit CodingPlan 一键接入 (选项 1)。 浏览器会自动打开 AtomGit 授权页面,点击允许即可。 授权完成后 TUI 会自动申领 CodingPlan 并写入 provider 配置,无需再动 config.toml ,直接开始发消息。 如果跳过过了想重新跑一遍向导,任何时候执行 /welcome 即可。"
-      },
-      {
-        "id": "在已有会话里接入",
-        "heading": "在已有会话里接入",
-        "body": "已经进入 TUI 后,任意时刻执行: /login 会唤起浏览器完成授权、申领 CodingPlan、更新 provider 列表。再次执行会重新同步模型列表,把本地的 AtomGit* provider 同步到最新的额度模型。"
-      },
-      {
-        "id": "从命令行接入",
-        "heading": "从命令行接入",
-        "body": "atomcode login 适合在脚本、远程服务器、容器镜像等场景一次性完成接入。CLI 子命令和 TUI /login 走同一套流程,输出同样的报告。 注: atomcode codingplan 仍作为隐藏别名保留,老脚本和肌肉记忆都不会因为命令折叠而失效。"
-      },
-      {
-        "id": "查看状态-退出",
-        "heading": "查看状态 / 退出",
-        "body": "atomcode status # 或 TUI 内 /status — 包含 CodingPlan 使用量和过期时间 atomcode logout # 或 TUI 内 /logout — 清除 OAuth token"
+        "id": "供应商凭据",
+        "heading": "供应商凭据",
+        "body": "RustCode 默认采用自带密钥(BYO)方式:填入任一第三方 LLM provider 的 API Key 即可使用 —— 不需要账号,也不需要登录,更没有外部平台。凭据保存在本地 ~/.rustcode/config.toml (部分基于 OAuth 的 provider 存在 ~/.rustcode/auth.toml )。本页说明如何配置。 托管登录已移除 原发行版可选的托管登录( /login )及其账号 / 额度体系已于 2026-09-09 移除。开源构建自始就是 BYO;任何构建都不再存在托管登录路径。请改用下面的 provider 凭据配置。"
       },
       {
         "id": "api-key-方式",
-        "heading": "API Key 方式",
+        "heading": "配置 provider(BYO)",
         "body": "如果你想使用自有的 OpenAI / Claude / DeepSeek / GLM 等密钥,有三种做法:"
       },
       {
         "id": "方式-atui-内-provider",
         "heading": "方式 A:TUI 内 /provider",
-        "body": "在 TUI 中输入 /provider 。 选择供应商预设或自定义账号，填写 API Key；然后在该账号下添加一个或多个模型。 配置会自动写回 ~/.atomcode/config.toml 。"
+        "body": "在 TUI 中输入 /provider 。 选择第三方 provider 预设或自定义端点,填写 API Key;然后在该账号下添加一个或多个模型。 配置会自动写回 ~/.rustcode/config.toml 。"
       },
       {
         "id": "方式-b手动编辑配置文件",
         "heading": "方式 B:手动编辑配置文件",
-        "body": "直接编辑 ~/.atomcode/config.toml ,写入一个 [providers.*] 条目即可,字段参见 ProviderConfig 字段 。"
+        "body": "直接编辑 ~/.rustcode/config.toml ,写入一个 [providers.*] 条目即可,字段参见 ProviderConfig 字段 。"
       },
       {
         "id": "方式-c命令行一次性覆盖",
         "heading": "方式 C:命令行一次性覆盖",
-        "body": "不想改配置文件、只想临时用另一个 provider?启动时加参数即可: atomcode --provider deepseek --model deepseek-reasoner"
+        "body": "不想改配置文件、只想临时用另一个 provider?启动时加参数即可: rustcode --provider deepseek --model deepseek-reasoner 完全离线使用?配置一个本地 Ollama provider —— 不需要密钥,也不需要登录。"
       },
       {
-        "id": "选哪个",
-        "heading": "选哪个?",
-        "body": "第一次使用 &rarr; CodingPlan ( /login ),免费额度直接用。 已有自己的 API Key &rarr; 跳过 /login ,直接用 API Key ( /provider 或手动编辑配置)。后续需要内置的 AtomGit 仓库、PR 或 Issue 工具时再运行 /login 授权；该流程也会申领 CodingPlan 并注册 AtomGit-* provider。 需要在 CI / 脚本里跑 &rarr; API Key + 配置文件或环境变量。 完全离线 &rarr; 配置一个 Ollama provider,不需要任何登录。"
+        "id": "查看状态",
+        "heading": "查看状态",
+        "body": "rustcode status # 或 TUI 内 /status — 显示当前 provider 与模型"
       },
       {
         "id": "下一步",
         "heading": "下一步",
-        "body": "基本使用 —— 登录后第一件事:学怎么描述任务。 斜杠命令 —— /provider 、 /model 、 /status 详解。 © 2026 AtomCode · MIT 报告问题"
+        "body": "基本使用 —— 配置完成后的第一件事:学怎么描述任务。 斜杠命令 —— /provider 、 /model 、 /status 详解。 © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   },
@@ -272,42 +237,42 @@
     "slug": "configuration",
     "title": "配置文件",
     "group": "开始",
-    "lede": "AtomCode 的配置采用 TOML 格式,支持多个 provider 并行存在、随时切换。本页讲清每一个字段的含义和常见 provider 的示例配置。",
+    "lede": "RustCode 的配置采用 TOML 格式,支持多个 provider 并行存在、随时切换。本页讲清每一个字段的含义和常见 provider 的示例配置。",
     "sections": [
       {
         "id": "配置文件",
         "heading": "配置文件",
-        "body": "AtomCode 的配置采用 TOML 格式,支持多个 provider 并行存在、随时切换。本页讲清每一个字段的含义和常见 provider 的示例配置。"
+        "body": "RustCode 的配置采用 TOML 格式,支持多个 provider 并行存在、随时切换。本页讲清每一个字段的含义和常见 provider 的示例配置。"
       },
       {
         "id": "配置文件位置",
         "heading": "配置文件位置",
-        "body": "默认路径: macOS / Linux / HarmonyOS PC: ~/.atomcode/config.toml Windows: %USERPROFILE%\\.atomcode\\config.toml 也可以通过 --config /path/to/config.toml 指定任意路径。首次运行时,若该文件不存在,3 步启动向导会引导你完成初始化。"
+        "body": "默认路径: macOS / Linux / HarmonyOS PC: ~/.rustcode/config.toml Windows: %USERPROFILE%\\.rustcode\\config.toml 也可以通过 --config /path/to/config.toml 指定任意路径。首次运行时,若该文件不存在,3 步启动向导会引导你完成初始化。"
       },
       {
         "id": "最小示例",
         "heading": "最小示例",
-        "body": "default_provider = \"deepseek\" [providers.deepseek] type = \"openai\" api_key = \"sk-xxxxxxxxxxxxxxxx\" model = \"deepseek-chat\" base_url = \"https://api.deepseek.com/v1\" context_window = 64000 这个配置已经可以启动 atomcode 并与 DeepSeek 对话。 v5.0.7 的 Provider 管理 推荐直接运行 /provider ：先添加供应商账号，再在该账号下添加一个或多个模型。供应商共用协议、Base URL 和 API Key；模型分别保存名称、上下文窗口等参数。旧版 [providers.*] 配置仍可继续使用，AtomCode 会自动兼容。"
+        "body": "default_provider = \"deepseek\" [providers.deepseek] type = \"openai\" api_key = \"sk-xxxxxxxxxxxxxxxx\" model = \"deepseek-chat\" base_url = \"https://api.deepseek.com/v1\" context_window = 64000 这个配置已经可以启动 rustcode 并与 DeepSeek 对话。 v5.0.7 的 Provider 管理 推荐直接运行 /provider ：先添加供应商账号，再在该账号下添加一个或多个模型。供应商共用协议、Base URL 和 API Key；模型分别保存名称、上下文窗口等参数。旧版 [providers.*] 配置仍可继续使用，RustCode 会自动兼容。"
       },
       {
         "id": "顶层字段",
         "heading": "顶层字段",
-        "body": "字段 类型 说明 default_provider string 启动时默认使用的 provider 名(必须是 [providers.*] 中定义过的 key) default_workdir string? 默认工作目录。用 /cd 切换目录时自动写回这里,下次启动恢复 providers table provider 名到 ProviderConfig 的映射 vision_preprocessor_provider string? 当主 provider 不支持图片但用户 attach 了图时,把图片转交给这里指定的 provider 做 OCR / 描述,结果以文本形式 splice 给主模型。详见 视觉预处理器 init_prompt_file string? 追加到内置 /init 提示词后的 UTF-8 文件。相对路径基于 $ATOMCODE_HOME 解析，最大 64 KiB；也可以在 /config 中编辑。"
+        "body": "字段 类型 说明 default_provider string 启动时默认使用的 provider 名(必须是 [providers.*] 中定义过的 key) default_workdir string? 默认工作目录。用 /cd 切换目录时自动写回这里,下次启动恢复 providers table provider 名到 ProviderConfig 的映射 vision_preprocessor_provider string? 当主 provider 不支持图片但用户 attach 了图时,把图片转交给这里指定的 provider 做 OCR / 描述,结果以文本形式 splice 给主模型。详见 视觉预处理器 init_prompt_file string? 追加到内置 /init 提示词后的 UTF-8 文件。相对路径基于 $RUSTCODE_HOME 解析，最大 64 KiB；也可以在 /config 中编辑。"
       },
       {
         "id": "provider-config",
         "heading": "ProviderConfig 字段",
-        "body": "每一个 [providers.xxx] 表下可用的字段: 字段 类型 必填 说明 type string 是 provider 协议类型,目前支持 openai 、 claude 、 ollama api_key string? 视情况 API Key。支持明文密钥、环境变量语法（如 $MY_KEY 或 ${MY_KEY:-default} ）、环境变量名（如 MY_KEY ），或留空自动回退标准环境变量（如 OPENAI_API_KEY / ANTHROPIC_API_KEY ）。 ollama 可不填。OAuth 登录的 provider 不含此字段，token 从 ~/.atomcode/auth.toml 自动读取 model string 是 模型名,比如 deepseek-chat 、 gpt-4o 、 claude-sonnet-4-6 base_url string 是 API 基地址,需指向实际接口。例: https://api.deepseek.com/v1 、 http://localhost:11434 context_window integer 否 模型上下文窗口(tokens),默认 64000。 ollama 默认 8000 max_tokens integer? 否 单次响应的最大输出 token 数。留空则使用 context_window / 4 retry_max_attempts integer? 否 Provider OPEN 重试循环的总尝试次数；显式设置后也会限制由 kernel 接管的 HTTP 429 恢复次数（均包含首次请求）。留空时保留原有默认策略（adapter 3 次及 kernel 的限流保护策略）；设为 1 可关闭 adapter 层及 429 自动重试，且取值不得小于 1。使用账号/模型新配置结构时，应写在 [models.\"...\"] 模型配置中，因为重试策略属于模型行为。 system_prompt string? 否 覆盖默认系统提示。大多数场景不需要 user_agent string? 否 覆盖 HTTP 请求的 User-Agent,当上游接口屏蔽通用 UA 时使用"
+        "body": "每一个 [providers.xxx] 表下可用的字段: 字段 类型 必填 说明 type string 是 provider 协议类型,目前支持 openai 、 claude 、 ollama api_key string? 视情况 API Key。支持明文密钥、环境变量语法（如 $MY_KEY 或 ${MY_KEY:-default} ）、环境变量名（如 MY_KEY ），或留空自动回退标准环境变量（如 OPENAI_API_KEY / ANTHROPIC_API_KEY ）。 ollama 可不填。OAuth 登录的 provider 不含此字段，token 从 ~/.rustcode/auth.toml 自动读取 model string 是 模型名,比如 deepseek-chat 、 gpt-4o 、 claude-sonnet-4-6 base_url string 是 API 基地址,需指向实际接口。例: https://api.deepseek.com/v1 、 http://localhost:11434 context_window integer 否 模型上下文窗口(tokens),默认 64000。 ollama 默认 8000 max_tokens integer? 否 单次响应的最大输出 token 数。留空则使用 context_window / 4 retry_max_attempts integer? 否 Provider OPEN 重试循环的总尝试次数；显式设置后也会限制由 kernel 接管的 HTTP 429 恢复次数（均包含首次请求）。留空时保留原有默认策略（adapter 3 次及 kernel 的限流保护策略）；设为 1 可关闭 adapter 层及 429 自动重试，且取值不得小于 1。使用账号/模型新配置结构时，应写在 [models.\"...\"] 模型配置中，因为重试策略属于模型行为。 system_prompt string? 否 覆盖默认系统提示。大多数场景不需要 user_agent string? 否 覆盖 HTTP 请求的 User-Agent,当上游接口屏蔽通用 UA 时使用"
       },
       {
         "id": "环境变量与-api-key-动态解析",
         "heading": "环境变量与 API Key 动态解析",
-        "body": "为避免在配置文件中明文保存敏感密钥，并方便与其他开发工具共用环境变量，AtomCode 支持在 config.toml 中灵活使用环境变量： 环境变量语法展开 ( $VAR / ${VAR} ) ： [providers.my_openai] type = \"openai\" model = \"gpt-4o\" api_key = \"$MY_OPENAI_KEY\" # 或 \"${MY_OPENAI_KEY}\" base_url = \"https://api.openai.com/v1\" 支持带默认值的表达式（例： api_key = \"${MY_KEY:-sk-fallback}\" ）。 直接填写环境变量名 ： [providers.my_claude] type = \"claude\" model = \"claude-sonnet-4-6\" api_key = \"ANTHROPIC_API_KEY\" # 自动从环境变量 ANTHROPIC_API_KEY 中读取 留空自动回退标准环境变量 ：当未配置或留空 api_key 时，系统会自动寻找对应 type 的标准环境变量： openai / openai-compat ：读取 OPENAI_API_KEY claude / anthropic ：读取 ANTHROPIC_API_KEY ollama ：读取 OLLAMA_API_KEY 通用后备：读取 ATOMCODE_API_KEY 注：配置文件中的 $VAR 语法由 AtomCode 程序内部解析，在 Windows、macOS 和 Linux 上保持统一写法。 为什么默认 64K 而不是 128K? 即便模型官方声称支持 128K+,其有效注意力窗口通常要小得多,过大上下文反而会触发\"迷失在中段\"的问题,并且阻止 AtomCode 的上下文压缩策略生效。64K 是经验上最稳的默认值,若你确定模型表现良好,可自行上调。"
+        "body": "为避免在配置文件中明文保存敏感密钥，并方便与其他开发工具共用环境变量，RustCode 支持在 config.toml 中灵活使用环境变量： 环境变量语法展开 ( $VAR / ${VAR} ) ： [providers.my_openai] type = \"openai\" model = \"gpt-4o\" api_key = \"$MY_OPENAI_KEY\" # 或 \"${MY_OPENAI_KEY}\" base_url = \"https://api.openai.com/v1\" 支持带默认值的表达式（例： api_key = \"${MY_KEY:-sk-fallback}\" ）。 直接填写环境变量名 ： [providers.my_claude] type = \"claude\" model = \"claude-sonnet-4-6\" api_key = \"ANTHROPIC_API_KEY\" # 自动从环境变量 ANTHROPIC_API_KEY 中读取 留空自动回退标准环境变量 ：当未配置或留空 api_key 时，系统会自动寻找对应 type 的标准环境变量： openai / openai-compat ：读取 OPENAI_API_KEY claude / anthropic ：读取 ANTHROPIC_API_KEY ollama ：读取 OLLAMA_API_KEY 通用后备：读取 RUSTCODE_API_KEY 注：配置文件中的 $VAR 语法由 RustCode 程序内部解析，在 Windows、macOS 和 Linux 上保持统一写法。 为什么默认 64K 而不是 128K? 即便模型官方声称支持 128K+,其有效注意力窗口通常要小得多,过大上下文反而会触发\"迷失在中段\"的问题,并且阻止 RustCode 的上下文压缩策略生效。64K 是经验上最稳的默认值,若你确定模型表现良好,可自行上调。"
       },
       {
         "id": "网络与代理",
         "heading": "网络与代理",
-        "body": "AtomCode 默认跟随系统代理配置,因此在公司代理后也能开箱即用。行为在 [network.proxy] 下配置: [network.proxy] mode = \"follow_system\" # 默认 —— 采用环境变量 + 系统代理 # mode = \"default_proxy\" # 使用下面显式的 http/https/all # mode = \"no_proxy\" # 强制直连 # http = \"http://127.0.0.1:7890\" # https = \"http://127.0.0.1:7890\" # all = \"socks5://127.0.0.1:1080\" # no_proxy = \"localhost,127.0.0.1,.internal\" mode 行为 follow_system (默认) 采用 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY / NO_PROXY ;未设置的部分回退到操作系统的系统代理(Windows 注册表 / macOS scutil --proxy )。 default_proxy 使用本段里显式的 http / https / all / no_proxy 值。 no_proxy 强制直连,忽略环境变量与系统代理。 IPv6 代理主机会自动加方括号( ::1 → http://[::1]:8080 )。若登录时连接失败或超时,错误信息会指向你的代理 / 网络设置,便于区分是代理问题还是凭据错误。"
+        "body": "RustCode 默认跟随系统代理配置,因此在公司代理后也能开箱即用。行为在 [network.proxy] 下配置: [network.proxy] mode = \"follow_system\" # 默认 —— 采用环境变量 + 系统代理 # mode = \"default_proxy\" # 使用下面显式的 http/https/all # mode = \"no_proxy\" # 强制直连 # http = \"http://127.0.0.1:7890\" # https = \"http://127.0.0.1:7890\" # all = \"socks5://127.0.0.1:1080\" # no_proxy = \"localhost,127.0.0.1,.internal\" mode 行为 follow_system (默认) 采用 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY / NO_PROXY ;未设置的部分回退到操作系统的系统代理(Windows 注册表 / macOS scutil --proxy )。 default_proxy 使用本段里显式的 http / https / all / no_proxy 值。 no_proxy 强制直连,忽略环境变量与系统代理。 IPv6 代理主机会自动加方括号( ::1 → http://[::1]:8080 )。若登录时连接失败或超时,错误信息会指向你的代理 / 网络设置,便于区分是代理问题还是凭据错误。"
       },
       {
         "id": "常见-provider-配置示例",
@@ -352,7 +317,7 @@
       {
         "id": "多-provider-与快速切换",
         "heading": "多 provider 与快速切换",
-        "body": "配置文件允许同时存在任意数量的 provider: default_provider = \"claude\" [providers.claude] type = \"claude\" api_key = \"sk-ant-...\" model = \"claude-sonnet-4-6\" [providers.deepseek] type = \"openai\" api_key = \"sk-...\" model = \"deepseek-chat\" base_url = \"https://api.deepseek.com/v1\" [providers.local] type = \"ollama\" model = \"qwen2.5:14b\" base_url = \"http://localhost:11434\" 在 TUI 中用 /provider 管理供应商账号和账号下的模型；内置预设会自动填好协议与 Base URL，包括 AtomGit、TaoToken 等，也可以选择“自定义”。用 /model 切换当前会话，并把所选模型保存为后续新会话的默认值；其他已经打开的会话不变。命令行启动时也支持一次性覆盖: atomcode --provider deepseek --model deepseek-reasoner"
+        "body": "配置文件允许同时存在任意数量的 provider: default_provider = \"claude\" [providers.claude] type = \"claude\" api_key = \"sk-ant-...\" model = \"claude-sonnet-4-6\" [providers.deepseek] type = \"openai\" api_key = \"sk-...\" model = \"deepseek-chat\" base_url = \"https://api.deepseek.com/v1\" [providers.local] type = \"ollama\" model = \"qwen2.5:14b\" base_url = \"http://localhost:11434\" 在 TUI 中用 /provider 管理供应商账号和账号下的模型；内置预设会自动填好常见第三方 provider 的协议与 Base URL，发行版附带托管端点时也会提供对应预设；其他端点请选择“自定义”。用 /model 切换当前会话，并把所选模型保存为后续新会话的默认值；其他已经打开的会话不变。命令行启动时也支持一次性覆盖: rustcode --provider deepseek --model deepseek-reasoner"
       },
       {
         "id": "回合轮数",
@@ -362,22 +327,22 @@
       {
         "id": "todo-触发积极度",
         "heading": "Todo 触发积极度",
-        "body": "[tools.todo] enabled = true eager = \"auto\" eager 支持 auto 、 preferred 、 always 。Auto 会对 DeepSeek V4 Flash 在新任务首轮增加高权重提醒，其他模型保持原行为；Preferred 对所有模型启用该提醒；Always 会在没有活跃任务列表时要求先调用 todowrite ：OpenAI-compatible 与 Anthropic provider 会强制指定该工具，不支持 named-tool selection 的 adapter 仍会收到强指令提醒。设置 enabled = false 会一起关闭工具、提示词和 Todo hooks；修改这个总开关后需要重启当前 runtime。环境变量 ATOMCODE_TODO 仍可覆盖该开关。"
+        "body": "[tools.todo] enabled = true eager = \"auto\" eager 支持 auto 、 preferred 、 always 。Auto 会对 DeepSeek V4 Flash 在新任务首轮增加高权重提醒，其他模型保持原行为；Preferred 对所有模型启用该提醒；Always 会在没有活跃任务列表时要求先调用 todowrite ：OpenAI-compatible 与 Anthropic provider 会强制指定该工具，不支持 named-tool selection 的 adapter 仍会收到强指令提醒。设置 enabled = false 会一起关闭工具、提示词和 Todo hooks；修改这个总开关后需要重启当前 runtime。环境变量 RUSTCODE_TODO 仍可覆盖该开关。"
       },
       {
         "id": "vision-preprocessor",
         "heading": "视觉预处理器",
-        "body": "当当前 active provider 的模型不支持图片输入(纯文本模型,比如 DeepSeek-V3 / Kimi),用户却 attach 了图片 时,AtomCode 不会直接拒绝,而是会把图片转给一个独立的\"视觉预处理 provider\"做 OCR + 描述,把结果以文本形式 splice 进用户消息里再发给主模型。 启用方式:在配置里指定一个支持图片的 provider key 作为 vision_preprocessor_provider : default_provider = \"deepseek\" vision_preprocessor_provider = \"qwen-vl\" [providers.deepseek] type = \"openai\" api_key = \"sk-...\" model = \"deepseek-chat\" base_url = \"https://api.deepseek.com/v1\" [providers.qwen-vl] type = \"openai\" api_key = \"sk-...\" model = \"Qwen/Qwen3-VL-32B-Instruct\" base_url = \"https://api.siliconflow.cn/v1\" 这里的 qwen-vl 必须是 [providers.*] 里已经定义过的 key,且对应的模型支持视觉输入(常见的有 Qwen3-VL-* / GLM-4V-* / claude-3+ / gpt-4o / gemini-* 等)。 当前 active provider 自身就支持图片时, 不会 走预处理器,直接发原始图片字节。 /login 流程会从下发的模型列表中自动挑选一个 VL/OCR 模型并写入这个字段(可在事后手动覆盖)。 VL 调用使用 无进展超时 (idle timeout):只要 stream 持续吐 chunk 不限总时长;30 秒没动静才超时。失败时主模型仍会收到带 \"图片识别失败\" 标记的消息,而不是静默吞掉。 用法层面的细节参见 基本使用 · 图片附件 / 截图 。"
+        "body": "当当前 active provider 的模型不支持图片输入(纯文本模型,比如 DeepSeek-V3 / Kimi),用户却 attach 了图片 时,RustCode 不会直接拒绝,而是会把图片转给一个独立的\"视觉预处理 provider\"做 OCR + 描述,把结果以文本形式 splice 进用户消息里再发给主模型。 启用方式:在配置里指定一个支持图片的 provider key 作为 vision_preprocessor_provider : default_provider = \"deepseek\" vision_preprocessor_provider = \"qwen-vl\" [providers.deepseek] type = \"openai\" api_key = \"sk-...\" model = \"deepseek-chat\" base_url = \"https://api.deepseek.com/v1\" [providers.qwen-vl] type = \"openai\" api_key = \"sk-...\" model = \"Qwen/Qwen3-VL-32B-Instruct\" base_url = \"https://api.siliconflow.cn/v1\" 这里的 qwen-vl 必须是 [providers.*] 里已经定义过的 key,且对应的模型支持视觉输入(常见的有 Qwen3-VL-* / GLM-4V-* / claude-3+ / gpt-4o / gemini-* 等)。 当前 active provider 自身就支持图片时, 不会 走预处理器,直接发原始图片字节。 手动设置该字段,或让 /provider / /model 帮你填好。 VL 调用使用 无进展超时 (idle timeout):只要 stream 持续吐 chunk 不限总时长;30 秒没动静才超时。失败时主模型仍会收到带 \"图片识别失败\" 标记的消息,而不是静默吞掉。 用法层面的细节参见 基本使用 · 图片附件 / 截图 。"
       },
       {
         "id": "编辑配置的三种方式",
         "heading": "编辑配置的三种方式",
-        "body": "手动编辑 —— 直接用你喜欢的编辑器打开 ~/.atomcode/config.toml 。 TUI 内 /config —— 可直接搜索和修改安全配置。其中动态的“最大重试次数（当前模型）”会把 retry_max_attempts 写入当前模型；连续按两次 Delete 可恢复默认值。 TUI 内 /provider —— 交互式管理供应商账号及其模型，改动会自动落盘。"
+        "body": "手动编辑 —— 直接用你喜欢的编辑器打开 ~/.rustcode/config.toml 。 TUI 内 /config —— 可直接搜索和修改安全配置。其中动态的“最大重试次数（当前模型）”会把 retry_max_attempts 写入当前模型；连续按两次 Delete 可恢复默认值。 TUI 内 /provider —— 交互式管理供应商账号及其模型，改动会自动落盘。"
       },
       {
         "id": "下一步",
         "heading": "下一步",
-        "body": "登录方式 —— 如果不想手动管理 API Key,用 AtomGit OAuth 一步到位。 基本使用 —— 看看 CLI 参数如何一次性覆盖配置。 © 2026 AtomCode · MIT 报告问题"
+        "body": "供应商凭据 —— 默认自带 API Key,无需账号、无外部平台。 基本使用 —— 看看 CLI 参数如何一次性覆盖配置。 © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   },
@@ -395,7 +360,7 @@
       {
         "id": "启动方式",
         "heading": "启动方式",
-        "body": "# 在当前目录启动 TUI atomcode # 指定工作目录 atomcode -C /path/to/project # 指定 provider / 模型(一次性覆盖默认) atomcode --provider claude --model claude-sonnet-4-6 # 继续上一次会话 atomcode -c atomcode --continue # 使用指定的配置文件 atomcode --config ./custom.toml # 跳过所有权限确认,自动批准工具调用 atomcode -y atomcode --dangerously-skip-permissions"
+        "body": "# 在当前目录启动 TUI rustcode # 指定工作目录 rustcode -C /path/to/project # 指定 provider / 模型(一次性覆盖默认) rustcode --provider claude --model claude-sonnet-4-6 # 继续上一次会话 rustcode -c rustcode --continue # 使用指定的配置文件 rustcode --config ./custom.toml # 跳过所有权限确认,自动批准工具调用 rustcode -y rustcode --dangerously-skip-permissions"
       },
       {
         "id": "cli-参数总览",
@@ -405,7 +370,7 @@
       {
         "id": "描述任务的原则",
         "heading": "描述任务的原则",
-        "body": "AtomCode 的 Agent 循环能力主要取决于你给出的任务描述的质量。几条经验: 说目标,不说步骤 —— \"修复登录后跳 404 的 bug\",而不是\"打开 src/auth/callback.ts,删除第 27 行,再…\"。模型有足够的探索能力。 点明约束 —— 当你有偏好时明确说出:\"保持 API 兼容\"、\"不改动测试文件\"、\"用 TypeScript 而不是 JS\"。 给出验证方式 —— \"改完后跑 npm test 确认通过\",让模型完成自我验证闭环。 先问后改 —— 不确定方向时,先让它\"分析这个模块的结构并提出重构方案\",对齐之后再让它动手。"
+        "body": "RustCode 的 Agent 循环能力主要取决于你给出的任务描述的质量。几条经验: 说目标,不说步骤 —— \"修复登录后跳 404 的 bug\",而不是\"打开 src/auth/callback.ts,删除第 27 行,再…\"。模型有足够的探索能力。 点明约束 —— 当你有偏好时明确说出:\"保持 API 兼容\"、\"不改动测试文件\"、\"用 TypeScript 而不是 JS\"。 给出验证方式 —— \"改完后跑 npm test 确认通过\",让模型完成自我验证闭环。 先问后改 —— 不确定方向时,先让它\"分析这个模块的结构并提出重构方案\",对齐之后再让它动手。"
       },
       {
         "id": "示例任务",
@@ -415,7 +380,7 @@
       {
         "id": "多行输入",
         "heading": "多行输入",
-        "body": "在 TUI 中: Enter 发送消息 \\ 后接 Enter 换行 —— 所有终端通用(行尾反斜杠会被识别为续行) Shift+Enter / Ctrl+Enter 换行(需要 Kitty 键盘协议: kitty / WezTerm / Alacritty / iTerm2 ≥3.5 / Windows Terminal ≥1.21;Windows 上不可用) JumpServer 等通用 WebTerminal 默认使用传统键盘上报。可设置 ATOMCODE_KITTY=1 强制启用 Kitty 键盘增强，或设置 ATOMCODE_KITTY=0 强制关闭。 Alt+Enter 换行(多数终端可用,但 Windows Terminal 默认绑给\"切换全屏\",需在设置里解绑) 输入框高度会随内容自动增长"
+        "body": "在 TUI 中: Enter 发送消息 \\ 后接 Enter 换行 —— 所有终端通用(行尾反斜杠会被识别为续行) Shift+Enter / Ctrl+Enter 换行(需要 Kitty 键盘协议: kitty / WezTerm / Alacritty / iTerm2 ≥3.5 / Windows Terminal ≥1.21;Windows 上不可用) JumpServer 等通用 WebTerminal 默认使用传统键盘上报。可设置 RUSTCODE_KITTY=1 强制启用 Kitty 键盘增强，或设置 RUSTCODE_KITTY=0 强制关闭。 Alt+Enter 换行(多数终端可用,但 Windows Terminal 默认绑给\"切换全屏\",需在设置里解绑) 输入框高度会随内容自动增长"
       },
       {
         "id": "at-mention",
@@ -425,17 +390,17 @@
       {
         "id": "交互",
         "heading": "交互",
-        "body": "触发 —— @ 前面是空白或行首才生效。 email@host.com 这种中间出现的 @ 不会触发,避免误弹。 过滤 —— 继续敲字符做子串匹配(大小写不敏感)。例如 @cra 能命中 crates/ ; @toml 能命中所有 *.toml 。 下钻 —— 敲 / 进入某个目录,菜单收紧到该目录的内容。例如 @crates/ → @crates/atomcode-cli/ → ... 导航 —— ↑ / ↓ 切换候选, Enter 或 Tab 都可以选中。 Esc 关菜单不插入。 插入形式 —— 选中后,输入框里的 @xxx 部分被替换为 @完整相对路径 (目录会带 / )再加一个尾随空格,光标停在空格后,可以直接继续打字。 回退继续选 —— 删掉尾随空格后,菜单会就地重开,方便从当前目录继续往下钻。"
+        "body": "触发 —— @ 前面是空白或行首才生效。 email@host.com 这种中间出现的 @ 不会触发,避免误弹。 过滤 —— 继续敲字符做子串匹配(大小写不敏感)。例如 @cra 能命中 crates/ ; @toml 能命中所有 *.toml 。 下钻 —— 敲 / 进入某个目录,菜单收紧到该目录的内容。例如 @crates/ → @crates/rustcode-cli/ → ... 导航 —— ↑ / ↓ 切换候选, Enter 或 Tab 都可以选中。 Esc 关菜单不插入。 插入形式 —— 选中后,输入框里的 @xxx 部分被替换为 @完整相对路径 (目录会带 / )再加一个尾随空格,光标停在空格后,可以直接继续打字。 回退继续选 —— 删掉尾随空格后,菜单会就地重开,方便从当前目录继续往下钻。"
       },
       {
         "id": "候选来自哪里",
         "heading": "候选来自哪里",
-        "body": "项目根目录下的 所有文件和目录 — 文件、目录都能选;目录用尾随 / 标识。 尊重 .gitignore (以及全局 ignore、 .git/info/exclude ),被忽略的路径不会出现在菜单里。 .git/ 内部内容 不出现在候选里 — 几乎没人想 @ 引用 git 元数据。 隐藏文件保留 — .env 、 .atomcode.md 这类点开头文件能正常命中(只要没被 gitignore 屏蔽)。 跨级模糊匹配 — 一旦你开始打过滤字符,匹配会穿透多级目录(不只是当前 scope 的直接子项)。空过滤时只显示当前 scope 的直接子项。 排序 :当前 scope 的直接子项优先 → 目录优先于文件 → 字母序。"
+        "body": "项目根目录下的 所有文件和目录 — 文件、目录都能选;目录用尾随 / 标识。 尊重 .gitignore (以及全局 ignore、 .git/info/exclude ),被忽略的路径不会出现在菜单里。 .git/ 内部内容 不出现在候选里 — 几乎没人想 @ 引用 git 元数据。 隐藏文件保留 — .env 、 .rustcode.md 这类点开头文件能正常命中(只要没被 gitignore 屏蔽)。 跨级模糊匹配 — 一旦你开始打过滤字符,匹配会穿透多级目录(不只是当前 scope 的直接子项)。空过滤时只显示当前 scope 的直接子项。 排序 :当前 scope 的直接子项优先 → 目录优先于文件 → 字母序。"
       },
       {
         "id": "对模型意味着什么",
         "heading": "对模型意味着什么",
-        "body": "提交时, @crates/atomcode-cli/src/main.rs 作为 字面文本 一同发给模型 — AtomCode 不会 在前端预读文件内容并内联。模型看到这段路径后,会按需调用内置的 read_file 工具去读。这样: 大文件不会无脑塞进上下文,token 预算更可控。 引用目录时模型会先 list 再决定读哪些。 多次复读不会重复内联同一份内容。 Tip 如果想强制把文件内容直接喂进对话(比如让模型针对某段代码做精读、不希望它再走一次 read_file ),用粘贴 — 直接把内容粘进输入框,bracketed paste 会把它折叠成 [paste #N] 标记,提交时整段带入。"
+        "body": "提交时, @crates/rustcode-cli/src/main.rs 作为 字面文本 一同发给模型 — RustCode 不会 在前端预读文件内容并内联。模型看到这段路径后,会按需调用内置的 read_file 工具去读。这样: 大文件不会无脑塞进上下文,token 预算更可控。 引用目录时模型会先 list 再决定读哪些。 多次复读不会重复内联同一份内容。 Tip 如果想强制把文件内容直接喂进对话(比如让模型针对某段代码做精读、不希望它再走一次 read_file ),用粘贴 — 直接把内容粘进输入框,bracketed paste 会把它折叠成 [paste #N] 标记,提交时整段带入。"
       },
       {
         "id": "限制",
@@ -445,17 +410,17 @@
       {
         "id": "粘贴长文本",
         "heading": "粘贴长文本",
-        "body": "AtomCode 支持 bracketed paste。当你粘贴一段很长的内容(比如一堆日志)时,TUI 会把它折叠成一个紧凑的 [paste #N · 132 lines] 指示器,避免输入框被撑爆。发送时会完整带入。"
+        "body": "RustCode 支持 bracketed paste。当你粘贴一段很长的内容(比如一堆日志)时,TUI 会把它折叠成一个紧凑的 [paste #N · 132 lines] 指示器,避免输入框被撑爆。发送时会完整带入。"
       },
       {
         "id": "image-attach",
         "heading": "图片附件 / 截图",
-        "body": "除了文本,你还能把 图片 带进对话 — 报错截图、UI mock、白板照片等。AtomCode 提供三条入口,任选其一: Ctrl+V — 系统剪贴板里有图片时(刚 Cmd+Shift+4 截图、从浏览器复制图等),按 Ctrl+V 直接 attach。这是 macOS + iTerm2 等终端默认 Cmd+V 不传图给 PTY 时的兜底方案,任何终端都通用。 Cmd+V(macOS / iTerm2,需简单配置) — iTerm2 → Settings → Profiles → Keys → Key Mappings,把 ⌘V 映射为 Send Hex Codes: 0x16 ,之后 Cmd+V 就跟 Ctrl+V 等价。 Finder 拖拽 / iTerm2 自动转路径 — 把一张图直接拖进终端窗口,iTerm2 / Wezterm 等会把文件路径以 plaintext 方式粘进来;AtomCode 识别到绝对路径 + .png / .jpg / .jpeg / .gif / .webp 扩展名 + 文件存在 + 大小 ≤ 20MB 时,会自动读取文件并 attach。原始路径字符串不会留在输入框里。 每次成功 attach 时,输入框会就地插入一个 [Image #N] 标记,提交时图片字节随消息一起发。状态栏右侧也会出现 Image in clipboard · ctrl+v to paste 的提示(剪贴板还有未粘的图时)。"
+        "body": "除了文本,你还能把 图片 带进对话 — 报错截图、UI mock、白板照片等。RustCode 提供三条入口,任选其一: Ctrl+V — 系统剪贴板里有图片时(刚 Cmd+Shift+4 截图、从浏览器复制图等),按 Ctrl+V 直接 attach。这是 macOS + iTerm2 等终端默认 Cmd+V 不传图给 PTY 时的兜底方案,任何终端都通用。 Cmd+V(macOS / iTerm2,需简单配置) — iTerm2 → Settings → Profiles → Keys → Key Mappings,把 ⌘V 映射为 Send Hex Codes: 0x16 ,之后 Cmd+V 就跟 Ctrl+V 等价。 Finder 拖拽 / iTerm2 自动转路径 — 把一张图直接拖进终端窗口,iTerm2 / Wezterm 等会把文件路径以 plaintext 方式粘进来;RustCode 识别到绝对路径 + .png / .jpg / .jpeg / .gif / .webp 扩展名 + 文件存在 + 大小 ≤ 20MB 时,会自动读取文件并 attach。原始路径字符串不会留在输入框里。 每次成功 attach 时,输入框会就地插入一个 [Image #N] 标记,提交时图片字节随消息一起发。状态栏右侧也会出现 Image in clipboard · ctrl+v to paste 的提示(剪贴板还有未粘的图时)。"
       },
       {
         "id": "非视觉模型怎么处理图片",
         "heading": "非视觉模型怎么处理图片?",
-        "body": "当前 active provider 不支持图片输入(比如 DeepSeek-V3 / Kimi 等纯文本模型)时,AtomCode 不会直接拒绝,而是会自动调用一个独立的 VL preprocessor (视觉模型,比如 Qwen3-VL / GLM-4V)对图片做 OCR + 描述,把结果作为文本 splice 到用户消息里再发给主模型。这样无论主模型支不支持图片,你都能\"贴张截图问问题\"。 preprocessor 用哪个模型?由配置文件里的 vision_preprocessor_provider 决定 — 详见 配置文件 · 视觉预处理器 。 /login 流程会自动从模型列表里挑一个 VL/OCR 模型自动设置进去。 VL 调用使用 无进展超时 (idle timeout):只要 stream 持续吐 chunk,不限总时长;30 秒没动静才算超时。失败时会以 VL 预处理失败 的警告呈现,图片识别失败但消息照常发。 Tip 如果当前模型本身就支持视觉输入(Claude 3+ / GPT-4o / Gemini / Qwen-VL 等),会直接发原始图片字节,不走 preprocessor。"
+        "body": "当前 active provider 不支持图片输入(比如 DeepSeek-V3 / Kimi 等纯文本模型)时,RustCode 不会直接拒绝,而是会自动调用一个独立的 VL preprocessor (视觉模型,比如 Qwen3-VL / GLM-4V)对图片做 OCR + 描述,把结果作为文本 splice 到用户消息里再发给主模型。这样无论主模型支不支持图片,你都能\"贴张截图问问题\"。 preprocessor 用哪个模型?由配置文件里的 vision_preprocessor_provider 决定 — 详见 配置文件 · 视觉预处理器 。 提供托管登录的发行版本中, /login 流程会自动从下发的模型列表里挑一个 VL/OCR 模型并设置该字段;开源默认构建请手动设置。 VL 调用使用 无进展超时 (idle timeout):只要 stream 持续吐 chunk,不限总时长;30 秒没动静才算超时。失败时会以 VL 预处理失败 的警告呈现,图片识别失败但消息照常发。 Tip 如果当前模型本身就支持视觉输入(Claude 3+ / GPT-4o / Gemini / Qwen-VL 等),会直接发原始图片字节,不走 preprocessor。"
       },
       {
         "id": "切换会话和目录",
@@ -470,7 +435,7 @@
       {
         "id": "下一步",
         "heading": "下一步",
-        "body": "斜杠命令 —— 30+ 个命令的完整参考 快捷键 —— 熟练使用键盘将大幅提升效率 © 2026 AtomCode · MIT 报告问题"
+        "body": "斜杠命令 —— 30+ 个命令的完整参考 快捷键 —— 熟练使用键盘将大幅提升效率 © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   },
@@ -488,12 +453,12 @@
       {
         "id": "核心功能",
         "heading": "核心功能",
-        "body": "命令 作用 /login 推荐 — 一条命令完成 AtomGit OAuth + 申领 CodingPlan 免费额度 + 自动根据额度模型列表写好 provider 配置。首次启动最省事的入口;已登录后重跑会幂等地同步最新模型列表。 v4.25.0 起 /codingplan 已折进 /login ,旧入口已移除 /resume 打开会话选择器,恢复任意一个之前的持久化会话(含消息、目录和模型状态) /session 创建一个全新的、干净的会话 /bg 将当前会话放到后台并打开新的前台会话;子命令: /bg list 、 /bg <N> 、 /bg drop <N> 、 /bg help 。详见 后台会话 /background <task> 兼容入口:在一个 /bg 槽位中启动一次性后台任务( 详解 ) /rename <新名字> 重命名当前会话(影响 /resume 选择器里的显示名) /provider 管理供应商账号及其模型；支持预设供应商和自定义接口 /model 设置默认模型 / provider，并切换当前会话；其他已打开会话不变 /cd 切换工作目录并开启新建对话,并写回 default_workdir 。也可以直接输入 cd /path (无需斜杠前缀)"
+        "body": "命令 作用 /resume 打开会话选择器,恢复任意一个之前的持久化会话(含消息、目录和模型状态) /session 创建一个全新的、干净的会话 /bg 将当前会话放到后台并打开新的前台会话;子命令: /bg list 、 /bg <N> 、 /bg drop <N> 、 /bg help 。详见 后台会话 /background <task> 兼容入口:在一个 /bg 槽位中启动一次性后台任务( 详解 ) /rename <新名字> 重命名当前会话(影响 /resume 选择器里的显示名) /provider 推荐 — 管理供应商账号及其模型,支持第三方预设 (Claude、OpenAI、DeepSeek、GLM、Qwen、Ollama 等) 或自定义 OpenAI 风格接口,填入你自己的 API Key。无需在 RustCode 注册账号,这是开源默认构建的上手方式 /model 设置默认模型 / provider，并切换当前会话；其他已打开会话不变 /cd 切换工作目录并开启新建对话,并写回 default_workdir 。也可以直接输入 cd /path (无需斜杠前缀)"
       },
       {
         "id": "工具与实用操作",
         "heading": "工具与实用操作",
-        "body": "命令 作用 /view · /view <文件路径> 打开只读文件查看器。 不带参数 时打开一个模糊「仅文件」选择器(输入即筛选;像 ~/… 或 ./… 这类路径式查询还能打开项目 之外 的文件)。带路径则直接打开该文件。方向键 / PageUp-Down / Home-End(或 g / G 跳到首/末行)滚动; Esc 退回, Ctrl+C 退出 /undo · /undo N 把对话记忆回退到上一轮(或第 N 轮)之前,并把那一轮的 prompt 还原回输入框;只回退记忆,不恢复磁盘文件 /diff 显示当前工作目录未提交改动的 git diff(文件列表一次最多显示 5 行,并带「更多文件」滚动提示) /review 对当前改动做代码审查: /review 审查未提交改动, /review staged 审查暂存区, /review <base> 对比某个基准 ref /paste 从剪贴板粘贴图片(Windows 下 Ctrl+V 被终端拦截时的备用入口) /cost 按模型显示当前会话累计的提示、补全和缓存 Token。与 /usage 不同,后者查询的是 CodingPlan 网关的套餐额度 /context 显示本轮上下文预算分解:系统提示、工具定义、冷区压缩、总消息数、context window 占用 /compact 压缩历史消息,把早期对话压缩成摘要以腾出上下文预算 /rewind 选择历史提示，并回退对话、代码或两者；详见 会话与撤销 /clear 清空当前会话的消息(保留工作目录和模型) /init 扫描当前工作目录，按优先级创建或完善当前生效的项目指令文件（ .atomcode.md 、 AGENTS.md 或 CLAUDE.md ）。生成内容跟随当前语言，并可在 /config 中配置自定义提示词文件。 /background <任务> 把任务派发给一个隔离的后台 agent(只读为主的工具子集),不污染当前主对话上下文。用于\"顺手让它去查一下 X\"这类轻探索。详见 后台会话 /worktree <子命令> Git worktree 隔离: create 在新分支上拉一份独立 worktree、 list 查看现有 worktree、 done 把 worktree 改动 squash 回主分支、 cleanup 清理已完成的 worktree /todo · /todo add <任务> · /todo clear 重新打印当前待办清单 —— 从会话记录里派生(定位最近一次 todowrite 工具调用并重渲染),带「进行中 / 已完成」状态标记。 /todo add <任务> 确定性地追加一条任务(不走模型); /todo clear 清空清单。清单是无状态派生的,不额外落盘;模型执行长任务时会自己维护它,你也可以随时用此命令查看进度 /copy 把上一条回复里的代码块复制到剪贴板: /copy 复制唯一代码块、 /copy N 复制第 N 个、 /copy all 复制全部代码块、 /copy msg 复制整条回复的 markdown 原文 /save 把当前会话导出成 markdown 文件: /save 用自动生成的文件名, /save <文件名> 指定文件名 AtomGit Issue 现在由内置工具处理 /issue 已移除。执行 /login 后，直接用自然语言提出需求即可，例如“为这个 Bug 创建一个 AtomGit Issue”。AtomCode 会选择内置的 atomgit_issue 工具，写操作仍需权限确认。详见 内置工具 。 只读报告可在回合中运行 不必等回合结束就能查看状态: /status 、 /diff 、 /cost 、 /usage 、 /rename 在 agent 流式输出时也能运行。它们以输入框下方的临时面板呈现(按 Esc 关闭),不打断进行中的回合。 /usage 在回合中还能在 Current / Overview / Models 视图间按 Tab 切换。"
+        "body": "命令 作用 /view · /view <文件路径> 打开只读文件查看器。 不带参数 时打开一个模糊「仅文件」选择器(输入即筛选;像 ~/… 或 ./… 这类路径式查询还能打开项目 之外 的文件)。带路径则直接打开该文件。方向键 / PageUp-Down / Home-End(或 g / G 跳到首/末行)滚动; Esc 退回, Ctrl+C 退出 /undo · /undo N 把对话记忆回退到上一轮(或第 N 轮)之前,并把那一轮的 prompt 还原回输入框;只回退记忆,不恢复磁盘文件 /diff 显示当前工作目录未提交改动的 git diff(文件列表一次最多显示 5 行,并带「更多文件」滚动提示) /review 对当前改动做代码审查: /review 审查未提交改动, /review staged 审查暂存区, /review <base> 对比某个基准 ref /paste 从剪贴板粘贴图片(Windows 下 Ctrl+V 被终端拦截时的备用入口) /cost 按模型显示当前会话累计的提示、补全和缓存 Token /context 显示本轮上下文预算分解:系统提示、工具定义、冷区压缩、总消息数、context window 占用 /compact 压缩历史消息,把早期对话压缩成摘要以腾出上下文预算 /rewind 选择历史提示，并回退对话、代码或两者；详见 会话与撤销 /clear 清空当前会话的消息(保留工作目录和模型) /init 扫描当前工作目录，按优先级创建或完善当前生效的项目指令文件（ .rustcode.md 、 AGENTS.md 或 CLAUDE.md ）。生成内容跟随当前语言，并可在 /config 中配置自定义提示词文件。 /background <任务> 把任务派发给一个隔离的后台 agent(只读为主的工具子集),不污染当前主对话上下文。用于\"顺手让它去查一下 X\"这类轻探索。详见 后台会话 /worktree <子命令> Git worktree 隔离: create 在新分支上拉一份独立 worktree、 list 查看现有 worktree、 done 把 worktree 改动 squash 回主分支、 cleanup 清理已完成的 worktree /todo · /todo add <任务> · /todo clear 重新打印当前待办清单 —— 从会话记录里派生(定位最近一次 todowrite 工具调用并重渲染),带「进行中 / 已完成」状态标记。 /todo add <任务> 确定性地追加一条任务(不走模型); /todo clear 清空清单。清单是无状态派生的,不额外落盘;模型执行长任务时会自己维护它,你也可以随时用此命令查看进度 /copy 把上一条回复里的代码块复制到剪贴板: /copy 复制唯一代码块、 /copy N 复制第 N 个、 /copy all 复制全部代码块、 /copy msg 复制整条回复的 markdown 原文 /save 把当前会话导出成 markdown 文件: /save 用自动生成的文件名, /save <文件名> 指定文件名 平台 Issue 已不再内置 /issue 与内置的 platform_issue 工具均已移除。上游托管平台 Issue 功能不在本开源构建中提供。详见 内置工具 。 只读报告可在回合中运行 不必等回合结束就能查看状态: /status 、 /diff 、 /cost 、 /usage 、 /rename 在 agent 流式输出时也能运行。它们以输入框下方的临时面板呈现(按 Esc 关闭),不打断进行中的回合。 /usage 在回合中还能在 Current / Overview / Models 视图间按 Tab 切换。"
       },
       {
         "id": "对话模式与思考",
@@ -508,22 +473,22 @@
       {
         "id": "扩展生态",
         "heading": "扩展生态",
-        "body": "命令 作用 /setup 第一次执行时,把内置的 atomcode-automation-recommender skill 解压到 ~/.atomcode/skills/ ,在项目 .gitignore 追加 .atomcode/local/ ,并写 .atomcode/setup-state.json (signals 哈希 + atomcode 版本 + 已安装列表),全程持项目级锁。然后自动调用 recommender skill — 它会扫描项目(语言、框架、已有 hook 等)、联网检索并推荐适合该代码库的其他 atomcode skill 安装。后续执行会跳过 seed 安装、直接重跑 skill。命令后跟的文字会作为 steering 传给 skill,例如 /setup 重点关注测试 。CLI 形式 atomcode setup --force 会按内容哈希强制重装 seed 文件 /skills 浏览当前已加载的 skills(项目级 + 用户级)。每个 skill 也会以独立的斜杠命令形式出现在补全菜单里,可以直接 /<skill-name> 触发 /plugin 打开交互式插件管理器,可浏览 marketplace、安装/卸载插件、添加/移除 marketplace /plugin marketplace add|remove|update|list 管理 marketplace 注册(add 克隆 git 仓库,remove 移除,update 拉最新,list 列出) /plugin install <plugin>@<marketplace> 从指定 marketplace 安装插件 /plugin uninstall <plugin>@<marketplace> 卸载已安装的插件(保留 marketplace 注册) /plugin list 列出本地已安装的插件 /plugin reload 重新加载所有插件(扫描磁盘变更、刷新 skill/hook 注册) 详细配置与使用见 Skills 扩展 和 Plugin 系统 。 插件可以注册自己的斜杠命令。例如官方频道插件会新增 /wechat (显示 AtomCode 微信用户群二维码): /plugin marketplace add https://atomgit.com/atomgit_atomcode/AtomCode-Channel /plugin install weixin@atomcode-channel"
+        "body": "命令 作用 /setup 第一次执行时,把内置的 rustcode-automation-recommender skill 解压到 ~/.rustcode/skills/ ,在项目 .gitignore 追加 .rustcode/local/ ,并写 .rustcode/setup-state.json (signals 哈希 + rustcode 版本 + 已安装列表),全程持项目级锁。然后自动调用 recommender skill — 它会扫描项目(语言、框架、已有 hook 等)、联网检索并推荐适合该代码库的其他 rustcode skill 安装。后续执行会跳过 seed 安装、直接重跑 skill。命令后跟的文字会作为 steering 传给 skill,例如 /setup 重点关注测试 。CLI 形式 rustcode setup --force 会按内容哈希强制重装 seed 文件 /skills 浏览当前已加载的 skills(项目级 + 用户级)。每个 skill 也会以独立的斜杠命令形式出现在补全菜单里,可以直接 /<skill-name> 触发 /plugin 打开交互式插件管理器,可浏览 marketplace、安装/卸载插件、添加/移除 marketplace /plugin marketplace add|remove|update|list 管理 marketplace 注册(add 克隆 git 仓库,remove 移除,update 拉最新,list 列出) /plugin install <plugin>@<marketplace> 从指定 marketplace 安装插件 /plugin uninstall <plugin>@<marketplace> 卸载已安装的插件(保留 marketplace 注册) /plugin list 列出本地已安装的插件 /plugin reload 重新加载所有插件(扫描磁盘变更、刷新 skill/hook 注册) 详细配置与使用见 Skills 扩展 和 Plugin 系统 。 插件可以注册自己的斜杠命令。先添加你的发行渠道提供的 marketplace 地址,再安装提供对应命令的插件,例如: /plugin marketplace add https://example.com/<your-org>/<marketplace>.git /plugin install <plugin>@<marketplace>"
       },
       {
         "id": "mcp-集成",
         "heading": "MCP 集成",
-        "body": "命令 作用 /mcp 列出已成功连接的 MCP server 及其状态(连接失败的 server 不在此列表,只在会话区有红色错误行) /mcp tools <server> 异步列出某个 MCP server 实际暴露的远端 tools(若超时/失败会提示) /mcp reload 重新读取 .mcp.json / ~/.atomcode/mcp.json 并后台重连所有 server 详细配置与使用见 MCP 集成 。"
+        "body": "命令 作用 /mcp 列出已成功连接的 MCP server 及其状态(连接失败的 server 不在此列表,只在会话区有红色错误行) /mcp tools <server> 异步列出某个 MCP server 实际暴露的远端 tools(若超时/失败会提示) /mcp reload 重新读取 .mcp.json / ~/.rustcode/mcp.json 并后台重连所有 server 详细配置与使用见 MCP 集成 。"
       },
       {
         "id": "webui-与同步",
         "heading": "WebUI 与同步",
-        "body": "命令 作用 /webui 启动浏览器界面并自动打开浏览器(默认绑定 127.0.0.1:13457 ,仅本机)。当前 TUI 会话会自动接入实时同步 /webui --host <addr> 把服务绑定到指定地址; /webui lan 等价于 --host 0.0.0.0 (暴露到局域网)。配合蒲公英虚拟 IP 可远程访问,见 远程访问指南 /webui stop 关闭 webui 服务 /sync 把当前 TUI 接入正在运行的 webui 会话(需先 /webui )。两端实时双向同步,多个浏览器 / 终端可同时围观同一会话 /sync off 退出同步,回到独立会话 /app 把当前会话通过官方中继暴露给 手机 App :终端里直接吐出一个二维码,用 App 扫码即可配对,在手机上实时查看并接管这段对话(与 /webui 同源共用同一段会话,双向实时同步;区别是不开浏览器、走中继而非局域网)。需先 /login 登录 /app stop 停止 App 远程访问,断开中继并回到本地会话 详细见 WebUI 界面 与 远程访问指南 。"
+        "body": "命令 作用 /webui 启动浏览器界面并自动打开浏览器(默认绑定 127.0.0.1:13457 ,仅本机)。当前 TUI 会话会自动接入实时同步 /webui --host <addr> 把服务绑定到指定地址; /webui lan 等价于 --host 0.0.0.0 (暴露到局域网)。配合蒲公英虚拟 IP 可远程访问,见 远程访问指南 /webui stop 关闭 webui 服务 /sync 把当前 TUI 接入正在运行的 webui 会话(需先 /webui )。两端实时双向同步,多个浏览器 / 终端可同时围观同一会话 /sync off 退出同步,回到独立会话 /app 内置托管中继的发行版本:把当前会话暴露给 手机 App —— 终端里直接吐出一个二维码,用 App 扫码即可配对,在手机上实时查看并接管这段对话(与 /webui 同源共用同一段会话,双向实时同步;区别是不开浏览器、走中继而非局域网)。开源默认构建不支持(无托管中继) /app stop 停止 App 远程访问,断开中继并回到本地会话 详细见 WebUI 界面 与 远程访问指南 。"
       },
       {
         "id": "配置与帮助",
         "heading": "配置与帮助",
-        "body": "命令 作用 /status 显示登录状态、当前 provider、模型、上下文预算、CodingPlan 用量和重置时间 /whoami 显示当前 AtomGit 登录用户的用户名 / 邮箱 /config 显示 ~/.atomcode/config.toml 的路径 /reload 从磁盘热加载 ~/.atomcode/config.toml ,不需要重启 atomcode 就能让外部修改(或另一个终端的 /login 带来的变更)生效 /proxy 切换出站代理模式:跟随系统代理(默认)/ 指定固定代理 / 直连不走代理。适合公司代理网、需要强制走某个代理或强制直连等场景,选择会写回配置 /language 切换界面语言:自动检测( LC_ALL / LANG )、English、或 简体中文。立即生效并写回 ~/.atomcode/config.toml /welcome 重新打开 3 步首次启动向导(欢迎页 → 语言 → 接入方式)。会话非空时会先弹 y/N 二次确认,确认后清屏。语言和默认接入方式都可以从这里再调一次 /logout 清除 AtomGit OAuth token /upgrade 自动升级到最新版本;子命令 /upgrade rollback 回滚到上一个版本 /guide 内置上手向导: /guide 列出可问的主题(快速开始、换模型、MCP、Skills、记忆、后台任务、上下文、快捷键、配置), /guide <主题> 直接在对话里讲解(首次会自动安装 atomcode-skills 插件) /help 展示所有可用斜杠命令的列表 /keys 展示键盘快捷键参考(分组列出输入 / 历史 / 会话 / 弹层导航,并标注 Shift+Enter 、 Alt+Enter 在不同终端的兼容性)。详见 键盘快捷键 /quit · /exit 退出 atomcode(也可以连按两次 Ctrl+C )"
+        "body": "命令 作用 /status 显示 provider 与鉴权状态、当前 provider、模型、上下文预算 /config 显示 ~/.rustcode/config.toml 的路径 /reload 从磁盘热加载 ~/.rustcode/config.toml ,不需要重启 rustcode 就能让外部修改(或另一个终端里改动的 provider / 凭据)生效 /proxy 切换出站代理模式:跟随系统代理(默认)/ 指定固定代理 / 直连不走代理。适合公司代理网、需要强制走某个代理或强制直连等场景,选择会写回配置 /language 切换界面语言:自动检测( LC_ALL / LANG )、English、或 简体中文。立即生效并写回 ~/.rustcode/config.toml /welcome 重新打开 3 步首次启动向导(欢迎页 → 语言 → 接入方式)。会话非空时会先弹 y/N 二次确认,确认后清屏。语言和默认接入方式都可以从这里再调一次 /upgrade 自动升级到最新版本;子命令 /upgrade rollback 回滚到上一个版本 /guide 内置上手向导: /guide 列出可问的主题(快速开始、换模型、MCP、Skills、记忆、后台任务、上下文、快捷键、配置), /guide <主题> 直接在对话里讲解(首次会自动安装 rustcode-skills 插件) /help 展示所有可用斜杠命令的列表 /keys 展示键盘快捷键参考(分组列出输入 / 历史 / 会话 / 弹层导航,并标注 Shift+Enter 、 Alt+Enter 在不同终端的兼容性)。详见 键盘快捷键 /quit · /exit 退出 rustcode(也可以连按两次 Ctrl+C )"
       },
       {
         "id": "命令使用技巧",
@@ -536,14 +501,14 @@
         "body": ""
       },
       {
-        "id": "第一次启动-一键接入",
-        "heading": "第一次启动 — 一键接入",
-        "body": "> /login ✔ Logged in as alice (alice, alice@example.com) ✔ CodingPlan claimed — CodingPlan Lite · expires 2026-05-22 (29d / 30d) ✔ 3 models registered as AtomGit-* providers ✔ Default provider set to AtomGit-GLM > 你好"
+        "id": "第一次启动-自带-key",
+        "heading": "第一次启动 — 自带 Key",
+        "body": "> /provider 1. 添加供应商账号 (选预设 —— Claude / OpenAI / DeepSeek / GLM / Qwen / Ollama,或自定义 OpenAI 风格接口) 2. 粘贴你的 API Key (保存在 ~/.rustcode/config.toml;可用 env:变量名 从环境读取) 3. 在该账号下添加一个模型 ✔ provider 就绪 > /model ✔ 默认模型已设置 > 你好 开源默认构建的全部配置就是这些 —— 无需注册账号。"
       },
       {
         "id": "做完一件事前看一眼-token-用量",
         "heading": "做完一件事前看一眼 Token 用量",
-        "body": "> 重构 src/db 使用连接池 ... (AI 执行) > /cost AtomGit · deepseek-v4-flash 提示 Token： 7210 补全 Token： 1132 缓存 Token： 5080（70% 命中率） Token 总计： 8342"
+        "body": "> 重构 src/db 使用连接池 ... (AI 执行) > /cost deepseek · deepseek-chat 提示 Token： 7210 补全 Token： 1132 缓存 Token： 5080（70% 命中率） Token 总计： 8342"
       },
       {
         "id": "问歪了就回退重问",
@@ -558,7 +523,7 @@
       {
         "id": "下一步",
         "heading": "下一步",
-        "body": "快捷键 —— 命令和快捷键配合使用效率翻倍 会话与撤销 —— /resume 、 /undo 、 /compact 的详细行为 © 2026 AtomCode · MIT 报告问题"
+        "body": "快捷键 —— 命令和快捷键配合使用效率翻倍 会话与撤销 —— /resume 、 /undo 、 /compact 的详细行为 © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   },
@@ -566,12 +531,12 @@
     "slug": "keybindings",
     "title": "快捷键",
     "group": "使用",
-    "lede": "AtomCode 的 TUI 是基于 ratatui + crossterm 构建的,常用快捷键尽量贴近主流终端工具的约定。在会话里输入 /keys 可以随时把这张表打印到当前 scrollback, /help 则查看所有斜杠命令。",
+    "lede": "RustCode 的 TUI 是基于 ratatui + crossterm 构建的,常用快捷键尽量贴近主流终端工具的约定。在会话里输入 /keys 可以随时把这张表打印到当前 scrollback, /help 则查看所有斜杠命令。",
     "sections": [
       {
         "id": "快捷键",
         "heading": "快捷键",
-        "body": "AtomCode 的 TUI 是基于 ratatui + crossterm 构建的,常用快捷键尽量贴近主流终端工具的约定。在会话里输入 /keys 可以随时把这张表打印到当前 scrollback, /help 则查看所有斜杠命令。"
+        "body": "RustCode 的 TUI 是基于 ratatui + crossterm 构建的,常用快捷键尽量贴近主流终端工具的约定。在会话里输入 /keys 可以随时把这张表打印到当前 scrollback, /help 则查看所有斜杠命令。"
       },
       {
         "id": "输入编辑",
@@ -581,12 +546,12 @@
       {
         "id": "浏览与滚动",
         "heading": "浏览与滚动",
-        "body": "按键 动作 Shift+↑ / Shift+↓ 翻一行 PageUp / PageDown 翻一页(10 行) Alt+↑ / Alt+↓ 跳到上 / 下一条消息(macOS Apple Terminal 需先在 Settings → Profiles → Keyboard 启用 \"Use Option as Meta key\") Ctrl+↑ / Ctrl+↓ 跳到上 / 下一条 自己发的 消息 Home / End 跳到对话最顶端 / 最底端 鼠标滚轮 在聊天区上下滚(atomcode 接管)"
+        "body": "按键 动作 Shift+↑ / Shift+↓ 翻一行 PageUp / PageDown 翻一页(10 行) Alt+↑ / Alt+↓ 跳到上 / 下一条消息(macOS Apple Terminal 需先在 Settings → Profiles → Keyboard 启用 \"Use Option as Meta key\") Ctrl+↑ / Ctrl+↓ 跳到上 / 下一条 自己发的 消息 Home / End 跳到对话最顶端 / 最底端 鼠标滚轮 在聊天区上下滚(rustcode 接管)"
       },
       {
         "id": "选区与复制",
         "heading": "选区与复制",
-        "body": "按键 / 操作 动作 鼠标拖选 在聊天区选中文本(atomcode 接管,选区会自动滚动到边界) Shift+ 拖鼠标 用宿主终端原生选区(绕过 atomcode,适合跨视区多行复制) Ctrl+Shift+C 复制选区到系统剪贴板 右键菜单 在某些终端中可直接复制/粘贴(取决于终端而非 atomcode)"
+        "body": "按键 / 操作 动作 鼠标拖选 在聊天区选中文本(rustcode 接管,选区会自动滚动到边界) Shift+ 拖鼠标 用宿主终端原生选区(绕过 rustcode,适合跨视区多行复制) Ctrl+Shift+C 复制选区到系统剪贴板 右键菜单 在某些终端中可直接复制/粘贴(取决于终端而非 rustcode)"
       },
       {
         "id": "流程控制",
@@ -596,12 +561,12 @@
       {
         "id": "工具权限对话框",
         "heading": "工具权限对话框",
-        "body": "当模型准备执行危险操作(破坏性 bash 命令、写敏感文件、删除源码等)时,AtomCode 会弹出一个确认对话框,此时: 按键 动作 y / Enter 允许这一次 a 本次会话内始终允许这种模式 n / Esc 拒绝 别贪心 \"始终允许\"是按 工具名 + 参数模式 级别授予的,仅对当前会话生效,下次重启归零。如果你需要跨会话常驻的例外,请在配置层面处理(比如对某些路径做白名单)。"
+        "body": "当模型准备执行危险操作(破坏性 bash 命令、写敏感文件、删除源码等)时,RustCode 会弹出一个确认对话框,此时: 按键 动作 y / Enter 允许这一次 a 本次会话内始终允许这种模式 n / Esc 拒绝 别贪心 \"始终允许\"是按 工具名 + 参数模式 级别授予的,仅对当前会话生效,下次重启归零。如果你需要跨会话常驻的例外,请在配置层面处理(比如对某些路径做白名单)。"
       },
       {
         "id": "下一步",
         "heading": "下一步",
-        "body": "斜杠命令 —— 记住了快捷键,也别忘记命令补全 会话与撤销 —— /undo 的精确含义 © 2026 AtomCode · MIT 报告问题"
+        "body": "斜杠命令 —— 记住了快捷键,也别忘记命令补全 会话与撤销 —— /undo 的精确含义 © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   },
@@ -609,17 +574,17 @@
     "slug": "sessions",
     "title": "会话与撤销",
     "group": "使用",
-    "lede": "AtomCode 默认持久化每一次对话,允许你随时恢复、继续、清空或压缩。一条 /undo 就能把对话记忆回退到此前任意一轮。",
+    "lede": "RustCode 默认持久化每一次对话,允许你随时恢复、继续、清空或压缩。一条 /undo 就能把对话记忆回退到此前任意一轮。",
     "sections": [
       {
         "id": "会话与撤销",
         "heading": "会话与撤销",
-        "body": "AtomCode 默认持久化每一次对话,允许你随时恢复、继续、清空或压缩。一条 /undo 就能把对话记忆回退到此前任意一轮。"
+        "body": "RustCode 默认持久化每一次对话,允许你随时恢复、继续、清空或压缩。一条 /undo 就能把对话记忆回退到此前任意一轮。"
       },
       {
         "id": "会话的生命周期",
         "heading": "会话的生命周期",
-        "body": "每次启动 atomcode 都会自动创建一个会话,会话包含: 完整消息历史(用户 prompt、AI 回复、工具调用) 关联的工作目录 关联的 provider / 模型 Token 消耗统计 该会话中所有文件编辑的 file-history 快照 会话数据落盘在 ~/.atomcode/sessions/ 下,按项目(工作目录 hash)分组存储。"
+        "body": "每次启动 rustcode 都会自动创建一个会话,会话包含: 完整消息历史(用户 prompt、AI 回复、工具调用) 关联的工作目录 关联的 provider / 模型 Token 消耗统计 该会话中所有文件编辑的 file-history 快照 会话数据落盘在 ~/.rustcode/sessions/ 下,按项目(工作目录 hash)分组存储。"
       },
       {
         "id": "恢复会话",
@@ -629,7 +594,7 @@
       {
         "id": "命令行继续上次",
         "heading": "命令行继续上次",
-        "body": "atomcode -c # 或 atomcode --continue 最常见的需求:接着昨天停下来的地方继续。"
+        "body": "rustcode -c # 或 rustcode --continue 最常见的需求:接着昨天停下来的地方继续。"
       },
       {
         "id": "tui-内切换会话",
@@ -674,7 +639,7 @@
       {
         "id": "异常退出后的恢复",
         "heading": "异常退出后的恢复",
-        "body": "回合进行中，AtomCode 会保存临时进度。终端异常退出或网络中断后，使用 /resume 会尽量恢复最后一条用户输入、已经生成的回复和工具调用进度，而不是只回到上一个完整回合。待确认的权限和问题不会被自动批准。"
+        "body": "回合进行中，RustCode 会保存临时进度。终端异常退出或网络中断后，使用 /resume 会尽量恢复最后一条用户输入、已经生成的回复和工具调用进度，而不是只回到上一个完整回合。待确认的权限和问题不会被自动批准。"
       },
       {
         "id": "查看和控制-token-用量",
@@ -684,12 +649,12 @@
       {
         "id": "多项目工作流",
         "heading": "多项目工作流",
-        "body": "AtomCode 的会话是按工作目录分组的。切换目录的推荐方式: 从命令行启动时用 -C 指定 运行中用 /cd 切换, default_workdir 会自动落盘"
+        "body": "RustCode 的会话是按工作目录分组的。切换目录的推荐方式: 从命令行启动时用 -C 指定 运行中用 /cd 切换, default_workdir 会自动落盘"
       },
       {
         "id": "下一步",
         "heading": "下一步",
-        "body": "项目指令文件 —— 用 .atomcode.md 为每个项目固化上下文 © 2026 AtomCode · MIT 报告问题"
+        "body": "项目指令文件 —— 用 .rustcode.md 为每个项目固化上下文 © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   },
@@ -697,12 +662,12 @@
     "slug": "interactive-questions",
     "title": "交互提问",
     "group": "使用",
-    "lede": "在真正需要抉择的岔路口——需求含糊、两种可行方案二选一——AtomCode 会停下来向你提一个结构化问题，而不是替你猜。你就地作答，它拿到你的选择后继续。该能力由 request_user_input 工具驱动， 默认开启 。",
+    "lede": "在真正需要抉择的岔路口——需求含糊、两种可行方案二选一——RustCode 会停下来向你提一个结构化问题，而不是替你猜。你就地作答，它拿到你的选择后继续。该能力由 request_user_input 工具驱动， 默认开启 。",
     "sections": [
       {
         "id": "交互提问",
         "heading": "交互提问",
-        "body": "在真正需要抉择的岔路口——需求含糊、两种可行方案二选一——AtomCode 会停下来向你提一个结构化问题，而不是替你猜。你就地作答，它拿到你的选择后继续。该能力由 request_user_input 工具驱动， 默认开启 。 它不是权限审批 权限审批 问的是「能不能 执行某个工具 」（跑命令、改文件）；交互提问问的是「 你怎么决定 」——偏好，或在几种做法之间选一个。两者面板不同、按键不同、含义不同。拒答一个问题从不算错误；拒绝一次审批则会拦下该工具。"
+        "body": "在真正需要抉择的岔路口——需求含糊、两种可行方案二选一——RustCode 会停下来向你提一个结构化问题，而不是替你猜。你就地作答，它拿到你的选择后继续。该能力由 request_user_input 工具驱动， 默认开启 。 它不是权限审批 权限审批 问的是「能不能 执行某个工具 」（跑命令、改文件）；交互提问问的是「 你怎么决定 」——偏好，或在几种做法之间选一个。两者面板不同、按键不同、含义不同。拒答一个问题从不算错误；拒绝一次审批则会拦下该工具。"
       },
       {
         "id": "三种提问类型",
@@ -712,12 +677,12 @@
       {
         "id": "在终端里作答",
         "heading": "在终端里作答",
-        "body": "按键 作用 ↑ / ↓ 在选项（以及 Other / Submit 行）间移动 1 – 9 跳到（单选）或切换（多选）第 N 个选项 Space 切换当前复选框（多选）；在编辑 Other 行时输入空格 Enter 单选：提交高亮项 · 多选：在 Submit 行提交 · 文本：提交输入内容 输入 / Backspace 编辑 Other 行或自由文本答案 Esc 拒答——AtomCode 会按自己的最佳判断继续 Ctrl+C 拒答 并 取消当前回合 单选题一键即可作答（高亮后按 Enter ）；多选题用 Enter / Space 勾选各行，只有激活专门的 Submit 行才真正提交。"
+        "body": "按键 作用 ↑ / ↓ 在选项（以及 Other / Submit 行）间移动 1 – 9 跳到（单选）或切换（多选）第 N 个选项 Space 切换当前复选框（多选）；在编辑 Other 行时输入空格 Enter 单选：提交高亮项 · 多选：在 Submit 行提交 · 文本：提交输入内容 输入 / Backspace 编辑 Other 行或自由文本答案 Esc 拒答——RustCode 会按自己的最佳判断继续 Ctrl+C 拒答 并 取消当前回合 单选题一键即可作答（高亮后按 Enter ）；多选题用 Enter / Space 勾选各行，只有激活专门的 Submit 行才真正提交。"
       },
       {
         "id": "一次问多个问题",
         "heading": "一次问多个问题",
-        "body": "当同一个抉择点上有不止一个要问的，AtomCode 会把它们（最多四个）合并进一个面板，而不是反复打断你。用 Tab 在各题间切换，逐一作答，再一次性提交。只有一个问题时的渲染与以前完全一致。"
+        "body": "当同一个抉择点上有不止一个要问的，RustCode 会把它们（最多四个）合并进一个面板，而不是反复打断你。用 Tab 在各题间切换，逐一作答，再一次性提交。只有一个问题时的渲染与以前完全一致。"
       },
       {
         "id": "在-web-ui-中",
@@ -727,12 +692,12 @@
       {
         "id": "关闭该功能",
         "heading": "关闭该功能",
-        "body": "该功能默认开启。若要关闭，启动前设置环境变量： ATOMCODE_REQUEST_USER_INPUT=0 atomcode 0 、 false 、 off 或空值任一都会关闭；不设置（或其它值）则保持开启。关闭后，AtomCode 不再提问，始终按自己的最佳判断继续。 Bypass 模式自动跳过提问 在 Bypass / 免审批 模式下，面板会被自动跳过，AtomCode 不等待直接继续。 Build 、 Plan 、 Accept Edits 模式都会正常展示问题。"
+        "body": "该功能默认开启。若要关闭，启动前设置环境变量： RUSTCODE_REQUEST_USER_INPUT=0 rustcode 0 、 false 、 off 或空值任一都会关闭；不设置（或其它值）则保持开启。关闭后，RustCode 不再提问，始终按自己的最佳判断继续。 Bypass 模式自动跳过提问 在 Bypass / 免审批 模式下，面板会被自动跳过，RustCode 不等待直接继续。 Build 、 Plan 、 Accept Edits 模式都会正常展示问题。"
       },
       {
         "id": "相关",
         "heading": "相关",
-        "body": "权限审批 —— 独立的权限门控系统 WebUI 界面 —— 审批模式与浏览器体验 配置文件 —— 环境变量与设置 © 2026 AtomCode · MIT 报告问题"
+        "body": "权限审批 —— 独立的权限门控系统 WebUI 界面 —— 审批模式与浏览器体验 配置文件 —— 环境变量与设置 © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   },
@@ -740,12 +705,12 @@
     "slug": "tools",
     "title": "内置工具",
     "group": "进阶",
-    "lede": "AtomCode 内置文件与 Shell、代码图谱、Web、自动化和 AtomGit 原生操作等工具。模型会根据任务自动挑选，大多数情况下你不需要手动指定。",
+    "lede": "RustCode 内置文件与 Shell、代码图谱、Web、自动化等工具，以及可选的托管平台操作。模型会根据任务自动挑选，大多数情况下你不需要手动指定。",
     "sections": [
       {
         "id": "内置工具",
         "heading": "内置工具",
-        "body": "AtomCode 内置文件与 Shell、代码图谱、Web、自动化和 AtomGit 原生操作等工具。模型会根据任务自动挑选，大多数情况下你不需要手动指定。"
+        "body": "RustCode 内置文件与 Shell、代码图谱、Web、自动化等工具，以及可选的托管平台操作。模型会根据任务自动挑选，大多数情况下你不需要手动指定。"
       },
       {
         "id": "文件与-shell9-个",
@@ -755,7 +720,7 @@
       {
         "id": "代码图谱8-个",
         "heading": "代码图谱(8 个)",
-        "body": "这是 AtomCode 区别于一般 agent 的最大亮点。借助代码图谱索引,模型无需读遍整棵代码树就能精准定位符号、引用和调用关系,在大型仓库上效果尤其明显。 工具 作用 list_symbols 列出某个文件或目录下定义的所有符号(函数、类、常量等) read_symbol 精准读取某个符号的完整定义片段,而不用把整个文件拉进上下文 find_references 查找某个符号被引用的所有位置 trace_callers 回溯某个函数的调用方链路 trace_callees 展开某个函数内部调用了哪些下游 trace_chain 在两个符号之间搜索可能的调用链 file_deps 分析某个文件的 import/依赖关系 blast_radius 评估修改某个符号可能影响到的文件 / 符号范围"
+        "body": "这是 RustCode 区别于一般 agent 的最大亮点。借助代码图谱索引,模型无需读遍整棵代码树就能精准定位符号、引用和调用关系,在大型仓库上效果尤其明显。 工具 作用 list_symbols 列出某个文件或目录下定义的所有符号(函数、类、常量等) read_symbol 精准读取某个符号的完整定义片段,而不用把整个文件拉进上下文 find_references 查找某个符号被引用的所有位置 trace_callers 回溯某个函数的调用方链路 trace_callees 展开某个函数内部调用了哪些下游 trace_chain 在两个符号之间搜索可能的调用链 file_deps 分析某个文件的 import/依赖关系 blast_radius 评估修改某个符号可能影响到的文件 / 符号范围"
       },
       {
         "id": "典型使用场景",
@@ -773,24 +738,24 @@
         "body": "工具 作用 auto_fix 运行项目的 lint / typecheck,按错误列表循环修复直到通过 use_skill 调用用户自定义的 skill,把一个多步流程打包成可复用的命令 详见 Skills 扩展 。"
       },
       {
-        "id": "atomgit",
-        "heading": "AtomGit 集成（3 个）",
-        "body": "执行 /login 后，模型可以通过以下内置工具直接操作 AtomGit。你只需用自然语言描述目标，不再使用 /issue 斜杠命令。 工具 作用 需要确认 atomgit_repo 列出、查看、创建、删除、Fork 或 Clone 仓库，创建 Tag 并管理项目标签 写操作：是 atomgit_pr 列出、查看、创建或关闭 PR，管理 PR 评论，并关联或取消关联 Issue 写操作：是 atomgit_issue 列出或查看 Issue，创建 Issue，以及查看、新增、编辑或删除评论 写操作：是 示例：为这个 Bug 创建一个 AtomGit Issue，并附上复现步骤和环境信息。"
+        "id": "platform",
+        "heading": "托管平台集成（3 个，可选）",
+        "body": "附带托管平台支持的发行版会在 /login 后提供以下内置工具，模型可以直接操作该平台。你只需用自然语言描述目标，不再使用 /issue 斜杠命令。默认开源(BYO)构建不包含这些工具。 工具 作用 需要确认 platform_repo 列出、查看、创建、删除、Fork 或 Clone 仓库，创建 Tag 并管理项目标签 写操作：是 platform_pr 列出、查看、创建或关闭 PR，管理 PR 评论，并关联或取消关联 Issue 写操作：是 platform_issue 列出或查看 Issue，创建 Issue，以及查看、新增、编辑或删除评论 写操作：是 示例：为这个 Bug 在托管平台上创建一个 Issue，并附上复现步骤和环境信息。"
       },
       {
         "id": "大型工具输出",
         "heading": "大型工具输出",
-        "body": "当工具结果太长时，AtomCode 会在界面中显示稳定的摘要，并把完整内容保存到当前会话。模型可通过 fetch_output 分页读取后续内容，因此“输出已截断”不代表结果丢失；删除会话时对应的完整输出也会一并清理。"
+        "body": "当工具结果太长时，RustCode 会在界面中显示稳定的摘要，并把完整内容保存到当前会话。模型可通过 fetch_output 分页读取后续内容，因此“输出已截断”不代表结果丢失；删除会话时对应的完整输出也会一并清理。"
       },
       {
         "id": "禁用特定工具",
         "heading": "禁用特定工具",
-        "body": "用 --disable-tools 参数可以在启动时把某些工具对模型完全隐藏。例如在 SWE-bench 沙箱里: atomcode -p \"solve this issue\" --disable-tools web_search,web_fetch 禁用后的工具不会出现在 tool schemas 里,模型不会尝试去调用一个必然失败的工具。"
+        "body": "用 --disable-tools 参数可以在启动时把某些工具对模型完全隐藏。例如在 SWE-bench 沙箱里: rustcode -p \"solve this issue\" --disable-tools web_search,web_fetch 禁用后的工具不会出现在 tool schemas 里,模型不会尝试去调用一个必然失败的工具。"
       },
       {
         "id": "下一步",
         "heading": "下一步",
-        "body": "会话与撤销 —— 文件编辑工具都会走 file-history, /undo 可以回滚 Skills 扩展 —— 用 use_skill 包装你自己的工作流 © 2026 AtomCode · MIT 报告问题"
+        "body": "会话与撤销 —— 文件编辑工具都会走 file-history, /undo 可以回滚 Skills 扩展 —— 用 use_skill 包装你自己的工作流 © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   },
@@ -823,17 +788,17 @@
       {
         "id": "配置",
         "heading": "配置",
-        "body": "在 ~/.atomcode/config.toml 中调整子代理池： [subagent] max_concurrent = 3 # 同时并行的子代理数（最小 1） timeout_secs = 900 # 每个子任务的墙钟超时，秒（最小 30） max_rounds = 200 # 每个子任务的模型轮次上限（0 = 不限） 键 默认 含义 max_concurrent 3 并行运行的子代理数 timeout_secs 900 每个子任务的墙钟超时（下限 30 秒） max_rounds 200 每个子任务的模型轮次上限； 0 = 不限 环境变量覆盖： ATOMCODE_SUBAGENT_TIMEOUT 和 ATOMCODE_SUBAGENT_MAX_ROUNDS 优先于配置值。"
+        "body": "在 ~/.rustcode/config.toml 中调整子代理池： [subagent] max_concurrent = 3 # 同时并行的子代理数（最小 1） timeout_secs = 900 # 每个子任务的墙钟超时，秒（最小 30） max_rounds = 200 # 每个子任务的模型轮次上限（0 = 不限） 键 默认 含义 max_concurrent 3 并行运行的子代理数 timeout_secs 900 每个子任务的墙钟超时（下限 30 秒） max_rounds 200 每个子任务的模型轮次上限； 0 = 不限 环境变量覆盖： RUSTCODE_SUBAGENT_TIMEOUT 和 RUSTCODE_SUBAGENT_MAX_ROUNDS 优先于配置值。"
       },
       {
         "id": "关闭该功能",
         "heading": "关闭该功能",
-        "body": "task 工具默认开启。若要彻底移除它，设置： ATOMCODE_SUBAGENT=0 atomcode 0 、 false 、 off 任一都会关闭；不设置（或其它值）则保持开启。"
+        "body": "task 工具默认开启。若要彻底移除它，设置： RUSTCODE_SUBAGENT=0 rustcode 0 、 false 、 off 任一都会关闭；不设置（或其它值）则保持开启。"
       },
       {
         "id": "相关",
         "heading": "相关",
-        "body": "内置工具 —— 子代理可用的工具 权限审批 —— 为什么 worker 派发会请求审批 配置文件 —— 完整的 config.toml 参考 © 2026 AtomCode · MIT 报告问题"
+        "body": "内置工具 —— 子代理可用的工具 权限审批 —— 为什么 worker 派发会请求审批 配置文件 —— 完整的 config.toml 参考 © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   },
@@ -841,17 +806,17 @@
     "slug": "approvals",
     "title": "权限与审批",
     "group": "进阶",
-    "lede": "AtomCode 会替你执行工具——改文件、跑 shell、联网抓取、调用 MCP 服务。它的安全模型可以一句话概括: 每一次工具调用都会被归到四个「审批等级」之一 ,等级决定它是直接执行、还是先弹窗征求你确认、以及你选「总是允许」时能不能被记住。本页先讲这套 整体模型 ,再逐一展开:哪些操作落到哪一级、弹窗里你的选择、以及如何在不丢掉安全闸的前提下少问几次。",
+    "lede": "RustCode 会替你执行工具——改文件、跑 shell、联网抓取、调用 MCP 服务。它的安全模型可以一句话概括: 每一次工具调用都会被归到四个「审批等级」之一 ,等级决定它是直接执行、还是先弹窗征求你确认、以及你选「总是允许」时能不能被记住。本页先讲这套 整体模型 ,再逐一展开:哪些操作落到哪一级、弹窗里你的选择、以及如何在不丢掉安全闸的前提下少问几次。",
     "sections": [
       {
         "id": "权限与审批",
         "heading": "权限与审批",
-        "body": "AtomCode 会替你执行工具——改文件、跑 shell、联网抓取、调用 MCP 服务。它的安全模型可以一句话概括: 每一次工具调用都会被归到四个「审批等级」之一 ,等级决定它是直接执行、还是先弹窗征求你确认、以及你选「总是允许」时能不能被记住。本页先讲这套 整体模型 ,再逐一展开:哪些操作落到哪一级、弹窗里你的选择、以及如何在不丢掉安全闸的前提下少问几次。"
+        "body": "RustCode 会替你执行工具——改文件、跑 shell、联网抓取、调用 MCP 服务。它的安全模型可以一句话概括: 每一次工具调用都会被归到四个「审批等级」之一 ,等级决定它是直接执行、还是先弹窗征求你确认、以及你选「总是允许」时能不能被记住。本页先讲这套 整体模型 ,再逐一展开:哪些操作落到哪一级、弹窗里你的选择、以及如何在不丢掉安全闸的前提下少问几次。"
       },
       {
         "id": "model",
         "heading": "核心:四个审批等级",
-        "body": "这是理解整页的主线。任何工具在执行前都会落到下面四级之一: 审批等级 含义 「总是允许」能记住吗 自动放行 直接执行,不打扰你。项目内的安全操作都在这一级。 —(本就不问) 询问 弹窗确认;选「本会话总是允许」后,该工具本会话内不再问。 ✅ 能 始终询问 每次都问, 即使 之前按过「总是允许」也不放过——留给破坏性 / 高危操作。 ❌ 不能 按资源询问 弹窗确认;「总是允许」只记住 这一个具体资源 (比如某个文件),换一个仍会问。 仅同一资源 记住这四级,后面所有内容都是在说\"某个操作落到哪一级、为什么\"。"
+        "body": "这是理解整页的主线。任何工具在执行前都会落到下面四级之一: 审批等级 含义 「总是允许」能记住吗 自动放行 直接执行,不打扰你。项目内的安全操作都在这一级。 —(本就不问) 询问 弹窗确认;选「本会话总是允许」后,该工具本会话内不再问。 [+] 能 始终询问 每次都问, 即使 之前按过「总是允许」也不放过——留给破坏性 / 高危操作。 [-] 不能 按资源询问 弹窗确认;「总是允许」只记住 这一个具体资源 (比如某个文件),换一个仍会问。 仅同一资源 记住这四级,后面所有内容都是在说\"某个操作落到哪一级、为什么\"。"
       },
       {
         "id": "triggers",
@@ -866,7 +831,7 @@
       {
         "id": "mcp",
         "heading": "MCP 工具的两档授权",
-        "body": "MCP 工具调用的是 外部代码 ,所以默认落在「询问」级。如果你信任某个工具或 server,可以把它升到「自动放行」——分三级,从最弱到最持久,而且关键在于 只有前两级能从按钮触达 : 本会话总是允许 ( [A] 键 / 按钮)——内存级,仅本会话, 仅该工具 。 永久允许此工具 (按钮,仅 MCP)——持久, 仅该工具 。把工具裸名追加进该 server 在 mcp.json 里的 autoApprove 列表: { \"mcpServers\": { \"my-docs\": { \"command\": \"my-docs-server\", \"autoApprove\": [\"query\", \"search\"] } } } 信任整个 server — 只能手改配置 ,任何运行时按钮都不会设置它: { \"mcpServers\": { \"my-docs\": { \"command\": \"my-docs-server\", \"trust\": true } } } 为什么一次点击不能信任整个 server MCP 工具以 它自己的权限 运行,绕过 AtomCode 自身的路径 / 命令防护——一个 server 能写文件、能联网、能花钱。审批弹窗就是你的闸门。 trust: true 会自动放行该 server 上的 每一个 工具,包括你从没见过的写入 / 破坏性工具,所以它被刻意设计成 只有你 能手改配置文件来开启——一次误点(或一次 prompt 注入)永远没法把单次批准升级成对整个 server 的永久信任。 trust: true 只留给你完全掌控的 server(最好是本地、只读)。"
+        "body": "MCP 工具调用的是 外部代码 ,所以默认落在「询问」级。如果你信任某个工具或 server,可以把它升到「自动放行」——分三级,从最弱到最持久,而且关键在于 只有前两级能从按钮触达 : 本会话总是允许 ( [A] 键 / 按钮)——内存级,仅本会话, 仅该工具 。 永久允许此工具 (按钮,仅 MCP)——持久, 仅该工具 。把工具裸名追加进该 server 在 mcp.json 里的 autoApprove 列表: { \"mcpServers\": { \"my-docs\": { \"command\": \"my-docs-server\", \"autoApprove\": [\"query\", \"search\"] } } } 信任整个 server — 只能手改配置 ,任何运行时按钮都不会设置它: { \"mcpServers\": { \"my-docs\": { \"command\": \"my-docs-server\", \"trust\": true } } } 为什么一次点击不能信任整个 server MCP 工具以 它自己的权限 运行,绕过 RustCode 自身的路径 / 命令防护——一个 server 能写文件、能联网、能花钱。审批弹窗就是你的闸门。 trust: true 会自动放行该 server 上的 每一个 工具,包括你从没见过的写入 / 破坏性工具,所以它被刻意设计成 只有你 能手改配置文件来开启——一次误点(或一次 prompt 注入)永远没法把单次批准升级成对整个 server 的永久信任。 trust: true 只留给你完全掌控的 server(最好是本地、只读)。"
       },
       {
         "id": "sensitive",
@@ -886,12 +851,12 @@
       {
         "id": "config",
         "heading": "配置参考",
-        "body": "MCP 信任写在 mcp.json 里——项目级 .mcp.json 或用户级 ~/.atomcode/mcp.json ——按 server 配置: 字段 效果 trust: true 把该 server 的 所有 工具升到「自动放行」。仅手改。 autoApprove: [\"toolA\", …] 把 指定 工具升到「自动放行」。「永久允许此工具」按钮追加到这里。"
+        "body": "MCP 信任写在 mcp.json 里——项目级 .mcp.json 或用户级 ~/.rustcode/mcp.json ——按 server 配置: 字段 效果 trust: true 把该 server 的 所有 工具升到「自动放行」。仅手改。 autoApprove: [\"toolA\", …] 把 指定 工具升到「自动放行」。「永久允许此工具」按钮追加到这里。"
       },
       {
         "id": "下一步",
         "heading": "下一步",
-        "body": "内置工具 — 每个工具做什么、能碰到什么 MCP 集成 — 添加 server,以及 trust / autoApprove 写在哪 配置文件 — 配置文件与优先级 © 2026 AtomCode · MIT 报告问题"
+        "body": "内置工具 — 每个工具做什么、能碰到什么 MCP 集成 — 添加 server,以及 trust / autoApprove 写在哪 配置文件 — 配置文件与优先级 © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   },
@@ -919,7 +884,7 @@
       {
         "id": "skill-目录",
         "heading": "Skill 目录",
-        "body": "AtomCode 会从若干约定位置加载 skills: 全局 : ~/.atomcode/skills/ 项目级 :当前工作目录及其上级的 .atomcode/skills/ (如有) 项目级会覆盖同名全局 skill,方便你在不同项目用同一个名字定义不同流程。"
+        "body": "RustCode 会从若干约定位置加载 skills: 全局 : ~/.rustcode/skills/ 项目级 :当前工作目录及其上级的 .rustcode/skills/ (如有) 项目级会覆盖同名全局 skill,方便你在不同项目用同一个名字定义不同流程。"
       },
       {
         "id": "调用方式",
@@ -934,7 +899,7 @@
       {
         "id": "通过-菜单",
         "heading": "通过 $ 菜单",
-        "body": "在输入框行首打一个 $ ,会弹出一个 skills 菜单(和 /skills 列出的是同一批可调用技能);继续输入可过滤, Tab 补全高亮项的名字,提交 $<name> [参数] 即调用该 skill。它和斜杠命令是两套并行入口: / 走斜杠命令补全, $ 专门用来挑 skill,后面还能直接带参数,例如 $brainstorming 帮我想登录方案 。 v5.0.3 的 /skills 支持用多个名称或片段一次选择多个 Skill，并会回显实际加载结果。新安装的 Skill 也会自动刷新，通常不需要重启 AtomCode。"
+        "body": "在输入框行首打一个 $ ,会弹出一个 skills 菜单(和 /skills 列出的是同一批可调用技能);继续输入可过滤, Tab 补全高亮项的名字,提交 $<name> [参数] 即调用该 skill。它和斜杠命令是两套并行入口: / 走斜杠命令补全, $ 专门用来挑 skill,后面还能直接带参数,例如 $brainstorming 帮我想登录方案 。 v5.0.3 的 /skills 支持用多个名称或片段一次选择多个 Skill，并会回显实际加载结果。新安装的 Skill 也会自动刷新，通常不需要重启 RustCode。"
       },
       {
         "id": "模型自动触发",
@@ -949,12 +914,12 @@
       {
         "id": "与项目指令的分工",
         "heading": "与项目指令的分工",
-        "body": "场景 放在 始终生效的项目约定(技术栈、代码风格、命令) .atomcode.md 某个特定流程、需要被显式触发 Skill 只需要一次的临时要求 直接写在 prompt 里"
+        "body": "场景 放在 始终生效的项目约定(技术栈、代码风格、命令) .rustcode.md 某个特定流程、需要被显式触发 Skill 只需要一次的临时要求 直接写在 prompt 里"
       },
       {
         "id": "下一步",
         "heading": "下一步",
-        "body": "基本使用 —— 回到日常使用场景 常见问题 —— 为什么我的 skill 没出现在菜单里? © 2026 AtomCode · MIT 报告问题"
+        "body": "基本使用 —— 回到日常使用场景 常见问题 —— 为什么我的 skill 没出现在菜单里? © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   },
@@ -962,22 +927,22 @@
     "slug": "mcp",
     "title": "MCP 集成",
     "group": "进阶",
-    "lede": "MCP（Model Context Protocol）是一个开放协议,把外部程序或 HTTP 服务的「工具」接到 AtomCode,让模型像调用内置工具一样使用它们。从 v4.20.4 起 AtomCode 内置 MCP 客户端,直接复用 Cursor 等同样使用 mcpServers 配置块的生态。",
+    "lede": "MCP（Model Context Protocol）是一个开放协议,把外部程序或 HTTP 服务的「工具」接到 RustCode,让模型像调用内置工具一样使用它们。从 v4.20.4 起 RustCode 内置 MCP 客户端,直接复用 Cursor 等同样使用 mcpServers 配置块的生态。",
     "sections": [
       {
         "id": "mcp-集成",
         "heading": "MCP 集成",
-        "body": "MCP（Model Context Protocol）是一个开放协议,把外部程序或 HTTP 服务的「工具」接到 AtomCode,让模型像调用内置工具一样使用它们。从 v4.20.4 起 AtomCode 内置 MCP 客户端,直接复用 Cursor 等同样使用 mcpServers 配置块的生态。"
+        "body": "MCP（Model Context Protocol）是一个开放协议,把外部程序或 HTTP 服务的「工具」接到 RustCode,让模型像调用内置工具一样使用它们。从 v4.20.4 起 RustCode 内置 MCP 客户端,直接复用 Cursor 等同样使用 mcpServers 配置块的生态。"
       },
       {
         "id": "它能做什么",
         "heading": "它能做什么",
-        "body": "通过官方 MCP server 操作 GitHub、GitLab、Jira 等外部服务 接 Postgres / MySQL / DuckDB 等数据库 使用文件系统、Playwright 浏览器、Slack 消息等社区生态 server 把团队内部的领域工具暴露给模型,无需改 atomcode 源码"
+        "body": "通过官方 MCP server 操作 GitHub、GitLab、Jira 等外部服务 接 Postgres / MySQL / DuckDB 等数据库 使用文件系统、Playwright 浏览器、Slack 消息等社区生态 server 把团队内部的领域工具暴露给模型,无需改 rustcode 源码"
       },
       {
         "id": "两个配置位置",
         "heading": "两个配置位置",
-        "body": "路径 作用域 <项目根>/.mcp.json 仅当前项目可见,适合跟代码同仓库 ~/.atomcode/mcp.json 用户全局,跨所有项目共享 两份可同时存在; 同名 server 以项目级为准 (覆盖用户级)。仓库根目录的 .mcp.json.example 自带 stdio 与 HTTP 双模板和详细注释,推荐从它开始改。"
+        "body": "路径 作用域 <项目根>/.mcp.json 仅当前项目可见,适合跟代码同仓库 ~/.rustcode/mcp.json 用户全局,跨所有项目共享 两份可同时存在; 同名 server 以项目级为准 (覆盖用户级)。仓库根目录的 .mcp.json.example 自带 stdio 与 HTTP 双模板和详细注释,推荐从它开始改。"
       },
       {
         "id": "配置-schema",
@@ -997,12 +962,12 @@
       {
         "id": "github-remote-mcp-oauth",
         "heading": "GitHub remote MCP + OAuth",
-        "body": "{ \"mcpServers\": { \"github\": { \"url\": \"https://api.githubcopilot.com/mcp/\", \"auth\": { \"type\": \"oauth\", \"provider\": \"github\" } } } } 首次使用前需准备 AtomCode 自己的 GitHub OAuth App client id,然后运行: atomcode mcp add-github-oauth --global ATOMCODE_GITHUB_MCP_CLIENT_ID=<client_id> atomcode mcp login github atomcode TUI 内也可在设置好环境变量后运行 /mcp login github ,登录成功后用 /mcp reload 重连。"
+        "body": "{ \"mcpServers\": { \"github\": { \"url\": \"https://api.githubcopilot.com/mcp/\", \"auth\": { \"type\": \"oauth\", \"provider\": \"github\" } } } } 首次使用前需准备 RustCode 自己的 GitHub OAuth App client id,然后运行: rustcode mcp add-github-oauth --global RUSTCODE_GITHUB_MCP_CLIENT_ID=<client_id> rustcode mcp login github rustcode TUI 内也可在设置好环境变量后运行 /mcp login github ,登录成功后用 /mcp reload 重连。"
       },
       {
         "id": "一行命令添加-server",
         "heading": "一行命令添加 server",
-        "body": "atomcode mcp add 自动把 stdio 配置写入 JSON,不用手动编辑: # 写入项目根 .mcp.json(默认当前目录) atomcode mcp add playwright npx @playwright/mcp@latest # 写入用户全局 ~/.atomcode/mcp.json atomcode mcp add playwright npx @playwright/mcp@latest --global # 指定项目目录 atomcode mcp add playwright npx @playwright/mcp@latest -C /path/to/repo 第一个参数是 server 键名(将出现在工具名里),后面跟可执行文件 + 参数。 GitHub remote MCP OAuth 可用专用入口: atomcode mcp add-github-oauth --global ATOMCODE_GITHUB_MCP_CLIENT_ID=<client_id> atomcode mcp login github 注意 同名会 整段覆盖 该 server。GitHub OAuth token 保存在 ~/.atomcode/mcp_auth.toml ,不会写入 .mcp.json 。"
+        "body": "rustcode mcp add 自动把 stdio 配置写入 JSON,不用手动编辑: # 写入项目根 .mcp.json(默认当前目录) rustcode mcp add playwright npx @playwright/mcp@latest # 写入用户全局 ~/.rustcode/mcp.json rustcode mcp add playwright npx @playwright/mcp@latest --global # 指定项目目录 rustcode mcp add playwright npx @playwright/mcp@latest -C /path/to/repo 第一个参数是 server 键名(将出现在工具名里),后面跟可执行文件 + 参数。 GitHub remote MCP OAuth 可用专用入口: rustcode mcp add-github-oauth --global RUSTCODE_GITHUB_MCP_CLIENT_ID=<client_id> rustcode mcp login github 注意 同名会 整段覆盖 该 server。GitHub OAuth token 保存在 ~/.rustcode/mcp_auth.toml ,不会写入 .mcp.json 。"
       },
       {
         "id": "启动后会发生什么",
@@ -1012,7 +977,7 @@
       {
         "id": "工具命名",
         "heading": "工具命名",
-        "body": "每个远端 tool 注册成 mcp__<server 键名>__<远端 tool 名> 。 例:配置里 \"mcpServers\": { \"github\": { ... } } ,远端有 get_issue ,模型看到的工具名就是 mcp__github__get_issue 。 --disable-tools 也用这个完整名: atomcode --disable-tools mcp__github__get_issue,mcp__filesystem__write_file"
+        "body": "每个远端 tool 注册成 mcp__<server 键名>__<远端 tool 名> 。 例:配置里 \"mcpServers\": { \"github\": { ... } } ,远端有 get_issue ,模型看到的工具名就是 mcp__github__get_issue 。 --disable-tools 也用这个完整名: rustcode --disable-tools mcp__github__get_issue,mcp__filesystem__write_file"
       },
       {
         "id": "权限审批",
@@ -1022,12 +987,12 @@
       {
         "id": "项目信任mcpjson",
         "heading": "项目信任(.mcp.json)",
-        "body": "定义在 项目级 .mcp.json 里的 server 在你信任该项目前都是不受信任的 。一个刚 clone 下来、自带 .mcp.json 的仓库不会在你机器上自动拉起子进程 —— 它的项目级 server 会被挡在连接循环之外(fail-closed),你会看到一条 blocked-untrusted 提示列出它们。用户全局 server( ~/.atomcode/mcp.json )不受影响。 信任按项目目录记录,存于 ~/.atomcode/mcp_trust.json : /mcp trust —— 信任当前项目;它的 .mcp.json server 立即连接(隐式跑一次 /mcp reload )。 /mcp untrust —— 撤销信任;该项目的 MCP tools 立刻移除。 在 Web UI 里,一个 信任项目 按钮通过 POST /live/mcp/trust 做同样的事,MCP 状态会显示哪些 server 已连接、哪些被挡下。"
+        "body": "定义在 项目级 .mcp.json 里的 server 在你信任该项目前都是不受信任的 。一个刚 clone 下来、自带 .mcp.json 的仓库不会在你机器上自动拉起子进程 —— 它的项目级 server 会被挡在连接循环之外(fail-closed),你会看到一条 blocked-untrusted 提示列出它们。用户全局 server( ~/.rustcode/mcp.json )不受影响。 信任按项目目录记录,存于 ~/.rustcode/mcp_trust.json : /mcp trust —— 信任当前项目;它的 .mcp.json server 立即连接(隐式跑一次 /mcp reload )。 /mcp untrust —— 撤销信任;该项目的 MCP tools 立刻移除。 在 Web UI 里,一个 信任项目 按钮通过 POST /live/mcp/trust 做同样的事,MCP 状态会显示哪些 server 已连接、哪些被挡下。"
       },
       {
         "id": "斜杠命令",
         "heading": "斜杠命令",
-        "body": "命令 作用 /mcp 列出 已成功连接 的 server 及状态(失败的 server 不在列表里,只在会话区有红色错误行) /mcp tools <server> 异步列出某个 server 实际暴露的远端 tools /mcp reload 重新读取 .mcp.json / ~/.atomcode/mcp.json 并后台重连启用中的 server /mcp trust / /mcp untrust 信任(或取消信任)当前项目,使其 .mcp.json server 可以连接"
+        "body": "命令 作用 /mcp 列出 已成功连接 的 server 及状态(失败的 server 不在列表里,只在会话区有红色错误行) /mcp tools <server> 异步列出某个 server 实际暴露的远端 tools /mcp reload 重新读取 .mcp.json / ~/.rustcode/mcp.json 并后台重连启用中的 server /mcp trust / /mcp untrust 信任(或取消信任)当前项目,使其 .mcp.json server 可以连接"
       },
       {
         "id": "当前限制",
@@ -1037,12 +1002,12 @@
       {
         "id": "同类生态对比",
         "heading": "同类生态对比",
-        "body": "产品 配置位置 备注 AtomCode .mcp.json 的 mcpServers 块 当前实现 tools-only Claude Code .mcp.json OAuth、resources、prompts 更全 Cursor .mcp.json 常见 command / url 配置通常可复用 Codex CLI 添加 OpenAI 生态 已经在用 Cursor 配 MCP server 的话,常见 command / url 类型配置通常可复用;超出当前字段或能力范围的配置需按 AtomCode 当前实现确认。"
+        "body": "产品 配置位置 备注 RustCode .mcp.json 的 mcpServers 块 当前实现 tools-only Claude Code .mcp.json OAuth、resources、prompts 更全 Cursor .mcp.json 常见 command / url 配置通常可复用 Codex CLI 添加 OpenAI 生态 已经在用 Cursor 配 MCP server 的话,常见 command / url 类型配置通常可复用;超出当前字段或能力范围的配置需按 RustCode 当前实现确认。"
       },
       {
         "id": "下一步",
         "heading": "下一步",
-        "body": "仓库根目录的 .mcp.json.example —— 带详细注释的 stdio + HTTP 双模板 配置文件 —— 整体配置概览 斜杠命令 —— 含 /mcp 系列在内的完整命令列表 © 2026 AtomCode · MIT 报告问题"
+        "body": "源码仓库根目录的 .mcp.json.example 模板(源码请从你的发行渠道获取)—— 带详细注释的 stdio + HTTP 双模板 配置文件 —— 整体配置概览 斜杠命令 —— 含 /mcp 系列在内的完整命令列表 © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   },
@@ -1050,17 +1015,17 @@
     "slug": "plugins",
     "title": "Plugin 系统",
     "group": "进阶",
-    "lede": "Plugin 是一组 skill / 命令 / hook 的集合,通过 git 仓库分发。一行 /plugin install 就能把别人写好的工作流装到 AtomCode 里,装完即用。AtomCode 的 plugin 协议与 Claude Code 兼容,CC 生态的 plugin 仓库可以直接安装运行。",
+    "lede": "Plugin 是一组 skill / 命令 / hook 的集合,通过 git 仓库分发。一行 /plugin install 就能把别人写好的工作流装到 RustCode 里,装完即用。RustCode 的 plugin 协议与 Claude Code 兼容,CC 生态的 plugin 仓库可以直接安装运行。",
     "sections": [
       {
         "id": "plugin-系统",
         "heading": "Plugin 系统",
-        "body": "Plugin 是一组 skill / 命令 / hook 的集合,通过 git 仓库分发。一行 /plugin install 就能把别人写好的工作流装到 AtomCode 里,装完即用。AtomCode 的 plugin 协议与 Claude Code 兼容,CC 生态的 plugin 仓库可以直接安装运行。"
+        "body": "Plugin 是一组 skill / 命令 / hook 的集合,通过 git 仓库分发。一行 /plugin install 就能把别人写好的工作流装到 RustCode 里,装完即用。RustCode 的 plugin 协议与 Claude Code 兼容,CC 生态的 plugin 仓库可以直接安装运行。"
       },
       {
         "id": "核心概念",
         "heading": "核心概念",
-        "body": "Marketplace —— 一个 git 仓库,根目录有 .atomcode-plugin/marketplace.json 或 .claude-plugin/marketplace.json ,声明它包含哪些 plugin。 Plugin —— marketplace 里的一个条目,可以是同仓库的子目录,也可以指向**外部 git 仓库**( url / github / git )或**本地路径**( local )。 Skill / 命令 / Hook —— plugin 安装后会贡献的三类资产。skill 与命令带 plugin-name: 命名空间(避免冲突),hook 按事件触发。"
+        "body": "Marketplace —— 一个 git 仓库,根目录有 .rustcode-plugin/marketplace.json 或 .claude-plugin/marketplace.json ,声明它包含哪些 plugin。 Plugin —— marketplace 里的一个条目,可以是同仓库的子目录,也可以指向**外部 git 仓库**( url / github / git )或**本地路径**( local )。 Skill / 命令 / Hook —— plugin 安装后会贡献的三类资产。skill 与命令带 plugin-name: 命名空间(避免冲突),hook 按事件触发。"
       },
       {
         "id": "命令速查",
@@ -1080,27 +1045,27 @@
       {
         "id": "方式-2命令行子命令",
         "heading": "方式 2:命令行子命令",
-        "body": "# 1. 注册 marketplace(克隆其 git 仓库到本地) /plugin marketplace add https://gitcode.com/gmq123/ascend-model-agent-plugin # 2. 装其中的 plugin /plugin install ascend-model-agent-plugin@ascend-model-agent-plugin # 3. 列出已装 /plugin list"
+        "body": "# 1. 注册 marketplace(克隆其 git 仓库到本地) # 使用你的发行渠道或插件作者提供的 marketplace 地址 /plugin marketplace add https://example.com/<your-org>/<marketplace>.git # 2. 装其中的 plugin /plugin install <plugin>@<marketplace> # 3. 列出已装 /plugin list"
       },
       {
         "id": "方式-3cli",
         "heading": "方式 3:CLI",
-        "body": "atomcode plugin marketplace add <git-url> atomcode plugin install <plugin>@<marketplace> atomcode plugin list atomcode plugin uninstall <plugin>@<marketplace> atomcode plugin marketplace remove|update|list CLI 与 TUI 共享 ~/.atomcode/plugins/ 目录,任意一边装的另一边立即可见。"
+        "body": "rustcode plugin marketplace add <git-url> rustcode plugin install <plugin>@<marketplace> rustcode plugin list rustcode plugin uninstall <plugin>@<marketplace> rustcode plugin marketplace remove|update|list CLI 与 TUI 共享 ~/.rustcode/plugins/ 目录,任意一边装的另一边立即可见。"
       },
       {
         "id": "装完之后",
         "heading": "装完之后",
-        "body": "plugin 贡献的 skill 出现在 / 菜单,带 <plugin-name>: 前缀。例如 /ascend-model-agent-plugin:ascend-model-verification 。 模型也能通过 UseSkill 工具自动调用这些 skill。 Hook 需信任后才激活 —— 安装时会打印该插件贡献的 hook 告知(但不运行),运行 atomcode plugin trust <name> 授权后,下次 session 启动时生效。详见 Hook 信任流程 。"
+        "body": "plugin 贡献的 skill 出现在 / 菜单,带 <plugin-name>: 前缀。例如 /ascend-model-agent-plugin:ascend-model-verification 。 模型也能通过 UseSkill 工具自动调用这些 skill。 Hook 需信任后才激活 —— 安装时会打印该插件贡献的 hook 告知(但不运行),运行 rustcode plugin trust <name> 授权后,下次 session 启动时生效。详见 Hook 信任流程 。"
       },
       {
         "id": "目录布局",
         "heading": "目录布局",
-        "body": "~/.atomcode/plugins/ ├── marketplaces.json # 注册的 marketplace 元数据 ├── installed_plugins.json # 已装 plugin 的状态记录 ├── marketplaces/ │ └── <marketplace-name>/ # marketplace 仓库克隆 │ ├── .claude-plugin/marketplace.json │ └── <plugin-subdir>/ # inline plugin └── installed/ └── <marketplace>/<plugin>/ # 外部 source 的 plugin 克隆"
+        "body": "~/.rustcode/plugins/ ├── marketplaces.json # 注册的 marketplace 元数据 ├── installed_plugins.json # 已装 plugin 的状态记录 ├── marketplaces/ │ └── <marketplace-name>/ # marketplace 仓库克隆 │ ├── .claude-plugin/marketplace.json │ └── <plugin-subdir>/ # inline plugin └── installed/ └── <marketplace>/<plugin>/ # 外部 source 的 plugin 克隆"
       },
       {
         "id": "pluginjson-内嵌结构",
         "heading": "plugin.json 内嵌结构",
-        "body": "每个 plugin 根目录(或 .claude-plugin/ / .atomcode-plugin/ 子目录)下的 plugin.json : { \"name\": \"my-plugin\", \"version\": \"1.0.0\", \"description\": \"干啥用的\", \"skills\": [\"./skills\"], // 也接受字符串 \"skills\" \"commands\": [\"./commands\"], \"hooks\": { // 也接受路径字符串 \"hooks.json\" \"UserPromptSubmit\": [{ \"hooks\": [{ \"type\": \"command\", \"command\": \"python \\\"${CLAUDE_PLUGIN_ROOT}/hook.py\\\"\", \"timeout\": 5 }] }] } }"
+        "body": "每个 plugin 根目录(或 .claude-plugin/ / .rustcode-plugin/ 子目录)下的 plugin.json : { \"name\": \"my-plugin\", \"version\": \"1.0.0\", \"description\": \"干啥用的\", \"skills\": [\"./skills\"], // 也接受字符串 \"skills\" \"commands\": [\"./commands\"], \"hooks\": { // 也接受路径字符串 \"hooks.json\" \"UserPromptSubmit\": [{ \"hooks\": [{ \"type\": \"command\", \"command\": \"python \\\"${CLAUDE_PLUGIN_ROOT}/hook.py\\\"\", \"timeout\": 5 }] }] } }"
       },
       {
         "id": "hook-事件",
@@ -1115,17 +1080,17 @@
       {
         "id": "hook-trust",
         "heading": "Hook 信任流程",
-        "body": "为防止恶意插件静默执行任意命令,plugin hook 受信任门控保护: 安装时 ( /plugin install / atomcode plugin install )——打印 hook 内容告知, 不立即运行 hook。 授权信任 ——用户确认后运行: atomcode plugin trust <plugin-name> AtomCode 记录当前 hook 命令集的哈希值。 下次 session 生效 ——受信任的 hook 在下次启动时加载并激活。 更新失效 ——插件更新后若 hook 命令有变动,哈希自动失效;需重新 trust 才能运行新版本 hook。 撤销信任: atomcode plugin untrust <plugin-name>"
+        "body": "为防止恶意插件静默执行任意命令,plugin hook 受信任门控保护: 安装时 ( /plugin install / rustcode plugin install )——打印 hook 内容告知, 不立即运行 hook。 授权信任 ——用户确认后运行: rustcode plugin trust <plugin-name> RustCode 记录当前 hook 命令集的哈希值。 下次 session 生效 ——受信任的 hook 在下次启动时加载并激活。 更新失效 ——插件更新后若 hook 命令有变动,哈希自动失效;需重新 trust 才能运行新版本 hook。 撤销信任: rustcode plugin untrust <plugin-name>"
       },
       {
         "id": "userpromptsubmit-io-协议",
         "heading": "UserPromptSubmit IO 协议",
-        "body": "Hook 通过 stdin 拿到 JSON,通过 stdout 决定如何处理: { \"session_id\": \"...\", \"hook_event_name\": \"UserPromptSubmit\", \"prompt\": \"用户输入的文本\", \"cwd\": \"/工作目录\" } Hook 可以用以下方式响应(优先级由高到低): 退出码非零 —— 阻断 prompt,reason 取自 stderr。 stdout 输出 JSON {\"decision\": \"block\", \"reason\": \"...\"} —— 阻断,显式给原因。 stdout 输出 JSON {\"hookSpecificOutput\": {\"additionalContext\": \"...\"}} —— 把 additionalContext 追加到用户消息后,作为 LLM 的额外上下文。 stdout 输出纯文本 —— 整段作为 additionalContext 注入。 空 stdout / 不可解析 JSON —— 放行,prompt 原样进入 LLM。 AtomCode 解析 stdout 时,优先用 最后一个非空行 试 JSON;失败再回退到整段文本注入 —— 让 hook 脚本可以前置打印 debug 输出而不影响最终决策。"
+        "body": "Hook 通过 stdin 拿到 JSON,通过 stdout 决定如何处理: { \"session_id\": \"...\", \"hook_event_name\": \"UserPromptSubmit\", \"prompt\": \"用户输入的文本\", \"cwd\": \"/工作目录\" } Hook 可以用以下方式响应(优先级由高到低): 退出码非零 —— 阻断 prompt,reason 取自 stderr。 stdout 输出 JSON {\"decision\": \"block\", \"reason\": \"...\"} —— 阻断,显式给原因。 stdout 输出 JSON {\"hookSpecificOutput\": {\"additionalContext\": \"...\"}} —— 把 additionalContext 追加到用户消息后,作为 LLM 的额外上下文。 stdout 输出纯文本 —— 整段作为 additionalContext 注入。 空 stdout / 不可解析 JSON —— 放行,prompt 原样进入 LLM。 RustCode 解析 stdout 时,优先用 最后一个非空行 试 JSON;失败再回退到整段文本注入 —— 让 hook 脚本可以前置打印 debug 输出而不影响最终决策。"
       },
       {
         "id": "路径变量",
         "heading": "路径变量",
-        "body": "Hook 命令字符串中可以引用以下环境变量(由 executor 注入): ${CLAUDE_PLUGIN_ROOT} —— plugin 安装目录绝对路径(CC 兼容)。 ${ATOMCODE_PLUGIN_ROOT} —— 同上,atomcode 别名。 这些是 真实环境变量 由 shell 自身展开,不是字符串替换 —— 安装路径含空格、引号、 $ 、 ; 都不会破命令。"
+        "body": "Hook 命令字符串中可以引用以下环境变量(由 executor 注入): ${CLAUDE_PLUGIN_ROOT} —— plugin 安装目录绝对路径(CC 兼容)。 ${RUSTCODE_PLUGIN_ROOT} —— 同上,rustcode 别名。 这些是 真实环境变量 由 shell 自身展开,不是字符串替换 —— 安装路径含空格、引号、 $ 、 ; 都不会破命令。"
       },
       {
         "id": "marketplace-管理",
@@ -1134,8 +1099,8 @@
       },
       {
         "id": "实战装昇腾插件",
-        "heading": "实战:装昇腾插件",
-        "body": "/plugin marketplace add https://gitcode.com/gmq123/ascend-model-agent-plugin # > cloning marketplace from https://gitcode.com/... # > marketplace `ascend-model-agent-plugin` added at 7a59537 (1 plugins) /plugin install ascend-model-agent-plugin@ascend-model-agent-plugin # > installing `...`... # > installed `ascend-model-agent-plugin@ascend-model-agent-plugin` — 23 skills loaded, 5 skipped # 这个 plugin 装了一个 UserPromptSubmit hook(workflow_planner_hook.py), # 当你说\"帮我验证 Qwen3 在昇腾上的适配\"时,它会注入一份 workflow JSON, # 让模型按照 ascend-model-verification skill 链路执行。 帮我验证 Qwen3 在昇腾上的适配"
+        "heading": "实战:安装第三方插件",
+        "body": "marketplace 本质上就是按 URL 添加的 git 仓库。下面示例使用占位地址 —— 请替换为你的发行渠道或插件作者提供的 marketplace URL: /plugin marketplace add https://example.com/your-org/ascend-model-agent-plugin.git # > cloning marketplace from https://example.com/... # > marketplace `ascend-model-agent-plugin` added at 7a59537 (1 plugins) /plugin install ascend-model-agent-plugin@ascend-model-agent-plugin # > installing `...`... # > installed `ascend-model-agent-plugin@ascend-model-agent-plugin` — 23 skills loaded, 5 skipped # 这个 plugin 装了一个 UserPromptSubmit hook(workflow_planner_hook.py), # 当你说\"帮我验证 Qwen3 在昇腾上的适配\"时,它会注入一份 workflow JSON, # 让模型按照 ascend-model-verification skill 链路执行。 帮我验证 Qwen3 在昇腾上的适配"
       },
       {
         "id": "已知限制",
@@ -1145,7 +1110,7 @@
       {
         "id": "下一步",
         "heading": "下一步",
-        "body": "Skills 扩展 —— 写自己的 skill,plugin 里也能用。 斜杠命令 —— 完整的 /plugin 命令列表。 MCP 集成 —— 接入外部工具的另一条路径,与 plugin 互补。 © 2026 AtomCode · MIT 报告问题"
+        "body": "Skills 扩展 —— 写自己的 skill,plugin 里也能用。 斜杠命令 —— 完整的 /plugin 命令列表。 MCP 集成 —— 接入外部工具的另一条路径,与 plugin 互补。 © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   },
@@ -1153,12 +1118,12 @@
     "slug": "memory",
     "title": "永久记忆",
     "group": "进阶",
-    "lede": "用 /remember 把零碎的偏好、约定、命令记下来,AtomCode 会在每一轮对话的系统提示里把它们带给模型。和 .atomcode.md 项目指令文件 互补:指令文件适合写整篇规范,记忆适合积累那些\"突然想起来该告诉它\"的零散事实。",
+    "lede": "用 /remember 把零碎的偏好、约定、命令记下来,RustCode 会在每一轮对话的系统提示里把它们带给模型。和 .rustcode.md 项目指令文件 互补:指令文件适合写整篇规范,记忆适合积累那些\"突然想起来该告诉它\"的零散事实。",
     "sections": [
       {
         "id": "永久记忆",
         "heading": "永久记忆",
-        "body": "用 /remember 把零碎的偏好、约定、命令记下来,AtomCode 会在每一轮对话的系统提示里把它们带给模型。和 .atomcode.md 项目指令文件 互补:指令文件适合写整篇规范,记忆适合积累那些\"突然想起来该告诉它\"的零散事实。"
+        "body": "用 /remember 把零碎的偏好、约定、命令记下来,RustCode 会在每一轮对话的系统提示里把它们带给模型。和 .rustcode.md 项目指令文件 互补:指令文件适合写整篇规范,记忆适合积累那些\"突然想起来该告诉它\"的零散事实。"
       },
       {
         "id": "命令总览",
@@ -1168,12 +1133,12 @@
       {
         "id": "存储位置",
         "heading": "存储位置",
-        "body": "作用域 路径 全局 ~/.atomcode/memory.md (或 $ATOMCODE_HOME/memory.md ) 项目 <project_root>/.atomcode/memory.md 格式是普通 Markdown,每行一条 - 开头的列表项。可以用 /remember 也可以直接手编辑——AtomCode 在下一轮会重新读取。 非 - 开头的行会被忽略 ,所以可以加注释、空行、标题分组,记忆条目本身不受影响。"
+        "body": "作用域 路径 全局 ~/.rustcode/memory.md (或 $RUSTCODE_HOME/memory.md ) 项目 <project_root>/.rustcode/memory.md 格式是普通 Markdown,每行一条 - 开头的列表项。可以用 /remember 也可以直接手编辑——RustCode 在下一轮会重新读取。 非 - 开头的行会被忽略 ,所以可以加注释、空行、标题分组,记忆条目本身不受影响。"
       },
       {
         "id": "模型怎么用这些记忆",
         "heading": "模型怎么\"用\"这些记忆",
-        "body": "会话启动时,AtomCode 会通过 coding runtime 的 memory hook 合并 全局 + 项目记忆 ( crates/atomcode-coding/src/parts.rs ),格式如下: === MEMORY === The user has asked you to remember these facts and preferences: [Global] - 用户偏好简洁回答,避免冗长解释 - 中文回复,但 commit message 用英文 [Project: atomcode] - 测试命令是 cargo test --workspace --no-fail-fast - CI 失败时先看 .github/workflows/ci.yml 第 78-92 行 模型每个 turn 都能看到这块。 没有\"语义检索\"或\"按需召回\" ——是无条件全量注入,所以记忆条目越多,每个 turn 消耗的 token 越多。务必删除过时的条目,保持精简。"
+        "body": "会话启动时,RustCode 会通过 coding runtime 的 memory hook 合并 全局 + 项目记忆 ( crates/rustcode-coding/src/parts.rs ),格式如下: === MEMORY === The user has asked you to remember these facts and preferences: [Global] - 用户偏好简洁回答,避免冗长解释 - 中文回复,但 commit message 用英文 [Project: rustcode] - 测试命令是 cargo test --workspace --no-fail-fast - CI 失败时先看 .github/workflows/ci.yml 第 78-92 行 模型每个 turn 都能看到这块。 没有\"语义检索\"或\"按需召回\" ——是无条件全量注入,所以记忆条目越多,每个 turn 消耗的 token 越多。务必删除过时的条目,保持精简。"
       },
       {
         "id": "容量限制",
@@ -1203,17 +1168,17 @@
       {
         "id": "4-清理过时记忆",
         "heading": "4. 清理过时记忆",
-        "body": "> /forget npm run check [project] - 用 npm run check 跑类型检查(不是 npm run typecheck) (removed 1 matching entry) > /memory [Global] (/Users/alice/.atomcode/memory.md) - 改完代码先跑测试再 commit - 不要主动 git push,让我手动确认 [Project] (/Users/alice/code/myrepo/.atomcode/memory.md) - CI 失败时先看 .github/workflows/ci.yml 第 78-92 行"
+        "body": "> /forget npm run check [project] - 用 npm run check 跑类型检查(不是 npm run typecheck) (removed 1 matching entry) > /memory [Global] (/Users/alice/.rustcode/memory.md) - 改完代码先跑测试再 commit - 不要主动 git push,让我手动确认 [Project] (/Users/alice/code/myrepo/.rustcode/memory.md) - CI 失败时先看 .github/workflows/ci.yml 第 78-92 行"
       },
       {
         "id": "记忆-vs-项目指令文件-vs-会话历史",
         "heading": "记忆 vs 项目指令文件 vs 会话历史",
-        "body": "AtomCode 提供了三种持久化\"上下文\"的方式,各自定位不同: .atomcode.md 记忆(memory.md) 会话( /resume ) 适合内容 整篇规范、技术栈、详细约定 零散事实、个人偏好、命令速查 过去的对话和工具调用 作用范围 项目 项目 + 全局 具体某次会话 添加方式 手动编辑 /remember 或手动编辑 每次对话自动保存 注入机制 启动时注入系统提示 每轮注入系统提示 /resume 时整段恢复 token 预算 较大(整篇文档) 受 4000 字符上限 受上下文窗口限制 典型组合: 团队规范 写在 .atomcode.md 里(进 git,所有人共享) 个人偏好 用 /remember --global (只在你本机) 项目特定坑 用 /remember (留在项目本地的 .atomcode/memory.md ,可以选择是否进 git) 关于 .atomcode/memory.md 是否提交进 git:如果团队都用 AtomCode 且记忆是项目知识(如踩过的坑、约定),可以提交;如果是个人开发笔记,可以加进 .gitignore 。"
+        "body": "RustCode 提供了三种持久化\"上下文\"的方式,各自定位不同: .rustcode.md 记忆(memory.md) 会话( /resume ) 适合内容 整篇规范、技术栈、详细约定 零散事实、个人偏好、命令速查 过去的对话和工具调用 作用范围 项目 项目 + 全局 具体某次会话 添加方式 手动编辑 /remember 或手动编辑 每次对话自动保存 注入机制 启动时注入系统提示 每轮注入系统提示 /resume 时整段恢复 token 预算 较大(整篇文档) 受 4000 字符上限 受上下文窗口限制 典型组合: 团队规范 写在 .rustcode.md 里(进 git,所有人共享) 个人偏好 用 /remember --global (只在你本机) 项目特定坑 用 /remember (留在项目本地的 .rustcode/memory.md ,可以选择是否进 git) 关于 .rustcode/memory.md 是否提交进 git:如果团队都用 RustCode 且记忆是项目知识(如踩过的坑、约定),可以提交;如果是个人开发笔记,可以加进 .gitignore 。"
       },
       {
         "id": "下一步",
         "heading": "下一步",
-        "body": "项目指令文件 —— 整篇规范的最佳入口 斜杠命令 —— 完整命令参考 会话与撤销 —— /resume 的细节 © 2026 AtomCode · MIT 报告问题"
+        "body": "项目指令文件 —— 整篇规范的最佳入口 斜杠命令 —— 完整命令参考 会话与撤销 —— /resume 的细节 © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   },
@@ -1221,22 +1186,22 @@
     "slug": "project-instructions",
     "title": "项目指令文件",
     "group": "进阶",
-    "lede": "在项目根目录放一个 .atomcode.md ,可以把项目的技术栈、约定和偏好固化下来,AtomCode 启动时会自动把它注入系统提示,避免每次对话都要重复说一遍规则。",
+    "lede": "在项目根目录放一个 .rustcode.md ,可以把项目的技术栈、约定和偏好固化下来,RustCode 启动时会自动把它注入系统提示,避免每次对话都要重复说一遍规则。",
     "sections": [
       {
         "id": "项目指令文件",
         "heading": "项目指令文件",
-        "body": "在项目根目录放一个 .atomcode.md ,可以把项目的技术栈、约定和偏好固化下来,AtomCode 启动时会自动把它注入系统提示,避免每次对话都要重复说一遍规则。"
+        "body": "在项目根目录放一个 .rustcode.md ,可以把项目的技术栈、约定和偏好固化下来,RustCode 启动时会自动把它注入系统提示,避免每次对话都要重复说一遍规则。"
       },
       {
         "id": "为什么需要它",
         "heading": "为什么需要它",
-        "body": "设想这个常见场景:你的团队统一使用 Composition API,禁止 Options API。每次让 AtomCode 写新组件,你都得提醒一句\"用 Composition API\"。有了 .atomcode.md ,这类偏好会自动带进每一次对话。"
+        "body": "设想这个常见场景:你的团队统一使用 Composition API,禁止 Options API。每次让 RustCode 写新组件,你都得提醒一句\"用 Composition API\"。有了 .rustcode.md ,这类偏好会自动带进每一次对话。"
       },
       {
         "id": "文件位置",
         "heading": "文件位置",
-        "body": "默认路径:项目根目录下的 .atomcode.md AtomCode 从当前工作目录向上逐级查找,直到找到或到达 $HOME 如果该文件不存在,系统提示中自然不会出现相关内容"
+        "body": "默认路径:项目根目录下的 .rustcode.md RustCode 从当前工作目录向上逐级查找,直到找到或到达 $HOME 如果该文件不存在,系统提示中自然不会出现相关内容"
       },
       {
         "id": "示例",
@@ -1244,19 +1209,19 @@
         "body": "# Project Instructions 这是一个 Vue 3 + TypeScript 项目,使用 Pinia 做状态管理、 Tailwind 做样式、Vitest 做单元测试。 ## 约定 - 组件一律使用 `<script setup lang=\"ts\">` 风格的 Composition API - 样式只写 Tailwind,不写内联 style 和单独的 .css 文件 - 所有 API 调用走 `src/services/*`,不在组件里直接 fetch - 状态统一放进 Pinia store,组件内部不保留派生的全局状态 ## 常用命令 - 启动开发:`pnpm dev` - 类型检查:`pnpm typecheck` - 测试:`pnpm test` - 构建:`pnpm build` ## 注意事项 - 不要修改 `src/generated/*`,那是从 OpenAPI 自动生成的 - 测试覆盖率要求在 80% 以上,新增模块必须带单元测试"
       },
       {
-        "id": "写好-atomcodemd-的几条经验",
-        "heading": "写好 .atomcode.md 的几条经验",
-        "body": "只写\"和一般情况不一样\"的部分 —— 通用最佳实践模型自己懂,不用在这里重复。 给出命令,而不是描述 —— \"跑测试用 pnpm test \",而不是\"请运行单元测试\"。 用祈使句 —— \"使用 X\"、\"不要 Y\",避免模棱两可的\"建议\"、\"尽量\"。 列出禁区 —— 哪些文件 / 目录不能动,点名就好。模型的顺从性很高。 控制长度 —— 每一行都会吃 token,保持在 30-80 行以内通常就够用了。 Tip 如果你有很多重复的工作流(比如每次修 bug 都要跑一套相同的命令),与其在 .atomcode.md 里长篇大论,不如写成一个 Skill ,更清晰也更可复用。"
+        "id": "写好-rustcodemd-的几条经验",
+        "heading": "写好 .rustcode.md 的几条经验",
+        "body": "只写\"和一般情况不一样\"的部分 —— 通用最佳实践模型自己懂,不用在这里重复。 给出命令,而不是描述 —— \"跑测试用 pnpm test \",而不是\"请运行单元测试\"。 用祈使句 —— \"使用 X\"、\"不要 Y\",避免模棱两可的\"建议\"、\"尽量\"。 列出禁区 —— 哪些文件 / 目录不能动,点名就好。模型的顺从性很高。 控制长度 —— 每一行都会吃 token,保持在 30-80 行以内通常就够用了。 Tip 如果你有很多重复的工作流(比如每次修 bug 都要跑一套相同的命令),与其在 .rustcode.md 里长篇大论,不如写成一个 Skill ,更清晰也更可复用。"
       },
       {
         "id": "与-agentsmd-claudemd-geminimd-的关系",
         "heading": "与 AGENTS.md / CLAUDE.md / GEMINI.md 的关系",
-        "body": "AtomCode 原生支持 AGENTS.md ——AI 编程代理持久化上下文的 开放标准 。如果你的项目已经在使用 AGENTS.md ,AtomCode 会自动识别,无需额外配置。查找顺序如下: .atomcode.md ATOMCODE.md AGENTS.md CLAUDE.md / claude.md 先找到的先生效。如果你在同一个项目里也用 Claude Code 或 Gemini CLI,它们各自有自己的指令文件: AtomCode &rarr; .atomcode.md 或 AGENTS.md Claude Code &rarr; CLAUDE.md Gemini CLI &rarr; GEMINI.md 这些文件互不冲突。使用 AGENTS.md 可以让遵循该开放标准的多种 AI 编程工具共享同一份指令文件,避免重复维护。"
+        "body": "RustCode 原生支持 AGENTS.md ——AI 编程代理持久化上下文的 开放标准 。如果你的项目已经在使用 AGENTS.md ,RustCode 会自动识别,无需额外配置。查找顺序如下: .rustcode.md RUSTCODE.md AGENTS.md CLAUDE.md / claude.md 先找到的先生效。如果你在同一个项目里也用 Claude Code 或 Gemini CLI,它们各自有自己的指令文件: RustCode &rarr; .rustcode.md 或 AGENTS.md Claude Code &rarr; CLAUDE.md Gemini CLI &rarr; GEMINI.md 这些文件互不冲突。使用 AGENTS.md 可以让遵循该开放标准的多种 AI 编程工具共享同一份指令文件,避免重复维护。"
       },
       {
         "id": "下一步",
         "heading": "下一步",
-        "body": "Skills 扩展 —— 把可复用流程进一步抽象成命令 © 2026 AtomCode · MIT 报告问题"
+        "body": "Skills 扩展 —— 把可复用流程进一步抽象成命令 © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   },
@@ -1264,17 +1229,17 @@
     "slug": "webui",
     "title": "WebUI 界面",
     "group": "进阶",
-    "lede": "除了终端 TUI，AtomCode 还内置一个 浏览器界面 ：在 TUI 里输入 /webui 即可一键启动，在浏览器里聊天、翻看历史会话、增删改模型配置、上传图片，并通过 /sync 让终端与浏览器 实时同步 同一个会话。它复用本机的登录态、模型与会话历史，不需要另外配置。",
+    "lede": "除了终端 TUI，RustCode 还内置一个 浏览器界面 ：在 TUI 里输入 /webui 即可一键启动，在浏览器里聊天、翻看历史会话、增删改模型配置、上传图片，并通过 /sync 让终端与浏览器 实时同步 同一个会话。它复用本机的 provider 配置、模型与会话历史，不需要另外配置。",
     "sections": [
       {
         "id": "webui-界面",
         "heading": "WebUI 界面",
-        "body": "除了终端 TUI，AtomCode 还内置一个 浏览器界面 ：在 TUI 里输入 /webui 即可一键启动，在浏览器里聊天、翻看历史会话、增删改模型配置、上传图片，并通过 /sync 让终端与浏览器 实时同步 同一个会话。它复用本机的登录态、模型与会话历史，不需要另外配置。"
+        "body": "除了终端 TUI，RustCode 还内置一个 浏览器界面 ：在 TUI 里输入 /webui 即可一键启动，在浏览器里聊天、翻看历史会话、增删改模型配置、上传图片，并通过 /sync 让终端与浏览器 实时同步 同一个会话。它复用本机的 provider 配置、模型与会话历史，不需要另外配置。"
       },
       {
         "id": "启动与关闭",
         "heading": "启动与关闭",
-        "body": "在 AtomCode 的 TUI 输入框里运行： # 启动 webui 并自动打开浏览器（默认绑定 127.0.0.1:13457，仅本机可访问） /webui # 关闭 webui 服务 /webui stop 启动后 AtomCode 会在本机起一个 HTTP 服务，并自动打开浏览器到形如 http://127.0.0.1:13457/?token=<一次性令牌> 的地址。URL 里带的 token 用于鉴权， 等同于密码 ，请勿外传。同时，当前 TUI 会话会自动接入实时同步（见下文 多端实时同步 ）。 默认只监听本机 webui 默认绑定 127.0.0.1 ，只有本机能访问。要让手机等设备访问， 不要 直接用 --host 0.0.0.0 暴露到公网，请走蒲公英虚拟局域网方案 —— 见 远程访问指南 。"
+        "body": "在 RustCode 的 TUI 输入框里运行： # 启动 webui 并自动打开浏览器（默认绑定 127.0.0.1:13457，仅本机可访问） /webui # 关闭 webui 服务 /webui stop 启动后 RustCode 会在本机起一个 HTTP 服务，并自动打开浏览器到形如 http://127.0.0.1:13457/?token=<一次性令牌> 的地址。URL 里带的 token 用于鉴权， 等同于密码 ，请勿外传。同时，当前 TUI 会话会自动接入实时同步（见下文 多端实时同步 ）。 默认只监听本机 webui 默认绑定 127.0.0.1 ，只有本机能访问。要让手机等设备访问， 不要 直接用 --host 0.0.0.0 暴露到公网，请走蒲公英虚拟局域网方案 —— 见 远程访问指南 。"
       },
       {
         "id": "界面功能",
@@ -1299,7 +1264,7 @@
       {
         "id": "下一步",
         "heading": "下一步",
-        "body": "远程访问指南 —— 用蒲公英从手机安全打开 webui Headless 与 Daemon —— webui 背后的 daemon 与 HTTP/SSE 接口 斜杠命令 —— /webui 、 /sync 等命令速查 © 2026 AtomCode · MIT 报告问题"
+        "body": "远程访问指南 —— 用蒲公英从手机安全打开 webui Headless 与 Daemon —— webui 背后的 daemon 与 HTTP/SSE 接口 斜杠命令 —— /webui 、 /sync 等命令速查 © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   },
@@ -1307,12 +1272,12 @@
     "slug": "webui-remote-access",
     "title": "远程访问指南",
     "group": "进阶",
-    "lede": "AtomCode 的 webui 默认只监听本机回环地址（ 127.0.0.1 ），手机等其他设备访问不到。借助 蒲公英（Oray PGY） 组建的虚拟局域网，你可以在不暴露公网、无需公网 IP 的前提下，从手机/平板安全地打开本机 webui。本页讲解完整的连接流程与安全须知。",
+    "lede": "RustCode 的 webui 默认只监听本机回环地址（ 127.0.0.1 ），手机等其他设备访问不到。借助 蒲公英（Oray PGY） 组建的虚拟局域网，你可以在不暴露公网、无需公网 IP 的前提下，从手机/平板安全地打开本机 webui。本页讲解完整的连接流程与安全须知。",
     "sections": [
       {
         "id": "远程访问指南",
         "heading": "远程访问指南",
-        "body": "AtomCode 的 webui 默认只监听本机回环地址（ 127.0.0.1 ），手机等其他设备访问不到。借助 蒲公英（Oray PGY） 组建的虚拟局域网，你可以在不暴露公网、无需公网 IP 的前提下，从手机/平板安全地打开本机 webui。本页讲解完整的连接流程与安全须知。"
+        "body": "RustCode 的 webui 默认只监听本机回环地址（ 127.0.0.1 ），手机等其他设备访问不到。借助 蒲公英（Oray PGY） 组建的虚拟局域网，你可以在不暴露公网、无需公网 IP 的前提下，从手机/平板安全地打开本机 webui。本页讲解完整的连接流程与安全须知。"
       },
       {
         "id": "工作原理",
@@ -1322,7 +1287,7 @@
       {
         "id": "前置条件",
         "heading": "前置条件",
-        "body": "本机已经能正常启动 AtomCode 的 webui。 本机与手机都安装了 蒲公英 客户端： https://pgy.oray.com 。 两台设备登录 同一蒲公英账号 ，并加入 同一网络 。"
+        "body": "本机已经能正常启动 RustCode 的 webui。 本机与手机都安装了 蒲公英 客户端： https://pgy.oray.com 。 两台设备登录 同一蒲公英账号 ，并加入 同一网络 。"
       },
       {
         "id": "操作步骤",
@@ -1337,12 +1302,12 @@
       {
         "id": "2-让-webui-绑定到虚拟-ip",
         "heading": "2. 让 webui 绑定到虚拟 IP",
-        "body": "默认 webui 只绑回环地址，手机访问不到。在 AtomCode 的 TUI 里用 --host 指定蒲公英虚拟 IP 重新启动 webui： /webui --host 10.x.x.x 把 10.x.x.x 换成上一步记下的本机虚拟 IP。绑定成功后，webui 就会在这个地址上对同一虚拟局域网内的设备开放。"
+        "body": "默认 webui 只绑回环地址，手机访问不到。在 RustCode 的 TUI 里用 --host 指定蒲公英虚拟 IP 重新启动 webui： /webui --host 10.x.x.x 把 10.x.x.x 换成上一步记下的本机虚拟 IP。绑定成功后，webui 就会在这个地址上对同一虚拟局域网内的设备开放。"
       },
       {
         "id": "3-在远程访问面板扫码连接",
         "heading": "3. 在「远程访问」面板扫码连接",
-        "body": "打开 webui 右上角的 远程访问 （手机图标）面板，AtomCode 会自动检测蒲公英状态并生成： 一个可直接打开的 远程地址 （已带上访问令牌）； 对应的 二维码 。 用手机扫码，或把地址复制到手机浏览器打开即可。手机需登录同一蒲公英账号、处于同一网络。 访问令牌 = 密码 远程地址中带有一次性访问令牌（ ?token=… ）， 等同于密码 ：任何拿到这条完整链接的人都能操作你的本机。请勿把它发到群里、截图外传或贴到公开页面。"
+        "body": "打开 webui 右上角的 远程访问 （手机图标）面板，RustCode 会自动检测蒲公英状态并生成： 一个可直接打开的 远程地址 （已带上访问令牌）； 对应的 二维码 。 用手机扫码，或把地址复制到手机浏览器打开即可。手机需登录同一蒲公英账号、处于同一网络。 访问令牌 = 密码 远程地址中带有一次性访问令牌（ ?token=… ）， 等同于密码 ：任何拿到这条完整链接的人都能操作你的本机。请勿把它发到群里、截图外传或贴到公开页面。"
       },
       {
         "id": "排错",
@@ -1352,20 +1317,93 @@
       {
         "id": "下一步",
         "heading": "下一步",
-        "body": "Headless 与 Daemon —— 了解 webui 背后的 daemon 与 HTTP/SSE 接口 常见问题 —— 远程 / 登录相关的常见坑 © 2026 AtomCode · MIT 报告问题"
+        "body": "Headless 与 Daemon —— 了解 webui 背后的 daemon 与 HTTP/SSE 接口 常见问题 —— 远程 / 登录相关的常见坑 © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
+      }
+    ]
+  },
+  {
+    "slug": "headless-daemon",
+    "title": "Headless 与 Daemon",
+    "group": "进阶",
+    "lede": "RustCode 除了交互式 TUI,还提供两种无头运行方式:CLI 的 -p headless 模式适合脚本与 CI; rustcode-daemon 则是一个基于 HTTP + SSE 的 API 服务,可以被任意客户端调用。",
+    "sections": [
+      {
+        "id": "headless-与-daemon",
+        "heading": "Headless 与 Daemon",
+        "body": "RustCode 除了交互式 TUI,还提供两种无头运行方式:CLI 的 -p headless 模式适合脚本与 CI; rustcode-daemon 则是一个基于 HTTP + SSE 的 API 服务,可以被任意客户端调用。"
+      },
+      {
+        "id": "headless-cli-模式",
+        "heading": "Headless CLI 模式",
+        "body": "在 rustcode 后加上 -p / --prompt ,即可单次执行一条任务并直接把回复写到 stdout(类似 Claude Code 的 -p 模式): rustcode -p \"简要介绍这个仓库\" 默认只输出 AI 最终的回复文本,方便 pipe 到其他命令。工具调用、token 用量等信息不会污染 stdout。"
+      },
+      {
+        "id": "常用-headless-参数",
+        "heading": "常用 headless 参数",
+        "body": "参数 说明 -p, --prompt TEXT 要执行的任务描述 --prompt-file PATH 从文件读取 prompt(适合长文本,与 -p 互斥) -v, --verbose 把工具调用日志、token 用量、turn 摘要打到 stderr ,不影响 stdout --max-turns N 强制上限 N 轮 LLM 调用,避免 agent 在长任务里无限跑。默认不设上限 --disable-tools LIST 禁用特定工具,比如 bash,web_fetch 。被禁用的工具不会出现在 schema 列表中,模型不会尝试调用 -C, --dir PATH 工作目录,默认为当前目录 --provider / --model 临时覆盖 provider 或模型 --no-telemetry 被接受并忽略 —— 本分支不含遥测上报"
+      },
+      {
+        "id": "示例",
+        "heading": "示例",
+        "body": "# 把当前项目总结写进 README rustcode -p \"总结项目结构并写成 README 草稿\" > README.draft.md # 在 CI 里跑一轮自动修复 rustcode -p \"跑 pnpm lint 并修复所有报错,不修改测试文件\" \\ --max-turns 30 --disable-tools web_search,web_fetch # 从文件读取 prompt rustcode --prompt-file task.md -v 2> run.log # 指定本地 Ollama,完全离线 rustcode -p \"解释这段代码\" --provider local --model qwen2.5:14b"
+      },
+      {
+        "id": "退出码",
+        "heading": "退出码",
+        "body": "0 —— 正常结束 非 0 —— 出现错误。错误信息写到 stderr,具体含义参见 -v 日志 注意:权限模型 Headless 模式没有交互式权限确认对话框。当前实现中,需要确认的 bash 调用会自动批准,并把原因写到 stderr: [headless] auto-approved bash: <reason> 其他需要确认的工具( edit 、 write 、 web_fetch 等的高风险路径)会被自动拒绝: [approval-denied] tool=<name> reason=<reason> 出现 [approval-denied] 时进程会以非 0 退出码结束。如果你不希望 CI 中执行 shell,可以显式加上 --disable-tools bash 把它从工具列表里彻底移除。"
+      },
+      {
+        "id": "rustcode-daemon",
+        "heading": "rustcode-daemon",
+        "body": "rustcode-daemon 是构建在 CodingRuntime 之上的独立传输适配器。它对外暴露 HTTP + Server-Sent Events 接口,可以被 Web 前端、IDE 插件、编辑器扩展消费。RustCode 官方的 VS Code 扩展和 RustCode Air 桌面端都是通过它连过来的。"
+      },
+      {
+        "id": "启动",
+        "heading": "启动",
+        "body": "# 推荐:通过 CLI 子命令启动,自动调用同目录下的 rustcode-daemon 二进制 rustcode daemon # 指定端口与客户端身份(用于本地 client-mode 分支) rustcode daemon --port 13456 --client vscode # 也可以直接调用 daemon 二进制(支持更多参数) rustcode-daemon --host 127.0.0.1 --port 13456 \\ --client rustcode-air --idle-timeout 1800 daemon 读取与 CLI 相同的 ~/.rustcode 配置,provider 凭据与配置、会话历史全部共享(发行版本还会额外共享托管账号的登录态)。"
+      },
+      {
+        "id": "启动参数",
+        "heading": "启动参数",
+        "body": "参数 说明 --host HOST 监听地址,默认 127.0.0.1 。非 loopback 地址会触发警告(daemon 没有鉴权,不应暴露到公网) --port PORT 监听端口,默认 13456 --client NAME 客户端身份,目前识别 vscode / rustcode-air ,其他值视为通用 IDE。影响本地 client-mode 分支与部分行为 --idle-timeout SECS 空闲超时(秒)。默认 1800(30 分钟), 0 表示禁用,非零值最小钳制到 60。也可用环境变量 RUSTCODE_DAEMON_IDLE_TIMEOUT --no-telemetry 被接受并忽略 —— 本分支不含遥测上报 安全 daemon 没有内置鉴权,默认只监听 127.0.0.1 。 切勿把它直接暴露到公网或局域网 —— 调用方相当于直接拿到本机所有工具的执行权(包括 bash 、 write 、 edit )。需要远程使用时,请在前置反代上自行做认证 / TLS / 来源限制。"
+      },
+      {
+        "id": "端点总览",
+        "heading": "端点总览",
+        "body": "所有端点都注册在 crates/rustcode-daemon/src/main.rs ,以下按功能分组。 健康与生命周期 Method + Path 说明 GET /health 健康检查 POST /shutdown 主动关闭 daemon(用于客户端退出时优雅关停) 会话 / 项目 Method + Path 说明 GET /sessions 列出所有会话 POST /sessions 创建新会话 GET /sessions/search 按关键词搜索历史会话 GET /project 当前工作目录的项目状态 POST /cd 切换工作目录 GET /projects 列出所有有过会话的项目 GET /projects/:hash/sessions 某个项目下的会话列表 GET /projects/:hash/sessions/:id 会话详情 DELETE /projects/:hash/sessions/:id 删除会话 PATCH /projects/:hash/sessions/:id/rename 重命名会话 聊天与模型 Method + Path 说明 GET /models 列出可用的 provider / model POST /chat 发送一条 prompt,返回 SSE 流 POST /chat/stop 停止正在进行的 /chat 配置 / Provider Method + Path 说明 GET /config 读取当前 config.toml POST /config/reload 重新加载 config.toml GET /providers 列出所有 provider POST /providers 新增 provider PATCH /providers/:name 修改 provider DELETE /providers/:name 删除 provider POST /providers/:name/default 把该 provider 设为默认 PATCH /providers/:name/thinking 切换/调整 provider 的 thinking 模式 MCP Method + Path 说明 GET /mcp/status MCP server 接入状态 POST /mcp/reload 重新加载 .mcp.json 认证(托管登录已移除) 原发行版可选的托管登录已于 2026-09-09 移除。任何当前构建都不内置托管服务,因此没有账号体系,也没有 OAuth 流程。请用上面的 配置 / providers 路由 ( POST /providers ) 或 ~/.rustcode/config.toml 填入你自己的 API Key 来配置第三方供应商。 /auth/* 登录路由保留为 no-op: GET /auth/status 始终返回 managed_available: false ,WebUI 据此隐藏账号/登录入口; POST /auth/login/start 快速失败返回 501 ( managed_login_unavailable ,不可重试)。 /codingplan/* 路由同样已于 2026-09-09 移除,任何构建访问都返回 404。 Method + Path 说明 GET /auth/status 当前构建始终返回 managed_available: false (无登录服务)。WebUI 据此隐藏账号/登录入口,而不是给出注定失败的登录按钮。 POST /auth/login/start No-op —— 返回 501 与错误码 managed_login_unavailable (不可重试),引导客户端改用自带 API Key 的第三方供应商配置 POST /auth/login/:login_id/poll No-op —— 属于已移除的托管登录流程 DELETE /auth/login/:login_id No-op —— 属于已移除的托管登录流程 POST /auth/logout No-op —— 属于已移除的托管登录流程"
+      },
+      {
+        "id": "sse-流式聊天",
+        "heading": "SSE 流式聊天",
+        "body": "POST /chat 返回的 SSE 流事件包含:AI 增量文本、推理 (reasoning) 增量、工具调用批次 (开始 / 结束)、token 统计、错误等。daemon wire schema 见 crates/rustcode-daemon/src/live_api.rs 中的 LiveWireEvent 。 前端可以用原生 EventSource 消费,也可以借助任何 SSE 客户端库。"
+      },
+      {
+        "id": "cors",
+        "heading": "CORS",
+        "body": "daemon 配置了 CORS, 仅允许 loopback origin :host 必须是 localhost 、 127.0.0.1 或 ::1 (端口任意,协议任意)。其他来源会被拒绝,这是配合 --host 127.0.0.1 默认监听做的纵深防御 —— 即便有人通过 DNS rebinding 等方式构造请求,跨域那一层也过不去。"
+      },
+      {
+        "id": "典型应用",
+        "heading": "典型应用",
+        "body": "编辑器插件 / IDE 扩展(VSCode、JetBrains) 桌面端 GUI(如官方 RustCode Air) 自建本地 Web UI(把终端 agent 搬到浏览器) 本地脚本编排:用 HTTP 调度多任务、共享会话历史"
+      },
+      {
+        "id": "下一步",
+        "heading": "下一步",
+        "body": "Skills 扩展 —— 把工作流固化成命令,配合 headless 调用更顺手 常见问题 —— headless / daemon 常见坑 © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   },
   {
     "slug": "faq",
     "title": "常见问题",
-    "group": "运维",
-    "lede": "把用户群和 issue 里反复出现的问题整理到这里。如果你遇到的问题不在列表里，执行 /login 后可直接让 AtomCode 使用内置 AtomGit 工具创建 Issue，也可以到 AtomGit 仓库 提交。",
+    "group": "问题",
+    "lede": "这里整理了反复出现的常见问题。如果你遇到的问题不在列表里，请查阅你所用发行版附带的文档，或通过你的发行渠道的问题跟踪系统反馈。",
     "sections": [
       {
         "id": "常见问题",
         "heading": "常见问题",
-        "body": "把用户群和 issue 里反复出现的问题整理到这里。如果你遇到的问题不在列表里，执行 /login 后可直接让 AtomCode 使用内置 AtomGit 工具创建 Issue，也可以到 AtomGit 仓库 提交。"
+        "body": "这里整理了反复出现的常见问题。如果你遇到的问题不在列表里，请查阅你所用发行版附带的文档，或通过你的发行渠道的问题跟踪系统反馈。"
       },
       {
         "id": "安装与启动",
@@ -1375,17 +1413,17 @@
       {
         "id": "安装脚本失败网络超时怎么办",
         "heading": "安装脚本失败、网络超时怎么办？",
-        "body": "一键安装脚本默认从 GitCode release 拉二进制。如果网络不通，可以： 直接到 releases 页面 手动下载对应平台的压缩包，解压后把 atomcode 放进 PATH ； 或者从源码构建： cargo install --path crates/atomcode-cli --locked （需要 Rust 1.88+）。"
+        "body": "安装脚本会从你通过 RUSTCODE_RELEASE_BASE 指定的发布地址拉取二进制。如果网络不通，可以： 直接到你的发行渠道的 releases 页面手动下载对应平台的压缩包，解压后把 rustcode 放进 PATH ； 或者从源码构建： cargo install --path crates/rustcode-cli --locked （需要 Rust 1.88+）。"
       },
       {
-        "id": "执行-atomcode-报-command-not-found",
-        "heading": "执行 atomcode 报 \"command not found\"",
-        "body": "说明安装目录不在 PATH 里。默认安装路径是 ~/.atomcode/bin ，把它加到 shell 启动脚本里即可： export PATH=\"$HOME/.atomcode/bin:$PATH\""
+        "id": "执行-rustcode-报-command-not-found",
+        "heading": "执行 rustcode 报 \"command not found\"",
+        "body": "说明安装目录不在 PATH 里。默认安装路径是 ~/.rustcode/bin ，把它加到 shell 启动脚本里即可： export PATH=\"$HOME/.rustcode/bin:$PATH\""
       },
       {
         "id": "macos-提示无法打开因为无法验证开发者",
         "heading": "macOS 提示\"无法打开，因为无法验证开发者\"",
-        "body": "在系统设置 → 隐私与安全性里点\"仍要打开\"，或在终端执行： xattr -d com.apple.quarantine $(which atomcode)"
+        "body": "在系统设置 → 隐私与安全性里点\"仍要打开\"，或在终端执行： xattr -d com.apple.quarantine $(which rustcode)"
       },
       {
         "id": "登录与模型",
@@ -1393,14 +1431,14 @@
         "body": ""
       },
       {
-        "id": "oauth-登录时浏览器打不开",
-        "heading": "OAuth 登录时浏览器打不开",
-        "body": "检查是否在无 GUI 的远程服务器上。远程环境推荐改用 API Key 登录（参见 登录方式 ），或在本地完成 OAuth 后把 ~/.atomcode/auth.toml 拷贝到服务器同路径。"
+        "id": "托管登录已移除",
+        "heading": "托管登录已移除",
+        "body": "原发行版可选的托管登录( /login )及其 OAuth 流程已于 2026-09-09 移除。开源构建自始就是自带 Key;任何构建都不再提供 OAuth 登录。请改用 /provider 或 ~/.rustcode/config.toml 配置 provider(参见 供应商凭据 )。"
       },
       {
         "id": "连不上模型-一直转圈-报-timeout",
         "heading": "连不上模型 / 一直转圈 / 报 timeout",
-        "body": "先确认 ~/.atomcode/config.toml 里的 base_url 是否可达， curl 一下对应的 /v1/models 接口； 企业网络里常见是代理问题，设置 HTTPS_PROXY 环境变量后重试； Windows v5.0.7 默认使用系统 SChannel 证书库，可识别企业安装的根证书；若仍失败，请分别检查系统证书、代理和 SSL_CERT_FILE 等覆盖变量。 国内访问境外模型需要确认出口网络；可以先用 /model 切换到 AtomGit 官方通道确认整体链路是通的。"
+        "body": "先确认 ~/.rustcode/config.toml 里的 base_url 是否可达， curl 一下对应的 /v1/models 接口； 企业网络里常见是代理问题，设置 HTTPS_PROXY 环境变量后重试； Windows v5.0.7 默认使用系统 SChannel 证书库，可识别企业安装的根证书；若仍失败，请分别检查系统证书、代理和 SSL_CERT_FILE 等覆盖变量。 国内访问境外模型需要确认出口网络；可以先用 /model 切换到一个你能访问的 provider(或发行版提供的托管端点),确认整体链路是通的。"
       },
       {
         "id": "怎么切换模型",
@@ -1410,7 +1448,7 @@
       {
         "id": "上下文超限-context-length-exceeded",
         "heading": "上下文超限 / \"context length exceeded\"",
-        "body": "运行 /compact 让模型把已有对话压缩成摘要后再继续； 或 /clear 清空当前上下文重新开始（历史会作为 session 保留，可以随时 /resume ）； 避免一次性把整个巨型文件贴进 prompt，让 AtomCode 用文件工具按需读取即可。"
+        "body": "运行 /compact 让模型把已有对话压缩成摘要后再继续； 或 /clear 清空当前上下文重新开始（历史会作为 session 保留，可以随时 /resume ）； 避免一次性把整个巨型文件贴进 prompt，让 RustCode 用文件工具按需读取即可。"
       },
       {
         "id": "权限与安全",
@@ -1423,9 +1461,9 @@
         "body": "这是默认的安全策略。你可以： 临时放行：弹出确认时选\"一直允许此类操作\"； 配置级放行：在 config.toml 的 [permissions] 里加入白名单命令。"
       },
       {
-        "id": "atomcode-会把我的代码发到哪里",
-        "heading": "AtomCode 会把我的代码发到哪里？",
-        "body": "只发到你在 config.toml 里配置的模型 endpoint。项目文件由本地的工具读取后作为 prompt 一部分发送，AtomCode 本身不会额外上传或遥测代码内容。"
+        "id": "rustcode-会把我的代码发到哪里",
+        "heading": "RustCode 会把我的代码发到哪里？",
+        "body": "只发到你在 config.toml 里配置的模型 endpoint。项目文件由本地的工具读取后作为 prompt 一部分发送，RustCode 本身不会额外上传或遥测代码内容。"
       },
       {
         "id": "能禁用某些工具吗",
@@ -1465,27 +1503,27 @@
       {
         "id": "我的-skill-没出现在菜单里",
         "heading": "我的 skill 没出现在菜单里",
-        "body": "确认路径正确：全局在 ~/.atomcode/skills/<name>/SKILL.md ，项目在 .atomcode/skills/<name>/SKILL.md ； 确认 frontmatter 格式正确， name 和 description 两个字段必填； 重启 atomcode 或运行 /reload 重新扫描。"
+        "body": "确认路径正确：全局在 ~/.rustcode/skills/<name>/SKILL.md ，项目在 .rustcode/skills/<name>/SKILL.md ； 确认 frontmatter 格式正确， name 和 description 两个字段必填； 重启 rustcode 或运行 /reload 重新扫描。"
       },
       {
-        "id": "atomcodemd-和-skill-有什么区别",
-        "heading": ".atomcode.md 和 skill 有什么区别？",
+        "id": "rustcodemd-和-skill-有什么区别",
+        "heading": ".rustcode.md 和 skill 有什么区别？",
         "body": "前者是项目级的\"始终生效\"约定，后者是可被显式触发的流程。详见 Skills 扩展 · 与项目指令的分工 。"
       },
       {
         "id": "排查思路",
         "heading": "排查思路",
-        "body": "先看日志 出任何问题第一步都是看 ~/.atomcode/logs/ 。启动时加 --log-level debug 可以打印更详细的请求/响应日志。"
+        "body": "先看日志 出任何问题第一步都是看 ~/.rustcode/logs/ 。启动时加 --log-level debug 可以打印更详细的请求/响应日志。"
       },
       {
         "id": "提-issue-时请附上",
         "heading": "提 issue 时请附上",
-        "body": "atomcode --version 的输出； 操作系统和架构； 报错时的最小复现步骤； 相关日志（记得脱敏 API Key）。"
+        "body": "rustcode --version 的输出； 操作系统和架构； 报错时的最小复现步骤； 相关日志（记得脱敏 API Key）。"
       },
       {
         "id": "下一步",
         "heading": "下一步",
-        "body": "返回概览 快速开始 —— 从零装一遍 配置文件 —— 所有可调项 © 2026 AtomCode · MIT 报告问题"
+        "body": "返回概览 快速开始 —— 从零装一遍 配置文件 —— 所有可调项 © 2026 RustCode · MIT 问题反馈请通过你的发行渠道"
       }
     ]
   }
