@@ -103,6 +103,22 @@ if [ "$DRY_RUN" = "1" ]; then
   exit 0
 fi
 
+# Keep a pre-bump copy. A failed build must NOT leave the tree at a version that
+# has no artifacts: release/<version>/ does not exist yet, so
+# scripts/release-check-pointers.sh (wired into the pre-push gate) would then
+# reject every later push for a release nobody ever built -- and the stray bump
+# is easy to commit by accident alongside unrelated work. fail-closed means
+# restoring the inputs, not just printing an error.
+PRE_BUMP_TMP="$(mktemp -d)"
+cp Cargo.toml "$PRE_BUMP_TMP/Cargo.toml"
+if [ -f Cargo.lock ]; then cp Cargo.lock "$PRE_BUMP_TMP/Cargo.lock"; fi
+rollback_bump() {
+  cp "$PRE_BUMP_TMP/Cargo.toml" Cargo.toml
+  if [ -f "$PRE_BUMP_TMP/Cargo.lock" ]; then cp "$PRE_BUMP_TMP/Cargo.lock" Cargo.lock; fi
+  rm -rf "$PRE_BUMP_TMP"
+  say "[INFO] rolled Cargo.toml/Cargo.lock back to $CUR (no release was produced)."
+}
+
 # Rewrite ONLY the workspace version line (crates inherit via version.workspace).
 # Use `nv` (not `next`) as the awk var: some awk impls reserve `next`.
 awk -v nv="$NEXT" '
@@ -124,6 +140,7 @@ fi
 RUSTCODE_BUILD_TARGETS="$TARGETS" bash "$ROOT/scripts/cross-build.sh" || {
   say "[ERROR] cross-build failed; Cargo.toml has been bumped to $NEXT but nothing was tagged." >&2
   say "        Fix the build, then re-run: scripts/release-auto.sh" >&2
+  rollback_bump
   exit 1
 }
 
@@ -131,6 +148,7 @@ RUSTCODE_BUILD_TARGETS="$TARGETS" bash "$ROOT/scripts/cross-build.sh" || {
 DIST="$ROOT/dist/$VERSION"
 if [ ! -d "$DIST" ]; then
   say "[ERROR] $DIST not found after cross-build." >&2
+  rollback_bump
   exit 1
 fi
 bash "$ROOT/scripts/release-publish.sh" "$DIST" "$VERSION" dev
