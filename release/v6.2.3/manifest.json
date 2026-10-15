@@ -1,0 +1,15 @@
+{
+  "version": "v6.2.3",
+  "ref": "dev",
+  "source": {
+    "sha": "2e9331bf86ca52d2502029a52a46659e739f99e1",
+    "branch": "dev",
+    "dirty": true,
+    "built_at": "2026-10-15T15:54:07Z"
+  },
+  "binaries": {
+    "linux-arm64": { "file": "rustcode-v6.2.3-linux-arm64", "sha256": "758f5917d637bd1c500744c3cb4efee06049b3badf8743c1c098e4c72997cc1f", "size": 36351920 },
+    "linux-x64": { "file": "rustcode-v6.2.3-linux-x64", "sha256": "152d16a1e9418c4e3329975e944647e7e4f6fb1085c2bbee15a7ba487366122a", "size": 40178304 },
+    "windows-x64": { "file": "rustcode-v6.2.3-windows-x64.exe", "sha256": "3cbffd51371201d8cfdff4c2958e2b9fcb7fce7129c07f0346a537f488928212", "size": 37844992 }
+  }
+}

@@ -1,9 +1,14 @@
 {
-  "version": "v6.2.1",
-  "released_at": "2026-10-02T23:45:44Z",
+  "version": "v6.2.3",
+  "released_at": "2026-10-15T15:20:21Z",
   "binaries": {
-    "linux-arm64": { "sha256": "de22373150f0f71deaa69a62c071595d791444d3ff7919f68d78c6e522d5a422", "size": 43233096 },
-    "linux-x64":   { "sha256": "7ac601c79efede611ecc41b1feb026cd9977c4901fdcfc3e087ef46881c77147", "size": 40333784 },
-    "windows-x64": { "sha256": "d069c1f70be4c3a734d21ff55ae36772a7fce1550cd005f4e60dfda03f8b6634", "size": 53241856 }
+    "darwin-arm64": { "sha256": "d22cfb16f3effc9e8fa0567eab76460ab10aac28d9fb6352c3d5e4cb0a5f86a6", "size": 34465696 },
+    "darwin-x64": { "sha256": "4f0bab820c9f6f9225eeb11d14cb968d7dd6b0aac42535f22ecf7681b0c4d559", "size": 37415360 },
+    "freebsd-arm64": { "sha256": "8c55c527f2306bfb75c658cd9991ab4798af0deaf5df0e828b8b3ee68b3c98d7", "size": 36911128 },
+    "freebsd-x64": { "sha256": "4a18b849fddd3b840a85cbd52329e64c8fc0d9b2cd9290c97e00c11464f26289", "size": 40003424 },
+    "linux-arm64": { "sha256": "758f5917d637bd1c500744c3cb4efee06049b3badf8743c1c098e4c72997cc1f", "size": 36351920 },
+    "linux-x64": { "sha256": "152d16a1e9418c4e3329975e944647e7e4f6fb1085c2bbee15a7ba487366122a", "size": 40178304 },
+    "windows-arm64": { "sha256": "49a806a7e9348643dc8cf82ee8d270d539a3745a68e46968db42263889be03e2", "size": 36205568 },
+    "windows-x64": { "sha256": "3cbffd51371201d8cfdff4c2958e2b9fcb7fce7129c07f0346a537f488928212", "size": 37844992 }
   }
 }
