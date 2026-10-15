@@ -73,6 +73,35 @@ jobs:
       - name: Verify a committed release artifact exists for this version
         run: bash scripts/prepush-release-check.sh --sha "$GITHUB_SHA" --target any
 
+  release-pointers:
+    name: release version pointers
+    runs-on: ubuntu-latest
+    # Deliberately NOT narrowed to the canonical repo, unlike release-gate above:
+    # that job needs committed binaries (which only exist on GitCode), while this
+    # one is pure JSON + git and therefore DOES run on the GitHub mirror -- the
+    # only place CI actually executes. It is what catches "Cargo.toml says
+    # v6.2.3, index.json/latest.json still say v6.2.1", the drift that shipped
+    # v6.2.3 with a fallback and a self-update pointing at a release that had
+    # no binaries at all.
+    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Self-test the release scripts
+        run: |
+          bash scripts/release-check-pointers.sh --self-test
+          bash scripts/release-publish.sh --self-test
+          bash scripts/prepush-release-check.sh --self-test
+      - name: Cargo.toml, release/index.json and latest.json must agree
+        run: bash scripts/release-check-pointers.sh --sha "$GITHUB_SHA"
+      # Cross-checks the tree against the GitCode releases API. Non-blocking on
+      # purpose: a network hiccup or a lagging API must not turn CI red, but the
+      # drift it reports must stay visible in the log.
+      - name: Online cross-check against GitCode releases
+        continue-on-error: true
+        run: bash scripts/release-check-pointers.sh --sha "$GITHUB_SHA" --online
+
   fmt:
     name: cargo fmt --check
     runs-on: ubuntu-latest

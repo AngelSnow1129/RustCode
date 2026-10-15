@@ -110,6 +110,67 @@ is_html() {
     [ "$c" = "3c" ]
 }
 
+# ---------- root latest.json (self-update manifest) ----------
+# Shape (read by the TUI `/upgrade` command):
+#   { "version": "vX.Y.Z", "released_at": "<ISO8601 Z>",
+#     "binaries": { "<os>-<arch>": { "sha256": "<64 hex>", "size": N } } }
+#
+# HISTORY / why this lives here: latest.json used to be emitted ONLY by
+# scripts/release.sh, the full-matrix script. That script cannot complete on a
+# Linux host (its macOS cross steps fail), so in practice latest.json froze at
+# whatever version a macOS host last published -- while newer releases kept
+# shipping to the online Release. `/upgrade` then pointed users at a version
+# whose online Release carried no binaries at all. Every publish now refreshes
+# it from the binaries that just landed, so the pointer cannot drift again.
+#
+# Only targets present in release/<version>/manifest.json are emitted, so the
+# manifest can never advertise a 404.
+latest_json_binaries() {
+    # $1 = manifest.json path -> lines "<target> <sha256> <size>"
+    local man="$1"
+    [ -f "$man" ] || return 1
+    sed -n 's/^[[:space:]]*"\([a-z][a-z0-9]*-\(arm64\|x64\)\)":[[:space:]]*{.*"sha256":[[:space:]]*"\([0-9a-fA-F]\{64\}\)".*"size":[[:space:]]*\([0-9]\{1,\}\).*$/\1 \3 \4/p' "$man"
+}
+
+update_latest_json() {
+    local version="$1"
+    local rel_dir="$2"
+    local man="$rel_dir/$version/manifest.json"
+    if [ ! -f "$man" ]; then
+        echo "[publish] WARNING: no $version/manifest.json; latest.json left untouched" >&2
+        return 1
+    fi
+    local entries
+    entries="$(latest_json_binaries "$man")"
+    if [ -z "$entries" ]; then
+        echo "[publish] WARNING: $version/manifest.json has no binaries; latest.json left untouched" >&2
+        return 1
+    fi
+
+    local staged="$rel_dir/latest.json.tmp"
+    {
+        printf '{\n'
+        printf '  "version": "%s",\n' "$version"
+        printf '  "released_at": "%s",\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+        printf '  "binaries": {\n'
+        local first=1 t s sz
+        # while-read over a here-string (not a pipe) so `first` survives the loop.
+        while read -r t s sz; do
+            [ -n "$t" ] || continue
+            if [ "$first" -eq 0 ]; then printf ',\n'; fi
+            printf '    "%s": { "sha256": "%s", "size": %s }' "$t" "$s" "$sz"
+            first=0
+        done <<EOF
+$entries
+EOF
+        printf '\n  }\n'
+        printf '}\n'
+    } > "$staged"
+    mv "$staged" "$RELEASE_PUBLISH_ROOT/latest.json"
+    echo "[publish] latest.json -> $version ($(printf '%s\n' "$entries" | wc -l | tr -d ' ') targets)"
+    return 0
+}
+
 # ---------- the publish action ----------
 publish_release() {
     local dist_dir="$1"
@@ -141,7 +202,12 @@ publish_release() {
     # what makes it dirty (fresh untracked binaries), so counting it would make
     # every build look dirty.
     local src_sha="" src_branch="" src_dirty="false" built_at
-    src_sha="$(git -C "$RELEASE_PUBLISH_ROOT" rev-parse HEAD 2>/dev/null || true)"
+    # RUSTCODE_PUBLISH_SRC_SHA pins the provenance commit. Needed when binaries
+    # built elsewhere (e.g. a CI runner, or a detached worktree at the release
+    # tag) are published after dev has already moved on: without it the manifest
+    # would claim "built from HEAD", which is a lie the strict pre-push gate
+    # would rightly reject.
+    src_sha="${RUSTCODE_PUBLISH_SRC_SHA:-$(git -C "$RELEASE_PUBLISH_ROOT" rev-parse HEAD 2>/dev/null || true)}"
     src_branch="$(git -C "$RELEASE_PUBLISH_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
     if [ -n "$src_sha" ]; then
         if [ -n "$(git -C "$RELEASE_PUBLISH_ROOT" status --porcelain -- . ':(exclude)release' 2>/dev/null || true)" ]; then
@@ -233,6 +299,18 @@ publish_release() {
         for d in v[0-9]*.[0-9]*.[0-9]*; do
             [ -d "$d" ] || continue
             [ -f "$d/manifest.json" ] || continue
+            # A directory carrying ONLY manifest.json (no binary was ever
+            # committed) must not be indexed. install.sh turns every index
+            # entry into a raw fallback URL, so indexing it advertises URLs
+            # that all 404 -- a fallback that only looks available. Observed:
+            # release/v5.1.0 declared 6 targets with zero committed binaries.
+            local has_bin=0 b
+            for b in "$d"/rustcode-*; do
+                [ -f "$b" ] || continue
+                has_bin=1
+                break
+            done
+            [ "$has_bin" -eq 1 ] || continue
             versions_list+=("$d")
         done
         # sort descending
@@ -272,6 +350,16 @@ publish_release() {
         } > index.json.tmp
         mv index.json.tmp index.json
     )
+
+    # Refresh the root self-update manifest (see update_latest_json's header for
+    # why this must happen on every publish, not just the full-matrix script).
+    # Opt out with RUSTCODE_PUBLISH_NO_LATEST=1 (e.g. publishing an old/partial
+    # version must never move the pointer backwards).
+    if [ "${RUSTCODE_PUBLISH_NO_LATEST:-0}" = "1" ]; then
+        echo "[publish] latest.json refresh skipped (RUSTCODE_PUBLISH_NO_LATEST=1)"
+    elif ! update_latest_json "$version" "$REL_DIR"; then
+        return 1
+    fi
 
     echo "[publish] release/$version published; index updated."
     return 0
@@ -327,6 +415,32 @@ self_test() {
     local dups
     dups="$(grep -oE '"version": "v[0-9.]+"' "$RELEASE_PUBLISH_ROOT/release/index.json" | sort | uniq -d)"
     [ -z "$dups" ] || { echo "SELF-TEST FAIL: duplicate index entries: $dups"; return 1; }
+
+    # A version dir holding only manifest.json (no committed binary) must never
+    # be indexed: install.sh turns each index entry into raw fallback URLs, so
+    # indexing it advertises URLs that all 404.
+    mkdir -p "$RELEASE_PUBLISH_ROOT/release/v0.9.0"
+    printf '{\n  "version": "v0.9.0",\n  "binaries": {}\n}\n' > "$RELEASE_PUBLISH_ROOT/release/v0.9.0/manifest.json"
+    publish_release "$fake_dist4" "v1.10.0" "dev" >/dev/null 2>&1
+    if grep -q '"v0.9.0"' "$RELEASE_PUBLISH_ROOT/release/index.json"; then
+        echo "SELF-TEST FAIL: binary-less v0.9.0 got indexed"; return 1
+    fi
+
+    # latest.json must have been refreshed to the newest published version.
+    # Regression guard: this manifest used to be written only by the full-matrix
+    # script and silently froze while releases kept shipping.
+    [ -f "$RELEASE_PUBLISH_ROOT/latest.json" ] || { echo "SELF-TEST FAIL: latest.json not written"; return 1; }
+    local lj_ver
+    lj_ver="$(grep -oE '"version": "v[0-9.]+"' "$RELEASE_PUBLISH_ROOT/latest.json" | head -1 | grep -oE 'v[0-9.]+')"
+    [ "$lj_ver" = "v1.10.0" ] || { echo "SELF-TEST FAIL: latest.json is $lj_ver, want v1.10.0"; return 1; }
+    # ...and it must carry the sha256 of the binary it points at.
+    grep -q '"sha256": "[0-9a-f]\{64\}"' "$RELEASE_PUBLISH_ROOT/latest.json" \
+        || { echo "SELF-TEST FAIL: latest.json has no sha256"; return 1; }
+
+    # Publishing an OLD version must not move the pointer backwards.
+    RUSTCODE_PUBLISH_NO_LATEST=1 publish_release "$fake_dist4" "v1.9.0" "dev" >/dev/null 2>&1
+    lj_ver="$(grep -oE '"version": "v[0-9.]+"' "$RELEASE_PUBLISH_ROOT/latest.json" | head -1 | grep -oE 'v[0-9.]+')"
+    [ "$lj_ver" = "v1.10.0" ] || { echo "SELF-TEST FAIL: NO_LATEST moved pointer to $lj_ver"; return 1; }
 
     echo "SELF-TEST OK"
     rm -rf "$tmp"

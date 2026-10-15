@@ -382,6 +382,36 @@ self_test() {
         _fail "--target any must still reject an uncommitted binary"
     fi
 
+    # 10. main() must run the POINTER gate on top of the artifact gate. A
+    #     committed binary whose release/index.json or latest.json still names
+    #     an older version is a broken download path all the same -- that is
+    #     precisely how v6.2.3 shipped (binary online, pointers at v6.2.1).
+    local r6 b6 s6 s6b zeros
+    r6="$tmp/r6"
+    zeros="$(printf '%064d' 0)"
+    _mk_repo "$r6" 1.2.3 >/dev/null
+    b6="$(git -C "$r6" rev-parse HEAD)"
+    _write_artifacts "$r6" "$b6" false
+    printf '{\n  "updated_at": "x",\n  "ref": "dev",\n  "versions": [\n    { "version": "v1.2.3", "targets": ["linux-x64"] }\n  ]\n}\n' \
+        > "$r6/release/index.json"
+    printf '{\n  "version": "v1.2.3",\n  "released_at": "x",\n  "binaries": {\n    "linux-x64": { "sha256": "%s", "size": 8 }\n  }\n}\n' "$zeros" \
+        > "$r6/latest.json"
+    _commit "$r6" publish-with-pointers
+    s6="$(git -C "$r6" rev-parse HEAD)"
+    ( RUSTCODE_PREPUSH_RELEASE=on RUSTCODE_PREPUSH_POINTERS=on \
+      bash "$SELF_ROOT/scripts/prepush-release-check.sh" --root "$r6" --sha "$s6" --target linux-x64 >/dev/null 2>&1 ) \
+        || _fail "main() should pass when artifacts AND pointers agree"
+
+    # ...and must fail once latest.json lags, even though the artifact is fine.
+    printf '{\n  "version": "v1.0.0",\n  "released_at": "x",\n  "binaries": {\n    "linux-x64": { "sha256": "%s", "size": 8 }\n  }\n}\n' "$zeros" \
+        > "$r6/latest.json"
+    _commit "$r6" stale-latest
+    s6b="$(git -C "$r6" rev-parse HEAD)"
+    if ( RUSTCODE_PREPUSH_RELEASE=on RUSTCODE_PREPUSH_POINTERS=on \
+         bash "$SELF_ROOT/scripts/prepush-release-check.sh" --root "$r6" --sha "$s6b" --target linux-x64 >/dev/null 2>&1 ); then
+        _fail "main() must reject a stale latest.json"
+    fi
+
     rm -rf "$tmp"
     if [ "$rc" -eq 0 ]; then
         echo "SELF-TEST OK"
@@ -448,7 +478,37 @@ main() {
         return 0
     fi
 
-    check_gate "$root" "$sha" "$tag" "$mode"
+    local rc=0
+    check_gate "$root" "$sha" "$tag" "$mode" || rc=1
+
+    # Second, independent gate: the VERSION POINTERS must agree with the
+    # artifacts. A committed binary for version X is worthless if
+    # release/index.json still tops out at an older version (install.sh's
+    # repo-raw fallback then has no URL for X) or if latest.json still names
+    # that older version (`/upgrade` then offers a release that carries no
+    # binaries at all). Both pointers drifted exactly that way for v6.2.3.
+    #
+    # Opt out with RUSTCODE_PREPUSH_POINTERS=off. The online half (comparing
+    # against GitCode's releases API) stays opt-in via
+    # RUSTCODE_PREPUSH_POINTERS_ONLINE=1 -- a pre-push hook must not fail
+    # because a network is down.
+    case "${RUSTCODE_PREPUSH_POINTERS:-on}" in
+        off | 0 | no | false | skip) ;;
+        *)
+            # Resolve the checker next to THIS script, not under --root: the
+            # gate must be able to judge a repo that has no scripts/ of its own
+            # (the self-test fixtures are exactly that).
+            local ptr="$SELF_ROOT/scripts/release-check-pointers.sh"
+            if [ -f "$ptr" ]; then
+                local pflags=""
+                [ "${RUSTCODE_PREPUSH_POINTERS_ONLINE:-0}" = "1" ] && pflags="--online"
+                # shellcheck disable=SC2086  # pflags is an intentional 0-or-1 flag
+                bash "$ptr" --root "$root" --sha "$sha" $pflags || rc=1
+            fi
+            ;;
+    esac
+
+    return "$rc"
 }
 
 main "$@"
