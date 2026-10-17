@@ -33,6 +33,25 @@ fn _isolate_rustcode_home() {
     rustcode_kernel::test_support::isolate_home();
 }
 
+/// The ONE process-wide lock every test that mutates `RUSTCODE_HOME` must hold
+/// (and with it the config / schedule stores underneath).
+///
+/// `std::env::set_var` is process-global, so two tests doing it concurrently
+/// read each other's home directory. That is not theoretical: it is the CI flake
+/// in `im_admin::add_persists` -- a schedule-store test in `schedule_cmd` ran in
+/// parallel and swapped the env var out from under `load_config`, so the second
+/// assertion saw the *first* allowlist instead of the cleared one.
+///
+/// A per-module lock does not fix that, because the two modules would still hold
+/// two different locks and remain mutually exclusive to nothing. `schedule_cmd`
+/// and `im_admin` both delegate here; add new RUSTCODE_HOME-mutating tests to
+/// this lock too, not to a fresh one.
+#[cfg(test)]
+pub(crate) fn home_test_lock() -> &'static std::sync::Mutex<()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+}
+
 use rustcode_capabilities::mcp::{
     load_mcp_config, login_mcp_oauth, merge_http_oauth_mcp_server_into_json_file,
     merge_stdio_mcp_server_into_json_file, McpHttpAuthConfig, McpOAuthLoginOptions, McpTokenStore,

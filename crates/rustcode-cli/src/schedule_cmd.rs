@@ -1378,12 +1378,16 @@ mod tests {
 
     use crate::schedule_os::{InstallState, OsScheduler};
     use rustcode_config::schedule::ScheduleTask;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::Mutex;
 
     /// Global lock to serialize tests that mutate RUSTCODE_HOME / the schedule store.
+    ///
+    /// Delegates to the one binary-wide lock (`crate::home_test_lock`) instead of
+    /// keeping its own: a module-local static would NOT exclude the tests in
+    /// `im_admin`, which is exactly the race that flaked CI. See the header on
+    /// `crate::home_test_lock`.
     fn store_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
+        crate::home_test_lock()
     }
 
     #[derive(Default)]

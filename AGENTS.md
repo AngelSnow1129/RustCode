@@ -95,6 +95,7 @@ fork 的全部改动只存在于 `dev`(及特性分支);**release tag 从 `dev` 
 - **工具会话超时约 60–90s**,长任务须 `setsid nohup ... &` 脱离会话后轮询。**同一日志路径绝不可被两个进程共用**,且启动全量前先确认 `pgrep -c cargo = 0`——并发全量测试会争用 daemon 固定端口 **13456-13458** 而假红(`daemon_token_auth` 尤甚)。
 - **CLI 包名是 `rustcode` 不是 `rustcode-cli`**:`-p rustcode-cli` 直接失败,用 `-p rustcode`。
 - **测试隔离靠 `#[ctor]`**:`coding`/`tuix`/`daemon`/`capabilities`/`cli` 入口文件顶部把 `RUSTCODE_HOME` 重定向到临时目录。**重命名这批目录/变量名时必须同步改,否则隔离失效**(会污染真实 `~/.rustcode`)。
+- **测试内改 `RUSTCODE_HOME` 必须持 `crate::home_test_lock()`**(`cli` 的 `main.rs`,2026-10-17 修):`std::env::set_var` 是**进程级**的,`#[ctor]` 只保证"进程启动时隔离一次",挡不住同一测试进程内**并行**跑的两个测试互相改写 HOME。曾经的 CI 假红 `im_admin::add_persists` 就是这么来的——`schedule_cmd` 的 store 测试与它并行,把 env var 换掉,导致第二次 `load_config()` 读到第一次的 allowlist。**注意"每个模块各有一把锁"是无效的**(两把锁互不排斥,等于没锁):`schedule_cmd::tests::store_lock()` 与 `im_admin::tests::HomeGuard` 都委托到这一把进程级锁。新增会碰 `RUSTCODE_HOME` / config / schedule store 的测试,一律接这把锁,不要另起 `OnceLock`;`#[serial_test::serial]` 只串行化自己标记的测试,同样拦不住别的模块。验证姿势:`cargo test -p rustcode --bin rustcode -- --test-threads=8 <filter>`(单线程跑不出来这个竞态)。
 - **改动 i18n 文案后要跑整个 crate 的 `--lib`**:内容断言散落在 `en.rs`/`zh_cn.rs` 末尾的测试模块里,不是只有受影响的功能测试。
 - **断言本地化输出的测试必须持锁**:`i18n::test_lock()` + `set_locale(...)`。漏锁在默认中文下**确定性失败**(曾把 6 个存量红误诊为"locale 竞态")。
   **但注意分两种锁**:`summarise_*` 类测试是**刻意与 locale 无关**的——它用 `t()` 现算期望值再比对,只持 `test_lock()` 取稳定性,**绝不能 `set_locale`**(两次调用间 locale 被翻转会制造新红)。

@@ -1032,17 +1032,30 @@ mod tests {
     // -- handle_im_add persists the allowlist end-to-end ----------------------
 
     /// The store writes to `$RUSTCODE_HOME`; point it at a throwaway dir.
-    struct HomeGuard(Option<String>);
+    ///
+    /// Holds the process-wide [`crate::home_test_lock`] for as long as the env
+    /// var is redirected: `set_var` is global, so any other test touching
+    /// `RUSTCODE_HOME` concurrently would read this test's directory (and this
+    /// test would read theirs). `prev` is restored before the lock is dropped
+    /// (declaration order = reverse drop order), so no test ever runs with a
+    /// dangling path.
+    struct HomeGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+        prev: Option<std::ffi::OsString>,
+    }
     impl HomeGuard {
         fn new(dir: &std::path::Path) -> Self {
-            let old = std::env::var("RUSTCODE_HOME").ok();
+            let lock = crate::home_test_lock()
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            let prev = std::env::var_os("RUSTCODE_HOME");
             std::env::set_var("RUSTCODE_HOME", dir);
-            HomeGuard(old)
+            HomeGuard { _lock: lock, prev }
         }
     }
     impl Drop for HomeGuard {
         fn drop(&mut self) {
-            match &self.0 {
+            match self.prev.take() {
                 Some(v) => std::env::set_var("RUSTCODE_HOME", v),
                 None => std::env::remove_var("RUSTCODE_HOME"),
             }
